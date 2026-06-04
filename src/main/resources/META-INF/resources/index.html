@@ -6,17 +6,7 @@
     <title>Islandr</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
-    <!--
-      Fonts are loaded from Google Fonts in this v1 walking skeleton.
-      Production must self-host IBM Plex per PRD N-01 (no external runtime dependencies).
-      Tracked as a follow-up; not blocking the dev loop.
-    -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
-    />
+    <!-- Fonts self-hosted via @font-face in tokens.css (ADR-0010) -->
 
     <!-- Anti-FOUC: apply theme before first paint. Reads localStorage, falls
          back to OS preference. Must be synchronous and before any CSS paint. -->
