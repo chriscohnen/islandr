@@ -50,6 +50,9 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "gravatar_enabled", nullable = false)
     public boolean gravatarEnabled = false;
 
+    @Column(name = "oidc_auto_provision", columnDefinition = "INTEGER")
+    public boolean oidcAutoProvision = true;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

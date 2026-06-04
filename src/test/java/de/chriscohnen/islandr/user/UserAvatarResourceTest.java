@@ -129,7 +129,7 @@ class UserAvatarResourceTest {
         settings.update(new SettingsDto.UpdateRequest(
                 cur.wgSubnet, cur.wgServerPublicKey, cur.wgServerEndpoint,
                 cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
-                enabled
+                enabled, cur.oidcAutoProvision
         ), "test");
     }
 

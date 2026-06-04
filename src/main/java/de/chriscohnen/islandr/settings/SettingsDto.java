@@ -15,6 +15,7 @@ public final class SettingsDto {
             String wgClientDns,
             String privateKeyRetention,
             boolean gravatarEnabled,
+            boolean oidcAutoProvision,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete
@@ -23,7 +24,7 @@ public final class SettingsDto {
             return new Response(
                     s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
-                    s.gravatarEnabled,
+                    s.gravatarEnabled, s.oidcAutoProvision,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"));
         }
@@ -47,7 +48,10 @@ public final class SettingsDto {
             String privateKeyRetention,
 
             // optional — defaults to false (privacy-first; sends md5(email) to gravatar.com)
-            boolean gravatarEnabled
+            boolean gravatarEnabled,
+
+            // optional — defaults to true; set false to require manual user creation before OIDC login
+            boolean oidcAutoProvision
     ) {}
 
     private SettingsDto() {}

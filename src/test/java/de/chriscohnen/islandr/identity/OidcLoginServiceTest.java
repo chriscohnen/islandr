@@ -51,6 +51,7 @@ class OidcLoginServiceTest {
         // the other, so we can't rely on activation order.
         disable("microsoft");
         disable("google");
+        ensureAutoProvisionEnabled();
         configureMicrosoft();
         configureGoogle();
         http.stubJson(
@@ -280,6 +281,11 @@ class OidcLoginServiceTest {
     void disable(String key) {
         providers.update(key, new OidcProviderDto.UpdateRequest(
                 false, null, null, null, null), "test");
+    }
+
+    @Transactional
+    void ensureAutoProvisionEnabled() {
+        settingsSvc.get().oidcAutoProvision = true;
     }
 
     @Transactional

@@ -464,6 +464,11 @@ const messages = {
     "settings.ret_plaintext":  "plaintext — store key in DB, QR viewable anytime (PiVPN style)",
     "settings.btn_save":       "Save",
     "settings.btn_saving":     "Saving …",
+    "settings.section_users":         "User accounts",
+    "settings.oidc_provision_label":  "Allow sign-up via Microsoft 365 / Google",
+    "settings.oidc_provision_hint":   "When enabled, users who authenticate via an active OIDC provider are automatically given an account on first login. Disable this to require an admin to create accounts manually before anyone can log in.",
+    "settings.gravatar_label":        "Gravatar avatars for local users",
+    "settings.gravatar_hint":         "Local users (without Microsoft/Google login) get their profile picture from gravatar.com if one is registered for their email. The email is transmitted as an MD5 hash — only enable if your users are aware of this.",
 
     // ── Peer modal ───────────────────────────────────────────────────────────
     "peer.create_title":     "Create peer",
@@ -957,6 +962,11 @@ const messages = {
     "settings.ret_plaintext":  "plaintext — Schlüssel in DB ablegen, QR jederzeit anzeigbar (PiVPN-Stil)",
     "settings.btn_save":       "Speichern",
     "settings.btn_saving":     "Speichert …",
+    "settings.section_users":         "Benutzerkonten",
+    "settings.oidc_provision_label":  "Registrierung via Microsoft 365 / Google erlauben",
+    "settings.oidc_provision_hint":   "Wenn aktiv, erhalten Nutzer die sich über einen aktiven OIDC-Provider anmelden beim ersten Login automatisch ein Konto. Deaktivieren, wenn ein Admin Konten manuell anlegen soll bevor jemand einloggen kann.",
+    "settings.gravatar_label":        "Gravatar-Avatar für lokale Benutzer",
+    "settings.gravatar_hint":         "Lokale Benutzer (ohne Microsoft/Google-Login) bekommen ihr Profilbild von gravatar.com, sofern eines für ihre E-Mail hinterlegt ist. Die E-Mail wird als MD5-Hash übertragen — nur aktivieren wenn deine Benutzer das wissen.",
 
     // ── Peer modal ───────────────────────────────────────────────────────────
     "peer.create_title":     "Peer anlegen",

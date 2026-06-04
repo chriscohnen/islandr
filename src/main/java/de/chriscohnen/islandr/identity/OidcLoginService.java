@@ -86,7 +86,9 @@ public class OidcLoginService {
             throw new BadRequestException("email domain not in allowlist for " + p.providerKey);
         }
 
-        UpsertResult upsert = upsertUser(p, claims);
+        // Treat null as true — null can occur on rows created before V17 migration
+        boolean autoProvision = settings.get().oidcAutoProvision;
+        UpsertResult upsert = upsertUser(p, claims, autoProvision);
         User u = upsert.user();
         cacheAvatar(p, u, claims, tokens.accessToken());
         Session s = sessions.create(p.providerKey, u.name, u.id);
@@ -152,7 +154,7 @@ public class OidcLoginService {
         }
     }
 
-    private UpsertResult upsertUser(OidcProvider p, IdTokenVerifier.Claims claims) {
+    private UpsertResult upsertUser(OidcProvider p, IdTokenVerifier.Claims claims, boolean autoProvision) {
         // First try (provider, subject) — stable across email changes in the IdP.
         User u = User.findByOidc(p.providerKey, claims.subject());
         boolean provisioned = false;
@@ -163,6 +165,10 @@ public class OidcLoginService {
                 u.oidcProvider = p.providerKey;
                 u.oidcSubject = claims.subject();
             }
+        }
+        if (u == null && !autoProvision) {
+            throw new BadRequestException("no account found for " + claims.email()
+                    + " — sign-up is disabled; an admin must create the account first");
         }
         if (u == null) {
             // Auto-provision new user. Domain allowlist was already enforced by caller.

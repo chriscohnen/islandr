@@ -34,6 +34,7 @@ public class SettingsService {
                 ? null : req.wgClientDns();
         s.privateKeyRetention = req.privateKeyRetention();
         s.gravatarEnabled = req.gravatarEnabled();
+        s.oidcAutoProvision = req.oidcAutoProvision();
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
         // No explicit persist() needed — Panache flushes managed entities on commit.

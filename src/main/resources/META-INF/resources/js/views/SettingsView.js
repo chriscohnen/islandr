@@ -20,6 +20,7 @@ export default defineComponent({
         wgClientDns: "",
         privateKeyRetention: "never",
         gravatarEnabled: false,
+        oidcAutoProvision: true,
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
@@ -46,6 +47,7 @@ export default defineComponent({
           wgClientDns: s.wgClientDns || "",
           privateKeyRetention: s.privateKeyRetention || "never",
           gravatarEnabled: !!s.gravatarEnabled,
+          oidcAutoProvision: s.oidcAutoProvision !== false,
         };
         this.meta = {
           updatedAt: s.updatedAt,
@@ -153,17 +155,21 @@ export default defineComponent({
         </div>
       </div>
 
-      <h2 style="margin-top: var(--space-7); margin-bottom: var(--space-3); font-size: var(--text-md)">Benutzer-Profile</h2>
-      <div style="display: flex; flex-direction: column; gap: var(--space-2)">
-        <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
-          <input type="checkbox" v-model="form.gravatarEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
-          <span>Gravatar als Avatar-Quelle für lokale Benutzer</span>
-        </label>
-        <div class="field-hint" style="margin-top: 0">
-          Lokale Benutzer (ohne Microsoft/Google-Login) bekommen ihr Profilbild von gravatar.com,
-          sofern für ihre E-Mail-Adresse eines hinterlegt ist. Die E-Mail wird als MD5-Hash übertragen
-          (Gravatar-Standard) — datenschutzfreundlich ist das nur, wenn deine Benutzer das wissen.
-          Standardmäßig aus.
+      <h2 style="margin-top: var(--space-7); margin-bottom: var(--space-3); font-size: var(--text-md)">{{ t('settings.section_users') }}</h2>
+      <div style="display: flex; flex-direction: column; gap: var(--space-4)">
+        <div style="display: flex; flex-direction: column; gap: var(--space-2)">
+          <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+            <input type="checkbox" v-model="form.oidcAutoProvision" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <span>{{ t('settings.oidc_provision_label') }}</span>
+          </label>
+          <div class="field-hint" style="margin-top: 0">{{ t('settings.oidc_provision_hint') }}</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: var(--space-2)">
+          <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+            <input type="checkbox" v-model="form.gravatarEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <span>{{ t('settings.gravatar_label') }}</span>
+          </label>
+          <div class="field-hint" style="margin-top: 0">{{ t('settings.gravatar_hint') }}</div>
         </div>
       </div>
 
