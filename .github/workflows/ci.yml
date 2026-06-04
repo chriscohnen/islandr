@@ -45,13 +45,13 @@ jobs:
 
       - name: Build native binary (SQLite-only, container build)
         run: |
-          ./gradlew build -Psqlite \
+          ./gradlew quarkusBuild -Psqlite \
             -Dquarkus.native.enabled=true \
             -Dquarkus.native.container-build=true \
             -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 \
-            --no-daemon -x test
-        # The Mandrel container image is pulled automatically by Quarkus.
-        # No Docker login needed — it's a public image on quay.io.
+            --no-daemon
+        # quarkusBuild instead of build avoids the "native + JAR simultaneously"
+        # error in Quarkus 3.x. The Mandrel image is pulled automatically.
 
       - name: Locate binary and compute checksum
         id: artifact
