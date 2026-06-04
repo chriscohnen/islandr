@@ -166,10 +166,9 @@ arc42 architecture chapters will be added once the ADRs are confirmed.
 - API key management
 - Prometheus metrics
 
-Full plan: [wg-dashboard-plan.md](wg-dashboard-plan.md).
-
 ## Documentation
 
+- [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
 
 ## License
