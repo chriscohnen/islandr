@@ -10,11 +10,12 @@ public final class FirewallDto {
             Instant lastAttemptAt,
             Instant lastOkAt,
             String rulesetText,        // current authoritative ruleset, may be null
-            String stderr              // present on status='failed'
+            String stderr,             // present on status='failed'
+            boolean dryRun             // true = writes paused via Settings toggle
     ) {
-        public static Response from(FirewallState s) {
+        public static Response from(FirewallState s, boolean dryRun) {
             return new Response(s.lastStatus, s.ruleCount,
-                    s.lastAttemptAt, s.lastOkAt, s.rulesetText, s.stderrText);
+                    s.lastAttemptAt, s.lastOkAt, s.rulesetText, s.stderrText, dryRun);
         }
     }
 

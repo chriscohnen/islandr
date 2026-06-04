@@ -21,7 +21,7 @@ export default defineComponent({
         privateKeyRetention: "never",
         gravatarEnabled: false,
         oidcAutoProvision: true,
-        firewallDryRun: false,
+        firewallDryRun: true,
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,

@@ -90,6 +90,9 @@ export default defineComponent({
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+    <div v-if="data && data.dryRun" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+      <div>{{ t('firewall.dry_run_banner') }} <router-link to="/settings" style="color:inherit;text-decoration:underline">{{ t('firewall.dry_run_link') }}</router-link></div>
+    </div>
     <div v-if="resyncInfo" class="callout callout-info"><div>{{ resyncInfo }}</div></div>
 
     <div v-if="loading && !data" class="muted">{{ t('common.loading') }}</div>

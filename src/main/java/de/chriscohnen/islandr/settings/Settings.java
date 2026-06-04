@@ -57,7 +57,7 @@ public class Settings extends PanacheEntityBase {
     // ISLANDR_WG_MODE / ISLANDR_NFT_MODE env vars. Lets admins pause firewall
     // writes at runtime without restarting the service.
     @Column(name = "firewall_dry_run", columnDefinition = "INTEGER")
-    public boolean firewallDryRun = false;
+    public boolean firewallDryRun = true;
 
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);

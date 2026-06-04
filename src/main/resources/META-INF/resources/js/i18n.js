@@ -372,6 +372,8 @@ const messages = {
 
     // ── Firewall ─────────────────────────────────────────────────────────────
     "firewall.title":        "Firewall",
+    "firewall.dry_run_banner": "Firewall writes are paused — WireGuard and nftables changes are not being applied.",
+    "firewall.dry_run_link":   "Enable in settings →",
     "firewall.reload_btn":   "↻ Reload",
     "firewall.resync_btn":   "Resync — reapply",
     "firewall.resyncing":    "Syncing …",
@@ -876,6 +878,8 @@ const messages = {
 
     // ── Firewall ─────────────────────────────────────────────────────────────
     "firewall.title":        "Firewall",
+    "firewall.dry_run_banner": "Firewall-Schreiben ist pausiert — WireGuard- und nftables-Änderungen werden nicht angewendet.",
+    "firewall.dry_run_link":   "In Einstellungen aktivieren →",
     "firewall.reload_btn":   "↻ Neu laden",
     "firewall.resync_btn":   "Resync — neu anwenden",
     "firewall.resyncing":    "Synchronisiere …",

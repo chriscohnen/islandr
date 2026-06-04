@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.firewall;
 
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
+import de.chriscohnen.islandr.settings.SettingsService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -29,11 +30,12 @@ import jakarta.ws.rs.core.MediaType;
 public class FirewallResource {
 
     @Inject RulesetService rulesets;
+    @Inject SettingsService settings;
 
     @GET
     public FirewallDto.Response get(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
-        return FirewallDto.Response.from(FirewallState.get());
+        return FirewallDto.Response.from(FirewallState.get(), settings.get().firewallDryRun);
     }
 
     @POST
@@ -42,6 +44,6 @@ public class FirewallResource {
     public FirewallDto.Response resync(@Context ContainerRequestContext ctx) {
         AuthContext a = Auth.requireAdmin(ctx);
         FirewallState state = rulesets.recomputeAndApply(a.principal());
-        return FirewallDto.Response.from(state);
+        return FirewallDto.Response.from(state, settings.get().firewallDryRun);
     }
 }
