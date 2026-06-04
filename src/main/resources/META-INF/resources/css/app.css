@@ -1627,3 +1627,15 @@ body {
   border-color: var(--accent);
 }
 
+.myaccess-port-rdp {
+  cursor: pointer;
+  font-family: inherit;
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-soft-border);
+}
+
+.myaccess-port-rdp:hover {
+  background: var(--accent-soft-border);
+  border-color: var(--accent);
+}
+

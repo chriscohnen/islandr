@@ -110,6 +110,68 @@ export default defineComponent({
       return port.protocol === "HTTP" || port.protocol === "HTTPS";
     },
 
+    isRdpPort(port) {
+      return port.protocol === "RDP" || (port.port === 3389 && port.transport === "tcp");
+    },
+
+    downloadRdp(resource, port) {
+      const content = [
+        "full address:s:" + resource.ip + ":" + port.port,
+        "prompt for credentials:i:1",
+        "screen mode id:i:2",
+        "use multimon:i:0",
+        "desktopwidth:i:1920",
+        "desktopheight:i:1080",
+        "session bpp:i:32",
+        "compression:i:1",
+        "keyboardhook:i:2",
+        "audiocapturemode:i:0",
+        "videoplaybackmode:i:1",
+        "connection type:i:7",
+        "networkautodetect:i:1",
+        "bandwidthautodetect:i:1",
+        "displayconnectionbar:i:1",
+        "enableworkspacereconnect:i:0",
+        "disable wallpaper:i:0",
+        "allow font smoothing:i:0",
+        "allow desktop composition:i:0",
+        "disable full window drag:i:1",
+        "disable menu anims:i:1",
+        "disable themes:i:0",
+        "disable cursor setting:i:0",
+        "bitmapcachepersistenable:i:1",
+        "audiomode:i:0",
+        "redirectprinters:i:1",
+        "redirectcomports:i:0",
+        "redirectsmartcards:i:1",
+        "redirectwebauthn:i:1",
+        "redirectclipboard:i:1",
+        "redirectposdevices:i:0",
+        "autoreconnection enabled:i:1",
+        "authentication level:i:2",
+        "negotiate security layer:i:1",
+        "remoteapplicationmode:i:0",
+        "alternate shell:s:",
+        "shell working directory:s:",
+        "gatewayhostname:s:",
+        "gatewayusagemethod:i:4",
+        "gatewaycredentialssource:i:4",
+        "gatewayprofileusagemethod:i:0",
+        "promptcredentialonce:i:0",
+        "gatewaybrokeringtype:i:0",
+        "use redirection server name:i:0",
+        "rdgiskdcproxy:i:0",
+        "kdcproxyname:s:",
+      ].join("\r\n");
+      const blob = new Blob([content], { type: "application/rdp" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = resource.name.replace(/[^a-zA-Z0-9_\-]/g, "_") + ".rdp";
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+
     openCreate() {
       this.modalMode = "create";
       this.newDevice = { name: "", publicKey: "" };
@@ -344,6 +406,15 @@ export default defineComponent({
                   <span v-if="p.label" style="color:var(--fg3)">{{ p.label }}</span>
                   <Icon name="external-link" :size="11" style="opacity:.6; flex-shrink:0" />
                 </a>
+                <button v-else-if="isRdpPort(p)"
+                   @click="downloadRdp(r, p)"
+                   class="myaccess-port-link myaccess-port-rdp"
+                   :title="t('myaccess.rdp_title', { ip: r.ip, port: p.port })">
+                  <Icon name="monitor" :size="13" style="flex-shrink:0" />
+                  <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+                  <span>{{ p.label || p.protocol }}</span>
+                  <Icon name="download" :size="11" style="opacity:.6; flex-shrink:0" />
+                </button>
                 <span v-else class="myaccess-port-chip">
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
                   <span>{{ p.protocol }}</span>
