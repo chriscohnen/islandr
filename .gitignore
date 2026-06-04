@@ -46,10 +46,7 @@ hs_err_pid*
 # Native build artefacts
 *.dump
 
-# Internal — design handoffs, planning, internal docs (not for the public repo)
-design_handoff_bastion_design_system/
-design_handoff_islandr_site/
-docs/
+# Internal — planning notes (not for the public repo)
 TODO.md
 wg-dashboard-plan.md
 islandr-name.md

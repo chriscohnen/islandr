@@ -10,7 +10,7 @@
 
 A remote employee on the home office is an **islander** — sitting on their own isolated IT island, looking for a safe way back to the mainland. Islandr is the ferry: every device, every site, every home office connected to the corporate "mainland" without leaving anyone stranded on a silo. The dropped `e` is the modern-tech-startup spelling. Full story in [islandr-name.md](islandr-name.md).
 
-The internal working title is `wg-access`. The UI brand "Bastion" used in the design handoff is a placeholder — Islandr is the product name.
+The internal working title is `wg-access`. Islandr is the product name.
 
 ## What it does
 
@@ -38,7 +38,7 @@ A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Sit
 | Vocabulary | Peer, ACL, CIDR, Handshake | Device, access, connection |
 | Layout | Sidebar + topbar + multi-column | Centered single column ≤720px |
 
-Both share the same design tokens. Language is German, informal `Du`. The full design system lives in [design_handoff_bastion_design_system/](design_handoff_bastion_design_system/) — tokens, component primitives, screen-by-screen specs, and clickable HTML prototypes.
+Both share the same design tokens. Language is German, informal `Du`.
 
 ## Tech stack
 
@@ -87,10 +87,7 @@ islandr/
 ├── README.md                                # this file
 ├── CLAUDE.md                                # guidance for Claude Code
 ├── build.gradle.kts                         # Gradle 9.1 / Kotlin DSL
-├── wg-dashboard-plan.md                     # original product plan / RFC
-├── islandr-name.md                          # name story
 ├── docs/
-│   ├── prd.md                               # Product Requirements
 │   └── adr/                                 # Architecture Decision Records
 │       ├── README.md
 │       ├── 0001-quarkus-backend.md
@@ -100,7 +97,8 @@ islandr/
 │       ├── 0005-hub-only-firewall.md
 │       ├── 0006-resource-level-acl.md
 │       ├── 0007-private-key-retention.md
-│       └── 0008-runtime-settings-in-db.md
+│       ├── 0008-runtime-settings-in-db.md
+│       └── 0009-license-eupl-1.2.md
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
@@ -118,7 +116,6 @@ islandr/
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
 │   └── test/                                # 171 tests, JUnit 5 + RestAssured + AssertJ
-└── design_handoff_bastion_design_system/    # design system + prototypes
 ```
 
 arc42 architecture chapters will be added once the ADRs are confirmed.
@@ -173,12 +170,8 @@ Full plan: [wg-dashboard-plan.md](wg-dashboard-plan.md).
 
 ## Documentation
 
-- [docs/prd.md](docs/prd.md) — Product Requirements Document
-- [docs/architecture.md](docs/architecture.md) — C4 Level 1 (System Context) and Level 2 (Container) views
-- [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh-Matrix where useful)
-- [wg-dashboard-plan.md](wg-dashboard-plan.md) — original RFC and product plan
-- [design_handoff_bastion_design_system/README.md](design_handoff_bastion_design_system/README.md) — design system handoff (tokens, screens, voice)
+- [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
 
 ## License
 
-**EUPL-1.2** (EU-governed, copyleft, AGPL-compatible). The `LICENSE` file and ADR-0009 are still to be added.
+**EUPL-1.2** (EU-governed, copyleft, AGPL-compatible). See [docs/adr/0009-license-eupl-1.2.md](docs/adr/0009-license-eupl-1.2.md) for the rationale.
