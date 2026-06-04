@@ -38,7 +38,7 @@ A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Sit
 | Vocabulary | Peer, ACL, CIDR, Handshake | Device, access, connection |
 | Layout | Sidebar + topbar + multi-column | Centered single column ≤720px |
 
-Both share the same design tokens. Language is German, informal `Du`.
+Both share the same design tokens. UI is bilingual DE/EN, switchable at runtime. German default, informal `Du`.
 
 ## Tech stack
 
@@ -98,7 +98,8 @@ islandr/
 │       ├── 0006-resource-level-acl.md
 │       ├── 0007-private-key-retention.md
 │       ├── 0008-runtime-settings-in-db.md
-│       └── 0009-license-eupl-1.2.md
+│       ├── 0009-license-eupl-1.2.md
+│       └── 0010-font-and-icon-asset-self-hosting.md
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
@@ -109,7 +110,7 @@ islandr/
 │   │   └── wg/          # WgAdapter (real shells out, mock for dev/CI)
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/V1..V5__*.sql       # Flyway, portable SQL only
+│   │   ├── db/migration/                    # Flyway migrations V1–V13, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
@@ -118,47 +119,47 @@ islandr/
 │   └── test/                                # 171 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
-arc42 architecture chapters will be added once the ADRs are confirmed.
 
 ## Status & roadmap
 
-**Done (walking skeleton)**
-- User CRUD + email-unique constraint
-- Peer CRUD: Client + Site peer types, IP suggestion based on WG subnet, CIDR-overlap validation
-- Server-side keypair generation OR admin-imported keys (public-only / public+private, validated via `wg pubkey`)
-- QR code + `.conf` download (one-time-secret in `never` mode; re-show available in `plaintext` mode)
-- Singleton settings with retention mode + Gravatar toggle
-- Local ENV admin (SHA-256 constant-time, 12h server-side revocable sessions)
-- OIDC: Microsoft 365 + Google, full code-exchange + JWKS-cached RS256 verify, all config GUI-editable
-- Mutual exclusion: at most one OIDC provider active; admin can swap via confirm dialog
-- MS Graph photo + Google `picture` claim cached as user avatar; Gravatar fallback for local users (opt-in, off by default)
-- Sidebar shell, dark/light token system, dedicated Identity / Users / Peers / Settings views
+**Early access — core feature set complete, live production testing in progress.**
 
-**Done (RBAC + Self-Service)**
-- `users.is_admin` flag + admin assignment UI (V6 migration, `PUT /users/{id}/admin`)
-- `Auth.requireAdmin` guard on every admin endpoint (users / peers / settings / identity providers)
-- Public `GET /auth/providers` returning only `providerKey` + `enabled` for the unauthenticated login page
-- Role-aware sidebar: non-admins see only "Mein Zugang"
-- Self-service peer endpoints (`GET/POST /peers/mine`, `PUT /peers/mine/{id}/public-key`, `GET /peers/mine/{id}/conf`) scoped to `session.userId`
-- MyAccessView: own device list, "add device" with server-generated keypair or imported public key, key rotation, QR/.conf reshow when retention=plaintext
-- Frontend auth source-of-truth moved to `/auth/me` (no more localStorage drift after OIDC callback)
-- OIDC `allowedDomains` is now optional — empty allowlist lets through whatever the IdP consent screen allows (covers Gmail-family deployments)
+### What works today
 
-**Done (nftables + ACL + Audit)**
-- nftables ruleset generation (atomic reload via RuleBuilder, cold-start-safe `add table` before `flush table`)
-- Sites + Resources + Ports, Resource-level ACL (Roles → Resource grants, limited-port mode)
-- Activity poller (last seen, last endpoint; bytes-counter delta logic still TODO)
-- Audit log with cursor-based pagination, actor/action filters, meta-JSON expand
+**Authentication & identity**
+- Local admin login (ENV-bootstrapped, SHA-256 constant-time, 12h revocable sessions)
+- OIDC: Microsoft 365 / Entra ID and Google — full code-exchange + JWKS-cached RS256 verification, all config GUI-editable at runtime without restart
+- At most one OIDC provider active at a time; admin can swap via confirm dialog
+- Avatar pipeline: MS Graph photo → Google picture claim → Gravatar (opt-in) → deterministic initials fallback
 
-**v1 — Core**
-- Complete — see walking skeleton status above
+**User & peer management**
+- User CRUD with admin/end-user role assignment
+- Peer CRUD: client and site peer types, IP suggestion from WG subnet, CIDR-overlap validation
+- Server-side keypair generation or admin-imported public key (validated via `wg pubkey`)
+- QR code + `.conf` download with one-time-secret pattern; re-show in `plaintext` retention mode
+
+**Networks, resources & firewall**
+- Sites and resources with typed resource cards (computer, router, printer, NAS, camera, IoT, virt-host, management)
+- Port groups and resource-level ACL: roles → resource grants, with per-port or all-ports mode
+- nftables ruleset generation — atomic reload via RuleBuilder, cold-start-safe, mock adapter for dev/CI
+- Activity poller: last seen, last endpoint, bytes-counter delta (rx/tx)
+
+**Self-service portal**
+- End users add their own devices via a 3-step flow: platform → QR + `.conf` → wait for first handshake
+- Key rotation, device list, accessible resource overview with protocol icons
+- RDP quicklaunch: resources with port 3389/RDP render a download button that generates a ready-to-open `.rdp` file
+
+**Observability**
+- Audit log with cursor-based pagination, actor/action/target filters, meta-JSON expand
+
+**Bilingual UI**
+- German (default) and English, switchable at runtime without reload
 
 **v2 — Hardening**
 - Entra-ID role-claim mapping
 - Internal pull-mode agent for UCG provisioning
 - Peer expiry / auto-disable
 - Email notifications
-- Network device discovery: optional "Discover" button on `printer`/`nas`/`router` resource cards — one-shot SNMP (UDP 161, community `public`) or IPP (TCP 631) request from the hub fills in name, description and supported capabilities automatically. Requires snmp4j or shelling `snmpget`; mDNS/Bonjour (`avahi-browse`) as fallback for printers that don't speak SNMP.
 
 **v3 — Scale**
 - Multi-hub support
