@@ -10,13 +10,16 @@ public final class UserDto {
     public record Response(
             String id,
             String name,
+            String nickname,
+            String displayName,
             String email,
             boolean enabled,
             boolean isAdmin,
             Instant createdAt
     ) {
         public static Response from(User u) {
-            return new Response(u.id, u.name, u.email, u.enabled, u.isAdmin, u.createdAt);
+            String display = (u.nickname != null && !u.nickname.isBlank()) ? u.nickname : u.name;
+            return new Response(u.id, u.name, u.nickname, display, u.email, u.enabled, u.isAdmin, u.createdAt);
         }
     }
 
@@ -26,6 +29,8 @@ public final class UserDto {
     ) {}
 
     public record AdminFlagRequest(boolean isAdmin) {}
+
+    public record NicknameRequest(String nickname) {}
 
     private UserDto() {}
 }

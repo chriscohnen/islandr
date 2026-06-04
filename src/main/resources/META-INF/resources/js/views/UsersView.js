@@ -21,13 +21,15 @@ export default defineComponent({
       newUser: { name: "", email: "" },
       submitting: false,
       lang: locale.current,
+      editingNicknameId: null,
+      nicknameInput: "",
     };
   },
   computed: {
     _lang() { return locale.current; },
     modalUserName() {
       const u = this.users.find((x) => x.id === this.modalUserId);
-      return u ? `${u.name} (${u.email})` : null;
+      return u ? `${u.displayName} (${u.email})` : null;
     },
   },
   async mounted() {
@@ -84,8 +86,8 @@ export default defineComponent({
     async toggleAdmin(user) {
       const next = !user.isAdmin;
       const verb = next
-        ? t("users.confirm_admin_grant", { name: user.name })
-        : t("users.confirm_admin_revoke", { name: user.name });
+        ? t("users.confirm_admin_grant", { name: user.displayName })
+        : t("users.confirm_admin_revoke", { name: user.displayName });
       if (!confirm(verb)) return;
       try {
         const res = await fetch("/api/v1/users/" + user.id + "/admin", {
@@ -97,6 +99,29 @@ export default defineComponent({
         await this.load();
       } catch (e) {
         this.error = t("users.error_role", { error: e.message });
+      }
+    },
+
+    startNicknameEdit(u) {
+      this.editingNicknameId = u.id;
+      this.nicknameInput = u.nickname || "";
+    },
+    cancelNicknameEdit() {
+      this.editingNicknameId = null;
+      this.nicknameInput = "";
+    },
+    async saveNickname(userId) {
+      try {
+        const res = await fetch("/api/v1/users/" + userId + "/nickname", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ nickname: this.nicknameInput }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await this.load();
+        this.cancelNicknameEdit();
+      } catch (e) {
+        this.error = t("users.error_nickname", { error: e.message });
       }
     },
 
@@ -135,7 +160,23 @@ export default defineComponent({
           <td>
             <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
               <Avatar :user="u" :size="32" />
-              {{ u.name }}
+              <span v-if="editingNicknameId !== u.id">
+                <span>{{ u.displayName }}</span>
+                <span v-if="u.nickname" class="muted mono" style="font-size: var(--text-xs); margin-left: 4px">({{ u.name }})</span>
+                <button @click="startNicknameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; margin-left: 4px" :title="t('users.btn_nickname')">
+                  <Icon name="edit" :size="12" />
+                </button>
+              </span>
+              <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
+                <input class="input" style="width: 140px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
+                       v-model="nicknameInput"
+                       :placeholder="u.name"
+                       @keyup.enter="saveNickname(u.id)"
+                       @keyup.escape="cancelNicknameEdit"
+                       autofocus />
+                <button @click="saveNickname(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
+                <button @click="cancelNicknameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+              </span>
             </span>
           </td>
           <td class="mono">{{ u.email }}</td>
@@ -152,7 +193,7 @@ export default defineComponent({
           <td class="muted">{{ formatDate(u.createdAt) }}</td>
           <td style="text-align: right">
             <router-link
-              :to="{ name: 'my-access', query: { as: u.id, asName: u.name } }"
+              :to="{ name: 'my-access', query: { as: u.id, asName: u.displayName } }"
               class="btn btn-ghost btn-sm"
               title="Benutzer-Ansicht öffnen">
               {{ t('users.btn_view') }}

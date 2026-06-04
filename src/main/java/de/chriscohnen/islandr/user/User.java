@@ -23,6 +23,9 @@ public class User extends PanacheEntityBase {
     @Column(name = "name", nullable = false)
     public String name;
 
+    @Column(name = "nickname")
+    public String nickname;
+
     @NotBlank
     @Email
     @Column(name = "email", nullable = false, unique = true)

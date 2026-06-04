@@ -89,6 +89,24 @@ public class UserResource {
         return UserDto.Response.from(u);
     }
 
+    @PUT
+    @Path("/{id}/nickname")
+    @Transactional
+    public UserDto.Response setNickname(@Context ContainerRequestContext ctx,
+                                        @PathParam("id") String id,
+                                        UserDto.NicknameRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        User u = User.findById(id);
+        if (u == null) throw new NotFoundException("user not found: " + id);
+        String prev = u.nickname;
+        u.nickname = (body != null && body.nickname() != null && !body.nickname().isBlank())
+                ? body.nickname().trim() : null;
+        audit.logUpdate(a.principal(), "user.nickname_set", "User:" + u.id,
+                Map.of("nickname", prev == null ? "" : prev),
+                Map.of("nickname", u.nickname == null ? "" : u.nickname));
+        return UserDto.Response.from(u);
+    }
+
     @DELETE
     @Path("/{id}")
     @Transactional
