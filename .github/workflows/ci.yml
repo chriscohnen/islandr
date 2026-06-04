@@ -23,9 +23,9 @@ jobs:
 
       - name: Run tests
         run: ./gradlew test --no-daemon
-        env:
-          QUARKUS_DATASOURCE_DB_KIND: h2
-          QUARKUS_DATASOURCE_JDBC_URL: jdbc:h2:mem:test;DB_CLOSE_DELAY=-1
+        # No datasource env vars — the %test profile in application.properties
+        # uses jdbc:sqlite:file::memory:?cache=shared which works without
+        # any external DB or additional driver.
 
   # ── Stage 2: Native build (linux/amd64, SQLite-only) ──────────────────────
   native:
