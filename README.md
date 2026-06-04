@@ -2,7 +2,7 @@
 
 > Self-hosted WireGuard access management. A web dashboard for peers, users, and group-based ACLs — for hub-spoke topologies with mixed clients (road warriors, site gateways).
 
-**Status:** Pre-alpha, walking skeleton runs. Backend with 171 green tests across 8 domains (users, peers, settings, auth, identity, RBAC, nftables/firewall, ACL). Frontend covers login, sidebar shell, user/peer admin, settings, identity, self-service portal, ACL matrix, audit log, and network/resource management.
+**Status:** Early access — core features complete, live production testing in progress. Backend with 171 green tests across 8 domains (users, peers, settings, auth, identity, RBAC, nftables/firewall, ACL). Frontend covers login, sidebar shell, user/peer admin, settings, identity, self-service portal, ACL matrix, audit log, and network/resource management.
 
 ---
 
