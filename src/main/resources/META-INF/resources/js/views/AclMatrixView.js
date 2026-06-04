@@ -31,6 +31,7 @@ export default defineComponent({
     };
   },
   computed: {
+    _lang() { return locale.current; },
     sitesById() {
       return Object.fromEntries(this.sites.map((s) => [s.id, s]));
     },
@@ -329,7 +330,8 @@ export default defineComponent({
             this.current && !this.current.allPorts ? this.current.portIds : []);
         return { mode, checked };
       },
-      methods: {
+      computed: { _lang() { return locale.current; } },
+  methods: {
         t(key, vars) { return t(key, vars); },
         toggle(portId) {
           const next = new Set(this.checked);

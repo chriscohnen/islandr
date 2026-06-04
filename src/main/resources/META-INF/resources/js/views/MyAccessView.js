@@ -42,6 +42,7 @@ export default defineComponent({
     };
   },
   computed: {
+    _lang() { return locale.current; },
     groupedGrants() {
       const groups = {};
       for (const r of this.grants) {
@@ -51,7 +52,7 @@ export default defineComponent({
       return groups;
     },
     pageTitle() {
-      void this.lang;
+      void this._lang;
       if (this.viewAsUserId && this.viewAsUserName) {
         return t("myaccess.title_admin", { name: this.viewAsUserName });
       }
@@ -59,7 +60,6 @@ export default defineComponent({
     },
   },
   async mounted() {
-    // Admin impersonation via ?as=<userId>&asName=<displayName> (vue-router query)
     if (this.$route.query.as) {
       this.viewAsUserId = this.$route.query.as;
       this.viewAsUserName = this.$route.query.asName || this.$route.query.as;

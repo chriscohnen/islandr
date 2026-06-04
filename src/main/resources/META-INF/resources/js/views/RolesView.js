@@ -27,6 +27,7 @@ export default defineComponent({
   async mounted() {
     await Promise.all([this.loadRoles(), this.loadUsers()]);
   },
+  computed: { _lang() { return locale.current; } },
   methods: {
     t(key, vars) { return t(key, vars); },
     async loadRoles() {

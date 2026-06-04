@@ -27,6 +27,7 @@ export default defineComponent({
     };
   },
   computed: {
+    _lang() { return locale.current; },
     activeProvider() {
       return this.providers.find((p) => p.enabled) || null;
     },

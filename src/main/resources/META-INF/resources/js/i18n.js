@@ -1,6 +1,7 @@
 // Minimal i18n — no npm, no build step. Add keys here, consume with t(key).
 // The active locale is stored in localStorage under "islandr.locale".
 // Interpolation: t("key", { count: 3 }) replaces {count} in the string.
+import { reactive } from "vue";
 
 const messages = {
   en: {
@@ -989,7 +990,7 @@ function detectLocale() {
   return messages[browser] ? browser : "en";
 }
 
-export const locale = { current: detectLocale() };
+export const locale = reactive({ current: detectLocale() });
 
 export function setLocale(lang) {
   if (!messages[lang]) return;

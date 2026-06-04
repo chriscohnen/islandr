@@ -47,6 +47,7 @@ export default defineComponent({
     },
   },
   computed: {
+    _lang() { return locale.current; },
     typeLabels() {
       void this.lang;
       return {

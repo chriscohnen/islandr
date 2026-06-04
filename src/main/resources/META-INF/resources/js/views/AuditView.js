@@ -30,6 +30,7 @@ export default defineComponent({
     };
   },
   computed: {
+    _lang() { return locale.current; },
     visibleRows() {
       if (!this.freeText.trim()) return this.rows;
       const q = this.freeText.trim().toLowerCase();

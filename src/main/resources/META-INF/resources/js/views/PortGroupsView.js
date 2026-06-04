@@ -24,6 +24,7 @@ export default defineComponent({
   async mounted() {
     await this.load();
   },
+  computed: { _lang() { return locale.current; } },
   methods: {
     t(key, vars) { return t(key, vars); },
     async load() {

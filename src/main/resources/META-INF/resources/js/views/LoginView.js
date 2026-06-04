@@ -24,6 +24,7 @@ export default defineComponent({
     };
   },
   computed: {
+    _lang() { return locale.current; },
     activeOidc() {
       if (this.providers.microsoft) return "microsoft";
       if (this.providers.google) return "google";

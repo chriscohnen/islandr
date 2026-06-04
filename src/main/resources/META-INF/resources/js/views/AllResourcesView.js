@@ -27,6 +27,7 @@ export default defineComponent({
     await this.load();
   },
   computed: {
+    _lang() { return locale.current; },
     typeLabels() {
       void this.lang;
       return {

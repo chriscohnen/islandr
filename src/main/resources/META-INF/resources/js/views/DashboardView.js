@@ -21,6 +21,7 @@ export default defineComponent({
     await this.load();
   },
   computed: {
+    _lang() { return locale.current; },
     setupIssues() {
       void this.lang;
       // Inline list of "things the operator should look at". Empty = green.

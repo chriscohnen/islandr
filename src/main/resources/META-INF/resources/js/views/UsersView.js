@@ -24,6 +24,7 @@ export default defineComponent({
     };
   },
   computed: {
+    _lang() { return locale.current; },
     modalUserName() {
       const u = this.users.find((x) => x.id === this.modalUserId);
       return u ? `${u.name} (${u.email})` : null;
