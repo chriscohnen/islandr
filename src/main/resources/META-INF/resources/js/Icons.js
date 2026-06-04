@@ -84,6 +84,20 @@ export const PATHS = {
     '<line x1="6" x2="6.01" y1="18" y2="18"/>',
   ],
 
+  // monitor — Lucide MIT
+  monitor: [
+    '<rect width="20" height="14" x="2" y="3" rx="2"/>',
+    '<line x1="8" x2="16" y1="21" y2="21"/>',
+    '<line x1="12" x2="12" y1="17" y2="21"/>',
+  ],
+
+  // download — Lucide MIT
+  download: [
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>',
+    '<polyline points="7 10 12 15 17 10"/>',
+    '<line x1="12" x2="12" y1="15" y2="3"/>',
+  ],
+
   // ---- Resource-Typen fuer Topology + Resourcen-Liste ----
 
   // monitor — Workstation/Server
