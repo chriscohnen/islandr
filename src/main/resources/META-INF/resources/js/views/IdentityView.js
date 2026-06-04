@@ -279,6 +279,11 @@ export default defineComponent({
           </div>
         </div>
 
+        <div v-if="activeProvider && activeProvider.providerKey !== editing"
+             class="callout callout-warn" style="margin-bottom: var(--space-4)">
+          {{ t('identity.edit_replaces', { current: providerLabel(activeProvider.providerKey) }) }}
+        </div>
+
         <div class="field">
           <label>{{ t('identity.redirect') }}</label>
           <pre class="code-block">{{ redirectUriFor(editing) }}</pre>
@@ -334,7 +339,8 @@ export default defineComponent({
           <div class="identity-strip-text">
             <div class="identity-strip-name">{{ providerLabel(p.providerKey) }}</div>
             <div class="muted" style="font-size: var(--text-xs)">
-              <template v-if="isConfigured(p)">{{ t('identity.strip_active') }}</template>
+              <template v-if="isConfigured(p) && activeProvider">{{ t('identity.strip_inactive') }}</template>
+              <template v-else-if="isConfigured(p)">{{ t('identity.strip_active') }}</template>
               <template v-else>{{ t('identity.strip_none') }}</template>
             </div>
           </div>
