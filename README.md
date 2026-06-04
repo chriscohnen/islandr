@@ -150,9 +150,8 @@ arc42 architecture chapters will be added once the ADRs are confirmed.
 - Activity poller (last seen, last endpoint; bytes-counter delta logic still TODO)
 - Audit log with cursor-based pagination, actor/action filters, meta-JSON expand
 
-**v1 — Core (still to do)**
-- Bytes-counter delta in Activity poller (`lastSampledRxBytes`/`TxBytes` columns)
-- Audit log: Saga / try-compensate rollback between `wg.setPeer` and `nftables-apply`
+**v1 — Core**
+- Complete — see walking skeleton status above
 
 **v2 — Hardening**
 - Entra-ID role-claim mapping
