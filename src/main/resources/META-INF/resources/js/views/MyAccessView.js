@@ -410,10 +410,21 @@ export default defineComponent({
                    @click="downloadRdp(r, p)"
                    class="myaccess-port-link myaccess-port-rdp"
                    :title="t('myaccess.rdp_title', { ip: r.ip, port: p.port })">
-                  <Icon name="monitor" :size="13" style="flex-shrink:0" />
+                  <!-- Monitor + arrow badge icon -->
+                  <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
+                       stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                       style="flex-shrink:0" aria-hidden="true">
+                    <!-- monitor body -->
+                    <rect x="1" y="1" width="16" height="11" rx="2"/>
+                    <line x1="5" x2="13" y1="16" y2="16"/>
+                    <line x1="9" x2="9" y1="12" y2="16"/>
+                    <!-- arrow badge (bottom-right, filled circle + arrow) -->
+                    <circle cx="17" cy="15" r="4" fill="var(--accent,#3BBBD2)" stroke="none"/>
+                    <path d="M15.3 15h3.4M17 13.3v3.4" stroke="white" stroke-width="1.4"
+                          stroke-linecap="round" transform="rotate(45 17 15)"/>
+                  </svg>
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
                   <span>{{ p.label || p.protocol }}</span>
-                  <Icon name="download" :size="11" style="opacity:.6; flex-shrink:0" />
                 </button>
                 <span v-else class="myaccess-port-chip">
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
