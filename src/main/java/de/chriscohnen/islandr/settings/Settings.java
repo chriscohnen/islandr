@@ -53,6 +53,12 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "oidc_auto_provision", columnDefinition = "INTEGER")
     public boolean oidcAutoProvision = true;
 
+    // When true: WG and nftables adapters run in mock mode regardless of the
+    // ISLANDR_WG_MODE / ISLANDR_NFT_MODE env vars. Lets admins pause firewall
+    // writes at runtime without restarting the service.
+    @Column(name = "firewall_dry_run", columnDefinition = "INTEGER")
+    public boolean firewallDryRun = false;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

@@ -1,7 +1,9 @@
 package de.chriscohnen.islandr.firewall;
 
+import de.chriscohnen.islandr.settings.SettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
+import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
@@ -21,12 +23,14 @@ public class NftablesAdapterProducer {
     @ConfigProperty(name = "islandr.use-sudo", defaultValue = "false")
     boolean useSudo;
 
+    @Inject SettingsService settings;
+
     @Produces
     @ApplicationScoped
     public NftablesAdapter produce() {
         if ("real".equalsIgnoreCase(mode)) {
-            LOG.infof("NftablesAdapter mode=real, useSudo=%s — shelling out to `nft` CLI", useSudo);
-            return new RealNftablesAdapter(useSudo);
+            LOG.infof("NftablesAdapter mode=real, useSudo=%s — wrapped with DryRunNftablesAdapter (checks settings at runtime)", useSudo);
+            return new DryRunNftablesAdapter(new RealNftablesAdapter(useSudo), settings);
         }
         LOG.info("NftablesAdapter mode=mock — in-memory, no real nftables interaction");
         return new MockNftablesAdapter();

@@ -21,6 +21,7 @@ export default defineComponent({
         privateKeyRetention: "never",
         gravatarEnabled: false,
         oidcAutoProvision: true,
+        firewallDryRun: false,
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
@@ -48,6 +49,7 @@ export default defineComponent({
           privateKeyRetention: s.privateKeyRetention || "never",
           gravatarEnabled: !!s.gravatarEnabled,
           oidcAutoProvision: s.oidcAutoProvision !== false,
+          firewallDryRun: !!s.firewallDryRun,
         };
         this.meta = {
           updatedAt: s.updatedAt,
@@ -152,6 +154,18 @@ export default defineComponent({
             <option value="plaintext">{{ t('settings.ret_plaintext') }}</option>
           </select>
           <div class="field-hint">Siehe docs/adr/0007-private-key-retention.md.</div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: var(--space-7); margin-bottom: var(--space-3); font-size: var(--text-md)">{{ t('settings.section_firewall') }}</h2>
+      <div style="display: flex; flex-direction: column; gap: var(--space-2)">
+        <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+          <input type="checkbox" v-model="form.firewallDryRun" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+          <span>{{ t('settings.firewall_dry_run_label') }}</span>
+        </label>
+        <div class="field-hint" style="margin-top: 0">{{ t('settings.firewall_dry_run_hint') }}</div>
+        <div v-if="form.firewallDryRun" class="callout callout-warn" style="margin-top: var(--space-2)">
+          {{ t('settings.firewall_dry_run_warn') }}
         </div>
       </div>
 
