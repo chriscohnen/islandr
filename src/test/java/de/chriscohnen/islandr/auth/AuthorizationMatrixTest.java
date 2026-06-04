@@ -120,6 +120,23 @@ class AuthorizationMatrixTest {
     }
 
     @Test
+    void anonymous_cannotFetchAvatar() {
+        int status = given().when().get("/api/v1/users/" + orgUserId + "/avatar")
+                .statusCode();
+        assertThat(status).isEqualTo(401);
+    }
+
+    @Test
+    void orgUser_canFetchAvatar_getsNotFoundBecauseNoCachedBytes() {
+        String cookie = sessionCookieFor(orgUserId, false);
+        int status = given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .when().get("/api/v1/users/" + orgUserId + "/avatar")
+                .statusCode();
+        // No cached bytes — 404 is correct, but must not be 401/403
+        assertThat(status).isIn(200, 404);
+    }
+
+    @Test
     void localAdmin_cannotHitMine() {
         // Local admin has userId = null. /peers/mine has no row to scope to.
         Session s = createLocalAdminSession();

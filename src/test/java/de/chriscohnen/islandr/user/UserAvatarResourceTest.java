@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.user;
 
+import de.chriscohnen.islandr.auth.AdminSessionExtension;
 import de.chriscohnen.islandr.identity.FakeHttpFetcher;
 import de.chriscohnen.islandr.settings.SettingsDto;
 import de.chriscohnen.islandr.settings.SettingsService;
@@ -8,6 +9,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Map;
 
@@ -15,6 +17,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @QuarkusTest
+@ExtendWith(AdminSessionExtension.class)
 class UserAvatarResourceTest {
 
     @Inject FakeHttpFetcher http;
