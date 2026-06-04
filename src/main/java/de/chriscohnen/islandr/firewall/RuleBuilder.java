@@ -147,7 +147,7 @@ public class RuleBuilder {
                                 escape(peer.name),
                                 escape(userName.getOrDefault(peer.userId, "?")),
                                 escape(res.name),
-                                rp.protocol,
+                                escape(rp.protocol),
                                 rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label));
                         String rule = String.format(
                                 "    iifname \"%s\" ip saddr %s ip daddr %s %s dport %d accept comment \"%s\"",
