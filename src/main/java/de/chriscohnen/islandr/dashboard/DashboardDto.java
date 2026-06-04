@@ -102,7 +102,8 @@ public final class DashboardDto {
             // org users can't log in via OIDC, only the local admin works.
             String oidcProvider,
             String privateKeyRetention,
-            boolean gravatarEnabled
+            boolean gravatarEnabled,
+            boolean firewallDryRun
     ) {}
 
     public record AuditEntry(

@@ -120,6 +120,8 @@ Format: EARS (Easy Approach to Requirements Syntax) where it fits cleanly; plain
 | N-08 | UI is bilingual DE/EN with a runtime language toggle. German default, informal `Du`. No emoji. Status is icon + label, never color alone. |
 | N-09 | Light and dark theme are equal-weight and ship together in v1. |
 | N-10 | Both themes meet WCAG AA: text contrast ≥4.5:1, large text ≥3:1, visible `:focus-visible` ring. |
+| N-11 | All admin API endpoints require an authenticated session with `isAdmin=true`. All user-facing endpoints require at minimum an authenticated session. Avatar endpoints are session-gated. Unauthenticated access returns HTTP 401; authenticated non-admin access to admin endpoints returns HTTP 403. |
+| N-12 | All free-text fields interpolated into nftables rulesets are sanitized (double-quotes, backslashes, newlines stripped) before insertion into the `comment` field. Structural rule parameters (IPs, ports, transport) are typed and DB-constrained — no string interpolation path exists for them. |
 
 ## 7. Domain model
 

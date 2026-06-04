@@ -80,7 +80,8 @@ public class DashboardResource {
                 s != null && !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                 activeOidc == null ? null : activeOidc.providerKey,
                 s == null ? "never" : s.privateKeyRetention,
-                s != null && s.gravatarEnabled);
+                s != null && s.gravatarEnabled,
+                s != null && s.firewallDryRun);
 
         List<DashboardDto.AuditEntry> audit = AuditLog.<AuditLog>find(
                 "order by createdAt desc, id desc").page(0, STRIP_SIZE).list().stream()

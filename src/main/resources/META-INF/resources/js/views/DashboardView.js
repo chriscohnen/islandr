@@ -52,6 +52,14 @@ export default defineComponent({
           linkText: t("dashboard.setup_ret_action"),
         });
       }
+      if (s.firewallDryRun) {
+        issues.push({
+          severity: "warning",
+          text: t("dashboard.firewall_dry_run"),
+          link: "/settings",
+          linkText: t("dashboard.firewall_dry_run_action"),
+        });
+      }
       return issues;
     },
   },
