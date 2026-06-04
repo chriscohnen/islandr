@@ -1,0 +1,57 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Quarkus
+target/
+.quarkus/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.fleet/
+.classpath
+.project
+.settings/
+.factorypath
+nbactions.xml
+nb-configuration.xml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Secrets / local config overrides
+application-local.properties
+.env
+.env.local
+client_secret_*.json
+*credentials*.json
+
+# Logs
+*.log
+hs_err_pid*
+
+# Native build artefacts
+*.dump
+
+# Internal — design handoffs, planning, internal docs (not for the public repo)
+design_handoff_bastion_design_system/
+design_handoff_islandr_site/
+docs/
+TODO.md
+wg-dashboard-plan.md
+islandr-name.md
+EUPL-1.2
+logo islandr.zip

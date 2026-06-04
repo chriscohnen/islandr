@@ -1,0 +1,39 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Islandr">
+  <!--
+    Brand mark. Two islands on a light tile, sharing the favicon's vocabulary:
+    rounded humps above the waterline, repeating cyan waves below. The light
+    surface lets it sit on dark Console headers (Google OAuth, Microsoft Entra)
+    that paint a dark wash behind small uploaded logos. Pair this with the
+    favicon.svg (dark) for the inverted case.
+  -->
+
+  <!-- Tile: cool off-white, soft rounded corner; matches CSS surface tokens. -->
+  <rect width="256" height="256" rx="40" fill="#F2F5F7"/>
+
+  <!--
+    Background island (back-left). Lighter cyan + slight downward translate so
+    it reads as further away. No outline — depth comes from value contrast.
+  -->
+  <path d="M40 152 Q72 96 112 96 Q144 96 168 152 Z"
+        fill="#9BD6DD"/>
+
+  <!--
+    Foreground island (front-right). Saturated cyan, larger silhouette, slight
+    overlap with the back hump to anchor the composition.
+  -->
+  <path d="M96 168 Q140 88 184 88 Q220 88 236 168 Z"
+        fill="#3FB8C4"/>
+
+  <!--
+    Three waves below the waterline. Stroke 5 (=~1.6 at 32px), rounded caps —
+    same Lucide-style guideline as the rest of the icon set. Decreasing
+    opacity makes the water recede instead of stacking flat.
+  -->
+  <path d="M20 192 Q44 180 68 192 T116 192 T164 192 T212 192 T244 192"
+        fill="none" stroke="#3FB8C4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M20 212 Q44 200 68 212 T116 212 T164 212 T212 212 T244 212"
+        fill="none" stroke="#3FB8C4" stroke-width="5" stroke-linecap="round" opacity="0.65"/>
+  <path d="M20 232 Q44 220 68 232 T116 232 T164 232 T212 232 T244 232"
+        fill="none" stroke="#3FB8C4" stroke-width="5" stroke-linecap="round" opacity="0.35"/>
+</svg>

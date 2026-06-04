@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ── Stage 1: Tests (JVM, fast) ─────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+        env:
+          QUARKUS_DATASOURCE_DB_KIND: h2
+          QUARKUS_DATASOURCE_JDBC_URL: jdbc:h2:mem:test;DB_CLOSE_DELAY=-1
+
+  # ── Stage 2: Native build (linux/amd64, SQLite-only) ──────────────────────
+  native:
+    name: Native build
+    needs: test
+    runs-on: ubuntu-latest
+    # Native compilation is expensive (~15-20 min). Only run on main + tags.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Build native binary (SQLite-only, container build)
+        run: |
+          ./gradlew build -Psqlite \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=true \
+            -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 \
+            --no-daemon -x test
+        # The Mandrel container image is pulled automatically by Quarkus.
+        # No Docker login needed — it's a public image on quay.io.
+
+      - name: Locate binary and compute checksum
+        id: artifact
+        run: |
+          BINARY=$(ls build/islandr-*-runner)
+          echo "binary=$BINARY" >> "$GITHUB_OUTPUT"
+          sha256sum "$BINARY" | tee build/islandr-runner.sha256
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: islandr-runner-linux-amd64
+          path: |
+            ${{ steps.artifact.outputs.binary }}
+            build/islandr-runner.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+  # ── Stage 3: Release (tags only) ──────────────────────────────────────────
+  release:
+    name: Release
+    needs: native
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write   # needed to create the GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: islandr-runner-linux-amd64
+          path: dist/
+
+      - name: Prepare release assets
+        run: |
+          cd dist
+          # The Gradle output name carries the version; normalize it for the
+          # release page so users always know what to download.
+          BINARY=$(ls islandr-*-runner)
+          mv "$BINARY" islandr-runner-linux-amd64
+          # Rewrite the checksum file to match the renamed binary.
+          sha256sum islandr-runner-linux-amd64 > islandr-runner-linux-amd64.sha256
+          chmod +x islandr-runner-linux-amd64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/islandr-runner-linux-amd64
+            dist/islandr-runner-linux-amd64.sha256

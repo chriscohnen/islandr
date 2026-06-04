@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Islandr">
+  <rect width="128" height="128" rx="28" fill="#0E1B2A"></rect>
+  <g transform="translate(1,6)">
+    <path d="M26 96 L52 84 L70 58 L98 40 M70 58 L64 27" fill="none" stroke="#3BBBD2" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path>
+    <circle cx="26" cy="96" r="5" fill="#3BBBD2"></circle>
+    <circle cx="52" cy="84" r="4.5" fill="#3BBBD2"></circle>
+    <circle cx="70" cy="58" r="6" fill="#3BBBD2"></circle>
+    <circle cx="98" cy="40" r="5" fill="#3BBBD2"></circle>
+    <circle cx="64" cy="27" r="14" fill="#7FE0F0" opacity="0.25"></circle>
+    <circle cx="64" cy="27" r="8.5" fill="#7FE0F0"></circle>
+  </g>
+</svg>

@@ -1,0 +1,224 @@
+/* ============================================================================
+   Islandr — Design System Tokens
+   Lifted from the design handoff bundle (working title there: "Bastion").
+   VPN platform on WireGuard. Cool, technical, trustworthy.
+   Type: IBM Plex Sans (UI/body) + IBM Plex Mono (wordmark, IPs, keys, code).
+   Load fonts via Google Fonts (see <link> in index.html).
+   ============================================================================ */
+
+:root {
+  /* --- Font families ----------------------------------------------------- */
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* --- Type scale (rem; base 16px) --------------------------------------- */
+  --text-2xs: 11px;   /* micro labels, table meta */
+  --text-xs:  12px;   /* badges, captions, dense table cells */
+  --text-sm:  13px;   /* table body, secondary UI */
+  --text-base:14px;   /* DEFAULT body / UI text */
+  --text-md:  16px;   /* portal body, emphasized */
+  --text-lg:  18px;   /* card titles */
+  --text-xl:  22px;   /* section headings */
+  --text-2xl: 28px;   /* page titles */
+  --text-3xl: 36px;   /* portal hero */
+  --text-4xl: 48px;   /* brand / marketing hero */
+
+  --leading-tight: 1.2;
+  --leading-snug:  1.35;
+  --leading-normal:1.55;
+
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide:  0.04em;
+  --tracking-caps:  0.08em;   /* eyebrow / all-caps labels */
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semibold:600;
+  --weight-bold:    700;
+
+  /* --- Cyan-teal accent ramp (a cool alternative to royal blue) ---------- */
+  --accent-50:  #E6F7FB;
+  --accent-100: #C5ECF4;
+  --accent-200: #95DCEA;
+  --accent-300: #5CC6DC;
+  --accent-400: #27AECB;
+  --accent-500: #0E97B8;   /* primary interactive fill */
+  --accent-600: #0A7E9C;   /* hover */
+  --accent-700: #0A6680;   /* accent text on light (>=4.5:1) */
+  --accent-800: #0D5366;
+  --accent-900: #103F4E;
+
+  /* --- Cool neutral ramp -------------------------------------------------- */
+  --neutral-0:   #FFFFFF;
+  --neutral-25:  #FBFCFD;
+  --neutral-50:  #F7F8FA;   /* light canvas */
+  --neutral-100: #EFF1F4;
+  --neutral-150: #E6E9EE;
+  --neutral-200: #DCE0E7;
+  --neutral-300: #C4CAD4;
+  --neutral-400: #9AA2B1;
+  --neutral-500: #6B7484;
+  --neutral-600: #4E5666;
+  --neutral-700: #3A414F;
+  --neutral-800: #272C37;
+  --neutral-900: #181C24;
+  --neutral-950: #0A0C11;   /* dark canvas */
+
+  /* --- Semantic status (always paired with icon + label) ----------------- */
+  --success-fg:  #0E7C5A;  --success-bg:  #E4F6EE;  --success-border: #A7E0C7;  --success-solid: #12A074;
+  --warning-fg:  #9A6310;  --warning-bg:  #FCF1DD;  --warning-border: #F0CE92;  --warning-solid: #D9911E;
+  --danger-fg:   #B42318;  --danger-bg:   #FCEBEA;  --danger-border:  #F2B5AF;  --danger-solid:  #DC362E;
+  --info-fg:     #0A6680;  --info-bg:     #E6F7FB;  --info-border:    #95DCEA;  --info-solid:    #0E97B8;
+  --neutral-status-fg: #4E5666; --neutral-status-bg: #EFF1F4; --neutral-status-border: #DCE0E7;
+
+  /* --- Radii (medium-soft) ----------------------------------------------- */
+  --radius-xs:  4px;
+  --radius-sm:  6px;
+  --radius-md:  8px;   /* inputs, buttons */
+  --radius-lg:  12px;  /* cards */
+  --radius-xl:  16px;  /* large surfaces, modals */
+  --radius-2xl: 24px;
+  --radius-full: 999px;
+
+  /* --- Spacing (4px base) ------------------------------------------------- */
+  --space-1: 4px;   --space-2: 8px;   --space-3: 12px;  --space-4: 16px;
+  --space-5: 20px;  --space-6: 24px;  --space-8: 32px;  --space-10: 40px;
+  --space-12: 48px; --space-16: 64px; --space-20: 80px; --space-24: 96px;
+
+  /* --- Density anchors ---------------------------------------------------- */
+  --row-height:     44px;   /* table rows 40-48 */
+  --sidebar-item-h: 36px;
+  --control-h:      36px;    /* default input/button height */
+  --control-h-sm:   30px;
+  --control-h-lg:   44px;
+
+  /* --- Cool, low shadows (nothing material) ------------------------------ */
+  --shadow-xs: 0 1px 2px rgba(24, 28, 36, 0.05);
+  --shadow-sm: 0 1px 3px rgba(24, 28, 36, 0.06), 0 1px 2px rgba(24, 28, 36, 0.04);
+  --shadow-md: 0 4px 12px rgba(24, 28, 36, 0.07), 0 1px 3px rgba(24, 28, 36, 0.04);
+  --shadow-lg: 0 12px 28px rgba(24, 28, 36, 0.10), 0 2px 6px rgba(24, 28, 36, 0.05);
+  --shadow-xl: 0 24px 56px rgba(24, 28, 36, 0.14), 0 4px 12px rgba(24, 28, 36, 0.06);
+  --focus-ring: 0 0 0 2px var(--neutral-0), 0 0 0 4px var(--accent-500);
+
+  /* --- Motion ------------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+}
+
+/* ============================================================================
+   SEMANTIC THEME TOKENS — LIGHT (default)
+   ============================================================================ */
+:root, [data-theme="light"] {
+  --canvas:       var(--neutral-50);
+  --surface:      var(--neutral-0);
+  --surface-2:    var(--neutral-50);
+  --surface-3:    var(--neutral-100);
+  --surface-sunken: var(--neutral-100);
+
+  --border:       var(--neutral-200);
+  --border-strong:var(--neutral-300);
+  --border-subtle:var(--neutral-150);
+
+  --fg1: var(--neutral-900);   /* primary text — >=7:1 on canvas */
+  --fg2: var(--neutral-600);   /* secondary — >=4.5:1 */
+  --fg3: var(--neutral-500);   /* tertiary / meta */
+  --fg-disabled: var(--neutral-400);
+  --fg-on-accent: #FFFFFF;
+
+  --accent:       var(--accent-500);
+  --accent-hover: var(--accent-600);
+  --accent-text:  var(--accent-700);   /* accent used as text/link on light */
+  --accent-soft-bg: var(--accent-50);
+  --accent-soft-border: var(--accent-200);
+
+  --topo-line:    var(--accent-500);
+  --topo-line-stale: var(--neutral-300);
+
+  color-scheme: light;
+}
+
+/* ============================================================================
+   SEMANTIC THEME TOKENS — DARK (equal-weight, not an afterthought)
+   ============================================================================ */
+[data-theme="dark"] {
+  --canvas:       var(--neutral-950);   /* #0A0C11 */
+  --surface:      #13161C;
+  --surface-2:    #181C24;
+  --surface-3:    #21252E;
+  --surface-sunken: #0E1116;
+
+  --border:       #272C37;
+  --border-strong:#3A414F;
+  --border-subtle:#1E222B;
+
+  --fg1: #F2F4F7;
+  --fg2: #A8B0BE;
+  --fg3: #757E8E;
+  --fg-disabled: #4E5666;
+  --fg-on-accent: #04181E;
+
+  --accent:       var(--accent-400);   /* brighter for dark contrast */
+  --accent-hover: var(--accent-300);
+  --accent-text:  var(--accent-300);
+  --accent-soft-bg: rgba(39, 174, 203, 0.12);
+  --accent-soft-border: rgba(39, 174, 203, 0.28);
+
+  --topo-line:    var(--accent-400);
+  --topo-line-stale: #3A414F;
+
+  /* status — slightly lifted for dark surfaces */
+  --success-fg: #3CD9A0; --success-bg: rgba(18,160,116,0.14); --success-border: rgba(60,217,160,0.30);
+  --warning-fg: #F0B752; --warning-bg: rgba(217,145,30,0.14); --warning-border: rgba(240,183,82,0.30);
+  --danger-fg:  #FF8A80; --danger-bg:  rgba(220,54,46,0.14);  --danger-border:  rgba(255,138,128,0.30);
+  --info-fg:    #5CC6DC; --info-bg:    rgba(39,174,203,0.14); --info-border:    rgba(92,198,220,0.30);
+  --neutral-status-fg: #A8B0BE; --neutral-status-bg: #21252E; --neutral-status-border: #3A414F;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.30);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.50), 0 1px 3px rgba(0,0,0,0.35);
+  --shadow-lg: 0 12px 28px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.40);
+  --shadow-xl: 0 24px 56px rgba(0,0,0,0.60), 0 4px 12px rgba(0,0,0,0.45);
+  --focus-ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-400);
+
+  color-scheme: dark;
+}
+
+/* ============================================================================
+   BASE ELEMENT STYLES + SEMANTIC TYPE CLASSES
+   ============================================================================ */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--fg1);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.t-eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--fg3);
+}
+.t-h1 { font-size: var(--text-2xl); font-weight: var(--weight-semibold); line-height: var(--leading-tight); letter-spacing: var(--tracking-tight); color: var(--fg1); }
+.t-h2 { font-size: var(--text-xl);  font-weight: var(--weight-semibold); line-height: var(--leading-snug);  letter-spacing: var(--tracking-tight); color: var(--fg1); }
+.t-h3 { font-size: var(--text-lg);  font-weight: var(--weight-semibold); line-height: var(--leading-snug);  color: var(--fg1); }
+.t-title { font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--fg1); }
+.t-body { font-size: var(--text-base); font-weight: var(--weight-regular); line-height: var(--leading-normal); color: var(--fg1); }
+.t-body-2 { font-size: var(--text-sm); color: var(--fg2); }
+.t-meta { font-size: var(--text-xs); color: var(--fg3); }
+.t-mono { font-family: var(--font-mono); font-size: var(--text-sm); letter-spacing: 0; }
+.t-code { font-family: var(--font-mono); font-size: var(--text-sm); background: var(--surface-3); padding: 2px 6px; border-radius: var(--radius-xs); color: var(--fg1); }
+
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }

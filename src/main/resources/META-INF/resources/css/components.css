@@ -1,0 +1,126 @@
+/* ============================================================================
+   Islandr — Component primitives. Requires tokens.css first.
+   Lifted from the design handoff bundle (working title there: "Bastion").
+   ============================================================================ */
+
+/* ---- Buttons ------------------------------------------------------------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  height: var(--control-h); padding: 0 var(--space-4);
+  font-family: var(--font-sans); font-size: var(--text-base); font-weight: var(--weight-medium);
+  border-radius: var(--radius-md); border: 1px solid transparent; cursor: pointer;
+  transition: background var(--dur) var(--ease-standard), border-color var(--dur) var(--ease-standard), color var(--dur) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
+  white-space: nowrap; user-select: none;
+}
+.btn:active { transform: translateY(0.5px); }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn .icon { width: 16px; height: 16px; }
+
+.btn-primary { background: var(--accent); color: var(--fg-on-accent); border-color: var(--accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.btn-secondary { background: var(--surface); color: var(--fg1); border-color: var(--border-strong); }
+.btn-secondary:hover:not(:disabled) { background: var(--surface-2); border-color: var(--neutral-400); }
+
+.btn-ghost { background: transparent; color: var(--fg2); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--fg1); }
+
+.btn-danger { background: var(--danger-solid); color: #fff; border-color: var(--danger-solid); }
+.btn-danger:hover:not(:disabled) { filter: brightness(0.94); }
+
+.btn-sm { height: var(--control-h-sm); padding: 0 var(--space-3); font-size: var(--text-sm); }
+.btn-lg { height: var(--control-h-lg); padding: 0 var(--space-5); font-size: var(--text-md); }
+.btn-icon { width: var(--control-h); padding: 0; }
+.btn-block { width: 100%; }
+
+.btn.is-loading { color: transparent !important; position: relative; pointer-events: none; }
+.btn.is-loading::after {
+  content: ""; position: absolute; width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  color: var(--fg-on-accent); animation: spin 0.7s linear infinite;
+}
+.btn-secondary.is-loading::after, .btn-ghost.is-loading::after { color: var(--fg2); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Inputs -------------------------------------------------------------- */
+.field { display: flex; flex-direction: column; gap: var(--space-2); }
+.field-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg1); }
+.field-hint { font-size: var(--text-xs); color: var(--fg3); }
+.field-error { font-size: var(--text-xs); color: var(--danger-fg); display: flex; align-items: center; gap: 4px; }
+
+.input, .textarea, .select {
+  height: var(--control-h); padding: 0 var(--space-3);
+  font-family: var(--font-sans); font-size: var(--text-base); color: var(--fg1);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+  transition: border-color var(--dur) var(--ease-standard), box-shadow var(--dur) var(--ease-standard);
+  width: 100%;
+}
+.input::placeholder, .textarea::placeholder { color: var(--fg3); }
+.input:hover, .textarea:hover, .select:hover { border-color: var(--neutral-400); }
+.input:focus, .textarea:focus, .select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-bg); }
+.textarea { height: auto; padding: var(--space-3); min-height: 84px; line-height: var(--leading-normal); resize: vertical; }
+.input.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.input:disabled { background: var(--surface-3); color: var(--fg-disabled); cursor: not-allowed; }
+.input.is-invalid { border-color: var(--danger-solid); }
+.input.is-invalid:focus { box-shadow: 0 0 0 3px var(--danger-bg); }
+
+/* ---- Toggle -------------------------------------------------------------- */
+.toggle { position: relative; display: inline-flex; width: 38px; height: 22px; flex: none; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .track { position: absolute; inset: 0; background: var(--neutral-300); border-radius: var(--radius-full); transition: background var(--dur) var(--ease-standard); }
+.toggle .thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; box-shadow: var(--shadow-sm); transition: transform var(--dur) var(--ease-standard); }
+.toggle input:checked + .track { background: var(--accent); }
+.toggle input:checked + .track + .thumb { transform: translateX(16px); }
+.toggle input:focus-visible + .track { box-shadow: var(--focus-ring); }
+
+/* ---- Checkbox / radio ---------------------------------------------------- */
+.checkbox, .radio { width: 18px; height: 18px; border: 1.5px solid var(--border-strong); background: var(--surface); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; transition: all var(--dur) var(--ease-standard); }
+.checkbox { border-radius: var(--radius-xs); }
+.radio { border-radius: 50%; }
+.checkbox[aria-checked="true"], .radio[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.radio[aria-checked="true"]::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; }
+
+/* ---- Cards --------------------------------------------------------------- */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.card-pad { padding: var(--space-5); }
+.card-hover { transition: box-shadow var(--dur) var(--ease-standard), border-color var(--dur) var(--ease-standard); }
+.card-hover:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+
+/* ---- Badges / status pills (color + icon + label) ------------------------ */
+.badge { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; font-size: var(--text-xs); font-weight: var(--weight-medium); border-radius: var(--radius-full); border: 1px solid transparent; white-space: nowrap; }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.badge .icon { width: 12px; height: 12px; }
+.badge-success { color: var(--success-fg); background: var(--success-bg); border-color: var(--success-border); }
+.badge-success .dot { background: var(--success-solid); }
+.badge-warning { color: var(--warning-fg); background: var(--warning-bg); border-color: var(--warning-border); }
+.badge-warning .dot { background: var(--warning-solid); }
+.badge-danger  { color: var(--danger-fg);  background: var(--danger-bg);  border-color: var(--danger-border); }
+.badge-danger .dot { background: var(--danger-solid); }
+.badge-neutral { color: var(--neutral-status-fg); background: var(--neutral-status-bg); border-color: var(--neutral-status-border); }
+.badge-neutral .dot { background: var(--neutral-400); }
+.badge-info { color: var(--info-fg); background: var(--info-bg); border-color: var(--info-border); }
+.badge-info .dot { background: var(--info-solid); }
+
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; font-size: var(--text-xs); font-weight: var(--weight-medium); border-radius: var(--radius-sm); background: var(--surface-3); color: var(--fg2); border: 1px solid var(--border); }
+
+/* ---- Avatar -------------------------------------------------------------- */
+.avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-family: var(--font-sans); font-weight: var(--weight-semibold); color: #fff; overflow: hidden; flex: none; background-size: cover; background-position: center; }
+.avatar-16 { width: 16px; height: 16px; font-size: 8px; }
+.avatar-24 { width: 24px; height: 24px; font-size: 10px; }
+.avatar-32 { width: 32px; height: 32px; font-size: 12px; }
+.avatar-48 { width: 48px; height: 48px; font-size: 17px; }
+.avatar-80 { width: 80px; height: 80px; font-size: 28px; }
+
+/* ---- Table --------------------------------------------------------------- */
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.table th { text-align: left; font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--fg3); text-transform: uppercase; letter-spacing: var(--tracking-wide); padding: 0 var(--space-4); height: 36px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.table td { padding: 0 var(--space-4); height: var(--row-height); border-bottom: 1px solid var(--border-subtle); color: var(--fg1); vertical-align: middle; }
+.table tbody tr { transition: background var(--dur-fast) var(--ease-standard); }
+.table tbody tr:hover { background: var(--surface-2); }
+.table .mono { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg2); }
+
+/* ---- Misc ---------------------------------------------------------------- */
+.divider { height: 1px; background: var(--border); border: 0; margin: 0; }
+.kbd { font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 6px; border-radius: var(--radius-xs); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--fg2); box-shadow: 0 1px 0 var(--border-strong); }
+.skeleton { background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 50%, var(--surface-3) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: var(--radius-sm); }
+@keyframes shimmer { to { background-position: -200% 0; } }

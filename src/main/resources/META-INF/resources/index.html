@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Islandr</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!--
+      Fonts are loaded from Google Fonts in this v1 walking skeleton.
+      Production must self-host IBM Plex per PRD N-01 (no external runtime dependencies).
+      Tracked as a follow-up; not blocking the dev loop.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    />
+
+    <!-- Anti-FOUC: apply theme before first paint. Reads localStorage, falls
+         back to OS preference. Must be synchronous and before any CSS paint. -->
+    <script>
+      (function () {
+        var stored = localStorage.getItem("islandr.theme");
+        var theme = stored === "dark" || stored === "light"
+          ? stored
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+
+    <link rel="stylesheet" href="/css/tokens.css" />
+    <link rel="stylesheet" href="/css/components.css" />
+    <link rel="stylesheet" href="/css/app.css" />
+
+    <!--
+      Vue + vue-router via importmap. Both self-hosted under /vendor/.
+      No build step, no node_modules. See docs/adr/0002-vue-without-npm.md.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "vue": "/vendor/vue.esm-browser.prod.js",
+          "vue-router": "/vendor/vue-router.esm-browser.js",
+          "@vue/devtools-api": "/vendor/vue-devtools-api-stub.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>
