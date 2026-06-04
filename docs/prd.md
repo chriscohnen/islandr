@@ -117,7 +117,7 @@ Format: EARS (Easy Approach to Requirements Syntax) where it fits cleanly; plain
 | N-05 | API is RESTful JSON, suitable for scripting and the future pull-mode agent. |
 | N-06 | Peer private keys are shown exactly once and not stored in plaintext. If retained at all (for re-display before first handshake), they are encrypted at rest with an admin-provided key. |
 | N-07 | Audit log is append-only and accessible in the UI. |
-| N-08 | All UI text is German, informal `Du`. No emoji. Status is icon + label, never color alone. |
+| N-08 | UI is bilingual DE/EN with a runtime language toggle. German default, informal `Du`. No emoji. Status is icon + label, never color alone. |
 | N-09 | Light and dark theme are equal-weight and ship together in v1. |
 | N-10 | Both themes meet WCAG AA: text contrast ≥4.5:1, large text ≥3:1, visible `:focus-visible` ring. |
 
