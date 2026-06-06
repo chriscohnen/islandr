@@ -108,6 +108,11 @@ public class MockWgAdapter implements WgAdapter {
         return out;
     }
 
+    @Override
+    public ServerInfo probeServer(String iface) {
+        return new ServerInfo("MOCK+PublicKey+ProbeResult+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", 51820);
+    }
+
     /** Test-only hook to reset state between tests. */
     public synchronized void reset() {
         peers.clear();

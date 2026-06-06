@@ -194,11 +194,12 @@ export default defineComponent({
         </button>
       </div>
 
-      <div v-if="sites.length === 0" class="topo-empty">
-        <span>Noch keine Standorte angelegt. Lege unter </span><strong>Netzwerke</strong><span> einen Standort mit Ressourcen an.</span>
+      <div v-if="sites.length === 0" class="topo-empty"
+           style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1">
+        <span style="pointer-events: auto">Noch keine Standorte angelegt. Lege unter&#32;<router-link to="/networks" style="font-weight: 600; color: var(--fg1); text-decoration: underline">Netzwerke</router-link>&#32;einen Standort mit Ressourcen an.</span>
       </div>
 
-      <svg v-else class="topo" :viewBox="viewBox"
+      <svg class="topo" :viewBox="viewBox"
            style="transition: viewBox 0.3s ease"
            role="img" aria-label="Netzwerk-Topologie">
 

@@ -10,6 +10,7 @@ export default defineComponent({
     return {
       loading: true,
       saving: false,
+      probing: false,
       error: null,
       info: null,
       form: {
@@ -98,6 +99,28 @@ export default defineComponent({
       }
     },
 
+    async probeWg() {
+      this.probing = true;
+      this.error = null;
+      try {
+        const iface = this.form.wgServerEndpoint
+            ? (this.form.wgServerEndpoint.split(":")[0] === "wg0" ? "wg0" : "wg0")
+            : "wg0";
+        const res = await fetch("/api/v1/settings/wg-probe?iface=" + encodeURIComponent(iface));
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "HTTP " + res.status);
+        }
+        const data = await res.json();
+        this.form.wgServerPublicKey = data.publicKey;
+        this.info = t("settings.wg_probe_success", { iface: data.iface, port: data.listenPort });
+      } catch (e) {
+        this.error = t("settings.wg_probe_error", { error: e.message });
+      } finally {
+        this.probing = false;
+      }
+    },
+
     formatDate(iso) {
       if (!iso) return "—";
       return new Date(iso).toLocaleString("de-DE");
@@ -133,8 +156,14 @@ export default defineComponent({
 
         <div class="field field-full">
           <label for="wgServerPublicKey">{{ t('settings.field_pubkey') }}</label>
-          <input id="wgServerPublicKey" class="input mono" v-model="form.wgServerPublicKey" required placeholder="Base64…" />
-          <div class="field-hint">Base64. Wird beim Setup einmal von der Hub-VM gelesen ("wg show wg0 public-key").</div>
+          <div style="display: flex; gap: var(--space-2); align-items: center">
+            <input id="wgServerPublicKey" class="input mono" v-model="form.wgServerPublicKey" required placeholder="Base64…" style="flex: 1" />
+            <button type="button" class="btn btn-ghost btn-sm" :disabled="probing" @click="probeWg" style="white-space: nowrap; flex-shrink: 0">
+              <span v-if="probing">…</span>
+              <span v-else>{{ t('settings.wg_probe_btn') }}</span>
+            </button>
+          </div>
+          <div class="field-hint">{{ t('settings.field_pubkey_hint') }}</div>
         </div>
 
         <div class="field field-full">

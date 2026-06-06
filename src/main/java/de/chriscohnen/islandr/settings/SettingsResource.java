@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.settings;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
+import de.chriscohnen.islandr.wg.WgAdapter;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
@@ -10,9 +11,11 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,6 +27,7 @@ public class SettingsResource {
 
     @Inject SettingsService settings;
     @Inject AuditService audit;
+    @Inject WgAdapter wg;
 
     @GET
     public SettingsDto.Response get(@Context ContainerRequestContext ctx) {
@@ -40,6 +44,26 @@ public class SettingsResource {
         audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
                 before, settingsSnapshot(after));
         return SettingsDto.Response.from(after);
+    }
+
+    @GET
+    @Path("/wg-probe")
+    public Response wgProbe(@Context ContainerRequestContext ctx,
+                            @QueryParam("iface") String iface) {
+        Auth.requireAdmin(ctx);
+        String effectiveIface = (iface != null && !iface.isBlank()) ? iface : "wg0";
+        WgAdapter.ServerInfo info = wg.probeServer(effectiveIface);
+        if (info == null) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity(Map.of("error", "wg interface not accessible",
+                                   "iface", effectiveIface))
+                    .build();
+        }
+        return Response.ok(Map.of(
+                "publicKey", info.publicKey(),
+                "listenPort", info.listenPort(),
+                "iface", effectiveIface
+        )).build();
     }
 
     private static Map<String, Object> settingsSnapshot(Settings s) {

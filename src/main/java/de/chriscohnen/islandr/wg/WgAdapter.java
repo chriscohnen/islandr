@@ -54,4 +54,15 @@ public interface WgAdapter {
 
     /** Snapshot every peer on the interface. Used by the activity poller. */
     List<PeerStatus> showPeers(String iface);
+
+    /**
+     * Read the server's own public key and listen port from the live interface.
+     * Used by the setup wizard to pre-fill settings from an existing WireGuard
+     * installation. Returns {@code null} if the interface is not accessible
+     * (e.g. Docker without a socket proxy, or interface not yet up).
+     */
+    ServerInfo probeServer(String iface);
+
+    /** Public key and listen port of the WireGuard server interface. */
+    record ServerInfo(String publicKey, int listenPort) {}
 }

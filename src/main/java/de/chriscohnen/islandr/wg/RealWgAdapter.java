@@ -74,6 +74,33 @@ public class RealWgAdapter implements WgAdapter {
         return parseShowDump(output);
     }
 
+    @Override
+    public ServerInfo probeServer(String iface) {
+        try {
+            String output = runCapture(new String[]{"wg", "show", iface, "dump"}, null, useSudo);
+            return parseServerInfo(output);
+        } catch (WgException e) {
+            LOG.infof("wg probe failed for iface %s: %s", iface, e.getMessage());
+            return null;
+        }
+    }
+
+    static ServerInfo parseServerInfo(String dumpOutput) {
+        if (dumpOutput == null || dumpOutput.isBlank()) return null;
+        String firstLine = dumpOutput.split("\n")[0].trim();
+        String[] fields = firstLine.split("\t");
+        // format: private-key  public-key  listen-port  fwmark
+        if (fields.length < 3) return null;
+        String publicKey = fields[1];
+        int listenPort;
+        try {
+            listenPort = Integer.parseInt(fields[2]);
+        } catch (NumberFormatException e) {
+            listenPort = 51820;
+        }
+        return new ServerInfo(publicKey, listenPort);
+    }
+
     /**
      * Parse the tab-separated output of {@code wg show <iface> dump}.
      *
