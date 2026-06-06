@@ -184,6 +184,7 @@ islandr/
 - Peer CRUD: client and site peer types, IP suggestion from WG subnet, CIDR-overlap validation
 - Server-side keypair generation or admin-imported public key (validated via `wg pubkey`)
 - QR code + `.conf` download with one-time-secret pattern; re-show in `plaintext` retention mode
+- **Import peers from live wg0** — reads `wg show wg0 dump`, compares by public key, lets admin select and name unmanaged peers in one step
 
 **Networks, resources & firewall**
 - Sites and resources with typed resource cards (computer, router, printer, NAS, camera, IoT, virt-host, management)
