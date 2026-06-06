@@ -15,10 +15,16 @@ public final class SiteDto {
             Double lat,
             Double lng,
             int resourceCount,
-            Instant createdAt
+            Instant createdAt,
+            String gatewayPeerId,
+            String gatewayPeerName,
+            // null when no gateway configured; true/false based on lastSeenAt within 5 min
+            Boolean gatewayOnline
     ) {
-        public static Response from(Site s, int resourceCount) {
-            return new Response(s.id, s.name, s.cidr, s.description, s.lat, s.lng, resourceCount, s.createdAt);
+        public static Response from(Site s, int resourceCount,
+                                    String gatewayPeerName, Boolean gatewayOnline) {
+            return new Response(s.id, s.name, s.cidr, s.description, s.lat, s.lng,
+                    resourceCount, s.createdAt, s.gatewayPeerId, gatewayPeerName, gatewayOnline);
         }
     }
 
@@ -30,7 +36,9 @@ public final class SiteDto {
             String cidr,
             String description,
             Double lat,
-            Double lng
+            Double lng,
+            // optional — peer id of the site gateway router
+            String gatewayPeerId
     ) {}
 
     private SiteDto() {}

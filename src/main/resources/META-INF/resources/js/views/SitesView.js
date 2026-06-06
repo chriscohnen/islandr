@@ -11,10 +11,11 @@ export default defineComponent({
   data() {
     return {
       sites: [],
+      peers: [],   // site-type peers available as gateway candidates
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
-      form: { name: "", cidr: "", description: "", lat: "", lng: "" },
+      form: { name: "", cidr: "", description: "", lat: "", lng: "", gatewayPeerId: "" },
       editId: null,
       submitting: false,
       formError: null,
@@ -31,9 +32,17 @@ export default defineComponent({
       this.loading = true;
       this.error = null;
       try {
-        const res = await fetch("/api/v1/sites");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        this.sites = await res.json();
+        const [sitesRes, peersRes] = await Promise.all([
+          fetch("/api/v1/sites"),
+          fetch("/api/v1/peers"),
+        ]);
+        if (!sitesRes.ok) throw new Error("HTTP " + sitesRes.status);
+        this.sites = await sitesRes.json();
+        if (peersRes.ok) {
+          const all = await peersRes.json();
+          // only site-type peers make sense as gateways
+          this.peers = all.filter(p => p.type === "site");
+        }
       } catch (e) {
         this.error = t("sites.error_load", { error: e.message });
       } finally {
@@ -43,13 +52,20 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", cidr: "", description: "", lat: "", lng: "" };
+      this.form = { name: "", cidr: "", description: "", lat: "", lng: "", gatewayPeerId: "" };
       this.formError = null;
     },
     openEdit(site) {
       this.modal = "edit";
       this.editId = site.id;
-      this.form = { name: site.name, cidr: site.cidr, description: site.description || "", lat: site.lat ?? "", lng: site.lng ?? "" };
+      this.form = {
+        name: site.name,
+        cidr: site.cidr,
+        description: site.description || "",
+        lat: site.lat ?? "",
+        lng: site.lng ?? "",
+        gatewayPeerId: site.gatewayPeerId || "",
+      };
       this.formError = null;
     },
     closeModal() {
@@ -70,6 +86,7 @@ export default defineComponent({
             ...this.form,
             lat: this.form.lat !== "" ? parseFloat(this.form.lat) : null,
             lng: this.form.lng !== "" ? parseFloat(this.form.lng) : null,
+            gatewayPeerId: this.form.gatewayPeerId || null,
           }),
         });
         if (!res.ok) {
@@ -124,6 +141,7 @@ export default defineComponent({
         <tr>
           <th>{{ t('sites.th_name') }}</th>
           <th>{{ t('sites.th_cidr') }}</th>
+          <th>{{ t('sites.th_gateway') }}</th>
           <th>{{ t('sites.th_desc') }}</th>
           <th>{{ t('sites.th_resources') }}</th>
           <th>{{ t('sites.th_created') }}</th>
@@ -134,6 +152,14 @@ export default defineComponent({
         <tr v-for="s in sites" :key="s.id">
           <td>{{ s.name }}</td>
           <td class="mono">{{ s.cidr }}</td>
+          <td>
+            <span v-if="!s.gatewayPeerId" class="muted">—</span>
+            <span v-else style="display:inline-flex;align-items:center;gap:var(--space-2)">
+              <span :style="s.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--status-error)'"
+                    style="font-size:10px">●</span>
+              <span>{{ s.gatewayPeerName || s.gatewayPeerId }}</span>
+            </span>
+          </td>
           <td class="muted">{{ s.description || "—" }}</td>
           <td>
             <button class="btn btn-ghost btn-sm" @click="goToResources(s)">
@@ -177,6 +203,14 @@ export default defineComponent({
               <label for="siteCidr">{{ t('sites.field_cidr') }}</label>
               <input id="siteCidr" class="input mono" v-model="form.cidr" required placeholder="10.20.0.0/16" />
               <div class="field-hint">Das Netz hinter dem Standort. Nur informativ — wird nicht enforced.</div>
+            </div>
+            <div class="field" style="margin-bottom: var(--space-4)">
+              <label for="siteGateway">{{ t('sites.field_gateway') }}</label>
+              <select id="siteGateway" class="select" v-model="form.gatewayPeerId">
+                <option value="">{{ t('sites.field_gateway_none') }}</option>
+                <option v-for="p in peers" :key="p.id" :value="p.id">{{ p.name }} ({{ p.assignedIp }})</option>
+              </select>
+              <div class="field-hint">{{ t('sites.field_gateway_hint') }}</div>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteDesc">{{ t('sites.field_desc') }}</label>

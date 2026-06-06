@@ -44,6 +44,10 @@ public class Site extends PanacheEntityBase {
     @Column(name = "lng")
     public Double lng;
 
+    /** Optional peer that routes traffic for this site's CIDR. Null = no gateway configured. */
+    @Column(name = "gateway_peer_id", length = 36)
+    public String gatewayPeerId;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 

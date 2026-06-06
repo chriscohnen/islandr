@@ -1,0 +1,1 @@
+ALTER TABLE sites ADD COLUMN gateway_peer_id TEXT REFERENCES peers(id) ON DELETE SET NULL;

@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.acl;
 
+import de.chriscohnen.islandr.peer.Peer;
 import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
@@ -7,6 +8,7 @@ import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +23,19 @@ public class SiteService {
         Site s = Site.findById(id);
         if (s == null) throw new NotFoundException("site not found: " + id);
         return s;
+    }
+
+    public SiteDto.Response toResponse(Site s, int resourceCount) {
+        if (s.gatewayPeerId == null) {
+            return SiteDto.Response.from(s, resourceCount, null, null);
+        }
+        Peer gw = Peer.findById(s.gatewayPeerId);
+        if (gw == null) {
+            return SiteDto.Response.from(s, resourceCount, null, null);
+        }
+        Instant threshold = Instant.now().minus(5, java.time.temporal.ChronoUnit.MINUTES);
+        boolean online = gw.lastSeenAt != null && gw.lastSeenAt.isAfter(threshold);
+        return SiteDto.Response.from(s, resourceCount, gw.name, online);
     }
 
     public Map<String, Long> resourceCountBySite() {
@@ -43,6 +58,7 @@ public class SiteService {
                             .build());
         }
         Site s = Site.createNew(req.name(), req.cidr(), req.description(), req.lat(), req.lng());
+        s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         s.persist();
         return s;
     }
@@ -61,7 +77,14 @@ public class SiteService {
         s.description = req.description();
         s.lat = req.lat();
         s.lng = req.lng();
+        s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         return s;
+    }
+
+    private String validatedGatewayPeerId(String peerId) {
+        if (peerId == null || peerId.isBlank()) return null;
+        if (Peer.findById(peerId) == null) throw new jakarta.ws.rs.NotFoundException("gateway peer not found: " + peerId);
+        return peerId;
     }
 
     @Transactional

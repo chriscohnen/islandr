@@ -35,7 +35,7 @@ public class SiteResource {
         Auth.requireAdmin(ctx);
         Map<String, Long> counts = sites.resourceCountBySite();
         return sites.listAll().stream()
-                .map(s -> SiteDto.Response.from(s, counts.getOrDefault(s.id, 0L).intValue()))
+                .map(s -> sites.toResponse(s, counts.getOrDefault(s.id, 0L).intValue()))
                 .toList();
     }
 
@@ -44,7 +44,7 @@ public class SiteResource {
     public SiteDto.Response get(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
         Auth.requireAdmin(ctx);
         Site s = sites.get(id);
-        return SiteDto.Response.from(s, (int) de.chriscohnen.islandr.acl.Resource.count("siteId", id));
+        return sites.toResponse(s, (int) Resource.count("siteId", id));
     }
 
     @POST
@@ -54,9 +54,10 @@ public class SiteResource {
         Site s = sites.create(body);
         audit.logCreate(a.principal(), "site.create", "Site:" + s.name + " (" + s.id + ")",
                 Map.of("name", s.name, "cidr", s.cidr,
-                        "description", s.description == null ? "" : s.description));
+                        "description", s.description == null ? "" : s.description,
+                        "gatewayPeerId", s.gatewayPeerId == null ? "" : s.gatewayPeerId));
         return Response.created(UriBuilder.fromResource(SiteResource.class).path(s.id).build())
-                .entity(SiteDto.Response.from(s, 0))
+                .entity(sites.toResponse(s, 0))
                 .build();
     }
 
@@ -69,12 +70,14 @@ public class SiteResource {
         Site before = sites.get(id);
         Map<String, Object> beforeMap = Map.of(
                 "name", before.name, "cidr", before.cidr,
-                "description", before.description == null ? "" : before.description);
+                "description", before.description == null ? "" : before.description,
+                "gatewayPeerId", before.gatewayPeerId == null ? "" : before.gatewayPeerId);
         Site after = sites.update(id, body);
         audit.logUpdate(a.principal(), "site.update", "Site:" + after.name + " (" + id + ")", beforeMap,
                 Map.of("name", after.name, "cidr", after.cidr,
-                        "description", after.description == null ? "" : after.description));
-        return SiteDto.Response.from(after, (int) de.chriscohnen.islandr.acl.Resource.count("siteId", id));
+                        "description", after.description == null ? "" : after.description,
+                        "gatewayPeerId", after.gatewayPeerId == null ? "" : after.gatewayPeerId));
+        return sites.toResponse(after, (int) Resource.count("siteId", id));
     }
 
     @DELETE
