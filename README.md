@@ -22,7 +22,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 
 ---
 
-![Dashboard screenshot](docs/screenshots/dashboard.png)
+![Dashboard screenshot](https://islandr-gateway.net/screenshots/light/dashboard.png)
 
 ---
 
