@@ -355,7 +355,8 @@ export default defineComponent({
                            style="width:15px;height:15px;accent-color:var(--accent);margin:0" />
                   </td>
                   <td class="mono" style="font-size:11px">{{ c.publicKey.slice(0,16) }}…
-                    <span v-if="c.alreadyExists" class="badge badge-neutral" style="margin-left:4px;font-size:10px">{{ t('peers.import_exists') }}</span>
+                    <span v-if="c.alreadyExists && c.assignedIp" class="badge badge-neutral" style="margin-left:4px;font-size:10px">{{ t('peers.import_exists') }}</span>
+                    <span v-if="c.alreadyExists && !c.assignedIp" class="badge badge-neutral" style="margin-left:4px;font-size:10px">IPv6</span>
                   </td>
                   <td class="mono">{{ c.assignedIp || '—' }}</td>
                   <td>

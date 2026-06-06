@@ -532,20 +532,28 @@ public class PeerService {
                 .stream().map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
         return live.stream().map(ps -> {
             String ip = extractFirstIp(ps.allowedIps());
+            // Mark as non-importable (alreadyExists=true) when no IPv4 address found —
+            // e.g. IPv6-only peers. This grays them out in the UI without hiding them.
+            boolean skip = existingKeys.contains(ps.publicKey()) || ip == null;
             return new PeerDto.WgImportCandidate(
                     ps.publicKey(),
                     ps.allowedIps(),
                     ip,
                     ps.endpoint(),
-                    existingKeys.contains(ps.publicKey()));
+                    skip);
         }).toList();
     }
 
-    /** Extract the first host address from an allowedIps string like "10.8.0.5/32,10.8.0.6/32". */
+    /** Extract the first IPv4 host address from an allowedIps string like "10.8.0.5/32,fd11::1/128".
+     *  IPv6 addresses are skipped — Islandr manages IPv4 peers only. */
     private static String extractFirstIp(String allowedIps) {
         if (allowedIps == null || allowedIps.isBlank()) return null;
-        String first = allowedIps.split(",")[0].trim();
-        return first.contains("/") ? first.substring(0, first.indexOf('/')) : first;
+        for (String entry : allowedIps.split(",")) {
+            String addr = entry.trim();
+            if (addr.contains("/")) addr = addr.substring(0, addr.indexOf('/'));
+            if (addr.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) return addr;
+        }
+        return null;
     }
 
     @Transactional

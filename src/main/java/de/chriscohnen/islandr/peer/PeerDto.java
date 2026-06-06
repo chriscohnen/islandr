@@ -137,9 +137,9 @@ public final class PeerDto {
     public record WgImportCandidate(
             String publicKey,
             String allowedIps,   // as reported by wg, e.g. "10.8.0.5/32"
-            String assignedIp,   // first host address stripped from allowedIps, suggested for import
+            String assignedIp,   // first IPv4 address stripped from allowedIps; null for IPv6-only peers
             String endpoint,     // last known endpoint IP:port, null if never connected
-            boolean alreadyExists  // true when a peer with this public key is already in the DB
+            boolean alreadyExists  // true when already in DB or when no IPv4 address available
     ) {}
 
     /** One entry in a {@code POST /api/v1/peers/wg-import} request. */
