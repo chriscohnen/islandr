@@ -28,13 +28,14 @@ public final class ResourceDto {
     public record PortResponse(
             String id,
             int port,
+            Integer portEnd,
             String transport,
             String protocol,
             String label,
             Instant createdAt
     ) {
         public static PortResponse from(ResourcePort p) {
-            return new PortResponse(p.id, p.port, p.transport, p.protocol, p.label, p.createdAt);
+            return new PortResponse(p.id, p.port, p.portEnd, p.transport, p.protocol, p.label, p.createdAt);
         }
     }
 
@@ -71,9 +72,10 @@ public final class ResourceDto {
     ) {}
 
     public record PortRequest(
-            @Min(1) @Max(65535) int port,
+            @Min(0) @Max(65535) int port,
+            Integer portEnd,
             @NotBlank
-            @Pattern(regexp = "^(tcp|udp)$", message = "transport must be 'tcp' or 'udp'")
+            @Pattern(regexp = "^(tcp|udp|both)$", message = "transport must be 'tcp', 'udp', or 'both'")
             String transport,
             @NotBlank String protocol,
             String label

@@ -94,15 +94,14 @@ public class ResourceService {
     @Transactional
     public ResourcePort addPort(String resourceId, ResourceDto.PortRequest req) {
         Resource r = get(resourceId);  // 404 if missing
-        if (ResourcePort.count(
-                "resourceId = ?1 and port = ?2 and transport = ?3",
-                r.id, req.port(), req.transport()) > 0) {
+        validatePortRange(req.port(), req.portEnd());
+        if (portConflictExists(r.id, req.port(), req.portEnd(), req.transport(), null)) {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
-                            .entity("port " + req.port() + "/" + req.transport()
+                            .entity("port " + portSpec(req.port(), req.portEnd()) + "/" + req.transport()
                                     + " already exists on this resource").build());
         }
-        ResourcePort p = ResourcePort.createNew(r.id, req.port(), req.transport(),
+        ResourcePort p = ResourcePort.createNew(r.id, req.port(), req.portEnd(), req.transport(),
                 req.protocol(), req.label());
         p.persist();
         return p;
@@ -112,16 +111,18 @@ public class ResourceService {
     public ResourcePort updatePort(String portId, ResourceDto.PortRequest req) {
         ResourcePort p = ResourcePort.findById(portId);
         if (p == null) throw new NotFoundException("port not found: " + portId);
-        if ((p.port != req.port() || !p.transport.equals(req.transport()))
-                && ResourcePort.count(
-                        "resourceId = ?1 and port = ?2 and transport = ?3 and id <> ?4",
-                        p.resourceId, req.port(), req.transport(), portId) > 0) {
+        validatePortRange(req.port(), req.portEnd());
+        boolean changed = p.port != req.port()
+                || !java.util.Objects.equals(p.portEnd, req.portEnd())
+                || !p.transport.equals(req.transport());
+        if (changed && portConflictExists(p.resourceId, req.port(), req.portEnd(), req.transport(), portId)) {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
-                            .entity("port " + req.port() + "/" + req.transport()
+                            .entity("port " + portSpec(req.port(), req.portEnd()) + "/" + req.transport()
                                     + " already exists on this resource").build());
         }
         p.port = req.port();
+        p.portEnd = req.portEnd();
         p.transport = req.transport();
         p.protocol = req.protocol();
         p.label = req.label();
@@ -136,6 +137,57 @@ public class ResourceService {
         // grants pointing at this port go away with it. Grants with
         // all_ports=true survive (they were never tied to this port row).
         p.delete();
+    }
+
+    /**
+     * HQL does not support `IS ?param` for nullable columns, so null vs. non-null
+     * portEnd requires two separate query shapes.
+     * @param excludePortId if non-null, excludes that row (used by updatePort)
+     */
+    private static boolean portConflictExists(String resourceId, int port, Integer portEnd,
+                                              String transport, String excludePortId) {
+        if (portEnd == null) {
+            if (excludePortId == null) {
+                return ResourcePort.count(
+                        "resourceId = ?1 and port = ?2 and portEnd is null and transport = ?3",
+                        resourceId, port, transport) > 0;
+            } else {
+                return ResourcePort.count(
+                        "resourceId = ?1 and port = ?2 and portEnd is null and transport = ?3 and id <> ?4",
+                        resourceId, port, transport, excludePortId) > 0;
+            }
+        } else {
+            if (excludePortId == null) {
+                return ResourcePort.count(
+                        "resourceId = ?1 and port = ?2 and portEnd = ?3 and transport = ?4",
+                        resourceId, port, portEnd, transport) > 0;
+            } else {
+                return ResourcePort.count(
+                        "resourceId = ?1 and port = ?2 and portEnd = ?3 and transport = ?4 and id <> ?5",
+                        resourceId, port, portEnd, transport, excludePortId) > 0;
+            }
+        }
+    }
+
+    /** Cross-field validation: port=0 must have portEnd=null; range end must exceed start. */
+    private static void validatePortRange(int port, Integer portEnd) {
+        if (port == 0 && portEnd != null) {
+            throw new BadRequestException("portEnd must be null when port=0 (all-ports sentinel)");
+        }
+        if (portEnd != null) {
+            if (portEnd <= port) {
+                throw new BadRequestException("portEnd must be greater than port");
+            }
+            if (portEnd > 65535) {
+                throw new BadRequestException("portEnd must be ≤ 65535");
+            }
+        }
+    }
+
+    private static String portSpec(int port, Integer portEnd) {
+        if (port == 0) return "all";
+        if (portEnd != null) return port + "-" + portEnd;
+        return String.valueOf(port);
     }
 
     /** Convenience: validate that an admin's "limited" grant actually names ports of THIS resource. */

@@ -26,7 +26,7 @@ export default defineComponent({
       formError: null,
       // Inline port form (one per resource at a time)
       portFormFor: null,
-      portForm: { port: "", transport: "tcp", protocol: "", label: "" },
+      portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "" },
       portError: null,
       // Port-group apply (separate inline form, one resource at a time)
       portGroups: [],
@@ -189,7 +189,7 @@ export default defineComponent({
     },
     openPortForm(resourceId) {
       this.portFormFor = resourceId;
-      this.portForm = { port: "", transport: "tcp", protocol: "", label: "" };
+      this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "" };
       this.portError = null;
       // Close the group-apply UI to keep only one inline form open at a time.
       this.groupFormFor = null;
@@ -201,16 +201,28 @@ export default defineComponent({
     async submitPort() {
       this.portError = null;
       try {
-        const portNum = parseInt(this.portForm.port, 10);
-        if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-          this.portError = "Port muss zwischen 1 und 65535 liegen.";
-          return;
+        let portNum, portEnd;
+        if (this.portForm.allPorts) {
+          portNum = 0;
+          portEnd = null;
+        } else {
+          portNum = parseInt(this.portForm.port, 10);
+          if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+            this.portError = "Port muss zwischen 1 und 65535 liegen.";
+            return;
+          }
+          portEnd = this.portForm.portEnd ? parseInt(this.portForm.portEnd, 10) : null;
+          if (portEnd !== null && (isNaN(portEnd) || portEnd <= portNum || portEnd > 65535)) {
+            this.portError = "Bereichsende muss größer als Startport und ≤ 65535 sein.";
+            return;
+          }
         }
         const res = await fetch("/api/v1/resources/" + this.portFormFor + "/ports", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             port: portNum,
+            portEnd,
             transport: this.portForm.transport,
             protocol: this.portForm.protocol,
             label: this.portForm.label || null,
@@ -314,7 +326,7 @@ export default defineComponent({
               {{ t('resources.no_ports') }}
             </span>
             <span v-for="p in r.ports" :key="p.id" class="res-port-chip">
-              <span class="mono" style="font-size: var(--text-xs)">{{ p.port }}/{{ p.transport }}</span>
+              <span class="mono" style="font-size: var(--text-xs)">{{ p.port === 0 ? 'alle' : (p.portEnd ? p.port + '–' + p.portEnd : p.port) }}/{{ p.transport }}</span>
               <span style="color: var(--fg2); font-size: var(--text-xs)">{{ p.protocol }}</span>
               <button class="res-port-remove" @click="deletePort(r.id, p)" title="Port entfernen">✕</button>
             </span>
@@ -325,14 +337,23 @@ export default defineComponent({
             <form @submit.prevent="submitPort">
               <div class="res-form-row">
                 <div class="field" style="margin: 0">
-                  <label>Port</label>
-                  <input class="input mono" type="number" min="1" max="65535" v-model="portForm.port" required placeholder="22" style="width: 100px" />
+                  <label style="display: flex; align-items: center; gap: var(--space-2)">
+                    <input type="checkbox" v-model="portForm.allPorts" style="width: auto; margin: 0" />
+                    Alle Ports
+                  </label>
+                  <input v-if="!portForm.allPorts" class="input mono" type="number" min="1" max="65535" v-model="portForm.port" :required="!portForm.allPorts" placeholder="22" style="width: 100px; margin-top: var(--space-1)" />
+                  <span v-else class="mono" style="display: inline-block; padding: 6px 10px; background: var(--surface2); border-radius: var(--radius-sm); font-size: var(--text-xs); margin-top: var(--space-1)">alle</span>
+                </div>
+                <div v-if="!portForm.allPorts" class="field" style="margin: 0">
+                  <label>bis Port (opt.)</label>
+                  <input class="input mono" type="number" min="2" max="65535" v-model="portForm.portEnd" placeholder="–" style="width: 90px" />
                 </div>
                 <div class="field" style="margin: 0">
                   <label>Transport</label>
                   <select class="select" v-model="portForm.transport" style="width: 90px">
                     <option value="tcp">tcp</option>
                     <option value="udp">udp</option>
+                    <option value="both">both</option>
                   </select>
                 </div>
                 <div class="field" style="margin: 0">
@@ -376,7 +397,7 @@ export default defineComponent({
                   <span v-else>
                     Fügt hinzu:
                     <span v-for="(m, i) in selectedGroupMembers()" :key="m.id">
-                      <span class="mono">{{ m.port }}/{{ m.transport }}</span>{{ i < selectedGroupMembers().length - 1 ? ', ' : '' }}
+                      <span class="mono">{{ m.port === 0 ? 'alle' : (m.portEnd ? m.port + '–' + m.portEnd : m.port) }}/{{ m.transport }}</span>{{ i < selectedGroupMembers().length - 1 ? ', ' : '' }}
                     </span>
                   </span>
                 </div>

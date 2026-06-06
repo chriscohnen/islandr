@@ -142,8 +142,6 @@ public class RuleBuilder {
                                     .filter(rp -> portsByGrant.getOrDefault(g.id, Set.of()).contains(rp.id))
                                     .toList();
                     for (ResourcePort rp : grantedPorts) {
-                        String key = peer.assignedIp + "|" + res.ip + "|" + rp.transport + "|" + rp.port;
-                        if (rulesByKey.containsKey(key)) continue;
                         String comment = String.format(
                                 "islandr:role=%s peer=%s user=%s resource=%s %s%s",
                                 escape(role.name),
@@ -152,11 +150,22 @@ public class RuleBuilder {
                                 escape(res.name),
                                 escape(rp.protocol),
                                 rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label));
-                        String rule = String.format(
-                                "    iifname \"%s\" ip saddr %s ip daddr %s %s dport %d accept comment \"%s\"",
-                                wgInterface, peer.assignedIp, res.ip,
-                                rp.transport, rp.port, comment);
-                        rulesByKey.put(key, rule);
+                        for (String[] td : expandTransport(rp)) {
+                            String effectiveTransport = td[0];
+                            String dportClause = td[1];
+                            String key = peer.assignedIp + "|" + res.ip + "|"
+                                    + effectiveTransport + "|" + rp.port + "|"
+                                    + (rp.portEnd == null ? "" : rp.portEnd);
+                            if (rulesByKey.containsKey(key)) continue;
+                            String rule = dportClause.isEmpty()
+                                    ? String.format(
+                                            "    iifname \"%s\" ip saddr %s ip daddr %s %s accept comment \"%s\"",
+                                            wgInterface, peer.assignedIp, res.ip, effectiveTransport, comment)
+                                    : String.format(
+                                            "    iifname \"%s\" ip saddr %s ip daddr %s %s %s accept comment \"%s\"",
+                                            wgInterface, peer.assignedIp, res.ip, effectiveTransport, dportClause, comment);
+                            rulesByKey.put(key, rule);
+                        }
                         // Mark this (peer, resource) pair for implicit ICMP allow
                         icmpPairs.add(peer.assignedIp + "|" + res.ip + "|" + escape(peer.name) + "|" + escape(res.name));
                     }
@@ -214,6 +223,26 @@ public class RuleBuilder {
                 + "    type filter hook forward priority -1; policy drop;\n"
                 + "  }\n"
                 + "}\n";
+    }
+
+    /**
+     * Expands one ResourcePort into (effectiveTransport, dportClause) pairs.
+     * "both" yields two pairs (tcp + udp). port=0 yields an empty dportClause.
+     * Returns a list of String[2]: [transport, dportClause].
+     */
+    private static List<String[]> expandTransport(ResourcePort rp) {
+        String dport;
+        if (rp.port == 0) {
+            dport = "";
+        } else if (rp.portEnd != null) {
+            dport = "dport " + rp.port + "-" + rp.portEnd;
+        } else {
+            dport = "dport " + rp.port;
+        }
+        if ("both".equals(rp.transport)) {
+            return java.util.Arrays.asList(new String[]{"tcp", dport}, new String[]{"udp", dport});
+        }
+        return java.util.Collections.singletonList(new String[]{rp.transport, dport});
     }
 
     /** Quotes that would break nft's string parser get stripped from comments. */

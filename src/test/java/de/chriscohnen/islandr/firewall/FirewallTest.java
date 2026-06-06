@@ -256,6 +256,66 @@ class FirewallTest {
         assertThat(newest.action).isEqualTo("firewall.apply_ok");
     }
 
+    @Test
+    @Transactional
+    void ruleBuilder_portRange_emitsRangeRule() {
+        User u = persistUser("range@example.test", "Rangeuser");
+        Role role = persistRole("Dev");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("Lab", "10.30.0.0/16");
+        Resource res = persistResource(site.id, "AppServer", "10.30.0.1");
+        persistPort(res.id, 8080, 8090, "tcp", "HTTP");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(role.id, res.id, true);
+        grant.persist();
+        persistPeer(u.id, "dev-laptop", "10.8.0.10");
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.ruleCount()).isEqualTo(2); // 1 port rule + 1 ICMP
+        assertThat(snap.rulesetText()).contains("tcp dport 8080-8090");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_allPortsSentinel_omitsDportClause() {
+        User u = persistUser("allports@example.test", "Alluser");
+        Role role = persistRole("Ops");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("Prod", "10.31.0.0/16");
+        Resource res = persistResource(site.id, "Gateway", "10.31.0.1");
+        persistPort(res.id, 0, null, "tcp", "CUSTOM");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(role.id, res.id, true);
+        grant.persist();
+        persistPeer(u.id, "ops-box", "10.8.0.11");
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.ruleCount()).isEqualTo(2); // 1 all-port rule + 1 ICMP
+        assertThat(snap.rulesetText()).contains("tcp accept");
+        assertThat(snap.rulesetText()).doesNotContain("dport 0");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_bothTransport_emitsTwoRules() {
+        User u = persistUser("both@example.test", "Bothuser");
+        Role role = persistRole("Svc");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("DMZ", "10.32.0.0/16");
+        Resource res = persistResource(site.id, "DNS", "10.32.0.53");
+        persistPort(res.id, 53, null, "both", "CUSTOM");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(role.id, res.id, true);
+        grant.persist();
+        persistPeer(u.id, "client", "10.8.0.12");
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        // 2 port rules (tcp dport 53 + udp dport 53) + 1 implicit ICMP
+        assertThat(snap.ruleCount()).isEqualTo(3);
+        assertThat(snap.rulesetText()).contains("tcp dport 53");
+        assertThat(snap.rulesetText()).contains("udp dport 53");
+    }
+
     // -- helpers --------------------------------------------------------------
 
     @Transactional
@@ -294,7 +354,12 @@ class FirewallTest {
 
     @Transactional
     ResourcePort persistPort(String resourceId, int port, String transport, String protocol) {
-        ResourcePort p = ResourcePort.createNew(resourceId, port, transport, protocol, null);
+        return persistPort(resourceId, port, null, transport, protocol);
+    }
+
+    @Transactional
+    ResourcePort persistPort(String resourceId, int port, Integer portEnd, String transport, String protocol) {
+        ResourcePort p = ResourcePort.createNew(resourceId, port, portEnd, transport, protocol, null);
         p.persist();
         return p;
     }

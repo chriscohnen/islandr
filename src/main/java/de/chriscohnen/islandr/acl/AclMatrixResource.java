@@ -111,7 +111,7 @@ public class AclMatrixResource {
         if (ids.isEmpty()) return Map.of();
         Map<String, String> out = new HashMap<>();
         for (ResourcePort p : ResourcePort.<ResourcePort>list("id in ?1", ids)) {
-            String label = p.port + "/" + p.transport
+            String label = p.portSpec() + "/" + p.transport
                     + (p.protocol != null && !p.protocol.isBlank() ? " (" + p.protocol + ")" : "");
             out.put(p.id, label);
         }

@@ -95,17 +95,17 @@ public class PortGroupService {
         // Build the existing-tuples set in one query so we don't hit the DB
         // per member (a group with 5 members would otherwise issue 5 SELECTs).
         Set<String> existing = ResourcePort.<ResourcePort>list("resourceId", r.id).stream()
-                .map(p -> p.port + "/" + p.transport)
+                .map(p -> p.port + "/" + p.portEnd + "/" + p.transport)
                 .collect(Collectors.toCollection(HashSet::new));
 
         int added = 0, skipped = 0;
         for (PortGroupMember m : members) {
-            String key = m.port + "/" + m.transport;
+            String key = m.port + "/" + m.portEnd + "/" + m.transport;
             if (existing.contains(key)) {
                 skipped++;
                 continue;
             }
-            ResourcePort.createNew(r.id, m.port, m.transport, m.protocol, m.label).persist();
+            ResourcePort.createNew(r.id, m.port, m.portEnd, m.transport, m.protocol, m.label).persist();
             existing.add(key);
             added++;
         }
@@ -120,13 +120,13 @@ public class PortGroupService {
         // unique index does — the index error message is opaque.
         Set<String> seen = new HashSet<>();
         for (ResourceDto.PortRequest p : wanted) {
-            String key = p.port() + "/" + p.transport();
+            String key = p.port() + "/" + p.portEnd() + "/" + p.transport();
             if (!seen.add(key)) {
                 throw new WebApplicationException(
                         Response.status(Response.Status.CONFLICT)
                                 .entity("duplicate port in request: " + key).build());
             }
-            PortGroupMember.createNew(groupId, p.port(), p.transport(),
+            PortGroupMember.createNew(groupId, p.port(), p.portEnd(), p.transport(),
                     p.protocol(), p.label()).persist();
         }
     }
@@ -137,6 +137,7 @@ public class PortGroupService {
         for (PortGroupMember m : membersFor(groupId)) {
             Map<String, Object> row = new HashMap<>();
             row.put("port", m.port);
+            if (m.portEnd != null) row.put("portEnd", m.portEnd);
             row.put("transport", m.transport);
             row.put("protocol", m.protocol);
             if (m.label != null) row.put("label", m.label);

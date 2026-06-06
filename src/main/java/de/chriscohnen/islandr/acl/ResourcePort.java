@@ -32,12 +32,17 @@ public class ResourcePort extends PanacheEntityBase {
     @Column(name = "resource_id", nullable = false, length = 36)
     public String resourceId;
 
-    @Min(1) @Max(65535)
+    /** 0 = all ports (no dport filter). 1-65535 = specific port or range start. */
+    @Min(0) @Max(65535)
     @Column(name = "port", nullable = false)
     public int port;
 
+    /** Range end. Null = single port (or all when port=0). Must be > port when set. */
+    @Column(name = "port_end")
+    public Integer portEnd;
+
     @NotBlank
-    @Pattern(regexp = "^(tcp|udp)$", message = "transport must be 'tcp' or 'udp'")
+    @Pattern(regexp = "^(tcp|udp|both)$", message = "transport must be 'tcp', 'udp', or 'both'")
     @Column(name = "transport", nullable = false, length = 8)
     public String transport;
 
@@ -51,16 +56,24 @@ public class ResourcePort extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
-    public static ResourcePort createNew(String resourceId, int port, String transport,
-                                         String protocol, String label) {
+    public static ResourcePort createNew(String resourceId, int port, Integer portEnd,
+                                         String transport, String protocol, String label) {
         ResourcePort p = new ResourcePort();
         p.id = UUID.randomUUID().toString();
         p.resourceId = resourceId;
         p.port = port;
+        p.portEnd = portEnd;
         p.transport = transport;
         p.protocol = protocol;
         p.label = label;
         p.createdAt = Instant.now();
         return p;
+    }
+
+    /** Human-readable port spec: "all", "80", or "8080-8090". */
+    public String portSpec() {
+        if (port == 0) return "all";
+        if (portEnd != null) return port + "-" + portEnd;
+        return String.valueOf(port);
     }
 }

@@ -56,6 +56,7 @@ export default defineComponent({
         description: g.description || "",
         members: g.members.map((m) => ({
           port: String(m.port),
+          portEnd: m.portEnd != null ? String(m.portEnd) : "",
           transport: m.transport,
           protocol: m.protocol,
           label: m.label || "",
@@ -70,7 +71,7 @@ export default defineComponent({
       this.formError = null;
     },
     emptyMember() {
-      return { port: "", transport: "tcp", protocol: "", label: "" };
+      return { port: "", portEnd: "", transport: "tcp", protocol: "", label: "" };
     },
     addMemberRow() {
       this.form.members.push(this.emptyMember());
@@ -88,6 +89,7 @@ export default defineComponent({
             .filter((m) => m.port && m.protocol)
             .map((m) => ({
               port: parseInt(m.port, 10),
+              portEnd: m.portEnd ? parseInt(m.portEnd, 10) : null,
               transport: m.transport,
               protocol: m.protocol,
               label: m.label || null,
@@ -161,7 +163,7 @@ export default defineComponent({
           <td>
             <div style="display: flex; flex-wrap: wrap; gap: 4px">
               <span v-for="m in g.members" :key="m.id" class="badge badge-neutral">
-                <span class="mono">{{ m.port }}/{{ m.transport }}</span>
+                <span class="mono">{{ m.port === 0 ? 'alle' : (m.portEnd ? m.port + '–' + m.portEnd : m.port) }}/{{ m.transport }}</span>
                 <span style="margin-left: 6px">{{ m.protocol }}</span>
               </span>
               <span v-if="g.members.length === 0" class="muted" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">{{ t('portgroups.empty_ports') }}</span>
@@ -198,11 +200,13 @@ export default defineComponent({
             <div class="field-hint" style="margin-bottom: var(--space-3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">{{ t('portgroups.ports_hint') }}</div>
             <div style="display: flex; flex-direction: column; gap: var(--space-2)">
               <div v-for="(m, i) in form.members" :key="i"
-                   style="display: grid; grid-template-columns: 100px 100px 160px 1fr auto; gap: var(--space-3); align-items: center">
-                <input class="input mono" type="number" min="1" max="65535" v-model="m.port" :placeholder="t('portgroups.port_ph')" />
+                   style="display: grid; grid-template-columns: 90px 90px 90px 160px 1fr auto; gap: var(--space-3); align-items: center">
+                <input class="input mono" type="number" min="0" max="65535" v-model="m.port" :placeholder="t('portgroups.port_ph')" />
+                <input class="input mono" type="number" min="2" max="65535" v-model="m.portEnd" placeholder="bis" />
                 <select class="select" v-model="m.transport">
                   <option value="tcp">tcp</option>
                   <option value="udp">udp</option>
+                  <option value="both">both</option>
                 </select>
                 <select class="select" v-model="m.protocol">
                   <option value="">{{ t('portgroups.protocol_ph') }}</option>

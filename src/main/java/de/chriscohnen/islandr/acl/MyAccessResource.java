@@ -118,20 +118,22 @@ public class MyAccessResource {
         // All ports for the relevant resources.
         @SuppressWarnings("unchecked")
         List<Object[]> portRows = em.createNativeQuery(
-                        "SELECT id, resource_id, port, transport, protocol, label " +
+                        "SELECT id, resource_id, port, port_end, transport, protocol, label " +
                         "FROM resource_ports WHERE resource_id IN ?1 ORDER BY port")
                 .setParameter(1, resourceIds)
                 .getResultList();
         Map<String, List<ResourceDto.PortResponse>> portsByResource = new HashMap<>();
         for (Object[] p : portRows) {
             String rid = (String) p[1];
+            Integer portEnd = p[3] == null ? null : ((Number) p[3]).intValue();
             portsByResource.computeIfAbsent(rid, k -> new ArrayList<>()).add(
                     new ResourceDto.PortResponse(
                             (String) p[0],
                             ((Number) p[2]).intValue(),
-                            (String) p[3],
+                            portEnd,
                             (String) p[4],
                             (String) p[5],
+                            (String) p[6],
                             null));
         }
 
