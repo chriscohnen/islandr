@@ -50,8 +50,8 @@ dependencies {
 
     // QR code rendering for peer creation. zxing-javase is the AWT-using subset;
     // we only use it for in-memory PNG encoding (no display, no GUI).
-    implementation("com.google.zxing:core:3.5.3")
-    implementation("com.google.zxing:javase:3.5.3")
+    implementation("com.google.zxing:core:3.5.4")
+    implementation("com.google.zxing:javase:3.5.4")
 
     // Test
     testImplementation("io.quarkus:quarkus-junit5")
