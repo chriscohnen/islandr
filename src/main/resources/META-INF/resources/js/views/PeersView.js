@@ -211,6 +211,10 @@ export default defineComponent({
       if (!iso) return "—";
       return new Date(iso).toLocaleString("de-DE");
     },
+    isOnline(p) {
+      if (!p.enabled || !p.lastSeenAt) return false;
+      return (Date.now() - new Date(p.lastSeenAt).getTime()) < 5 * 60 * 1000;
+    },
   },
   template: `
     <div class="page-header">
@@ -284,8 +288,13 @@ export default defineComponent({
             </div>
           </td>
           <td>
-            <span :class="['badge', p.enabled ? 'badge-success' : 'badge-neutral']">
-              {{ p.enabled ? t('peers.status_active') : t('peers.status_disabled') }}
+            <span style="display:inline-flex;align-items:center;gap:var(--space-2)">
+              <span v-if="p.enabled"
+                    :style="isOnline(p) ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                    style="font-size:10px">{{ isOnline(p) ? '●' : '○' }}</span>
+              <span :class="['badge', p.enabled ? 'badge-success' : 'badge-neutral']">
+                {{ p.enabled ? t('peers.status_active') : t('peers.status_disabled') }}
+              </span>
             </span>
           </td>
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>

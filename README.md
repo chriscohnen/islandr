@@ -188,9 +188,11 @@ islandr/
 
 **Networks, resources & firewall**
 - Sites and resources with typed resource cards (computer, router, printer, NAS, camera, IoT, virt-host, management)
-- Port groups and resource-level ACL: roles → resource grants, with per-port or all-ports mode
+- Port groups and resource-level ACL: roles → resource grants, per-port, port ranges (`8080-8090`), or all-ports mode
+- ACL matrix shows granted vs. total port count per cell (e.g. `1/2`)
 - nftables ruleset generation — atomic reload via RuleBuilder, cold-start-safe, mock adapter for dev/CI
 - Activity poller: last seen, last endpoint, bytes-counter delta (rx/tx)
+- Connectivity indicators: live handshake dot (●/○) in Peers and Networks views; dashboard topology colors gateway ring green/muted and shows gateway peer IP + handshake age on hover
 
 **Self-service portal**
 - End users add their own devices via a 3-step flow: platform → QR + `.conf` → wait for first handshake

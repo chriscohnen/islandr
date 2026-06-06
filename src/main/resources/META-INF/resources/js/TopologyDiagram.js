@@ -74,7 +74,8 @@ export default defineComponent({
       activeTypes: new Set(),
       vbX: 0,
       vbY: 0,
-      tooltip: null,   // { resource, x, y } in px relative to container
+      tooltip: null,       // { resource, x, y }
+      siteTooltip: null,   // { site, x, y }
     };
   },
   computed: {
@@ -99,7 +100,9 @@ export default defineComponent({
       return buildResourceLayout(this.sites, this.filteredResources, this.expandedSiteId);
     },
     livePeerLayout() {
-      return this.livePeers.slice(0, 8).map((p, i) => {
+      // Site-type peers are already represented by their site node (ring color shows
+      // gateway status) — exclude them here to avoid confusing duplicate dots.
+      return this.livePeers.filter(p => p.type !== "site").slice(0, 8).map((p, i) => {
         const angle = angleAt(i, 8, -135);
         return { peer: p, x: CX + LIVE_DOT_ORBIT * Math.cos(angle), y: CY + LIVE_DOT_ORBIT * Math.sin(angle) };
       });
@@ -163,6 +166,30 @@ export default defineComponent({
     },
     hideTooltip() {
       this.tooltip = null;
+    },
+    showSiteTooltip(event, site) {
+      if (!site.gatewayPeerId) return;
+      const rect = this.$el.getBoundingClientRect();
+      this.siteTooltip = {
+        site,
+        x: event.clientX - rect.left + 14,
+        y: event.clientY - rect.top - 10,
+      };
+    },
+    moveSiteTooltip(event) {
+      if (!this.siteTooltip) return;
+      const rect = this.$el.getBoundingClientRect();
+      this.siteTooltip = { ...this.siteTooltip, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
+    },
+    hideSiteTooltip() {
+      this.siteTooltip = null;
+    },
+    siteRingStyle(item) {
+      if (item.expanded) return "stroke: var(--accent); stroke-width: 3";
+      if (item.site.gatewayPeerId == null) return "";
+      return item.site.gatewayOnline
+        ? "stroke: var(--status-ok); stroke-width: 2.5"
+        : "stroke: var(--fg3); stroke-width: 2";
     },
     relativeTime(iso) {
       if (!iso) return "—";
@@ -246,12 +273,13 @@ export default defineComponent({
         <g v-for="item in siteLayout" :key="item.site.id"
            class="node live"
            @click="onSiteClick(item.site)"
+           @mouseenter="showSiteTooltip($event, item.site)"
+           @mousemove="moveSiteTooltip($event)"
+           @mouseleave="hideSiteTooltip"
            :transform="'translate('+item.x+','+item.y+')'">
-          <title>{{ item.site.name }} · {{ item.site.cidr }} · {{ item.count }} Ressource{{ item.count===1?'':'n' }}</title>
 
-          <!-- Outer ring — accent when expanded -->
-          <circle class="node-ring" :r="SITE_R"
-                  :style="item.expanded ? 'stroke: var(--accent); stroke-width: 3' : ''" />
+          <!-- Outer ring — accent when expanded, gateway status color otherwise -->
+          <circle class="node-ring" :r="SITE_R" :style="siteRingStyle(item)" />
           <circle class="node-bg" :r="SITE_R - 2" />
 
           <!-- Building glyph (top half of circle) OR count number (bottom) -->
@@ -285,6 +313,37 @@ export default defineComponent({
           Standort anklicken zum Aufklappen
         </text>
       </svg>
+
+      <!-- Site gateway hover tooltip -->
+      <div v-if="siteTooltip" :style="{
+             position: 'absolute',
+             left: siteTooltip.x + 'px',
+             top: siteTooltip.y + 'px',
+             pointerEvents: 'none',
+             zIndex: 10,
+             background: 'var(--surface-2)',
+             border: '1px solid var(--border)',
+             borderRadius: 'var(--radius-sm)',
+             padding: '6px 10px',
+             boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.3))',
+             maxWidth: '220px',
+           }">
+        <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
+          {{ siteTooltip.site.name }}
+        </div>
+        <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); margin-bottom: 4px">
+          {{ siteTooltip.site.cidr }}
+        </div>
+        <div style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px">
+          <div style="margin-bottom: 2px">
+            <span :style="siteTooltip.site.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                  style="font-size:9px">{{ siteTooltip.site.gatewayOnline ? '●' : '○' }}</span>
+            {{ siteTooltip.site.gatewayPeerName }}
+            <span style="font-family: var(--font-mono); color: var(--fg2)">{{ siteTooltip.site.gatewayIp }}</span>
+          </div>
+          <div>{{ siteTooltip.site.gatewayLastSeenAt ? 'Handshake ' + relativeTime(siteTooltip.site.gatewayLastSeenAt) : 'Noch kein Handshake' }}</div>
+        </div>
+      </div>
 
       <!-- Resource hover tooltip -->
       <div v-if="tooltip" :style="{

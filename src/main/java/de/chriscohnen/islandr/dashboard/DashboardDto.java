@@ -56,7 +56,12 @@ public final class DashboardDto {
             String id,
             String name,
             String cidr,
-            int resourceCount
+            int resourceCount,
+            String gatewayPeerId,
+            String gatewayPeerName,
+            Boolean gatewayOnline,      // null = no gateway configured
+            String gatewayIp,
+            Instant gatewayLastSeenAt
     ) {}
 
     public record TopologyResource(

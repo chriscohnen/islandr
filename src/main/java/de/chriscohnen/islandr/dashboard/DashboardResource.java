@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Read-only KPI roll-up for the admin dashboard. One round-trip instead of
@@ -151,10 +152,31 @@ public class DashboardResource {
         for (de.chriscohnen.islandr.acl.Resource r : allResources) {
             resCountBySite.merge(r.siteId, 1, Integer::sum);
         }
+        // Batch-fetch gateway peers for all sites in one query.
+        Instant gatewayThreshold = Instant.now().minus(TOPOLOGY_LIVE_WINDOW);
+        Set<String> gatewayIds = siteRows.stream()
+                .filter(sr -> sr.gatewayPeerId != null)
+                .map(sr -> sr.gatewayPeerId)
+                .collect(java.util.stream.Collectors.toSet());
+        Map<String, de.chriscohnen.islandr.peer.Peer> gatewayPeerById = new HashMap<>();
+        if (!gatewayIds.isEmpty()) {
+            de.chriscohnen.islandr.peer.Peer.<de.chriscohnen.islandr.peer.Peer>list("id in ?1", gatewayIds)
+                    .forEach(p -> gatewayPeerById.put(p.id, p));
+        }
         List<DashboardDto.TopologySite> topoSites = siteRows.stream()
-                .map(site -> new DashboardDto.TopologySite(
-                        site.id, site.name, site.cidr,
-                        resCountBySite.getOrDefault(site.id, 0)))
+                .map(site -> {
+                    de.chriscohnen.islandr.peer.Peer gw = gatewayPeerById.get(site.gatewayPeerId);
+                    Boolean gwOnline = gw == null ? null
+                            : (gw.lastSeenAt != null && gw.lastSeenAt.isAfter(gatewayThreshold));
+                    return new DashboardDto.TopologySite(
+                            site.id, site.name, site.cidr,
+                            resCountBySite.getOrDefault(site.id, 0),
+                            site.gatewayPeerId,
+                            gw == null ? null : gw.name,
+                            gwOnline,
+                            gw == null ? null : gw.assignedIp,
+                            gw == null ? null : gw.lastSeenAt);
+                })
                 .toList();
         int resourceOverflow = Math.max(0, allResources.size() - TOPOLOGY_RESOURCE_CAP);
         List<DashboardDto.TopologyResource> topoResources = allResources.stream()

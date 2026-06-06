@@ -155,8 +155,8 @@ export default defineComponent({
           <td>
             <span v-if="!s.gatewayPeerId" class="muted">—</span>
             <span v-else style="display:inline-flex;align-items:center;gap:var(--space-2)">
-              <span :style="s.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--status-error)'"
-                    style="font-size:10px">●</span>
+              <span :style="s.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                    style="font-size:10px">{{ s.gatewayOnline ? '●' : '○' }}</span>
               <span>{{ s.gatewayPeerName || s.gatewayPeerId }}</span>
             </span>
           </td>
