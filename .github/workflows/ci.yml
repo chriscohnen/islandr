@@ -60,6 +60,12 @@ jobs:
         # buildNative is the dedicated native-only task in Quarkus 3.x —
         # avoids the "native + JAR simultaneously" error that quarkusBuild triggers.
 
+      - name: Compress binary with UPX
+        run: |
+          sudo apt-get install -y upx-ucl
+          BINARY=$(ls build/islandr-*-runner)
+          upx --best "$BINARY"
+
       - name: Locate binary and compute checksum
         id: artifact
         run: |
