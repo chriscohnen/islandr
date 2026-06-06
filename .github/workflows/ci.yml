@@ -105,23 +105,21 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: islandr-runner-linux-amd64
-          path: dist/
+          path: dist/amd64/
 
       - name: Download arm64 artifact
         uses: actions/download-artifact@v4
         with:
           name: islandr-runner-linux-arm64
-          path: dist/
+          path: dist/arm64/
 
       - name: Prepare release assets
         run: |
-          cd dist
           for arch in amd64 arm64; do
-            BINARY=$(ls islandr-*-runner 2>/dev/null | head -1)
-            [ -z "$BINARY" ] && continue
-            mv "$BINARY" islandr-runner-linux-$arch
-            sha256sum islandr-runner-linux-$arch > islandr-runner-linux-$arch.sha256
-            chmod +x islandr-runner-linux-$arch
+            BINARY=$(ls dist/$arch/islandr-*-runner)
+            mv "$BINARY" dist/islandr-runner-linux-$arch
+            sha256sum dist/islandr-runner-linux-$arch > dist/islandr-runner-linux-$arch.sha256
+            chmod +x dist/islandr-runner-linux-$arch
           done
 
       - name: Create GitHub Release
