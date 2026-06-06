@@ -58,6 +58,7 @@ export default defineComponent({
           updatedAt: s.updatedAt,
           updatedBy: s.updatedBy,
           setupComplete: s.setupComplete,
+          version: s.version || null,
         };
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
@@ -234,6 +235,11 @@ export default defineComponent({
         <div class="muted">
           Zuletzt geändert: {{ formatDate(meta.updatedAt) }}<span v-if="meta.updatedBy"> · von {{ meta.updatedBy }}</span>
         </div>
+      </div>
+
+      <div v-if="meta.version" style="margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); display: flex; align-items: center; gap: var(--space-3)">
+        <span class="muted" style="font-size: var(--text-sm)">Islandr</span>
+        <span class="mono" style="font-size: var(--text-sm); color: var(--fg2)">v{{ meta.version }}</span>
       </div>
     </form>
   `,

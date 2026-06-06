@@ -29,10 +29,13 @@ public class SettingsResource {
     @Inject AuditService audit;
     @Inject WgAdapter wg;
 
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "quarkus.application.version", defaultValue = "dev")
+    String appVersion;
+
     @GET
     public SettingsDto.Response get(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
-        return SettingsDto.Response.from(settings.get());
+        return SettingsDto.Response.from(settings.get(), appVersion);
     }
 
     @PUT
@@ -43,7 +46,7 @@ public class SettingsResource {
         Settings after = settings.update(body, actor.principal());
         audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
                 before, settingsSnapshot(after));
-        return SettingsDto.Response.from(after);
+        return SettingsDto.Response.from(after, appVersion);
     }
 
     @GET

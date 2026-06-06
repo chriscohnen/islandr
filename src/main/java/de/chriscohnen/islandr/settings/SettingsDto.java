@@ -20,16 +20,18 @@ public final class SettingsDto {
             boolean selfServicePeerCreation,
             Instant updatedAt,
             String updatedBy,
-            boolean setupComplete
+            boolean setupComplete,
+            String version
     ) {
-        public static Response from(Settings s) {
+        public static Response from(Settings s, String version) {
             return new Response(
                     s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
                     s.selfServicePeerCreation,
                     s.updatedAt, s.updatedBy,
-                    !s.wgServerPublicKey.startsWith("PLACEHOLDER"));
+                    !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
+                    version);
         }
     }
 
