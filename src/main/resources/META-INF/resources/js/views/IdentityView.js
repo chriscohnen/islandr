@@ -345,13 +345,26 @@ export default defineComponent({
             </div>
           </div>
           <div class="identity-strip-actions">
-            <button v-if="isConfigured(p)" class="btn btn-ghost btn-sm"
-                    @click="requestActivate(p.providerKey)">
-              {{ activeProvider ? t('identity.btn_use') : t('identity.btn_activate') }}
-            </button>
-            <button class="btn btn-secondary btn-sm" @click="startEdit(p.providerKey)">
-              {{ isConfigured(p) ? t('identity.btn_edit') : t('identity.btn_setup') }}
-            </button>
+            <!-- Provider ist aktiv → nur Wechsel-Button wenn konfiguriert -->
+            <template v-if="!activeProvider">
+              <button v-if="isConfigured(p)" class="btn btn-ghost btn-sm"
+                      @click="requestActivate(p.providerKey)">
+                {{ t('identity.btn_activate') }}
+              </button>
+              <button class="btn btn-secondary btn-sm" @click="startEdit(p.providerKey)">
+                {{ isConfigured(p) ? t('identity.btn_edit') : t('identity.btn_setup') }}
+              </button>
+            </template>
+            <!-- Ein anderer Provider ist aktiv → nur Wechsel anbieten, kein Setup -->
+            <template v-else>
+              <span class="muted" style="font-size: var(--text-xs); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
+                {{ t('identity.strip_blocked') }}
+              </span>
+              <button v-if="isConfigured(p)" class="btn btn-ghost btn-sm"
+                      @click="requestActivate(p.providerKey)">
+                {{ t('identity.btn_use') }}
+              </button>
+            </template>
           </div>
         </div>
 

@@ -1,4 +1,5 @@
 import { defineComponent } from "vue";
+import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 
 // Sites = organisational grouping for resources. The CIDR is informational,
@@ -6,13 +7,14 @@ import { t, locale } from "/js/i18n.js";
 // Resources live under each site and are managed via ResourcesView.
 export default defineComponent({
   name: "SitesView",
+  components: { Icon },
   data() {
     return {
       sites: [],
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
-      form: { name: "", cidr: "", description: "" },
+      form: { name: "", cidr: "", description: "", lat: "", lng: "" },
       editId: null,
       submitting: false,
       formError: null,
@@ -41,13 +43,13 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", cidr: "", description: "" };
+      this.form = { name: "", cidr: "", description: "", lat: "", lng: "" };
       this.formError = null;
     },
     openEdit(site) {
       this.modal = "edit";
       this.editId = site.id;
-      this.form = { name: site.name, cidr: site.cidr, description: site.description || "" };
+      this.form = { name: site.name, cidr: site.cidr, description: site.description || "", lat: site.lat ?? "", lng: site.lng ?? "" };
       this.formError = null;
     },
     closeModal() {
@@ -64,7 +66,11 @@ export default defineComponent({
         const res = await fetch(url, {
           method,
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(this.form),
+          body: JSON.stringify({
+            ...this.form,
+            lat: this.form.lat !== "" ? parseFloat(this.form.lat) : null,
+            lng: this.form.lng !== "" ? parseFloat(this.form.lng) : null,
+          }),
         });
         if (!res.ok) {
           const body = await res.text();
@@ -131,13 +137,13 @@ export default defineComponent({
           <td class="muted">{{ s.description || "—" }}</td>
           <td>
             <button class="btn btn-ghost btn-sm" @click="goToResources(s)">
-              {{ s.resourceCount }} <span style="margin-left: 4px">→</span>
+              <Icon name="resources" :size="13" />{{ s.resourceCount }}
             </button>
           </td>
           <td class="muted">{{ formatDate(s.createdAt) }}</td>
           <td style="text-align: right">
-            <button class="btn btn-ghost btn-sm" @click="openEdit(s)">{{ t('sites.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteSite(s)">{{ t('sites.btn_delete') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openEdit(s)"><Icon name="edit" :size="13" />{{ t('sites.btn_edit') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="deleteSite(s)"><Icon name="trash" :size="13" />{{ t('sites.btn_delete') }}</button>
           </td>
         </tr>
       </tbody>
@@ -154,16 +160,37 @@ export default defineComponent({
             <div v-if="formError" class="error-banner">{{ formError }}</div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteName">{{ t('sites.field_name') }}</label>
-              <input id="siteName" class="input" v-model="form.name" required :placeholder="t('sites.field_name_ph')" />
+              <input id="siteName" class="input" v-model="form.name" required
+                :placeholder="t('sites.field_name_ph')" list="siteNameSuggestions" autocomplete="off" />
+              <datalist id="siteNameSuggestions">
+                <option value="Büro Hamburg"></option>
+                <option value="Büro Berlin"></option>
+                <option value="Büro München"></option>
+                <option value="Niederlassung Wien"></option>
+                <option value="Niederlassung Zürich"></option>
+                <option value="Labor Süd"></option>
+                <option value="Rechenzentrum Frankfurt"></option>
+                <option value="Home Office"></option>
+              </datalist>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteCidr">{{ t('sites.field_cidr') }}</label>
               <input id="siteCidr" class="input mono" v-model="form.cidr" required placeholder="10.20.0.0/16" />
               <div class="field-hint">Das Netz hinter dem Standort. Nur informativ — wird nicht enforced.</div>
             </div>
-            <div class="field">
+            <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteDesc">{{ t('sites.field_desc') }}</label>
               <textarea id="siteDesc" class="textarea" rows="2" v-model="form.description" placeholder="Optional"></textarea>
+            </div>
+            <div class="field">
+              <label>{{ t('sites.field_geo') }}</label>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3)">
+                <input class="input mono" v-model="form.lat" type="number" step="any" min="-90" max="90"
+                  :placeholder="t('sites.field_lat') + ' (z.B. 53.5753)'" />
+                <input class="input mono" v-model="form.lng" type="number" step="any" min="-180" max="180"
+                  :placeholder="t('sites.field_lng') + ' (z.B. 10.0153)'" />
+              </div>
+              <div class="field-hint">{{ t('sites.field_geo_hint') }}</div>
             </div>
           </div>
           <div class="modal-footer">

@@ -1,244 +1,324 @@
 import { defineComponent } from "vue";
 import { PATHS as ICON_PATHS } from "/js/Icons.js";
 
-// Two-ring radial topology:
-//   Hub in the center (with the permitted ambient pulse, see app.css).
-//   Inner ring  = Sites — one node per site, evenly spaced.
-//   Outer ring  = Resources — grouped under their parent site, arranged in
-//                a small arc around the site's angle so the visual lineage
-//                stays obvious (resources of "Hamburg" sit next to the
-//                "Hamburg" node, not on the other side of the diagram).
-// Plus a small dot cluster right next to the hub for "live peers" (peers
-// that handshook in the last 5 minutes). These come and go; everything
-// else is stable across refreshes.
-//
-// All clicks emit one of two events:
-//   @site     → payload is the site id; dashboard navigates to /networks/{id}/resources
-//   @resource → payload is { siteId, resourceId }; same destination
+// Two-ring radial topology with collapse/expand per site.
+// Collapsed: site nodes show a resource-count number inside the circle.
+// Click site → expands resources into outer ring, viewBox shifts to center
+//   on that site. Click again → collapse.
+// Type-filter chips narrow which resources count / appear.
+
 const W = 720;
 const H = 480;
-const HUB_X = W / 2;
-const HUB_Y = H / 2;
+const CX = W / 2;   // hub center X
+const CY = H / 2;   // hub center Y
 const HUB_R = 30;
-const SITE_RING = 130;
-const RESOURCE_RING = 220;
-const SITE_R = 26;
-const RESOURCE_R = 16;
+const SITE_RING = 150;
+const RESOURCE_RING = 260;
+const SITE_R = 28;
+const RESOURCE_R = 18;
 const LIVE_DOT_R = 4;
-const LIVE_DOT_ORBIT = 56;  // distance from hub center for the live cluster
+const LIVE_DOT_ORBIT = 56;
 
-// Glyph paths in 24×24 viewport, drawn around (0,0). Stroke-based so they
-// pick up the theme.
-const GLYPH_SITE = "M-10 -5 h20 v10 h-20 z M-6 0 h12";          // building / office
-const GLYPH_RESOURCE = "M-6 -5 h12 v10 h-12 z M-3 -2 h6 M-3 2 h6"; // server / box
+const ALL_TYPES = [
+  { key: "computer",   label: "Computer" },
+  { key: "nas",        label: "NAS" },
+  { key: "printer",    label: "Drucker" },
+  { key: "router",     label: "Router" },
+  { key: "camera",     label: "Kamera" },
+  { key: "iot",        label: "IoT" },
+  { key: "virt-host",  label: "VM-Host" },
+  { key: "management", label: "Management" },
+  { key: "other",      label: "Sonstige" },
+];
 
 function angleAt(index, total, startDeg = -90) {
-  // Evenly spaced angles; start at the top (-90°) and go clockwise.
   const start = (startDeg * Math.PI) / 180;
   return start + (2 * Math.PI * index) / Math.max(total, 1);
 }
 
-// Compute resource angles: each site occupies an arc whose width grows with
-// its resource share. Resources of the same site are evenly distributed
-// within that arc, with a small inner gap so resources don't touch the site
-// node visually. If there's just one site, resources span the full circle.
-function buildResourceLayout(sites, resources) {
-  if (sites.length === 0) return [];
-  const totalRes = resources.length;
-  if (totalRes === 0) return [];
-  // Group resources by siteId, preserving the input order so the same
-  // resource always lands at the same angle.
-  const grouped = {};
-  for (const r of resources) {
-    (grouped[r.siteId] = grouped[r.siteId] || []).push(r);
-  }
-  const out = [];
-  for (let si = 0; si < sites.length; si++) {
-    const site = sites[si];
-    const list = grouped[site.id] || [];
-    if (list.length === 0) continue;
-    const siteAngle = angleAt(si, sites.length);
-    // Each resource gets an angular slot equal to (2π / total resources).
-    // The site's own resources cluster around the site's angle so the
-    // lineage is visually obvious.
-    const slot = (2 * Math.PI) / totalRes;
-    const arc = slot * list.length;
-    const arcStart = siteAngle - arc / 2 + slot / 2;
-    for (let ri = 0; ri < list.length; ri++) {
-      out.push({
-        resource: list[ri],
-        siteIndex: si,
-        angle: arcStart + ri * slot,
-      });
-    }
-  }
-  return out;
+function buildResourceLayout(sites, resources, expandedSiteId) {
+  if (!expandedSiteId) return [];
+  const siteIndex = sites.findIndex((s) => s.id === expandedSiteId);
+  if (siteIndex === -1) return [];
+  const list = resources.filter((r) => r.siteId === expandedSiteId);
+  if (list.length === 0) return [];
+  const siteAngle = angleAt(siteIndex, sites.length);
+  const arcSpan = Math.min((2 * Math.PI) / 3, (list.length - 1) * 0.35 + 0.3);
+  const arcStart = list.length === 1 ? siteAngle : siteAngle - arcSpan / 2;
+  const step = list.length === 1 ? 0 : arcSpan / (list.length - 1);
+  return list.map((r, i) => {
+    const angle = arcStart + i * step;
+    return {
+      resource: r,
+      siteIndex,
+      angle,
+      x: CX + RESOURCE_RING * Math.cos(angle),
+      y: CY + RESOURCE_RING * Math.sin(angle),
+    };
+  });
 }
 
 export default defineComponent({
   name: "TopologyDiagram",
   props: {
-    sites: { type: Array, required: true },
-    resources: { type: Array, required: true },
-    livePeers: { type: Array, default: () => [] },
+    sites:            { type: Array,  required: true },
+    resources:        { type: Array,  required: true },
+    livePeers:        { type: Array,  default: () => [] },
     resourceOverflow: { type: Number, default: 0 },
-    // wgServerEndpoint aus den Settings — Anzeige unter dem Hub-Label.
-    // Format ist normalerweise 'host:port' oder 'ip:port'.
-    endpoint: { type: String, default: "" },
+    endpoint:         { type: String, default: "" },
   },
   emits: ["site", "resource"],
+  data() {
+    return {
+      expandedSiteId: null,
+      activeTypes: new Set(),
+      vbX: 0,
+      vbY: 0,
+      tooltip: null,   // { resource, x, y } in px relative to container
+    };
+  },
   computed: {
+    presentTypes() {
+      const seen = new Set(this.resources.map((r) => r.type || "computer"));
+      return ALL_TYPES.filter((t) => seen.has(t.key));
+    },
+    filteredResources() {
+      if (this.activeTypes.size === 0) return this.resources;
+      return this.resources.filter((r) => this.activeTypes.has(r.type || "computer"));
+    },
     siteLayout() {
       return this.sites.map((s, i) => {
         const angle = angleAt(i, this.sites.length);
-        return {
-          site: s,
-          angle,
-          x: HUB_X + SITE_RING * Math.cos(angle),
-          y: HUB_Y + SITE_RING * Math.sin(angle),
-        };
+        const x = CX + SITE_RING * Math.cos(angle);
+        const y = CY + SITE_RING * Math.sin(angle);
+        const count = this.filteredResources.filter((r) => r.siteId === s.id).length;
+        return { site: s, angle, x, y, count, expanded: s.id === this.expandedSiteId };
       });
     },
     resourceLayout() {
-      return buildResourceLayout(this.sites, this.resources).map((entry) => ({
-        ...entry,
-        x: HUB_X + RESOURCE_RING * Math.cos(entry.angle),
-        y: HUB_Y + RESOURCE_RING * Math.sin(entry.angle),
-      }));
+      return buildResourceLayout(this.sites, this.filteredResources, this.expandedSiteId);
     },
     livePeerLayout() {
-      // Arrange live peers in a tight ring just outside the hub. 8 slots is
-      // plenty for the UI; the backend caps at 12 and we show a +N text if
-      // there are more. Slots stay deterministic per index so dots don't
-      // jump when one comes and goes (the index changes, but at 5-min
-      // window the visual churn is acceptable for v1).
       return this.livePeers.slice(0, 8).map((p, i) => {
-        const angle = angleAt(i, 8, -135);  // start at upper-left
-        return {
-          peer: p,
-          x: HUB_X + LIVE_DOT_ORBIT * Math.cos(angle),
-          y: HUB_Y + LIVE_DOT_ORBIT * Math.sin(angle),
-        };
+        const angle = angleAt(i, 8, -135);
+        return { peer: p, x: CX + LIVE_DOT_ORBIT * Math.cos(angle), y: CY + LIVE_DOT_ORBIT * Math.sin(angle) };
       });
     },
-    siteByIndex() {
-      return Object.fromEntries(this.sites.map((s, i) => [i, s]));
+    viewBox() {
+      return `${this.vbX} ${this.vbY} ${W} ${H}`;
     },
   },
   methods: {
-    glyphSite() { return GLYPH_SITE; },
-    // Returns the inline-SVG path markup for the resource type, ready to
-    // splat into a <g v-html>. Falls back to the legacy box-glyph when the
-    // resource has no type (older rows before V12 default to 'computer').
+    networkIconMarkup() {
+      return (ICON_PATHS.networks || []).join("");
+    },
     resourceIconMarkup(type) {
-      const key = type || "computer";
-      const paths = ICON_PATHS[key] || ICON_PATHS.computer;
-      // Icons are designed for a 24×24 viewBox centred at (12,12). Inside our
-      // node we translate to (-12,-12) and scale so the glyph fits the node.
+      const paths = ICON_PATHS[type || "computer"] || ICON_PATHS.computer;
       return paths.join("");
     },
-    onSiteClick(siteId) { this.$emit("site", siteId); },
+    onSiteClick(site) {
+      if (this.expandedSiteId === site.id) {
+        // Collapse → reset viewBox to center
+        this.expandedSiteId = null;
+        this.vbX = 0;
+        this.vbY = 0;
+      } else {
+        // Expand → shift viewBox so the site+its resources are centered
+        this.expandedSiteId = site.id;
+        const item = this.siteLayout.find((s) => s.site.id === site.id);
+        if (item) {
+          // Center the viewBox on the midpoint between hub and expanded site
+          const focusX = (CX + item.x) / 2;
+          const focusY = (CY + item.y) / 2;
+          this.vbX = focusX - W / 2;
+          this.vbY = focusY - H / 2;
+        }
+      }
+    },
     onResourceClick(siteId, resourceId) {
       this.$emit("resource", { siteId, resourceId });
+    },
+    toggleType(key) {
+      const next = new Set(this.activeTypes);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      this.activeTypes = next;
+    },
+    clearTypes() { this.activeTypes = new Set(); },
+    showTooltip(event, resource) {
+      const rect = this.$el.getBoundingClientRect();
+      this.tooltip = {
+        resource,
+        x: event.clientX - rect.left + 14,
+        y: event.clientY - rect.top - 10,
+      };
+    },
+    moveTooltip(event) {
+      if (!this.tooltip) return;
+      const rect = this.$el.getBoundingClientRect();
+      this.tooltip = {
+        ...this.tooltip,
+        x: event.clientX - rect.left + 14,
+        y: event.clientY - rect.top - 10,
+      };
+    },
+    hideTooltip() {
+      this.tooltip = null;
     },
     relativeTime(iso) {
       if (!iso) return "—";
       const diff = Date.now() - new Date(iso).getTime();
       const s = Math.round(diff / 1000);
       if (s < 60) return "vor " + s + "s";
-      const m = Math.round(s / 60);
-      return "vor " + m + " min";
+      return "vor " + Math.round(s / 60) + " min";
     },
     resourceTitle(r) {
-      const ports = (r.portLabels && r.portLabels.length > 0)
-        ? r.portLabels.join(", ")
-        : "keine Ports";
-      return r.name + " · " + r.ip + " · " + ports;
+      const ports = r.portLabels?.length > 0 ? r.portLabels.join(", ") : "keine Ports";
+      return `${r.name} · ${r.ip} · ${ports}`;
     },
   },
   template: `
-    <div v-if="sites.length === 0" class="topo-empty">
-      <span>Noch keine Standorte angelegt. Lege unter </span><strong>Netzwerke</strong><span> einen Standort mit Ressourcen an, dann erscheinen sie hier.</span>
-    </div>
-    <svg v-else class="topo" :viewBox="'0 0 ' + ${W} + ' ' + ${H}" role="img" aria-label="Netzwerk-Topologie">
-      <!-- Hub-to-Site links (drawn first so nodes paint over them) -->
-      <g>
-        <line v-for="item in siteLayout" :key="'sl-' + item.site.id"
-              class="link"
-              :x1="${HUB_X}" :y1="${HUB_Y}"
-              :x2="item.x"  :y2="item.y" />
-      </g>
+    <div style="position: relative">
+      <!-- Type filter chips -->
+      <div v-if="presentTypes.length > 1"
+           style="display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); font-family: var(--font-sans)">
+        <button @click="clearTypes"
+          :class="['btn','btn-sm', activeTypes.size === 0 ? 'btn-secondary' : 'btn-ghost']"
+          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
+          Alle
+        </button>
+        <button v-for="tp in presentTypes" :key="tp.key"
+          @click="toggleType(tp.key)"
+          :class="['btn','btn-sm', activeTypes.has(tp.key) ? 'btn-secondary' : 'btn-ghost']"
+          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
+          {{ tp.label }}
+        </button>
+      </div>
 
-      <!-- Site-to-Resource links — short curves so the visual grouping reads -->
-      <g>
-        <line v-for="item in resourceLayout" :key="'rl-' + item.resource.id"
-              class="link"
+      <div v-if="sites.length === 0" class="topo-empty">
+        <span>Noch keine Standorte angelegt. Lege unter </span><strong>Netzwerke</strong><span> einen Standort mit Ressourcen an.</span>
+      </div>
+
+      <svg v-else class="topo" :viewBox="viewBox"
+           style="transition: viewBox 0.3s ease"
+           role="img" aria-label="Netzwerk-Topologie">
+
+        <!-- Hub-to-Site links -->
+        <line v-for="item in siteLayout" :key="'sl-'+item.site.id"
+              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y" />
+
+        <!-- Site-to-Resource links -->
+        <line v-for="item in resourceLayout" :key="'rl-'+item.resource.id"
+              class="link" style="opacity:0.45"
               :x1="siteLayout[item.siteIndex].x" :y1="siteLayout[item.siteIndex].y"
               :x2="item.x" :y2="item.y" />
-      </g>
 
-      <!-- Hub: pulse + solid core. The pulse is CSS-driven and respects
-           prefers-reduced-motion. -->
-      <g>
-        <circle class="hub-pulse" :cx="${HUB_X}" :cy="${HUB_Y}" :r="${HUB_R}" />
-        <circle class="hub-core"  :cx="${HUB_X}" :cy="${HUB_Y}" :r="${HUB_R} - 6" />
-        <text class="hub-label"   :x="${HUB_X}" :y="${HUB_Y} + ${HUB_R} + 16">Hub</text>
-        <text v-if="endpoint" class="hub-endpoint"
-              :x="${HUB_X}" :y="${HUB_Y} + ${HUB_R} + 30">{{ endpoint }}</text>
-      </g>
+        <!-- Hub -->
+        <circle class="hub-pulse" :cx="CX" :cy="CY" :r="HUB_R" />
+        <circle class="hub-core"  :cx="CX" :cy="CY" :r="HUB_R - 6" />
+        <text   class="hub-label" :x="CX" :y="CY + HUB_R + 16">Hub</text>
+        <text v-if="endpoint" class="hub-endpoint" :x="CX" :y="CY + HUB_R + 30">{{ endpoint }}</text>
 
-      <!-- Live-peer dots: small accent-coloured circles right outside the hub.
-           No labels (too many overlapping at high concurrency); the tooltip
-           carries name+ip+lastSeen. -->
-      <g>
-        <circle v-for="(d, i) in livePeerLayout" :key="'lp-' + d.peer.id"
-                :cx="d.x" :cy="d.y" :r="${LIVE_DOT_R}"
-                class="hub-core" style="opacity: 0.85">
+        <!-- Live-peer dots -->
+        <circle v-for="d in livePeerLayout" :key="'lp-'+d.peer.id"
+                :cx="d.x" :cy="d.y" :r="LIVE_DOT_R" class="hub-core" style="opacity:0.85">
           <title>{{ d.peer.name }} · {{ d.peer.assignedIp }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
         </circle>
-        <text v-if="livePeers.length > 8" class="hub-label"
-              :x="${HUB_X}" :y="${HUB_Y} - ${HUB_R} - 12">
-          + {{ livePeers.length - 8 }} weitere live
+
+        <!-- Resource nodes (expanded site only) -->
+        <g v-for="item in resourceLayout" :key="item.resource.id"
+           class="node live"
+           @click="onResourceClick(item.resource.siteId, item.resource.id)"
+           @mouseenter="showTooltip($event, item.resource)"
+           @mousemove="moveTooltip($event)"
+           @mouseleave="hideTooltip"
+           :transform="'translate('+item.x+','+item.y+')'">
+          <circle class="node-ring" :r="RESOURCE_R" />
+          <circle class="node-bg"   :r="RESOURCE_R - 2" />
+          <g class="node-icon" transform="translate(-9.6,-9.6) scale(0.8)"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"
+             v-html="resourceIconMarkup(item.resource.type)" />
+          <text class="node-label" :y="RESOURCE_R + 13">{{ item.resource.name }}</text>
+        </g>
+
+        <!-- Site nodes -->
+        <g v-for="item in siteLayout" :key="item.site.id"
+           class="node live"
+           @click="onSiteClick(item.site)"
+           :transform="'translate('+item.x+','+item.y+')'">
+          <title>{{ item.site.name }} · {{ item.site.cidr }} · {{ item.count }} Ressource{{ item.count===1?'':'n' }}</title>
+
+          <!-- Outer ring — accent when expanded -->
+          <circle class="node-ring" :r="SITE_R"
+                  :style="item.expanded ? 'stroke: var(--accent); stroke-width: 3' : ''" />
+          <circle class="node-bg" :r="SITE_R - 2" />
+
+          <!-- Building glyph (top half of circle) OR count number (bottom) -->
+          <!-- Show icon small at top, count large centered when collapsed -->
+          <g v-if="!item.expanded">
+            <!-- Networks icon, shifted upward to make room for number -->
+            <g class="node-icon" transform="translate(-6,-14) scale(0.5)"
+               fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round"
+               v-html="networkIconMarkup()" />
+            <!-- Count number, centered vertically in lower portion -->
+            <text style="font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+                         fill: var(--accent); text-anchor: middle; dominant-baseline: central;
+                         user-select: none"
+                  y="8">{{ item.count }}</text>
+          </g>
+
+          <!-- When expanded: networks icon centered -->
+          <g v-else class="node-icon"
+             transform="translate(-9.6,-9.6) scale(0.8)"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"
+             v-html="networkIconMarkup()" />
+
+          <text class="node-label" :y="SITE_R + 15">{{ item.site.name }}</text>
+        </g>
+
+        <!-- Hint -->
+        <text v-if="!expandedSiteId" :x="W + vbX - 12" :y="H + vbY - 12"
+              style="font-family:var(--font-sans);font-size:11px;fill:var(--fg3);text-anchor:end;pointer-events:none">
+          Standort anklicken zum Aufklappen
         </text>
-      </g>
+      </svg>
 
-      <!-- Resources (outer ring, drawn before sites so sites sit on top
-           visually when a label would otherwise overlap a resource glyph) -->
-      <g v-for="item in resourceLayout" :key="item.resource.id"
-         class="node live"
-         @click="onResourceClick(item.resource.siteId, item.resource.id)"
-         :transform="'translate(' + item.x + ',' + item.y + ')'">
-        <title>{{ resourceTitle(item.resource) }}</title>
-        <circle class="node-ring" :r="${RESOURCE_R}" />
-        <circle class="node-bg"   :r="${RESOURCE_R} - 2" />
-        <!-- Type-Icon: 24x24-Lucide-Pfade. scale(0.8) macht die Glyphe ~19px,
-             passt knapp in den 16px-Knoten. translate verschiebt das (0,0)
-             des Glyph-Mittelpunkts (12,12 in viewBox) zur Knoten-Mitte. -->
-        <g class="node-icon"
-           transform="translate(-9.6,-9.6) scale(0.8)"
-           fill="none" stroke="currentColor" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round"
-           v-html="resourceIconMarkup(item.resource.type)" />
-        <text   class="node-label" :y="${RESOURCE_R} + 12">{{ item.resource.name }}</text>
-      </g>
-
-      <!-- Sites (inner ring) -->
-      <g v-for="item in siteLayout" :key="item.site.id"
-         class="node live"
-         @click="onSiteClick(item.site.id)"
-         :transform="'translate(' + item.x + ',' + item.y + ')'">
-        <title>{{ item.site.name }} · {{ item.site.cidr }} · {{ item.site.resourceCount }} Ressource{{ item.site.resourceCount === 1 ? '' : 'n' }}</title>
-        <circle class="node-ring" :r="${SITE_R}" />
-        <circle class="node-bg"   :r="${SITE_R} - 2" />
-        <path   class="node-glyph" :d="glyphSite()" transform="scale(0.8)" />
-        <text   class="node-label" :y="${SITE_R} + 14">{{ item.site.name }}</text>
-      </g>
-
-      <!-- Resource overflow indicator -->
-      <text v-if="resourceOverflow > 0" class="hub-label"
-            :x="${W} - 12" :y="${H} - 12" style="text-anchor: end">
-        + {{ resourceOverflow }} Ressourcen nicht gezeigt
-      </text>
-    </svg>
+      <!-- Resource hover tooltip -->
+      <div v-if="tooltip" :style="{
+             position: 'absolute',
+             left: tooltip.x + 'px',
+             top: tooltip.y + 'px',
+             pointerEvents: 'none',
+             zIndex: 10,
+             background: 'var(--surface-2)',
+             border: '1px solid var(--border)',
+             borderRadius: 'var(--radius-sm)',
+             padding: '6px 10px',
+             boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.3))',
+             maxWidth: '220px',
+           }">
+        <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
+          {{ tooltip.resource.name }}
+        </div>
+        <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); margin-bottom: 2px">
+          {{ tooltip.resource.ip }}
+        </div>
+        <div v-if="tooltip.resource.portLabels && tooltip.resource.portLabels.length > 0"
+             style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg3); line-height: 1.5">
+          <div v-for="p in tooltip.resource.portLabels" :key="p">{{ p }}</div>
+        </div>
+        <div v-else style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
+          Keine Ports definiert
+        </div>
+      </div>
+    </div>
   `,
+  // Expose constants to template via data so Vue can see them.
+  created() {
+    this.CX = CX; this.CY = CY;
+    this.HUB_R = HUB_R; this.SITE_R = SITE_R;
+    this.RESOURCE_R = RESOURCE_R; this.LIVE_DOT_R = LIVE_DOT_R;
+  },
 });

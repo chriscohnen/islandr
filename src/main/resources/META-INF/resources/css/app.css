@@ -376,6 +376,7 @@ body {
 
 .modal-xl {
   max-width: 1020px;
+  min-width: min(860px, 95vw);
 }
 
 .modal-header {
@@ -461,8 +462,8 @@ body {
 /* --- one-time-secret block (QR + .conf) ---------------------------------- */
 .secret-block {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: var(--space-5);
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--space-6);
   align-items: start;
   margin-top: var(--space-4);
 }
@@ -472,8 +473,8 @@ body {
 }
 
 .secret-block .qr {
-  width: 200px;
-  height: 200px;
+  width: 220px;
+  height: 220px;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -496,12 +497,10 @@ body {
   padding: var(--space-3);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  /* pre-wrap: zeige Zeilenumbrüche des Inhalts, breche aber auch lange
-     Zeilen (z.B. base64-Keys) am Container-Rand um — kein horizontales Scrollen. */
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
+  white-space: pre;
+  overflow-x: auto;
   overflow-y: auto;
-  max-height: 260px;
+  max-height: 320px;
   color: var(--fg1);
 }
 

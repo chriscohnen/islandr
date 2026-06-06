@@ -178,18 +178,15 @@ export default defineComponent({
           <td class="muted">{{ r.description || "—" }}</td>
           <td>
             <button class="btn btn-ghost btn-sm" @click="openMembers(r)">
-              {{ r.memberCount }} <span style="margin-left: 4px">↗</span>
+              <Icon name="users" :size="13" />{{ r.memberCount }}
             </button>
           </td>
           <td>
-            <router-link to="/acl" class="btn btn-ghost btn-sm">{{ r.grantCount }} <span style="margin-left: 4px">→</span></router-link>
+            <router-link to="/acl" class="btn btn-ghost btn-sm"><Icon name="acl" :size="13" />{{ r.grantCount }}</router-link>
           </td>
           <td style="text-align: right">
-            <button class="btn btn-ghost btn-sm" @click="openEdit(r)">
-              <Icon name="edit" :size="14" />
-              {{ t('roles.btn_edit') }}
-            </button>
-            <button class="btn btn-ghost btn-sm" @click="deleteRole(r)">{{ t('roles.btn_delete') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openEdit(r)"><Icon name="edit" :size="13" />{{ t('roles.btn_edit') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="deleteRole(r)"><Icon name="trash" :size="13" />{{ t('roles.btn_delete') }}</button>
           </td>
         </tr>
       </tbody>

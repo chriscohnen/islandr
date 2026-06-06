@@ -359,8 +359,8 @@ export default defineComponent({
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>
           <td class="muted">{{ formatDate(p.createdAt) }}</td>
           <td style="text-align: right">
-            <button v-if="canReshow(p)" class="btn btn-ghost btn-sm" @click="openReshow(p.id)">{{ t('myaccess.btn_qr') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="openRotate(p)">{{ t('myaccess.btn_rotate') }}</button>
+            <button v-if="canReshow(p)" class="btn btn-ghost btn-sm" @click="openReshow(p.id)"><Icon name="qr-code" :size="13" />{{ t('myaccess.btn_qr') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openRotate(p)"><Icon name="rotate" :size="13" />{{ t('myaccess.btn_rotate') }}</button>
           </td>
         </tr>
       </tbody>

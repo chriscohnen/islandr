@@ -83,6 +83,20 @@ export default defineComponent({
       }
     },
 
+    async toggleEnabled(user) {
+      try {
+        const res = await fetch("/api/v1/users/" + user.id + "/enabled", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: !user.enabled }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await this.load();
+      } catch (e) {
+        this.error = t("users.error_toggle", { error: e.message });
+      }
+    },
+
     async toggleAdmin(user) {
       const next = !user.isAdmin;
       const verb = next
@@ -151,19 +165,20 @@ export default defineComponent({
           <th>{{ t('users.th_email') }}</th>
           <th>{{ t('users.th_role') }}</th>
           <th>{{ t('users.th_status') }}</th>
+          <th>{{ t('users.th_peers') }}</th>
           <th>{{ t('users.th_created') }}</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="u in users" :key="u.id">
+        <tr v-for="u in users" :key="u.id" :style="!u.enabled ? 'opacity: 0.55' : ''">
           <td>
             <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
               <Avatar :user="u" :size="32" />
-              <span v-if="editingNicknameId !== u.id">
+              <span v-if="editingNicknameId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap">
                 <span>{{ u.displayName }}</span>
-                <span v-if="u.nickname" class="muted mono" style="font-size: var(--text-xs); margin-left: 4px">({{ u.name }})</span>
-                <button @click="startNicknameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; margin-left: 4px" :title="t('users.btn_nickname')">
+                <span v-if="u.nickname" class="muted mono" style="font-size: var(--text-xs)">({{ u.name }})</span>
+                <button @click="startNicknameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_nickname')">
                   <Icon name="edit" :size="12" />
                 </button>
               </span>
@@ -190,19 +205,28 @@ export default defineComponent({
               {{ u.enabled ? t('users.status_active') : t('users.status_disabled') }}
             </span>
           </td>
+          <td>
+            <button class="btn btn-ghost btn-sm" @click="$router.push({ name: 'peers', query: {} })" style="font-family: var(--font-mono); padding: 2px 8px">
+              <Icon name="peers" :size="13" />{{ u.peerCount }}
+            </button>
+          </td>
           <td class="muted">{{ formatDate(u.createdAt) }}</td>
           <td style="text-align: right">
             <router-link
               :to="{ name: 'my-access', query: { as: u.id, asName: u.displayName } }"
-              class="btn btn-ghost btn-sm"
-              title="Benutzer-Ansicht öffnen">
-              {{ t('users.btn_view') }}
+              class="btn btn-ghost btn-sm">
+              <Icon name="external-link" :size="13" />{{ t('users.btn_view') }}
             </router-link>
             <button class="btn btn-ghost btn-sm" @click="toggleAdmin(u)">
+              <Icon :name="u.isAdmin ? 'shield-off' : 'shield'" :size="13" />
               {{ u.isAdmin ? t('users.btn_revoke_admin') : t('users.btn_make_admin') }}
             </button>
-            <button class="btn btn-secondary btn-sm" @click="openCreatePeer(u.id)">{{ t('users.btn_add_peer') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteUser(u.id)">{{ t('users.btn_delete') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="toggleEnabled(u)">
+              <Icon :name="u.enabled ? 'pause-circle' : 'play-circle'" :size="13" />
+              {{ u.enabled ? t('users.btn_disable') : t('users.btn_enable') }}
+            </button>
+            <button class="btn btn-secondary btn-sm" @click="openCreatePeer(u.id)"><Icon name="peers" :size="13" />{{ t('users.btn_add_peer') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="deleteUser(u.id)"><Icon name="trash" :size="13" />{{ t('users.btn_delete') }}</button>
           </td>
         </tr>
       </tbody>

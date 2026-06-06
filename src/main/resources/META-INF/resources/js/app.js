@@ -172,6 +172,22 @@ const App = defineComponent({
       // server says 401 we land here with me=null, and the next navigation
       // hits the router guard which sends us to /login. No explicit push.
       await auth.refresh();
+      // Apply the user's stored locale preference on load — but only if the
+      // user hasn't already picked something explicitly in this browser session
+      // (localStorage wins over the server value to avoid a jarring mid-session
+      // switch when two tabs are open with different languages).
+      if (session.me) {
+        try {
+          const res = await fetch("/api/v1/users/me");
+          if (res.ok) {
+            const profile = await res.json();
+            if (profile.preferredLocale && !localStorage.getItem("islandr.locale")) {
+              setLocale(profile.preferredLocale);
+              this.lang = profile.preferredLocale;
+            }
+          }
+        } catch { /* non-critical */ }
+      }
     },
     onSettingsChanged(s) {
       this.setupComplete = !!s.setupComplete;
@@ -190,6 +206,14 @@ const App = defineComponent({
     switchLang(lang) {
       setLocale(lang);
       this.lang = lang;
+      // Persist to server if logged in — fire-and-forget, non-critical.
+      if (session.me) {
+        fetch("/api/v1/users/me/locale", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ locale: lang }),
+        }).catch(() => {});
+      }
     },
     t(key, vars) { return t(key, vars); },
   },

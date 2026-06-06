@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import TopologyDiagram from "/js/TopologyDiagram.js";
+import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 
 // Walking-skeleton dashboard. One backend round-trip (/api/v1/dashboard)
@@ -8,7 +9,7 @@ import { t, locale } from "/js/i18n.js";
 // numbers. Most cards are clickable shortcuts to the underlying view.
 export default defineComponent({
   name: "DashboardView",
-  components: { TopologyDiagram },
+  components: { TopologyDiagram, Icon },
   data() {
     return {
       data: null,
@@ -162,7 +163,9 @@ export default defineComponent({
       <!-- KPI grid -->
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6)">
         <router-link to="/peers" class="card card-pad" style="text-decoration: none; color: inherit; display: block">
-          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2)">{{ t('dashboard.kpi_peers') }}</div>
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="peers" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_peers') }}
+          </div>
           <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ data.peers.total }}</div>
           <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
             <span class="badge badge-success">{{ data.peers.enabled }} {{ t('dashboard.kpi_peers_active') }}</span>
@@ -171,7 +174,9 @@ export default defineComponent({
         </router-link>
 
         <router-link to="/users" class="card card-pad" style="text-decoration: none; color: inherit; display: block">
-          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2)">{{ t('dashboard.kpi_users') }}</div>
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="users" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_users') }}
+          </div>
           <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ data.users.total }}</div>
           <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
             <span class="badge badge-info">{{ data.users.admins }} Admin{{ data.users.admins === 1 ? "" : "s" }}</span>
@@ -179,7 +184,9 @@ export default defineComponent({
         </router-link>
 
         <router-link to="/roles-list" class="card card-pad" style="text-decoration: none; color: inherit; display: block">
-          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2)">{{ t('dashboard.kpi_roles') }}</div>
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="roles" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_roles') }}
+          </div>
           <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ data.roles.total }}</div>
           <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
             <span :class="['badge', data.roles.withGrants > 0 ? 'badge-success' : 'badge-neutral']">
@@ -189,7 +196,9 @@ export default defineComponent({
         </router-link>
 
         <router-link to="/networks" class="card card-pad" style="text-decoration: none; color: inherit; display: block">
-          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2)">{{ t('dashboard.kpi_networks') }}</div>
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="networks" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_networks') }}
+          </div>
           <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ data.resources.sites }}</div>
           <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
             <span class="badge badge-neutral">{{ data.resources.resources }} {{ t('dashboard.kpi_resources') }}</span>
@@ -198,7 +207,9 @@ export default defineComponent({
         </router-link>
 
         <a href="#/firewall" class="card card-pad" @click.prevent="goToFirewall" style="text-decoration: none; color: inherit; display: block; cursor: pointer">
-          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2)">{{ t('dashboard.kpi_firewall') }}</div>
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="firewall" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_firewall') }}
+          </div>
           <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ data.firewall.ruleCount }}</div>
           <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
             <span :class="['badge', firewallStatusBadge(data.firewall.status)]">

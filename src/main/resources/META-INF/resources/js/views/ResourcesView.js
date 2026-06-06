@@ -282,8 +282,8 @@ export default defineComponent({
             <div class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
           </div>
           <div class="res-actions">
-            <button class="btn btn-ghost btn-sm" @click="openEdit(r)" :title="t('resources.btn_edit')">{{ t('resources.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteResource(r)" :title="t('resources.btn_delete')">{{ t('resources.btn_delete') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openEdit(r)"><Icon name="edit" :size="13" />{{ t('resources.btn_edit') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="deleteResource(r)"><Icon name="trash" :size="13" />{{ t('resources.btn_delete') }}</button>
           </div>
         </div>
 

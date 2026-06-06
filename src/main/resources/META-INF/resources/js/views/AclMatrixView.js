@@ -269,6 +269,7 @@ export default defineComponent({
         <thead>
           <tr>
             <th style="position: sticky; left: 0; background: var(--surface-2); min-width: 220px">{{ t('acl.th_resource') }}</th>
+            <th style="position: sticky; left: 220px; background: var(--surface-2); text-align: right; padding-right: var(--space-4); white-space: nowrap; box-shadow: 1px 0 0 var(--border)">{{ t('acl.th_ports') }}</th>
             <th v-for="role in roles" :key="role.id" style="text-align: center; min-width: 120px">
               <div>{{ role.name }}</div>
               <div class="muted" style="font-size: var(--text-xs); font-weight: 400; font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
@@ -279,14 +280,14 @@ export default defineComponent({
         </thead>
         <tbody>
           <tr v-for="r in activeResources" :key="r.id">
-            <td style="position: sticky; left: 0; background: var(--surface)">
-              <div style="font-weight: 600">{{ r.name }}</div>
-              <div class="mono muted" style="font-size: var(--text-xs); font-weight: 400">{{ r.ip }}</div>
-              <div class="muted" style="font-size: var(--text-xs); font-weight: 400; font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
-                {{ r.ports.length }} {{ t(r.ports.length === 1 ? 'acl.port' : 'acl.ports') }}
-              </div>
+            <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle">
+              <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.4">{{ r.name }}</div>
+              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); font-weight: 400; line-height: 1.3; margin-top: 2px">{{ r.ip }}</div>
             </td>
-            <td v-for="role in roles" :key="role.id" style="text-align: center">
+            <td style="position: sticky; left: 220px; background: var(--surface); text-align: right; padding-right: var(--space-4); vertical-align: middle; box-shadow: 1px 0 0 var(--border)">
+              <span class="mono muted" style="font-size: var(--text-sm)">{{ r.ports.length }}</span>
+            </td>
+            <td v-for="role in roles" :key="role.id" style="text-align: center; vertical-align: middle">
               <button class="btn btn-ghost btn-sm"
                       style="min-width: 60px; font-family: var(--font-mono); font-size: var(--text-md); text-transform: none; letter-spacing: 0"
                       :style="isCellDirty(role.id, r.id) ? 'box-shadow: 0 0 0 2px #FBBF24 inset' : ''"

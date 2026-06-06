@@ -84,6 +84,65 @@ export const PATHS = {
     '<line x1="6" x2="6.01" y1="18" y2="18"/>',
   ],
 
+  // rotate-ccw — Lucide MIT (key rotation)
+  rotate: [
+    '<polyline points="1 4 1 10 7 10"/>',
+    '<path d="M3.51 15a9 9 0 1 0 .49-3.27"/>',
+  ],
+
+  // trash — Lucide MIT
+  trash: [
+    '<polyline points="3 6 5 6 21 6"/>',
+    '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+    '<path d="M10 11v6"/>',
+    '<path d="M14 11v6"/>',
+    '<path d="M9 6V4h6v2"/>',
+  ],
+
+  // shield — Lucide MIT (admin/privilege actions)
+  shield: [
+    '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  ],
+
+  // shield-off — Lucide MIT (revoke admin)
+  'shield-off': [
+    '<path d="M19.69 14a6.9 6.9 0 0 0 .31-2V5l-8-3-3.16 1.18"/>',
+    '<path d="M4.73 4.73L4 5v7c0 6 8 10 8 10a20.3 20.3 0 0 0 5.62-4.38"/>',
+    '<line x1="1" x2="23" y1="1" y2="23"/>',
+  ],
+
+  // qr-code — Lucide MIT
+  'qr-code': [
+    '<rect width="5" height="5" x="3" y="3" rx="1"/>',
+    '<rect width="5" height="5" x="16" y="3" rx="1"/>',
+    '<rect width="5" height="5" x="3" y="16" rx="1"/>',
+    '<path d="M21 16h-3a2 2 0 0 0-2 2v3"/>',
+    '<line x1="21" x2="21" y1="21" y2="21"/>',
+    '<path d="M12 7v3a2 2 0 0 1-2 2H7"/>',
+    '<line x1="3" x2="3" y1="12" y2="12"/>',
+    '<line x1="12" x2="12" y1="3" y2="3"/>',
+  ],
+
+  // pause-circle — Lucide MIT (disable)
+  'pause-circle': [
+    '<circle cx="12" cy="12" r="10"/>',
+    '<line x1="10" x2="10" y1="15" y2="9"/>',
+    '<line x1="14" x2="14" y1="15" y2="9"/>',
+  ],
+
+  // play-circle — Lucide MIT (enable)
+  'play-circle': [
+    '<circle cx="12" cy="12" r="10"/>',
+    '<polygon points="10 8 16 12 10 16 10 8"/>',
+  ],
+
+  // external-link — Lucide MIT (view as user)
+  'external-link': [
+    '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    '<polyline points="15 3 21 3 21 9"/>',
+    '<line x1="10" x2="21" y1="14" y2="3"/>',
+  ],
+
   // edit (pencil) — Lucide MIT
   edit: [
     '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>',

@@ -23,6 +23,9 @@ export default defineComponent({
       // Pre-selected user for the create modal (sticky, so creating many peers
       // for the same user does not require re-picking each time).
       createUserId: "",
+      filterUserId: "",   // "" = all users
+      sortKey: "createdAt",
+      sortDir: -1,        // -1 = desc, 1 = asc
       lang: locale.current,
     };
   },
@@ -31,6 +34,29 @@ export default defineComponent({
     modalUserName() {
       const u = this.usersById[this.modalUserId];
       return u ? `${u.name} (${u.email})` : null;
+    },
+    visiblePeers() {
+      let list = this.filterUserId
+        ? this.peers.filter((p) => p.userId === this.filterUserId)
+        : [...this.peers];
+      const k = this.sortKey;
+      const d = this.sortDir;
+      list.sort((a, b) => {
+        let av = a[k], bv = b[k];
+        if (k === "name") return d * av.localeCompare(bv);
+        if (k === "enabled") return d * ((av ? 1 : 0) - (bv ? 1 : 0));
+        if (k === "user") {
+          av = this.userNameFor(a.userId);
+          bv = this.userNameFor(b.userId);
+          return d * av.localeCompare(bv);
+        }
+        // dates / nulls
+        if (!av && !bv) return 0;
+        if (!av) return 1;
+        if (!bv) return -1;
+        return d * (av < bv ? -1 : av > bv ? 1 : 0);
+      });
+      return list;
     },
   },
   async mounted() {
@@ -109,6 +135,14 @@ export default defineComponent({
       return this.usersById[userId]?.name || "?";
     },
 
+    sortBy(key) {
+      if (this.sortKey === key) this.sortDir *= -1;
+      else { this.sortKey = key; this.sortDir = 1; }
+    },
+    sortIcon(key) {
+      if (this.sortKey !== key) return "↕";
+      return this.sortDir === 1 ? "↑" : "↓";
+    },
     formatDate(iso) {
       if (!iso) return "—";
       return new Date(iso).toLocaleString("de-DE");
@@ -116,10 +150,18 @@ export default defineComponent({
   },
   template: `
     <div class="page-header">
-      <h1>{{ t('peers.title') }} <span v-if="peers.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">{{ peers.length }}</span></h1>
+      <h1>{{ t('peers.title') }}
+        <span v-if="peers.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">
+          {{ visiblePeers.length }}<template v-if="filterUserId"> / {{ peers.length }}</template>
+        </span>
+      </h1>
       <div style="display: flex; gap: var(--space-3); align-items: center">
-        <label class="muted" for="createUser" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">{{ t('peers.for_user') }}</label>
-        <select id="createUser" class="select" style="height: 32px; width: auto; min-width: 180px" v-model="createUserId" :disabled="users.length === 0">
+        <label class="muted" for="filterUser" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">{{ t('peers.for_user') }}</label>
+        <select id="filterUser" class="select" style="height: 32px; width: auto; min-width: 180px"
+                v-model="filterUserId"
+                @change="createUserId = filterUserId || (users[0] && users[0].id) || ''"
+                :disabled="users.length === 0">
+          <option value="">{{ t('peers.all_users') }}</option>
           <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
         </select>
         <button class="btn btn-primary btn-sm" @click="openCreate" :disabled="users.length === 0">{{ t('peers.create_btn') }}</button>
@@ -138,18 +180,26 @@ export default defineComponent({
     <table v-else class="table">
       <thead>
         <tr>
-          <th>{{ t('peers.th_name') }}</th>
+          <th @click="sortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_name') }} <span class="muted" style="font-size: 10px">{{ sortIcon('name') }}</span>
+          </th>
           <th>{{ t('peers.th_type') }}</th>
-          <th>{{ t('peers.th_user') }}</th>
+          <th @click="sortBy('user')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_user') }} <span class="muted" style="font-size: 10px">{{ sortIcon('user') }}</span>
+          </th>
           <th>{{ t('peers.th_ip') }}</th>
-          <th>{{ t('peers.th_status') }}</th>
+          <th @click="sortBy('enabled')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_status') }} <span class="muted" style="font-size: 10px">{{ sortIcon('enabled') }}</span>
+          </th>
           <th>{{ t('peers.th_handshake') }}</th>
-          <th>{{ t('peers.th_created') }}</th>
+          <th @click="sortBy('createdAt')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_created') }} <span class="muted" style="font-size: 10px">{{ sortIcon('createdAt') }}</span>
+          </th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="p in peers" :key="p.id">
+        <tr v-for="p in visiblePeers" :key="p.id">
           <td>{{ p.name }}</td>
           <td>
             <span v-if="p.type === 'site'" class="badge badge-info">{{ t('peers.type_site') }}</span>
@@ -173,10 +223,13 @@ export default defineComponent({
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>
           <td class="muted">{{ formatDate(p.createdAt) }}</td>
           <td style="text-align: right">
-            <button class="btn btn-ghost btn-sm" @click="openEditPeer(p)">{{ t('peers.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="openReshow(p.userId, p.id)">{{ t('peers.btn_qr') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="toggleEnabled(p)">{{ p.enabled ? t('peers.btn_disable') : t('peers.btn_enable') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deletePeer(p.id)">{{ t('peers.btn_delete') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openEditPeer(p)"><Icon name="edit" :size="13" />{{ t('peers.btn_edit') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openReshow(p.userId, p.id)"><Icon name="qr-code" :size="13" />{{ t('peers.btn_qr') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="toggleEnabled(p)">
+              <Icon :name="p.enabled ? 'pause-circle' : 'play-circle'" :size="13" />
+              {{ p.enabled ? t('peers.btn_disable') : t('peers.btn_enable') }}
+            </button>
+            <button class="btn btn-ghost btn-sm" @click="deletePeer(p.id)"><Icon name="trash" :size="13" />{{ t('peers.btn_delete') }}</button>
           </td>
         </tr>
       </tbody>

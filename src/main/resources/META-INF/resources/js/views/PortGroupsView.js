@@ -1,4 +1,5 @@
 import { defineComponent } from "vue";
+import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 
 // Port-group templates (admin-managed). A group is a named bundle of
@@ -7,6 +8,7 @@ import { t, locale } from "/js/i18n.js";
 // change resources where it was previously applied.
 export default defineComponent({
   name: "PortGroupsView",
+  components: { Icon },
   data() {
     return {
       lang: locale.current,
@@ -166,8 +168,8 @@ export default defineComponent({
             </div>
           </td>
           <td style="text-align: right">
-            <button class="btn btn-ghost btn-sm" @click="openEdit(g)">{{ t('portgroups.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteGroup(g)">{{ t('portgroups.btn_delete') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="openEdit(g)"><Icon name="edit" :size="13" />{{ t('portgroups.btn_edit') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="deleteGroup(g)"><Icon name="trash" :size="13" />{{ t('portgroups.btn_delete') }}</button>
           </td>
         </tr>
       </tbody>
