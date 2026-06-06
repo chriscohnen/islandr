@@ -209,7 +209,6 @@ islandr/
 - Peer expiry / auto-disable
 - Site map view: geographic topology for multi-site setups (Leaflet + OSM, no Google Maps)
 - Config export / import — set up on a dev machine, import to the production hub
-- Entra-ID role-claim mapping
 - Google Workspace / Entra ID user import: browse org users, see who is already in Islandr, import selected
 - **Docker production support** via Unix socket proxy — container stays unprivileged, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
 - World map / topology map: sites as pins, active tunnels as lines, Leaflet + OSM
@@ -217,6 +216,7 @@ islandr/
 **v3 — Operations**
 - `.deb` package for `apt install islandr` on Ubuntu/Debian
 - API key management for automation
+- **IPv6 peer support** — assigned IPs, ACL rules, and nftables ruleset generation for dual-stack and IPv6-only deployments
 
 ## Documentation
 
