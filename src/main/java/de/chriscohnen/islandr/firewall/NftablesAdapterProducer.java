@@ -7,6 +7,8 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.nio.file.Path;
+
 /**
  * Picks the {@link NftablesAdapter} implementation at startup. Mirrors
  * {@code WgAdapterProducer}: default {@code mock}, Hub VM sets
@@ -23,6 +25,9 @@ public class NftablesAdapterProducer {
     @ConfigProperty(name = "islandr.use-sudo", defaultValue = "false")
     boolean useSudo;
 
+    @ConfigProperty(name = "islandr.data.dir", defaultValue = "/var/lib/islandr")
+    String dataDir;
+
     @Inject SettingsService settings;
 
     @Produces
@@ -30,7 +35,7 @@ public class NftablesAdapterProducer {
     public NftablesAdapter produce() {
         if ("real".equalsIgnoreCase(mode)) {
             LOG.infof("NftablesAdapter mode=real, useSudo=%s — wrapped with DryRunNftablesAdapter (checks settings at runtime)", useSudo);
-            return new DryRunNftablesAdapter(new RealNftablesAdapter(useSudo), settings);
+            return new DryRunNftablesAdapter(new RealNftablesAdapter(useSudo, Path.of(dataDir)), settings);
         }
         LOG.info("NftablesAdapter mode=mock — in-memory, no real nftables interaction");
         return new MockNftablesAdapter();

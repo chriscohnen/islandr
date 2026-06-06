@@ -36,9 +36,11 @@ public class RealNftablesAdapter implements NftablesAdapter {
     private static final long PROCESS_TIMEOUT_SECONDS = 10;
 
     private final boolean useSudo;
+    private final Path dataDir;
 
-    public RealNftablesAdapter(boolean useSudo) {
+    public RealNftablesAdapter(boolean useSudo, Path dataDir) {
         this.useSudo = useSudo;
+        this.dataDir = dataDir;
     }
 
     @Override
@@ -89,7 +91,9 @@ public class RealNftablesAdapter implements NftablesAdapter {
     }
 
     private Path stage(String rulesetText) throws IOException {
-        Path tmp = Files.createTempFile("islandr-nft-", ".nft");
+        // Write to dataDir so the path is covered by the sudoers NOPASSWD rule.
+        // /tmp is not allowed by the scoped sudo grant (see docs/adr/0011).
+        Path tmp = Files.createTempFile(dataDir, "islandr-nft-", ".nft");
         Files.writeString(tmp, rulesetText, StandardCharsets.UTF_8);
         return tmp;
     }
