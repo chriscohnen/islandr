@@ -122,6 +122,9 @@ public class RuleBuilder {
         // A user in two roles that both grant the same resource:port produces ONE rule,
         // not two — the kernel doesn't care and a duplicate comment is noisy.
         Map<String, String> rulesByKey = new LinkedHashMap<>();
+        // Track (peer.assignedIp, resource.ip) pairs that have at least one grant —
+        // used below to emit implicit ICMP accept rules (ping reachability check).
+        Set<String> icmpPairs = new HashSet<>();
         for (Peer peer : peers) {
             List<String> userRoles = rolesByUser.getOrDefault(peer.userId, List.of());
             if (userRoles.isEmpty()) continue;
@@ -154,9 +157,24 @@ public class RuleBuilder {
                                 wgInterface, peer.assignedIp, res.ip,
                                 rp.transport, rp.port, comment);
                         rulesByKey.put(key, rule);
+                        // Mark this (peer, resource) pair for implicit ICMP allow
+                        icmpPairs.add(peer.assignedIp + "|" + res.ip + "|" + escape(peer.name) + "|" + escape(res.name));
                     }
                 }
             }
+        }
+        // Implicit ICMP (ping) accept for every (peer, resource) pair that has at least
+        // one port grant. This lets users verify connectivity without opening extra rules.
+        for (String pair : icmpPairs) {
+            String[] parts = pair.split("\\|", 4);
+            String peerIp = parts[0], resIp = parts[1], peerName = parts[2], resName = parts[3];
+            String icmpKey = peerIp + "|" + resIp + "|icmp";
+            if (rulesByKey.containsKey(icmpKey)) continue;
+            String rule = String.format(
+                    "    iifname \"%s\" ip saddr %s ip daddr %s icmp type echo-request accept comment \"%s\"",
+                    wgInterface, peerIp, resIp,
+                    "islandr:peer=" + peerName + " resource=" + resName + " ping");
+            rulesByKey.put(icmpKey, rule);
         }
 
         StringBuilder sb = new StringBuilder(BANNER.length() + 256 + 96 * rulesByKey.size());

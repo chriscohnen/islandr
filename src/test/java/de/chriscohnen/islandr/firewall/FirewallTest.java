@@ -107,12 +107,14 @@ class FirewallTest {
 
         RuleBuilder.Snapshot snap = builder.build();
 
-        assertThat(snap.ruleCount()).isEqualTo(1);
+        // 1 TCP rule + 1 implicit ICMP rule
+        assertThat(snap.ruleCount()).isEqualTo(2);
         // Rule format: iifname "wg0" ip saddr 10.8.0.5 ip daddr 10.20.0.5 tcp dport 3389 accept comment "..."
         assertThat(snap.rulesetText())
                 .contains("ip saddr 10.8.0.5")
                 .contains("ip daddr 10.20.0.5")
                 .contains("tcp dport 3389")
+                .contains("icmp type echo-request")
                 .contains("accept");
         // Audit-friendly comment names role, peer, user, resource, protocol.
         assertThat(snap.rulesetText())
@@ -139,10 +141,12 @@ class FirewallTest {
         persistPeer(u.id, "ipad", "10.8.0.6");
 
         RuleBuilder.Snapshot snap = builder.build();
-        assertThat(snap.ruleCount()).isEqualTo(2);
+        // 2 TCP rules + 1 implicit ICMP rule (deduplicated per peer/resource pair)
+        assertThat(snap.ruleCount()).isEqualTo(3);
         assertThat(snap.rulesetText())
                 .contains("tcp dport 22")
-                .contains("tcp dport 443");
+                .contains("tcp dport 443")
+                .contains("icmp type echo-request");
     }
 
     @Test
