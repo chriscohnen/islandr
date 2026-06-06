@@ -67,6 +67,10 @@ public class User extends PanacheEntityBase {
     @Column(name = "avatar_source", length = 16)
     public String avatarSource;
 
+    /** "de" | "en" | null. Set from OIDC locale claim on first login; updated by user preference. */
+    @Column(name = "preferred_locale", length = 8)
+    public String preferredLocale;
+
     public static User createNew(String name, String email) {
         User u = new User();
         u.id = UUID.randomUUID().toString();

@@ -42,7 +42,7 @@ public class SiteService {
                             .entity("a site named '" + req.name() + "' already exists")
                             .build());
         }
-        Site s = Site.createNew(req.name(), req.cidr(), req.description());
+        Site s = Site.createNew(req.name(), req.cidr(), req.description(), req.lat(), req.lng());
         s.persist();
         return s;
     }
@@ -59,6 +59,8 @@ public class SiteService {
         s.name = req.name();
         s.cidr = req.cidr();
         s.description = req.description();
+        s.lat = req.lat();
+        s.lng = req.lng();
         return s;
     }
 

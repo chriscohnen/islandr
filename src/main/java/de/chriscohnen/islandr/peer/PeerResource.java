@@ -75,7 +75,7 @@ public class PeerResource {
         afterMap.put("name", out.peer().name());
         afterMap.put("assignedIp", out.peer().assignedIp());
         afterMap.put("siteAllowedCidrs", out.peer().siteAllowedCidrs() == null ? "" : out.peer().siteAllowedCidrs());
-        audit.logUpdate(a.principal(), "peer.update", "Peer:" + id, beforeMap, afterMap);
+        audit.logUpdate(a.principal(), "peer.update", "Peer:" + out.peer().name() + " (" + id + ")", beforeMap, afterMap);
         rulesets.recomputeFromHook();
         return out;
     }
@@ -88,7 +88,7 @@ public class PeerResource {
         AuthContext a = Auth.requireAdmin(ctx);
         PeerDto.Response p = peers.setEnabled(id, body.enabled());
         String action = body.enabled() ? "peer.enable" : "peer.disable";
-        audit.logEvent(a.principal(), action, "Peer:" + id,
+        audit.logEvent(a.principal(), action, "Peer:" + p.name() + " (" + id + ")",
                 Map.of("name", p.name(), "assignedIp", p.assignedIp()));
         rulesets.recomputeFromHook();
         return p;
@@ -101,7 +101,8 @@ public class PeerResource {
         Peer before = Peer.findById(id);
         Map<String, Object> beforeMap = before == null ? null : peerSnapshot(before);
         peers.delete(id);
-        audit.logDelete(a.principal(), "peer.delete", "Peer:" + id, beforeMap);
+        String peerName = before != null ? before.name : id;
+        audit.logDelete(a.principal(), "peer.delete", "Peer:" + peerName + " (" + id + ")", beforeMap);
         rulesets.recomputeFromHook();
         return Response.noContent().build();
     }

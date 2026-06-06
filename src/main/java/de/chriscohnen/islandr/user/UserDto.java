@@ -15,11 +15,14 @@ public final class UserDto {
             String email,
             boolean enabled,
             boolean isAdmin,
+            String preferredLocale,
+            int peerCount,
             Instant createdAt
     ) {
         public static Response from(User u) {
             String display = (u.nickname != null && !u.nickname.isBlank()) ? u.nickname : u.name;
-            return new Response(u.id, u.name, u.nickname, display, u.email, u.enabled, u.isAdmin, u.createdAt);
+            int peers = (int) de.chriscohnen.islandr.peer.Peer.count("userId", u.id);
+            return new Response(u.id, u.name, u.nickname, display, u.email, u.enabled, u.isAdmin, u.preferredLocale, peers, u.createdAt);
         }
     }
 
@@ -31,6 +34,10 @@ public final class UserDto {
     public record AdminFlagRequest(boolean isAdmin) {}
 
     public record NicknameRequest(String nickname) {}
+
+    public record LocaleRequest(String locale) {}
+
+    public record EnabledRequest(boolean enabled) {}
 
     private UserDto() {}
 }

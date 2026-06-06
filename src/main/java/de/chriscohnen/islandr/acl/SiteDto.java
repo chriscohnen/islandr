@@ -12,11 +12,13 @@ public final class SiteDto {
             String name,
             String cidr,
             String description,
+            Double lat,
+            Double lng,
             int resourceCount,
             Instant createdAt
     ) {
         public static Response from(Site s, int resourceCount) {
-            return new Response(s.id, s.name, s.cidr, s.description, resourceCount, s.createdAt);
+            return new Response(s.id, s.name, s.cidr, s.description, s.lat, s.lng, resourceCount, s.createdAt);
         }
     }
 
@@ -26,7 +28,9 @@ public final class SiteDto {
             @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}$",
                     message = "must be IPv4 CIDR (e.g. 10.20.0.0/16)")
             String cidr,
-            String description
+            String description,
+            Double lat,
+            Double lng
     ) {}
 
     private SiteDto() {}

@@ -29,7 +29,7 @@ public class IdTokenVerifier {
 
     @Inject JwksCache jwks;
 
-    public record Claims(String subject, String email, String name, String pictureUrl, JsonNode raw) {}
+    public record Claims(String subject, String email, String name, String pictureUrl, String locale, JsonNode raw) {}
 
     public Claims verify(String idToken, OidcProvider provider) {
         String[] parts = idToken.split("\\.");
@@ -52,11 +52,16 @@ public class IdTokenVerifier {
 
         String email = text(payload, "email");
         if (email == null) email = text(payload, "preferred_username");  // MS sometimes only sets this
+        // Normalise locale claim to a 2-letter tag ("de-DE" → "de", "en-US" → "en").
+        // Both Google and Microsoft set this; only persist "de" or "en" (our supported set).
+        String rawLocale = text(payload, "locale");
+        String locale = normaliseLocale(rawLocale);
         return new Claims(
                 text(payload, "sub"),
                 email == null ? null : email.toLowerCase(Locale.ROOT),
                 text(payload, "name"),
                 text(payload, "picture"),  // Google sets this; MS does not
+                locale,
                 payload
         );
     }
@@ -111,6 +116,12 @@ public class IdTokenVerifier {
         } catch (Exception ex) {
             throw new IllegalArgumentException("invalid JWT part: " + ex.getMessage());
         }
+    }
+
+    private static String normaliseLocale(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String tag = raw.trim().toLowerCase(Locale.ROOT).split("[_\\-]")[0];
+        return (tag.equals("de") || tag.equals("en")) ? tag : null;
     }
 
     private static String text(JsonNode n, String field) {

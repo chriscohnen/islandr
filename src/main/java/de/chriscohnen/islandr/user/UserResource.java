@@ -35,6 +35,39 @@ public class UserResource {
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
 
+    /** Returns the profile of the currently authenticated user. Available to all logged-in users. */
+    @GET
+    @Path("/me")
+    public UserDto.Response me(@Context ContainerRequestContext ctx) {
+        AuthContext a = Auth.require(ctx);
+        if (a.userId() == null) {
+            // Local ENV-admin has no User row — return a synthetic minimal response.
+            return new UserDto.Response(null, a.principal(), null, a.principal(),
+                    null, true, true, null, 0, null);
+        }
+        User u = User.findById(a.userId());
+        if (u == null) throw new jakarta.ws.rs.NotFoundException("user not found");
+        return UserDto.Response.from(u);
+    }
+
+    /** Stores the user's explicit language preference. Available to all logged-in users. */
+    @PUT
+    @Path("/me/locale")
+    @Transactional
+    public UserDto.Response setMyLocale(@Context ContainerRequestContext ctx, UserDto.LocaleRequest body) {
+        AuthContext a = Auth.require(ctx);
+        if (a.userId() == null) return me(ctx);  // local admin — no-op
+        User u = User.findById(a.userId());
+        if (u == null) throw new jakarta.ws.rs.NotFoundException("user not found");
+        String newLocale = (body != null && body.locale() != null && !body.locale().isBlank())
+                ? body.locale().trim().toLowerCase() : null;
+        if (newLocale != null && !newLocale.equals("de") && !newLocale.equals("en")) {
+            throw new jakarta.ws.rs.BadRequestException("locale must be 'de' or 'en'");
+        }
+        u.preferredLocale = newLocale;
+        return UserDto.Response.from(u);
+    }
+
     @GET
     public List<UserDto.Response> list(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
@@ -61,12 +94,33 @@ public class UserResource {
         AuthContext a = Auth.requireAdmin(ctx);
         User u = User.createNew(body.name(), body.email());
         u.persist();
-        audit.logCreate(a.principal(), "user.create", "User:" + u.id,
+        audit.logCreate(a.principal(), "user.create", "User:" + u.name + " (" + u.id + ")",
                 Map.of("name", u.name, "email", u.email, "isAdmin", u.isAdmin));
         return Response
                 .created(UriBuilder.fromResource(UserResource.class).path(u.id).build())
                 .entity(UserDto.Response.from(u))
                 .build();
+    }
+
+    @PUT
+    @Path("/{id}/enabled")
+    @Transactional
+    public UserDto.Response setEnabled(@Context ContainerRequestContext ctx,
+                                       @PathParam("id") String id,
+                                       UserDto.EnabledRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        User u = User.findById(id);
+        if (u == null) throw new NotFoundException("user not found: " + id);
+        if (a.userId() != null && a.userId().equals(id)) {
+            throw new jakarta.ws.rs.BadRequestException("cannot disable your own account");
+        }
+        boolean wanted = body != null && body.enabled();
+        if (u.enabled == wanted) return UserDto.Response.from(u);
+        u.enabled = wanted;
+        String action = wanted ? "user.enable" : "user.disable";
+        audit.logUpdate(a.principal(), action, "User:" + u.name + " (" + u.id + ")",
+                Map.of("enabled", !wanted), Map.of("enabled", wanted));
+        return UserDto.Response.from(u);
     }
 
     @PUT
@@ -84,7 +138,7 @@ public class UserResource {
         // Two distinct actions on the same column so filtering on
         // "show me every privilege escalation" is one WHERE clause, not two.
         String action = wanted ? "user.admin_grant" : "user.admin_revoke";
-        audit.logUpdate(a.principal(), action, "User:" + u.id,
+        audit.logUpdate(a.principal(), action, "User:" + u.name + " (" + u.id + ")",
                 Map.of("isAdmin", !wanted), Map.of("isAdmin", wanted));
         return UserDto.Response.from(u);
     }
@@ -119,7 +173,7 @@ public class UserResource {
         before.put("email", u.email);
         before.put("isAdmin", u.isAdmin);
         u.delete();
-        audit.logDelete(a.principal(), "user.delete", "User:" + id, before);
+        audit.logDelete(a.principal(), "user.delete", "User:" + u.name + " (" + id + ")", before);
         // FK cascade kills peers and user_roles rows; the user-bound accept
         // rules need to vanish from nftables.
         rulesets.recomputeFromHook();

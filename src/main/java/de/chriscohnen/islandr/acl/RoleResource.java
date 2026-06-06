@@ -60,7 +60,7 @@ public class RoleResource {
                            @Valid RoleDto.UpsertRequest body) {
         AuthContext a = Auth.requireAdmin(ctx);
         Role r = roles.create(body);
-        audit.logCreate(a.principal(), "role.create", "Role:" + r.id,
+        audit.logCreate(a.principal(), "role.create", "Role:" + r.name + " (" + r.id + ")",
                 Map.of("name", r.name,
                         "description", r.description == null ? "" : r.description));
         return Response.created(UriBuilder.fromResource(RoleResource.class).path(r.id).build())
@@ -79,7 +79,7 @@ public class RoleResource {
                 "name", before.name,
                 "description", before.description == null ? "" : before.description);
         Role after = roles.update(id, body);
-        audit.logUpdate(a.principal(), "role.update", "Role:" + id, beforeMap,
+        audit.logUpdate(a.principal(), "role.update", "Role:" + after.name + " (" + id + ")", beforeMap,
                 Map.of("name", after.name,
                         "description", after.description == null ? "" : after.description));
         return RoleDto.Response.from(after,
@@ -94,7 +94,7 @@ public class RoleResource {
         Role before = roles.get(id);
         Map<String, Object> beforeMap = Map.of("name", before.name);
         roles.delete(id);
-        audit.logDelete(a.principal(), "role.delete", "Role:" + id, beforeMap);
+        audit.logDelete(a.principal(), "role.delete", "Role:" + before.name + " (" + id + ")", beforeMap);
         // Cascade kills grants + memberships; rules anchored on this role are gone.
         rulesets.recomputeFromHook();
         return Response.noContent().build();

@@ -88,7 +88,7 @@ public class MyPeerResource {
                 null);  // deviceType — self-service users can't set this; admin can edit later
         PeerDto.CreateResponse out = peers.createForUser(userId, req);
         // nftables recompute happens inside createForUser (saga step 2).
-        audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().id(),
+        audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().name() + " (" + out.peer().id() + ")",
                 Map.of(
                         "name", out.peer().name(),
                         "userId", userId,

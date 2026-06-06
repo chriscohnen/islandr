@@ -50,7 +50,7 @@ public class SiteResourceResource {
                            @Valid ResourceDto.UpsertRequest body) {
         AuthContext a = Auth.requireAdmin(ctx);
         Resource r = resources.create(siteId, body);
-        audit.logCreate(a.principal(), "resource.create", "Resource:" + r.id, Map.of(
+        audit.logCreate(a.principal(), "resource.create", "Resource:" + r.name + " (" + r.id + ")", Map.of(
                 "siteId", siteId,
                 "name", r.name,
                 "ip", r.ip,

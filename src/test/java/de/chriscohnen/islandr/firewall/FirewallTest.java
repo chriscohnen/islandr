@@ -276,7 +276,7 @@ class FirewallTest {
 
     @Transactional
     Site persistSite(String name, String cidr) {
-        Site s = Site.createNew(name, cidr, null);
+        Site s = Site.createNew(name, cidr, null, null, null);
         s.persist();
         return s;
     }

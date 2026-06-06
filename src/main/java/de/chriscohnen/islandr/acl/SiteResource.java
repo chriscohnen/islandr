@@ -52,7 +52,7 @@ public class SiteResource {
                            @Valid SiteDto.UpsertRequest body) {
         AuthContext a = Auth.requireAdmin(ctx);
         Site s = sites.create(body);
-        audit.logCreate(a.principal(), "site.create", "Site:" + s.id,
+        audit.logCreate(a.principal(), "site.create", "Site:" + s.name + " (" + s.id + ")",
                 Map.of("name", s.name, "cidr", s.cidr,
                         "description", s.description == null ? "" : s.description));
         return Response.created(UriBuilder.fromResource(SiteResource.class).path(s.id).build())
@@ -71,7 +71,7 @@ public class SiteResource {
                 "name", before.name, "cidr", before.cidr,
                 "description", before.description == null ? "" : before.description);
         Site after = sites.update(id, body);
-        audit.logUpdate(a.principal(), "site.update", "Site:" + id, beforeMap,
+        audit.logUpdate(a.principal(), "site.update", "Site:" + after.name + " (" + id + ")", beforeMap,
                 Map.of("name", after.name, "cidr", after.cidr,
                         "description", after.description == null ? "" : after.description));
         return SiteDto.Response.from(after, (int) de.chriscohnen.islandr.acl.Resource.count("siteId", id));
@@ -86,7 +86,7 @@ public class SiteResource {
                 "name", before.name, "cidr", before.cidr,
                 "description", before.description == null ? "" : before.description);
         sites.delete(id);
-        audit.logDelete(a.principal(), "site.delete", "Site:" + id, beforeMap);
+        audit.logDelete(a.principal(), "site.delete", "Site:" + before.name + " (" + id + ")", beforeMap);
         return Response.noContent().build();
     }
 }

@@ -49,7 +49,7 @@ public class UserPeerResource {
         PeerDto.CreateResponse out = peers.createForUser(userId, body);
         // nftables recompute happens inside createForUser as part of the
         // try/compensate saga — do not call recomputeFromHook() here again.
-        audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().id(),
+        audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().name() + " (" + out.peer().id() + ")",
                 Map.of(
                         "name", out.peer().name(),
                         "userId", userId,

@@ -57,7 +57,7 @@ class DashboardResourceTest {
         plain.persist();
 
         // One site with two resources and three ports.
-        Site site = Site.createNew("DC1", "10.99.0.0/16", null);
+        Site site = Site.createNew("DC1", "10.99.0.0/16", null, null, null);
         site.persist();
         Resource r1 = Resource.createNew(site.id, "TerminalDC-1", "10.99.0.5", null, "computer");
         r1.persist();

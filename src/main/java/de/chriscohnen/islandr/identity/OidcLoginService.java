@@ -105,7 +105,7 @@ public class OidcLoginService {
                             "oidcProvider", p.providerKey,
                             "oidcSubject", u.oidcSubject));
         }
-        audit.logEvent(claims.email(), "auth.login_oidc", "Session:" + s.id,
+        audit.logEvent(claims.email(), "auth.login_oidc", "Session:" + claims.email() + " (" + s.id + ")",
                 java.util.Map.of("provider", p.providerKey, "userId", u.id));
         return s;
     }
@@ -175,6 +175,7 @@ public class OidcLoginService {
             u = User.createNew(displayName(claims), claims.email());
             u.oidcProvider = p.providerKey;
             u.oidcSubject = claims.subject();
+            u.preferredLocale = claims.locale();
             u.persist();
             provisioned = true;
         } else {
@@ -182,6 +183,10 @@ public class OidcLoginService {
             String fresh = displayName(claims);
             if (fresh != null && !fresh.equals(u.name)) u.name = fresh;
             if (!claims.email().equals(u.email)) u.email = claims.email();
+            // Only seed locale from IdP if the user has no stored preference yet.
+            if (u.preferredLocale == null && claims.locale() != null) {
+                u.preferredLocale = claims.locale();
+            }
         }
         return new UpsertResult(u, provisioned);
     }

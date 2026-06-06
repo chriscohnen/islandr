@@ -70,7 +70,7 @@ public class ResourceResource {
                 "ip", before.ip,
                 "description", before.description == null ? "" : before.description);
         Resource after = resources.update(id, body);
-        audit.logUpdate(a.principal(), "resource.update", "Resource:" + id,
+        audit.logUpdate(a.principal(), "resource.update", "Resource:" + after.name + " (" + id + ")",
                 beforeMap,
                 Map.of("name", after.name, "ip", after.ip,
                         "description", after.description == null ? "" : after.description));
@@ -91,7 +91,7 @@ public class ResourceResource {
         Map<String, Object> beforeMap = Map.of(
                 "siteId", before.siteId, "name", before.name, "ip", before.ip);
         resources.delete(id);
-        audit.logDelete(a.principal(), "resource.delete", "Resource:" + id, beforeMap);
+        audit.logDelete(a.principal(), "resource.delete", "Resource:" + before.name + " (" + id + ")", beforeMap);
         rulesets.recomputeFromHook();
         return Response.noContent().build();
     }

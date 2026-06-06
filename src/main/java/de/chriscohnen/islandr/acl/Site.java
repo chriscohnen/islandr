@@ -38,15 +38,23 @@ public class Site extends PanacheEntityBase {
     @Column(name = "description", columnDefinition = "TEXT")
     public String description;
 
+    @Column(name = "lat")
+    public Double lat;
+
+    @Column(name = "lng")
+    public Double lng;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
-    public static Site createNew(String name, String cidr, String description) {
+    public static Site createNew(String name, String cidr, String description, Double lat, Double lng) {
         Site s = new Site();
         s.id = UUID.randomUUID().toString();
         s.name = name;
         s.cidr = cidr;
         s.description = description;
+        s.lat = lat;
+        s.lng = lng;
         s.createdAt = Instant.now();
         return s;
     }
