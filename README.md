@@ -42,9 +42,7 @@ Islandr is **not** Zero Trust Network Access. It is managed VPN access with netw
 
 ## Why "Islandr"?
 
-A remote employee on the home office is an **islander** — sitting on their own isolated IT island, looking for a safe way back to the mainland. Islandr is the ferry: every device, every site, every home office connected to the corporate "mainland" without leaving anyone stranded on a silo. The dropped `e` is the modern-tech-startup spelling. Full story in [islandr-name.md](islandr-name.md).
-
-The internal working title is `wg-access`. Islandr is the product name.
+A remote employee on the home office is an **islander** — sitting on their own isolated IT island, looking for a safe way back to the mainland. Islandr is the ferry: every device, every site, every home office connected to the corporate "mainland" without leaving anyone stranded on a silo. The dropped `e` is the modern-tech-startup spelling.
 
 ## What it does
 
@@ -62,6 +60,10 @@ A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Sit
 [Home Office]───┼──wg peer──► [Hub VM / Islandr] ◄──wg peer──[UCG site]
 [Mobile]────────┘
 ```
+
+![QR code & config download](https://islandr-gateway.net/screenshots/light/qr-conf.png)
+
+![Self-service portal](https://islandr-gateway.net/screenshots/light/self-service.png)
 
 ## Two surfaces, one brand
 
@@ -143,7 +145,8 @@ islandr/
 │       ├── 0007-private-key-retention.md
 │       ├── 0008-runtime-settings-in-db.md
 │       ├── 0009-license-eupl-1.2.md
-│       └── 0010-font-and-icon-asset-self-hosting.md
+│       ├── 0010-font-and-icon-asset-self-hosting.md
+│       └── 0011-process-privilege-model.md
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
@@ -154,7 +157,7 @@ islandr/
 │   │   └── wg/          # WgAdapter (real shells out, mock for dev/CI)
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V13, portable SQL
+│   │   ├── db/migration/                    # Flyway migrations V1–V21, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
@@ -206,6 +209,7 @@ islandr/
 - Site map view: geographic topology for multi-site setups (Leaflet + OSM, no Google Maps)
 - Config export / import — set up on a dev machine, import to the production hub
 - Entra-ID role-claim mapping
+- **Docker production support** via Unix socket proxy — container stays unprivileged, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
 
 **v3 — Operations**
 - `.deb` package for `apt install islandr` on Ubuntu/Debian
@@ -214,6 +218,7 @@ islandr/
 
 ## Documentation
 
+- [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
 
