@@ -43,6 +43,26 @@ public class PeerResource {
                 .stream().map(PeerDto.Response::from).toList();
     }
 
+    /** Create a site peer (no user assignment). Client peers must go through
+     *  {@code POST /api/v1/users/{userId}/peers} so they have an owner. */
+    @POST
+    public jakarta.ws.rs.core.Response createSite(@Context ContainerRequestContext ctx,
+                                                   @jakarta.validation.Valid PeerDto.CreateRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        if (!"site".equals(body.resolvedType())) {
+            throw new jakarta.ws.rs.BadRequestException("POST /api/v1/peers is for site peers only; use /api/v1/users/{userId}/peers for client peers");
+        }
+        PeerDto.CreateResponse out = peers.createForUser(null, body);
+        audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().name() + " (" + out.peer().id() + ")",
+                Map.of("name", out.peer().name(), "assignedIp", out.peer().assignedIp(),
+                        "type", "site", "siteAllowedCidrs", out.peer().siteAllowedCidrs() == null ? "" : out.peer().siteAllowedCidrs(),
+                        "publicKey", out.peer().publicKey()));
+        rulesets.recomputeFromHook();
+        return jakarta.ws.rs.core.Response
+                .created(java.net.URI.create("/api/v1/peers/" + out.peer().id()))
+                .entity(out).build();
+    }
+
     @GET
     @Path("/next-ip")
     public PeerDto.NextIpResponse nextIp(@Context ContainerRequestContext ctx) {

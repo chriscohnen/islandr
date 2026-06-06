@@ -273,7 +273,10 @@ export default defineComponent({
               {{ { laptop: t('peers.dev_laptop'), desktop: t('peers.dev_desktop'), mobile: t('peers.dev_mobile'), tablet: t('peers.dev_tablet'), server: t('peers.dev_server'), other: t('peers.dev_other') }[p.deviceType] || t('peers.dev_other') }}
             </span>
           </td>
-          <td>{{ userNameFor(p.userId) }}</td>
+          <td>
+            <span v-if="p.type === 'site'" class="muted">—</span>
+            <span v-else>{{ userNameFor(p.userId) }}</span>
+          </td>
           <td>
             <div class="mono">{{ p.assignedIp }}</div>
             <div v-if="p.type === 'site' && p.siteAllowedCidrs" class="mono" style="font-size: var(--text-xs); color: var(--fg3); margin-top: 2px">

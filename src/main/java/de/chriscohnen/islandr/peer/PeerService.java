@@ -32,9 +32,10 @@ public class PeerService {
 
     @Transactional
     public PeerDto.CreateResponse createForUser(String userId, PeerDto.CreateRequest req) {
-        User user = User.findById(userId);
-        if (user == null) {
-            throw new NotFoundException("user not found: " + userId);
+        // userId is null for site peers created without an owner
+        if (userId != null) {
+            User user = User.findById(userId);
+            if (user == null) throw new NotFoundException("user not found: " + userId);
         }
         Settings settings = settingsSvc.get();
 
@@ -94,7 +95,7 @@ public class PeerService {
                     "or neither (to have the server generate a fresh keypair).");
         }
 
-        Peer peer = Peer.createNew(user.id, req.name(), publicKeyToStore, req.assignedIp());
+        Peer peer = Peer.createNew(userId, req.name(), publicKeyToStore, req.assignedIp());
         peer.type = req.resolvedType();
         peer.siteAllowedCidrs = normalisedSiteCidrs;
         if (settings.isPlaintextRetention() && privateKeyForResponse != null) {

@@ -78,7 +78,8 @@ export const peerModalMixin = {
     },
 
     async submitCreatePeer() {
-      if (!this.newPeer.name || !this.newPeer.assignedIp || !this.modalUserId) return;
+      if (!this.newPeer.name || !this.newPeer.assignedIp) return;
+      if (this.peerType !== 'site' && !this.modalUserId) return;
 
       const payload = {
         name: this.newPeer.name,
@@ -111,7 +112,10 @@ export const peerModalMixin = {
       this.creatingPeer = true;
       this.peerError = null;
       try {
-        const res = await fetch("/api/v1/users/" + this.modalUserId + "/peers", {
+        const url = this.peerType === "site"
+            ? "/api/v1/peers"
+            : "/api/v1/users/" + this.modalUserId + "/peers";
+        const res = await fetch(url, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
@@ -276,7 +280,7 @@ export const peerModalTemplate = `
       <form @submit.prevent="submitCreatePeer">
         <div class="modal-body">
           <div v-if="peerError" class="error-banner">{{ peerError }}</div>
-          <div v-if="modalUserName" class="muted" style="margin-bottom: var(--space-3)">
+          <div v-if="modalUserName && peerType !== 'site'" class="muted" style="margin-bottom: var(--space-3)">
             Für: <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
           </div>
 
@@ -388,9 +392,9 @@ export const peerModalTemplate = `
         <div class="modal-body">
           <div v-if="peerError" class="error-banner">{{ peerError }}</div>
 
-          <div v-if="modalUserName" class="muted" style="margin-bottom: var(--space-3)">
+          <div v-if="modalUserName && peerType !== 'site'" class="muted" style="margin-bottom: var(--space-3)">
             Für: <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
-            <span class="tag" style="margin-left: var(--space-2)">{{ peerType === 'site' ? 'Site' : 'Client' }}</span>
+            <span class="tag" style="margin-left: var(--space-2)">Client</span>
           </div>
 
           <div v-if="peerType === 'client'" class="field" style="margin-bottom: var(--space-4)">
