@@ -62,12 +62,13 @@ sudo tee /etc/sudoers.d/islandr > /dev/null << 'EOF'
 # Islandr: allow only the exact nft and wg commands the service needs.
 # nft: validate (-c) and atomically apply a fixed file path.
 # wg:  manage peers on wg0 only.
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/ruleset.nft
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/ruleset.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0
+islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
 EOF
 
 sudo chmod 0440 /etc/sudoers.d/islandr

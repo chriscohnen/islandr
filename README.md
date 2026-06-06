@@ -194,7 +194,8 @@ islandr/
 **Self-service portal**
 - End users add their own devices via a 3-step flow: platform → QR + `.conf` → wait for first handshake
 - Key rotation, device list, accessible resource overview with protocol icons
-- RDP quicklaunch: resources with port 3389/RDP render a download button that generates a ready-to-open `.rdp` file
+- Admin toggle to disable self-service peer creation (stricter environments)
+- RDP quicklaunch: resources with port 3389 render a `.rdp` file download (Windows end-to-end not yet validated)
 
 **Observability**
 - Audit log with cursor-based pagination, actor/action/target filters, meta-JSON expand
@@ -204,18 +205,17 @@ islandr/
 
 **v2 — Usability & convenience**
 - Self-service portal: direct download links for WireGuard clients (Windows, macOS, iOS, Android) next to the QR code — no googling required
-- Self-service peer creation on/off toggle (admin setting for stricter environments)
 - Peer expiry / auto-disable
 - Site map view: geographic topology for multi-site setups (Leaflet + OSM, no Google Maps)
 - Config export / import — set up on a dev machine, import to the production hub
 - Entra-ID role-claim mapping
+- Google Workspace / Entra ID user import: browse org users, see who is already in Islandr, import selected
 - **Docker production support** via Unix socket proxy — container stays unprivileged, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
 - World map / topology map: sites as pins, active tunnels as lines, Leaflet + OSM
 
 **v3 — Operations**
 - `.deb` package for `apt install islandr` on Ubuntu/Debian
 - API key management for automation
-- Native ARM64 build (Raspberry Pi 4/5 and other ARM64 SBCs)
 
 ## Documentation
 

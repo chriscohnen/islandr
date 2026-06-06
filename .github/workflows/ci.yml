@@ -35,22 +35,12 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # ── Stage 2: Native builds (amd64 + arm64) ────────────────────────────────
-  native:
-    name: Native build (${{ matrix.arch }})
+  # ── Stage 2a: Native build amd64 (main + tags) ────────────────────────────
+  native-amd64:
+    name: Native build (amd64)
     needs: test
-    # Native compilation is expensive (~15-20 min). Only run on main + tags.
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-            artifact: islandr-runner-linux-amd64
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            artifact: islandr-runner-linux-arm64
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +73,52 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: islandr-runner-linux-amd64
+          path: |
+            ${{ steps.artifact.outputs.binary }}
+            build/islandr-runner.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+  # ── Stage 2b: Native build arm64 (tags only — saves ~15 min per push) ─────
+  native-arm64:
+    name: Native build (arm64)
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Build native binary (SQLite-only, container build)
+        run: |
+          ./gradlew buildNative -Psqlite \
+            -Dquarkus.native.container-build=true \
+            -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 \
+            --no-daemon
+
+      - name: Compress binary with UPX
+        run: |
+          sudo apt-get install -y upx-ucl
+          BINARY=$(ls build/islandr-*-runner)
+          upx --best "$BINARY"
+
+      - name: Locate binary and compute checksum
+        id: artifact
+        run: |
+          BINARY=$(ls build/islandr-*-runner)
+          echo "binary=$BINARY" >> "$GITHUB_OUTPUT"
+          sha256sum "$BINARY" | tee build/islandr-runner.sha256
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: islandr-runner-linux-arm64
           path: |
             ${{ steps.artifact.outputs.binary }}
             build/islandr-runner.sha256
@@ -93,7 +128,7 @@ jobs:
   # ── Stage 3: Release (tags only) ──────────────────────────────────────────
   release:
     name: Release
-    needs: native
+    needs: [native-amd64, native-arm64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -135,7 +170,7 @@ jobs:
   # ── Stage 4: Docker multi-arch image (tags only) ──────────────────────────
   docker:
     name: Docker image
-    needs: native
+    needs: [native-amd64, native-arm64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
