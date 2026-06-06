@@ -515,30 +515,25 @@ public class PeerService {
             sb.append("DNS = ").append(settings.wgClientDns).append("\n");
         }
 
-        // Hub peer — the central relay
+        // Collect site CIDRs for sites that have an active gateway peer.
+        // Traffic to these networks goes through the hub which routes it to the gateway.
+        String siteCidrs = de.chriscohnen.islandr.acl.Site.<de.chriscohnen.islandr.acl.Site>listAll().stream()
+                .filter(site -> site.gatewayPeerId != null)
+                .filter(site -> { Peer gw = Peer.findById(site.gatewayPeerId); return gw != null && gw.enabled; })
+                .map(site -> site.cidr)
+                .collect(java.util.stream.Collectors.joining(", "));
+
+        String allowedIps = settings.wgClientAllowedIps;
+        if (!siteCidrs.isBlank()) {
+            allowedIps = allowedIps + ", " + siteCidrs;
+        }
+
+        // Hub peer — routes all configured networks including site CIDRs
         sb.append("\n[Peer]\n");
         sb.append("PublicKey = ").append(settings.wgServerPublicKey).append("\n");
-        sb.append("AllowedIPs = ").append(settings.wgClientAllowedIps).append("\n");
+        sb.append("AllowedIPs = ").append(allowedIps).append("\n");
         sb.append("Endpoint = ").append(settings.wgServerEndpoint).append("\n");
         sb.append("PersistentKeepalive = 25\n");
-
-        // Site gateway peers — one [Peer] block per site that has a gateway peer configured.
-        // The gateway's AllowedIPs is the site CIDR so the client routes that network
-        // directly to the gateway rather than through the hub.
-        de.chriscohnen.islandr.acl.Site.<de.chriscohnen.islandr.acl.Site>listAll().stream()
-                .filter(site -> site.gatewayPeerId != null)
-                .forEach(site -> {
-                    Peer gw = Peer.findById(site.gatewayPeerId);
-                    if (gw == null || !gw.enabled) return;
-                    sb.append("\n# ").append(site.name).append(" gateway\n");
-                    sb.append("[Peer]\n");
-                    sb.append("PublicKey = ").append(gw.publicKey).append("\n");
-                    sb.append("AllowedIPs = ").append(site.cidr).append("\n");
-                    if (gw.lastSeenEndpoint != null) {
-                        sb.append("Endpoint = ").append(gw.lastSeenEndpoint).append("\n");
-                    }
-                    sb.append("PersistentKeepalive = 25\n");
-                });
 
         return sb.toString();
     }
