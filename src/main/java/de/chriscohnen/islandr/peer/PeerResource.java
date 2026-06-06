@@ -10,6 +10,7 @@ import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -44,6 +45,28 @@ public class PeerResource {
     public PeerDto.NextIpResponse nextIp(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
         return new PeerDto.NextIpResponse(peers.suggestNextIp());
+    }
+
+    @GET
+    @Path("/wg-import-preview")
+    public java.util.List<PeerDto.WgImportCandidate> wgImportPreview(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        return peers.wgImportPreview();
+    }
+
+    @POST
+    @Path("/wg-import")
+    public java.util.List<PeerDto.WgImportResult> wgImport(@Context ContainerRequestContext ctx,
+                                                            @jakarta.validation.Valid PeerDto.WgImportRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        var results = peers.wgImport(body.peers());
+        long imported = results.stream().filter(r -> "imported".equals(r.status())).count();
+        if (imported > 0) {
+            audit.logCreate(a.principal(), "peer.wg-import", "wg0",
+                    Map.of("imported", imported, "skipped", results.size() - imported));
+            rulesets.recomputeFromHook();
+        }
+        return results;
     }
 
     @GET

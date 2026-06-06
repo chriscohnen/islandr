@@ -130,5 +130,43 @@ public final class PeerDto {
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */
     public record NextIpResponse(String assignedIp) {}
 
+    /**
+     * One peer from {@code wg show <iface> dump} that is not yet in the Islandr DB.
+     * Returned by {@code GET /api/v1/peers/wg-import-preview}.
+     */
+    public record WgImportCandidate(
+            String publicKey,
+            String allowedIps,   // as reported by wg, e.g. "10.8.0.5/32"
+            String assignedIp,   // first host address stripped from allowedIps, suggested for import
+            String endpoint,     // last known endpoint IP:port, null if never connected
+            boolean alreadyExists  // true when a peer with this public key is already in the DB
+    ) {}
+
+    /** One entry in a {@code POST /api/v1/peers/wg-import} request. */
+    public record WgImportEntry(
+            @NotBlank String publicKey,
+            @NotBlank String name,
+            @NotBlank
+            @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$",
+                    message = "must be an IPv4 address (e.g. 10.8.0.5)")
+            String assignedIp,
+            String userId,       // optional — peer may be unassigned
+            String type          // "client" | "site", defaults to "client"
+    ) {}
+
+    /** Request body for {@code POST /api/v1/peers/wg-import}. */
+    public record WgImportRequest(
+            @jakarta.validation.Valid
+            @jakarta.validation.constraints.NotNull
+            java.util.List<WgImportEntry> peers
+    ) {}
+
+    /** Result of one imported peer. */
+    public record WgImportResult(
+            String publicKey,
+            String status,   // "imported" | "skipped" (already exists)
+            String peerId    // null when skipped
+    ) {}
+
     private PeerDto() {}
 }

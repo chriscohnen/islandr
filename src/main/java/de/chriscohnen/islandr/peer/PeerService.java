@@ -521,4 +521,50 @@ public class PeerService {
         sb.append("PersistentKeepalive = 25\n");
         return sb.toString();
     }
+
+    /**
+     * Read all peers from the live wg interface and compare with the DB.
+     * Returns a candidate record for each, flagging ones already in the DB.
+     */
+    public java.util.List<PeerDto.WgImportCandidate> wgImportPreview() {
+        java.util.List<WgAdapter.PeerStatus> live = wg.showPeers(wgInterface);
+        java.util.Set<String> existingKeys = Peer.<Peer>listAll()
+                .stream().map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
+        return live.stream().map(ps -> {
+            String ip = extractFirstIp(ps.allowedIps());
+            return new PeerDto.WgImportCandidate(
+                    ps.publicKey(),
+                    ps.allowedIps(),
+                    ip,
+                    ps.endpoint(),
+                    existingKeys.contains(ps.publicKey()));
+        }).toList();
+    }
+
+    /** Extract the first host address from an allowedIps string like "10.8.0.5/32,10.8.0.6/32". */
+    private static String extractFirstIp(String allowedIps) {
+        if (allowedIps == null || allowedIps.isBlank()) return null;
+        String first = allowedIps.split(",")[0].trim();
+        return first.contains("/") ? first.substring(0, first.indexOf('/')) : first;
+    }
+
+    @Transactional
+    public java.util.List<PeerDto.WgImportResult> wgImport(java.util.List<PeerDto.WgImportEntry> entries) {
+        Settings settings = settingsSvc.get();
+        java.util.List<PeerDto.WgImportResult> results = new java.util.ArrayList<>();
+        for (PeerDto.WgImportEntry e : entries) {
+            if (Peer.find("publicKey", e.publicKey()).count() > 0) {
+                results.add(new PeerDto.WgImportResult(e.publicKey(), "skipped", null));
+                continue;
+            }
+            validateAssignedIp(e.assignedIp(), settings.wgSubnet);
+            String type = (e.type() == null || e.type().isBlank()) ? "client" : e.type();
+            Peer p = Peer.createNew(e.userId(), e.name(), e.publicKey(), e.assignedIp());
+            p.type = type;
+            p.persist();
+            LOG.infof("wg-import: created peer %s (%s) ip=%s", p.name, p.id, p.assignedIp);
+            results.add(new PeerDto.WgImportResult(e.publicKey(), "imported", p.id));
+        }
+        return results;
+    }
 }

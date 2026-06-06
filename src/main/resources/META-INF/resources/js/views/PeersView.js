@@ -27,6 +27,13 @@ export default defineComponent({
       sortKey: "createdAt",
       sortDir: -1,        // -1 = desc, 1 = asc
       lang: locale.current,
+      // wg import
+      importModal: false,
+      importCandidates: [],
+      importLoading: false,
+      importError: null,
+      importSubmitting: false,
+      importResults: null,
     };
   },
   computed: {
@@ -126,6 +133,63 @@ export default defineComponent({
       this.load();
     },
 
+    async openImport() {
+      this.importModal = true;
+      this.importError = null;
+      this.importResults = null;
+      this.importLoading = true;
+      try {
+        const res = await fetch("/api/v1/peers/wg-import-preview");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const candidates = await res.json();
+        // Pre-populate name from allowedIps and default user to first user
+        this.importCandidates = candidates.map(c => ({
+          ...c,
+          selected: !c.alreadyExists,
+          name: c.assignedIp || c.publicKey.slice(0, 8),
+          userId: this.users[0]?.id || "",
+        }));
+      } catch (e) {
+        this.importError = t("peers.import_error_load", { error: e.message });
+      } finally {
+        this.importLoading = false;
+      }
+    },
+
+    closeImport() {
+      this.importModal = false;
+      this.importCandidates = [];
+      this.importResults = null;
+      this.importError = null;
+    },
+
+    async submitImport() {
+      const toImport = this.importCandidates.filter(c => c.selected && !c.alreadyExists);
+      if (toImport.length === 0) return;
+      this.importSubmitting = true;
+      this.importError = null;
+      try {
+        const res = await fetch("/api/v1/peers/wg-import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ peers: toImport.map(c => ({
+            publicKey: c.publicKey,
+            name: c.name,
+            assignedIp: c.assignedIp,
+            userId: c.userId || null,
+            type: "client",
+          })) }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.importResults = await res.json();
+        await this.load();
+      } catch (e) {
+        this.importError = t("peers.import_error_save", { error: e.message });
+      } finally {
+        this.importSubmitting = false;
+      }
+    },
+
     onPeerUpdated() {
       // Same shape — refresh the list so the edited row reflects the new state.
       this.load();
@@ -165,6 +229,7 @@ export default defineComponent({
           <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
         </select>
         <button class="btn btn-primary btn-sm" @click="openCreate" :disabled="users.length === 0">{{ t('peers.create_btn') }}</button>
+        <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('peers.import_btn') }}</button>
       </div>
     </div>
 
@@ -236,5 +301,88 @@ export default defineComponent({
     </table>
 
     ${peerModalTemplate}
+
+    <!-- wg import modal -->
+    <div v-if="importModal" class="modal-backdrop" @click.self="closeImport">
+      <div class="modal" style="max-width: 680px">
+        <div class="modal-header">
+          <h2>{{ t('peers.import_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeImport">✕</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="importError" class="error-banner" style="margin-bottom: var(--space-3)">{{ importError }}</div>
+
+          <div v-if="importLoading" class="muted">{{ t('common.loading') }}</div>
+
+          <div v-else-if="importResults">
+            <p style="margin-bottom: var(--space-3)">
+              {{ importResults.filter(r => r.status === 'imported').length }} {{ t('peers.import_done') }}
+            </p>
+            <table class="table" style="font-size: var(--text-sm)">
+              <thead><tr><th>Key</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr v-for="r in importResults" :key="r.publicKey">
+                  <td class="mono" style="font-size: 11px">{{ r.publicKey.slice(0,16) }}…</td>
+                  <td>{{ r.status }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top: var(--space-4)">
+              <button class="btn btn-primary btn-sm" @click="closeImport">{{ t('common.close') }}</button>
+            </div>
+          </div>
+
+          <div v-else-if="importCandidates.length === 0" class="muted">
+            {{ t('peers.import_empty') }}
+          </div>
+
+          <div v-else>
+            <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--text-sm)">{{ t('peers.import_hint') }}</p>
+            <table class="table" style="font-size: var(--text-sm)">
+              <thead>
+                <tr>
+                  <th style="width: 32px"></th>
+                  <th>{{ t('peers.import_th_key') }}</th>
+                  <th>{{ t('peers.import_th_ip') }}</th>
+                  <th>{{ t('peers.import_th_name') }}</th>
+                  <th>{{ t('peers.import_th_user') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in importCandidates" :key="c.publicKey" :style="c.alreadyExists ? 'opacity:0.45' : ''">
+                  <td>
+                    <input type="checkbox" v-model="c.selected" :disabled="c.alreadyExists"
+                           style="width:15px;height:15px;accent-color:var(--accent);margin:0" />
+                  </td>
+                  <td class="mono" style="font-size:11px">{{ c.publicKey.slice(0,16) }}…
+                    <span v-if="c.alreadyExists" class="badge badge-neutral" style="margin-left:4px;font-size:10px">{{ t('peers.import_exists') }}</span>
+                  </td>
+                  <td class="mono">{{ c.assignedIp || '—' }}</td>
+                  <td>
+                    <input v-if="!c.alreadyExists" class="input" style="height:28px;font-size:var(--text-sm);padding:2px 6px"
+                           v-model="c.name" :disabled="!c.selected" placeholder="Name" />
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td>
+                    <select v-if="!c.alreadyExists" class="select" style="height:28px;font-size:var(--text-sm)"
+                            v-model="c.userId" :disabled="!c.selected">
+                      <option value="">{{ t('peers.import_no_user') }}</option>
+                      <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
+                    </select>
+                    <span v-else class="muted">—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top: var(--space-4); display:flex; gap:var(--space-3)">
+              <button class="btn btn-primary btn-sm" :disabled="importSubmitting || !importCandidates.some(c => c.selected && !c.alreadyExists)" @click="submitImport">
+                {{ importSubmitting ? t('common.saving') : t('peers.import_btn_confirm') }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="closeImport">{{ t('common.cancel') }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   `,
 });
