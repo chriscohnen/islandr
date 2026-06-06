@@ -33,6 +33,8 @@ dependencies {
         // Include it for local dev / JVM runs so the datasource switching in
         // application.properties keeps working without extra config.
         implementation("io.quarkus:quarkus-jdbc-postgresql")
+        // Override BOM version (42.7.8) — CVE fix for SCRAM auth CPU exhaustion (patched 42.7.11)
+        implementation("org.postgresql:postgresql:42.7.11")
     }
     implementation("io.quarkus:quarkus-flyway")
 
