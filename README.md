@@ -1,8 +1,42 @@
 # Islandr
 
-> Self-hosted WireGuard access management. A web dashboard for peers, users, and group-based ACLs — for hub-spoke topologies with mixed clients (road warriors, site gateways).
+<p align="center">
+  <img src="https://islandr-gateway.net/islandr-brand/icon-512.png" width="80" alt="Islandr logo" />
+</p>
 
-**Status:** Early access — core features complete, live production testing in progress. Backend with 171 green tests across 8 domains (users, peers, settings, auth, identity, RBAC, nftables/firewall, ACL). Frontend covers login, sidebar shell, user/peer admin, settings, identity, self-service portal, ACL matrix, audit log, and network/resource management.
+<p align="center">
+  <a href="https://github.com/chriscohnen/islandr/actions/workflows/ci.yml"><img src="https://github.com/chriscohnen/islandr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/chriscohnen/islandr"><img src="https://codecov.io/gh/chriscohnen/islandr/graph/badge.svg" alt="Coverage"></a>
+  <a href="https://github.com/chriscohnen/islandr/releases/latest"><img src="https://img.shields.io/github/v/release/chriscohnen/islandr?label=release" alt="Latest release"></a>
+  <a href="https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12"><img src="https://img.shields.io/badge/licence-EUPL--1.2-blue" alt="Licence EUPL-1.2"></a>
+  <img src="https://img.shields.io/badge/java-21-orange" alt="Java 21">
+  <img src="https://img.shields.io/badge/built%20with-Quarkus-4695EB" alt="Built with Quarkus">
+</p>
+
+<p align="center"><b>Self-hosted WireGuard access management.</b><br>
+Peers, users, group-based ACLs and a self-service portal — one native binary, no SaaS.</p>
+
+---
+
+> **[islandr-gateway.net](https://islandr-gateway.net)** — landing page with setup guide and architecture overview.
+
+---
+
+![Dashboard screenshot](docs/screenshots/dashboard.png)
+
+---
+
+## Who is this for?
+
+Small teams, homelabs, and remote-first setups that want **sovereign WireGuard access management** without a SaaS control plane:
+
+- Your ISP gives you CG-NAT and no fixed IPv4
+- Your router has no WireGuard server mode (older Fritz!Box, or you don't want it there)
+- You need more than one site — home, office, lab — with central user and ACL management
+- You want employees to self-service their own device configs, not email you for a `.conf` file
+- Data sovereignty matters — no connection metadata leaving your network
+
+Islandr is **not** Zero Trust Network Access. It is managed VPN access with network segmentation — simpler, cheaper, fully under your control. If you need ZTNA, look at Teleport. If two devices and manual key files are enough, `wg-easy` is simpler. If a SaaS control plane is fine, Tailscale is excellent.
 
 ---
 
@@ -60,6 +94,16 @@ Quarkus was chosen for fast iteration (live coding, dev services, native build).
 A deliberate stack choice: **no npm-heavy frontend toolchain**. Vue runs from CDN ESM in dev and is self-hosted under `/vendor/` for production. See [docs/adr/0002-vue-without-npm.md](docs/adr/0002-vue-without-npm.md).
 
 Identity is intentionally implemented without `quarkus-oidc` so that all provider configuration (client id, secret, tenant, allowed email domains, enabled flag) lives in the DB and is editable via the Admin Console at runtime — no `application.properties` round-trip, no restart. Mutual exclusion is enforced at the service layer: at most one OIDC provider may be active at any time. The local ENV-admin is always available as a recovery path (`ISLANDR_ADMIN_USER` / `ISLANDR_ADMIN_PASSWORD`).
+
+## Prerequisites
+
+| | Dev / CI | Production hub |
+|---|---|---|
+| Java | 21 (Temurin recommended) | not needed — native binary |
+| WireGuard | not needed (mock adapter) | `wg` + `wg-quick` on the hub |
+| nftables | not needed (mock adapter) | `nft` on the hub |
+| OS | macOS / Linux / Windows (dev only) | Linux x86_64 or ARM64 |
+| Database | in-memory SQLite (auto) | SQLite file or PostgreSQL |
 
 ## Running it locally
 
@@ -155,21 +199,27 @@ islandr/
 **Bilingual UI**
 - German (default) and English, switchable at runtime without reload
 
-**v2 — Hardening**
-- Entra-ID role-claim mapping
-- Internal pull-mode agent for UCG provisioning
+**v2 — Usability & convenience**
+- Self-service portal: direct download links for WireGuard clients (Windows, macOS, iOS, Android) next to the QR code — no googling required
+- Self-service peer creation on/off toggle (admin setting for stricter environments)
 - Peer expiry / auto-disable
-- Email notifications
+- Site map view: geographic topology for multi-site setups (Leaflet + OSM, no Google Maps)
+- Config export / import — set up on a dev machine, import to the production hub
+- Entra-ID role-claim mapping
 
-**v3 — Scale**
-- Multi-hub support
-- API key management
-- Prometheus metrics
+**v3 — Operations**
+- `.deb` package for `apt install islandr` on Ubuntu/Debian
+- API key management for automation
+- Native ARM64 build (Raspberry Pi 4/5 and other ARM64 SBCs)
 
 ## Documentation
 
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
+
+## Contributing & feedback
+
+Bug reports and feature ideas via [GitHub Issues](https://github.com/chriscohnen/islandr/issues). Pull requests are not accepted — see [CONTRIBUTING.md](CONTRIBUTING.md) for why and what works instead.
 
 ## License
 

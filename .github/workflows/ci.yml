@@ -22,10 +22,18 @@ jobs:
           cache: gradle
 
       - name: Run tests
-        run: ./gradlew test --no-daemon
+        run: ./gradlew test jacocoTestReport --no-daemon
         # No datasource env vars — the %test profile in application.properties
         # uses jdbc:sqlite:file::memory:?cache=shared which works without
         # any external DB or additional driver.
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: build/reports/jacoco/test/jacocoTestReport.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ── Stage 2: Native build (linux/amd64, SQLite-only) ──────────────────────
   native:
