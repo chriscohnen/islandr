@@ -16,10 +16,17 @@ export default defineComponent({
       loading: true,
       error: null,
       lang: locale.current,
+      liveMode: false,
+      livePeers: [],       // from /api/v1/peers/live polling
+      liveError: null,
+      _liveTimer: null,
     };
   },
   async mounted() {
     await this.load();
+  },
+  beforeUnmount() {
+    this._stopLive();
   },
   computed: {
     _lang() { return locale.current; },
@@ -102,6 +109,37 @@ export default defineComponent({
       if (action.includes("login_failed")) return "badge-warning";
       if (action.includes("create") || action.includes("enable") || action.includes("grant") || action.includes("provision")) return "badge-success";
       return "badge-info";
+    },
+    async toggleLive() {
+      if (this.liveMode) {
+        this._stopLive();
+      } else {
+        this.liveMode = true;
+        await this._pollLive();
+        this._liveTimer = setInterval(() => this._pollLive(), 10000);
+      }
+    },
+    _stopLive() {
+      this.liveMode = false;
+      if (this._liveTimer) { clearInterval(this._liveTimer); this._liveTimer = null; }
+      this.livePeers = [];
+      this.liveError = null;
+    },
+    async _pollLive() {
+      try {
+        const res = await fetch("/api/v1/peers/live");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.livePeers = await res.json();
+        this.liveError = null;
+      } catch (e) {
+        this.liveError = e.message;
+      }
+    },
+    formatBytes(b) {
+      if (b == null) return "—";
+      if (b < 1024) return b + " B";
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+      return (b / (1024 * 1024)).toFixed(1) + " MB";
     },
     providerLabel(key) {
       if (key === "microsoft") return "Microsoft 365";
@@ -228,22 +266,62 @@ export default defineComponent({
       <!-- Topology diagram: hub + sites + resources in a two-ring radial layout.
            Live peers (handshake in last 5 min) show as dots near the hub. -->
       <div class="card card-pad" style="margin-bottom: var(--space-5)">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-3)">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3)">
           <h2 style="font-size: var(--text-md); margin: 0">{{ t('dashboard.topology_title') }}</h2>
-          <div class="muted" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
-            {{ t(data.topology.sites.length === 1 ? 'dashboard.topology_sites' : 'dashboard.topology_sites_p', { n: data.topology.sites.length }) }}
-            · {{ t(data.topology.resources.length === 1 ? 'dashboard.topology_res' : 'dashboard.topology_res_p', { n: data.topology.resources.length }) }}
-            <span v-if="data.topology.livePeers.length > 0">{{ t('dashboard.topology_live', { n: data.topology.livePeers.length }) }}</span>
+          <div style="display: flex; align-items: center; gap: var(--space-3)">
+            <div class="muted" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
+              {{ t(data.topology.sites.length === 1 ? 'dashboard.topology_sites' : 'dashboard.topology_sites_p', { n: data.topology.sites.length }) }}
+              · {{ t(data.topology.resources.length === 1 ? 'dashboard.topology_res' : 'dashboard.topology_res_p', { n: data.topology.resources.length }) }}
+              <span v-if="!liveMode && data.topology.livePeers.length > 0">{{ t('dashboard.topology_live', { n: data.topology.livePeers.length }) }}</span>
+              <span v-if="liveMode && livePeers.length > 0" style="color: var(--status-ok)">● {{ livePeers.length }} {{ t('dashboard.live_connected') }}</span>
+            </div>
+            <button class="btn btn-sm" :class="liveMode ? 'btn-primary' : 'btn-ghost'" @click="toggleLive"
+                    style="display: inline-flex; align-items: center; gap: 4px">
+              <span v-if="liveMode" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;animation:pulse 1s ease-in-out infinite"></span>
+              {{ liveMode ? t('dashboard.live_btn_stop') : t('dashboard.live_btn_start') }}
+            </button>
           </div>
         </div>
+
         <TopologyDiagram
             :sites="data.topology.sites"
             :resources="data.topology.resources"
-            :live-peers="data.topology.livePeers"
+            :live-peers="liveMode ? livePeers : data.topology.livePeers"
             :resource-overflow="data.topology.resourceOverflow"
             :endpoint="data.topology.hubEndpoint"
             @site="onTopologySite"
             @resource="onTopologyResource" />
+
+        <!-- Live peer list — only shown when liveMode is active -->
+        <div v-if="liveMode" style="margin-top: var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-3)">
+          <div v-if="liveError" class="muted" style="font-size: var(--text-sm); color: var(--status-warn)">{{ liveError }}</div>
+          <div v-else-if="livePeers.length === 0" class="muted" style="font-size: var(--text-sm)">{{ t('dashboard.live_empty') }}</div>
+          <table v-else class="table" style="font-size: var(--text-sm)">
+            <thead>
+              <tr>
+                <th>{{ t('dashboard.live_th_name') }}</th>
+                <th>{{ t('dashboard.live_th_ip') }}</th>
+                <th>{{ t('dashboard.live_th_endpoint') }}</th>
+                <th>{{ t('dashboard.live_th_handshake') }}</th>
+                <th>↓ RX</th>
+                <th>↑ TX</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in livePeers" :key="p.publicKey">
+                <td>
+                  <span v-if="p.name">{{ p.name }}</span>
+                  <span v-else class="muted mono" style="font-size:11px">{{ p.publicKey.slice(0,16) }}…</span>
+                </td>
+                <td class="mono">{{ p.assignedIp || '—' }}</td>
+                <td class="mono" style="font-size:11px">{{ p.endpoint || '—' }}</td>
+                <td class="muted">{{ relativeTime(p.lastHandshake) }}</td>
+                <td class="mono muted">{{ formatBytes(p.rxBytes) }}</td>
+                <td class="mono muted">{{ formatBytes(p.txBytes) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Two side-by-side activity strips -->

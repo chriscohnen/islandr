@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.firewall.RulesetService;
+import de.chriscohnen.islandr.wg.WgAdapter;
 import io.quarkus.panache.common.Sort;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -32,6 +33,8 @@ public class PeerResource {
     @Inject PeerService peers;
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
+    @Inject WgAdapter wg;
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
     @GET
     public List<PeerDto.Response> listAll(@Context ContainerRequestContext ctx) {
@@ -45,6 +48,41 @@ public class PeerResource {
     public PeerDto.NextIpResponse nextIp(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
         return new PeerDto.NextIpResponse(peers.suggestNextIp());
+    }
+
+    /**
+     * Live snapshot from {@code wg show <iface> dump} — returns every peer that has
+     * exchanged a handshake in the last 3 minutes. Cross-referenced with the DB so
+     * the response carries the Islandr peer id, name and type alongside the wg data.
+     * Unrecognised public keys (peers not in the DB) are included with id/name null.
+     */
+    @GET
+    @Path("/live")
+    public java.util.List<java.util.Map<String, Object>> livePeers(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        java.util.List<WgAdapter.PeerStatus> statuses = wg.showPeers(wgInterface);
+        java.time.Instant threshold = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.MINUTES);
+
+        // Build a public-key → DB peer map for cross-referencing
+        java.util.Map<String, Peer> byKey = Peer.<Peer>listAll().stream()
+                .collect(java.util.stream.Collectors.toMap(p -> p.publicKey, p -> p, (a, b) -> a));
+
+        return statuses.stream()
+                .filter(s -> s.lastHandshake() != null && s.lastHandshake().isAfter(threshold))
+                .map(s -> {
+                    Peer p = byKey.get(s.publicKey());
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("publicKey", s.publicKey());
+                    m.put("endpoint", s.endpoint());
+                    m.put("lastHandshake", s.lastHandshake());
+                    m.put("rxBytes", s.rxBytes());
+                    m.put("txBytes", s.txBytes());
+                    m.put("id",         p != null ? p.id         : null);
+                    m.put("name",       p != null ? p.name       : null);
+                    m.put("assignedIp", p != null ? p.assignedIp : null);
+                    m.put("type",       p != null ? p.type       : null);
+                    return m;
+                }).toList();
     }
 
     @GET
