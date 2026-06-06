@@ -56,7 +56,7 @@ dependencies {
     // Test
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.rest-assured:rest-assured")
-    testImplementation("org.assertj:assertj-core:3.26.3")
+    testImplementation("org.assertj:assertj-core:3.27.7")
 }
 
 group = "de.chriscohnen.islandr"
