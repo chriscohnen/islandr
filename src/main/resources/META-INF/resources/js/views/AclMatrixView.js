@@ -113,7 +113,8 @@ export default defineComponent({
       const s = this.cellState(roleId, resource.id);
       if (s === null) return "∅";
       if (s.allPorts) return "ⓐ";
-      return String(s.portIds.length);
+      const total = resource.ports ? resource.ports.length : 0;
+      return s.portIds.length + "/" + total;
     },
 
     isCellDirty(roleId, resourceId) {
