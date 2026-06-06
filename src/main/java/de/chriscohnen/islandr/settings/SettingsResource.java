@@ -62,11 +62,14 @@ public class SettingsResource {
                                    "iface", effectiveIface))
                     .build();
         }
-        return Response.ok(Map.of(
-                "publicKey", info.publicKey(),
-                "listenPort", info.listenPort(),
-                "iface", effectiveIface
-        )).build();
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("iface", effectiveIface);
+        result.put("publicKey", info.publicKey());
+        result.put("listenPort", info.listenPort());
+        result.put("peerCount", info.peerCount());
+        result.put("ifStatus", info.ifStatus());
+        result.put("mtu", info.mtu() > 0 ? info.mtu() : null);
+        return Response.ok(result).build();
     }
 
     private static Map<String, Object> settingsSnapshot(Settings s) {

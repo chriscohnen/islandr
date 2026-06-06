@@ -11,6 +11,7 @@ export default defineComponent({
       loading: true,
       saving: false,
       probing: false,
+      probeResult: null,
       error: null,
       info: null,
       form: {
@@ -114,6 +115,7 @@ export default defineComponent({
         }
         const data = await res.json();
         this.form.wgServerPublicKey = data.publicKey;
+        this.probeResult = data;
         this.info = t("settings.wg_probe_success", { iface: data.iface, port: data.listenPort });
       } catch (e) {
         this.error = t("settings.wg_probe_error", { error: e.message });
@@ -165,6 +167,22 @@ export default defineComponent({
             </button>
           </div>
           <div class="field-hint">{{ t('settings.field_pubkey_hint') }}</div>
+          <div v-if="probeResult" style="margin-top: var(--space-2); display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-sm); font-family: var(--font-sans)">
+            <span>
+              {{ t('settings.probe_status') }}
+              <span :style="probeResult.ifStatus === 'up' ? 'color:var(--status-ok)' : probeResult.ifStatus === 'down' ? 'color:var(--status-error)' : 'color:var(--fg3)'">
+                {{ probeResult.ifStatus }}
+              </span>
+            </span>
+            <span class="muted">{{ t('settings.probe_port') }} <span class="mono">{{ probeResult.listenPort }}</span></span>
+            <span v-if="probeResult.mtu" class="muted">MTU <span class="mono">{{ probeResult.mtu }}</span></span>
+            <span class="muted">{{ t('settings.probe_peers') }} <span class="mono">{{ probeResult.peerCount }}</span></span>
+            <button v-if="probeResult.listenPort !== 51820" type="button" class="btn btn-ghost btn-sm"
+                    style="padding: 0 var(--space-2); height: 20px; font-size: 11px"
+                    @click="form.wgServerEndpoint = form.wgServerEndpoint.replace(/:\d+$/, '') + ':' + probeResult.listenPort">
+              {{ t('settings.probe_adopt_port', { port: probeResult.listenPort }) }}
+            </button>
+          </div>
         </div>
 
         <div class="field field-full">

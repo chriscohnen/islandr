@@ -77,28 +77,36 @@ public class RealWgAdapter implements WgAdapter {
     @Override
     public ServerInfo probeServer(String iface) {
         try {
-            String output = runCapture(new String[]{"wg", "show", iface, "dump"}, null, useSudo);
-            return parseServerInfo(output);
+            String dump = runCapture(new String[]{"wg", "show", iface, "dump"}, null, useSudo);
+            String[] lines = dump.split("\n");
+            String firstLine = lines[0].trim();
+            String[] fields = firstLine.split("\t");
+            if (fields.length < 3) return null;
+            String publicKey = fields[1];
+            int listenPort;
+            try { listenPort = Integer.parseInt(fields[2]); } catch (NumberFormatException e) { listenPort = 51820; }
+            int peerCount = (int) java.util.Arrays.stream(lines).skip(1).filter(l -> !l.isBlank()).count();
+
+            // ip link show <iface> — no sudo needed, graceful fallback
+            String ifStatus = "unknown";
+            int mtu = 0;
+            try {
+                String ipLink = runCapture(new String[]{"ip", "link", "show", iface}, null, false);
+                if (ipLink.contains("<") && ipLink.contains(">")) {
+                    String flags = ipLink.substring(ipLink.indexOf('<') + 1, ipLink.indexOf('>'));
+                    ifStatus = flags.contains("UP") ? "up" : "down";
+                }
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("mtu (\\d+)").matcher(ipLink);
+                if (m.find()) mtu = Integer.parseInt(m.group(1));
+            } catch (Exception e) {
+                LOG.debugf("ip link show %s not available: %s", iface, e.getMessage());
+            }
+
+            return new ServerInfo(publicKey, listenPort, peerCount, ifStatus, mtu);
         } catch (WgException e) {
             LOG.infof("wg probe failed for iface %s: %s", iface, e.getMessage());
             return null;
         }
-    }
-
-    static ServerInfo parseServerInfo(String dumpOutput) {
-        if (dumpOutput == null || dumpOutput.isBlank()) return null;
-        String firstLine = dumpOutput.split("\n")[0].trim();
-        String[] fields = firstLine.split("\t");
-        // format: private-key  public-key  listen-port  fwmark
-        if (fields.length < 3) return null;
-        String publicKey = fields[1];
-        int listenPort;
-        try {
-            listenPort = Integer.parseInt(fields[2]);
-        } catch (NumberFormatException e) {
-            listenPort = 51820;
-        }
-        return new ServerInfo(publicKey, listenPort);
     }
 
     /**

@@ -63,6 +63,16 @@ public interface WgAdapter {
      */
     ServerInfo probeServer(String iface);
 
-    /** Public key and listen port of the WireGuard server interface. */
-    record ServerInfo(String publicKey, int listenPort) {}
+    /**
+     * State of the WireGuard server interface as read by the probe.
+     * Fields sourced from {@code wg show <iface> dump} and {@code ip link show <iface>}.
+     * {@code ifStatus} and {@code mtu} are "unknown" when {@code ip link} is not accessible.
+     */
+    record ServerInfo(
+            String publicKey,
+            int listenPort,
+            int peerCount,
+            String ifStatus,  // "up" | "down" | "unknown"
+            int mtu           // 0 when unknown
+    ) {}
 }
