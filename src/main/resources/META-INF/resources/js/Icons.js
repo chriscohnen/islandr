@@ -245,12 +245,17 @@ export const PATHS = {
     '<rect width="12" height="12" x="8" y="8" rx="2"/>',
   ],
 
-  // key-round — Rolle als Schluessel
+  // user-cog — Lucide MIT (Rollen / Berechtigungen)
   roles: [
-    '<path d="M2 18a8 8 0 1 1 16 0H2Z" transform="rotate(180 10 14)"/>',
-    '<circle cx="16.5" cy="7.5" r="5.5"/>',
-    '<path d="m21 2-9.6 9.6"/>',
-    '<path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+    '<circle cx="18" cy="15" r="3"/>',
+    '<path d="M18 12v-1.5"/>',
+    '<path d="M18 21v-1.5"/>',
+    '<path d="m15.4 16.5-.87-.5"/>',
+    '<path d="m21.47 13.5-.87-.5"/>',
+    '<path d="m15.4 13.5-.87.5"/>',
+    '<path d="m21.47 16.5-.87.5"/>',
+    '<path d="M13 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>',
+    '<circle cx="9" cy="7" r="4"/>',
   ],
 
   // shield-check — Rollen & ACL
