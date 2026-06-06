@@ -39,7 +39,7 @@ dependencies {
     // SQLite via xerial — not an official Quarkus extension; pulled in directly.
     // Native-image friction is the R-034 risk in ADR-0004; first thing to validate
     // when we run `gradle build -Dquarkus.package.type=native`.
-    implementation("org.xerial:sqlite-jdbc:3.46.1.3")
+    implementation("org.xerial:sqlite-jdbc:3.53.2.0")
     implementation("org.hibernate.orm:hibernate-community-dialects")
 
     // Validation
