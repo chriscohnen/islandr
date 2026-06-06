@@ -59,6 +59,9 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "firewall_dry_run", columnDefinition = "INTEGER")
     public boolean firewallDryRun = true;
 
+    @Column(name = "self_service_peer_creation", columnDefinition = "INTEGER")
+    public boolean selfServicePeerCreation = true;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

@@ -210,6 +210,7 @@ islandr/
 - Config export / import — set up on a dev machine, import to the production hub
 - Entra-ID role-claim mapping
 - **Docker production support** via Unix socket proxy — container stays unprivileged, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
+- World map / topology map: sites as pins, active tunnels as lines, Leaflet + OSM
 
 **v3 — Operations**
 - `.deb` package for `apt install islandr` on Ubuntu/Debian

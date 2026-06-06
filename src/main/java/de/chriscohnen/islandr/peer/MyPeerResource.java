@@ -41,6 +41,7 @@ public class MyPeerResource {
     @Inject PeerService peers;
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
+    @Inject de.chriscohnen.islandr.settings.SettingsService settings;
 
     @RegisterForReflection
     public record CreateMineRequest(
@@ -76,6 +77,9 @@ public class MyPeerResource {
                                @Valid CreateMineRequest body) {
         AuthContext a = Auth.require(ctx);
         String userId = requireOrgUserId(a);
+        if (!settings.get().selfServicePeerCreation) {
+            throw new ForbiddenException("self-service peer creation is disabled by the administrator");
+        }
         // IP is server-chosen for self-service; user never picks a CIDR slot.
         // Type is forced to "client" — site peers are an admin operation.
         PeerDto.CreateRequest req = new PeerDto.CreateRequest(

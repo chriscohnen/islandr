@@ -132,6 +132,7 @@ const App = defineComponent({
     return {
       setupComplete: true,
       retention: "never",
+      selfServicePeerCreation: true,
       session,
         theme: document.documentElement.getAttribute("data-theme") || "light",
       lang: locale.current,
@@ -163,6 +164,7 @@ const App = defineComponent({
         const s = await res.json();
         this.setupComplete = !!s.setupComplete;
         this.retention = s.privateKeyRetention || "never";
+        this.selfServicePeerCreation = s.selfServicePeerCreation !== false;
       } catch {
         // ignore — banner just won't show
       }
@@ -192,6 +194,7 @@ const App = defineComponent({
     onSettingsChanged(s) {
       this.setupComplete = !!s.setupComplete;
       this.retention = s.privateKeyRetention || "never";
+      this.selfServicePeerCreation = s.selfServicePeerCreation !== false;
     },
     toggleTheme() {
       this.theme = this.theme === "dark" ? "light" : "dark";
@@ -297,7 +300,7 @@ const App = defineComponent({
             <router-link to="/settings">Jetzt in den Einstellungen ergänzen.</router-link>
           </div>
         </div>
-        <router-view :retention="retention" @settings-changed="onSettingsChanged" />
+        <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" @settings-changed="onSettingsChanged" />
       </main>
     </div>
   `,

@@ -14,6 +14,7 @@ export default defineComponent({
   components: { Icon },
   props: {
     retention: { type: String, default: "never" },
+    selfServicePeerCreation: { type: Boolean, default: true },
   },
   data() {
     return {
@@ -319,7 +320,7 @@ export default defineComponent({
           <span v-if="peers.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">{{ peers.length }}</span>
         </h1>
       </div>
-      <button v-if="!viewAsUserId" class="btn btn-primary btn-sm" @click="openCreate">{{ t('myaccess.add_btn') }}</button>
+      <button v-if="!viewAsUserId && selfServicePeerCreation" class="btn btn-primary btn-sm" @click="openCreate">{{ t('myaccess.add_btn') }}</button>
       <button v-else class="btn btn-ghost btn-sm" @click="$router.push({ name: 'users' })">{{ t('myaccess.back_btn') }}</button>
     </div>
 

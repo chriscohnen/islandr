@@ -17,6 +17,7 @@ public final class SettingsDto {
             boolean gravatarEnabled,
             boolean oidcAutoProvision,
             boolean firewallDryRun,
+            boolean selfServicePeerCreation,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete
@@ -26,6 +27,7 @@ public final class SettingsDto {
                     s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
+                    s.selfServicePeerCreation,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"));
         }
@@ -55,7 +57,10 @@ public final class SettingsDto {
             boolean oidcAutoProvision,
 
             // optional — when true, WG and nftables adapters run in mock mode at runtime
-            boolean firewallDryRun
+            boolean firewallDryRun,
+
+            // optional — when false, POST /api/v1/peers/mine returns 403
+            boolean selfServicePeerCreation
     ) {}
 
     private SettingsDto() {}

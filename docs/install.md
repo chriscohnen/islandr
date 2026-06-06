@@ -262,3 +262,40 @@ docker compose up -d
 ```
 
 Flyway applies any pending database migrations automatically on startup.
+
+---
+
+## Uninstalling
+
+**Native binary:**
+
+```bash
+# Stop and disable the service
+sudo systemctl stop islandr
+sudo systemctl disable islandr
+
+# Remove service file and env file
+sudo rm /etc/systemd/system/islandr.service
+sudo rm /etc/default/islandr
+sudo systemctl daemon-reload
+
+# Remove sudoers rule
+sudo rm /etc/sudoers.d/islandr
+
+# Remove binary
+sudo rm -rf /opt/islandr
+
+# Remove data directory — contains the database and WireGuard private keys.
+# Skip this if you want to keep your data for a reinstall.
+sudo rm -rf /var/lib/islandr
+
+# Remove system user
+sudo userdel islandr
+```
+
+**Docker:**
+
+```bash
+docker compose down
+docker rmi ghcr.io/chriscohnen/islandr:latest
+```
