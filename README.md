@@ -118,7 +118,7 @@ Dev server (Quarkus live coding):
 
 The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
 
-Tests (171, runs in ~9 s after warm start):
+Tests (176, runs in ~9 s after warm start):
 
 ```bash
 ./gradlew test
@@ -163,7 +163,7 @@ islandr/
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 171 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 176 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -233,3 +233,7 @@ Bug reports and feature ideas via [GitHub Issues](https://github.com/chriscohnen
 ## License
 
 **EUPL-1.2** (EU-governed, copyleft, AGPL-compatible). See [docs/adr/0009-license-eupl-1.2.md](docs/adr/0009-license-eupl-1.2.md) for the rationale.
+
+---
+
+WireGuard® is a registered trademark of Jason A. Donenfeld. Islandr is an independent project, not affiliated with or endorsed by the WireGuard project.
