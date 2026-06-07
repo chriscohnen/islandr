@@ -79,8 +79,15 @@ public class MockWgAdapter implements WgAdapter {
     }
 
     @Override
-    public synchronized void setPeer(String iface, String publicKey, String allowedIps) {
-        LOG.debugf("mock: setPeer iface=%s pubkey=%s allowed=%s", iface, abbreviate(publicKey), allowedIps);
+    public String genPsk() {
+        byte[] raw = new byte[32];
+        rng().nextBytes(raw);
+        return Base64.getEncoder().encodeToString(raw);
+    }
+
+    @Override
+    public synchronized void setPeer(String iface, String publicKey, String allowedIps, String presharedKey) {
+        LOG.debugf("mock: setPeer iface=%s pubkey=%s allowed=%s psk=%s", iface, abbreviate(publicKey), allowedIps, presharedKey != null ? "set" : "none");
         peers.put(publicKey, new MockPeer(publicKey, allowedIps, Instant.now()));
     }
 

@@ -31,14 +31,15 @@ class DryRunWgAdapter implements WgAdapter {
     }
 
     @Override public Keypair genKeypair()                         { return delegate.genKeypair(); }
+    @Override public String genPsk()                              { return delegate.genPsk(); }
     @Override public String derivePublicKey(String privateKey)    { return delegate.derivePublicKey(privateKey); }
     @Override public List<PeerStatus> showPeers(String iface)     { return delegate.showPeers(iface); }
     @Override public ServerInfo probeServer(String iface)         { return delegate.probeServer(iface); }
 
     @Override
-    public void setPeer(String iface, String publicKey, String allowedIps) {
+    public void setPeer(String iface, String publicKey, String allowedIps, String presharedKey) {
         if (dryRun()) { LOG.infof("[dry-run] wg setPeer skipped for %s on %s", publicKey, iface); return; }
-        delegate.setPeer(iface, publicKey, allowedIps);
+        delegate.setPeer(iface, publicKey, allowedIps, presharedKey);
     }
 
     @Override

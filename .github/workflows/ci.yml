@@ -1,11 +1,9 @@
 name: CI
 
+# Automatic triggers suspended to preserve GitHub Actions minutes.
+# Restore by replacing this block with the original on: push/pull_request triggers.
 on:
-  push:
-    branches: ["main"]
-    tags: ["v*"]
-  pull_request:
-    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   # ── Stage 1: Tests (JVM, fast) ─────────────────────────────────────────────

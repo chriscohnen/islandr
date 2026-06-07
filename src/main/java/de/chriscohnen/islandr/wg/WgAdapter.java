@@ -37,6 +37,9 @@ public interface WgAdapter {
     /** Generate a new WireGuard keypair (private + derived public). */
     Keypair genKeypair();
 
+    /** Generate a new WireGuard preshared key (32-byte random, base64-encoded). */
+    String genPsk();
+
     /**
      * Derive the public key for a given private key. Wraps {@code wg pubkey} in
      * the real adapter; in mock the derivation is deterministic but not
@@ -46,8 +49,14 @@ public interface WgAdapter {
      */
     String derivePublicKey(String privateKey);
 
-    /** Add or update a peer on the live interface. */
-    void setPeer(String iface, String publicKey, String allowedIps);
+    /**
+     * Add or update a peer on the live interface.
+     *
+     * @param presharedKey optional preshared key (base64, 44 chars); {@code null} to leave
+     *        any existing PSK unchanged. Pass {@code ""} (empty string) to explicitly
+     *        clear the PSK on an existing peer.
+     */
+    void setPeer(String iface, String publicKey, String allowedIps, String presharedKey);
 
     /** Remove a peer from the live interface. */
     void removePeer(String iface, String publicKey);

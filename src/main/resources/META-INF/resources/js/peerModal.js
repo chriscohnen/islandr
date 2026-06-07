@@ -38,9 +38,14 @@ export const peerModalMixin = {
       importMode: "generate", // "generate" | "public-only" | "both"
       importPublicKey: "",
       importPrivateKey: "",
+      // PSK (create form)
+      generatePresharedKey: false,
+      // PSK (edit form): null = no change, "rotate" = regenerate, "remove" = clear
+      pskAction: null,
+      editHasPsk: false,
       creatingPeer: false,
       peerError: null,
-      secret: null, // { peer, privateKey, conf, qrPngBase64 }
+      secret: null, // { peer, privateKey, conf, qrPngBase64, presharedKey }
       secretIsReshow: false,
       copyState: "idle",
     };
@@ -56,6 +61,7 @@ export const peerModalMixin = {
       this.importMode = "generate";
       this.importPublicKey = "";
       this.importPrivateKey = "";
+      this.generatePresharedKey = false;
       this.peerError = null;
       this.secret = null;
       this.secretIsReshow = false;
@@ -86,6 +92,7 @@ export const peerModalMixin = {
         assignedIp: this.newPeer.assignedIp,
         type: this.peerType,
         deviceType: this.peerType === "client" ? this.deviceType : null,
+        generatePresharedKey: this.generatePresharedKey,
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
@@ -151,6 +158,8 @@ export const peerModalMixin = {
       this.peerType = peer.type || "client";
       this.deviceType = peer.deviceType || "laptop";
       this.siteAllowedCidrs = peer.siteAllowedCidrs || "";
+      this.editHasPsk = !!peer.hasPresharedKey;
+      this.pskAction = null;
       this.peerError = null;
       this.secret = null;
       this.secretIsReshow = false;
@@ -163,6 +172,7 @@ export const peerModalMixin = {
         name: this.newPeer.name,
         assignedIp: this.newPeer.assignedIp,
         deviceType: this.peerType === "client" ? (this.deviceType || null) : null,
+        presharedKeyAction: this.pskAction || null,
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
@@ -179,7 +189,8 @@ export const peerModalMixin = {
           ? this.siteAllowedCidrs.trim().replace(/\s*,\s*/g, ", ")
           : null;
       const cidrsChanged = (this.editOriginalCidrs || null) !== (normalisedCidrs || null);
-      const shouldReshow = ipChanged || cidrsChanged;
+      const pskChanged = this.pskAction === "rotate" || this.pskAction === "remove";
+      const shouldReshow = ipChanged || cidrsChanged || pskChanged;
 
       this.creatingPeer = true;
       this.peerError = null;
@@ -373,6 +384,14 @@ export const peerModalTemplate = `
             <input id="importPriv" class="input mono" v-model="importPrivateKey" required :placeholder="t('peer.field_pubkey_ph')" />
             <div class="field-hint">Wird je nach Retention-Modus gespeichert oder nur zur QR-/.conf-Generierung verwendet.</div>
           </div>
+
+          <label class="key-mode-option" style="margin-top: var(--space-4); cursor: pointer">
+            <input type="checkbox" v-model="generatePresharedKey" style="flex-shrink:0" />
+            <div>
+              <div class="key-mode-title">Preshared Key aktivieren <span class="badge" style="margin-left: 6px; background: var(--surface-2); color: var(--fg2); font-size: var(--text-xs)">optional</span></div>
+              <div class="key-mode-hint">Server generiert einen symmetrischen Schlüssel (Post-Quantum-Schutz). Wird in der .conf eingebettet — beide Seiten müssen ihn kennen.</div>
+            </div>
+          </label>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('peer.btn_cancel') }}</button>
@@ -436,6 +455,30 @@ export const peerModalTemplate = `
             <label>{{ t('peer.field_pubkey') }} <span class="muted" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0">(nicht editierbar)</span></label>
             <input class="input mono" :value="editPeerPublicKey" readonly />
             <div class="field-hint">Schlüssel-Rotation: alten Peer löschen und neu anlegen.</div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label>Preshared Key</label>
+            <div v-if="editHasPsk" style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
+              <span class="badge badge-success" style="flex-shrink:0">aktiv</span>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-secondary': pskAction === 'rotate' }"
+                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">Neu generieren</button>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-danger': pskAction === 'remove' }"
+                      @click="pskAction = pskAction === 'remove' ? null : 'remove'">Entfernen</button>
+            </div>
+            <div v-else style="display:flex; align-items:center; gap: var(--space-3)">
+              <span class="muted" style="font-size: var(--text-sm)">nicht gesetzt</span>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-secondary': pskAction === 'rotate' }"
+                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">Setzen</button>
+            </div>
+            <div v-if="pskAction" class="callout callout-warning" style="margin-top: var(--space-2)">
+              <div v-if="pskAction === 'rotate'">Neuer Preshared Key wird generiert. Der Client muss danach die .conf neu importieren.</div>
+              <div v-else>Preshared Key wird entfernt. Der Client muss danach die .conf neu importieren.</div>
+            </div>
+            <div class="field-hint">Symmetrischer Schlüssel für Post-Quantum-Schutz. Beide Seiten des Tunnels müssen denselben Schlüssel kennen.</div>
           </div>
         </div>
         <div class="modal-footer">

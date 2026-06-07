@@ -105,12 +105,17 @@ public class PeerService {
         if (req.deviceType() != null && !req.deviceType().isBlank()) {
             peer.deviceType = req.deviceType();
         }
+        String presharedKey = null;
+        if (req.generatePresharedKey()) {
+            presharedKey = wg.genPsk();
+            peer.presharedKey = presharedKey;
+        }
         peer.persist();
 
         // Saga step 1 — register peer with WireGuard kernel. If this fails the
         // DB transaction will roll back (we're still inside @Transactional).
         try {
-            wg.setPeer(wgInterface, publicKeyToStore, hubAllowedIpsFor(peer));
+            wg.setPeer(wgInterface, publicKeyToStore, hubAllowedIpsFor(peer), presharedKey);
         } catch (RuntimeException e) {
             LOG.errorf(e, "wg.setPeer failed for peer %s — transaction will roll back", peer.id);
             throw new WebApplicationException("could not register peer with wg: " + e.getMessage(), 500);
@@ -134,14 +139,15 @@ public class PeerService {
 
         // Render conf + QR only when we actually have a private key to embed.
         // Public-only import gets the keyless conf shape (same as never-retention reshow).
-        String conf = renderConf(privateKeyForResponse, req.assignedIp(), settings);
+        String conf = renderConf(privateKeyForResponse, req.assignedIp(), presharedKey, settings);
         String qrPng = privateKeyForResponse != null ? qr.toDataUrl(conf) : null;
 
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
                 privateKeyForResponse,
                 conf,
-                qrPng);
+                qrPng,
+                presharedKey);
     }
 
     /**
@@ -164,20 +170,22 @@ public class PeerService {
             throw new NotFoundException("peer not found: " + peerId);
         }
         if (peer.privateKeyPem != null) {
-            String conf = renderConf(peer.privateKeyPem, peer.assignedIp, settings);
+            String conf = renderConf(peer.privateKeyPem, peer.assignedIp, peer.presharedKey, settings);
             String qrPng = qr.toDataUrl(conf);
             return new PeerDto.CreateResponse(
                     PeerDto.Response.from(peer),
                     peer.privateKeyPem,
                     conf,
-                    qrPng);
+                    qrPng,
+                    peer.presharedKey);
         }
-        String confNoKey = renderConf(null, peer.assignedIp, settings);
+        String confNoKey = renderConf(null, peer.assignedIp, peer.presharedKey, settings);
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
                 null,
                 confNoKey,
-                null);
+                null,
+                peer.presharedKey);
     }
 
     /**
@@ -252,6 +260,21 @@ public class PeerService {
         }
         boolean cidrsChanged = !java.util.Objects.equals(peer.siteAllowedCidrs, normalisedCidrs);
 
+        // PSK rotation: determine new PSK value before persisting.
+        // null = no change; "rotate" = generate new; "remove" = clear.
+        boolean pskChanged = false;
+        String pskForWg = null;  // value to pass to wg.setPeer (null = no change to kernel)
+        if ("rotate".equals(req.presharedKeyAction())) {
+            String newPsk = wg.genPsk();
+            peer.presharedKey = newPsk;
+            pskForWg = newPsk;
+            pskChanged = true;
+        } else if ("remove".equals(req.presharedKeyAction())) {
+            peer.presharedKey = null;
+            pskForWg = "";  // empty string signals "clear" to wg.setPeer
+            pskChanged = true;
+        }
+
         peer.name = req.name();
         peer.assignedIp = req.assignedIp();
         peer.siteAllowedCidrs = normalisedCidrs;
@@ -262,11 +285,12 @@ public class PeerService {
         }
         peer.persist();
 
-        if ((ipChanged || cidrsChanged) && peer.enabled) {
+        if ((ipChanged || cidrsChanged || pskChanged) && peer.enabled) {
             try {
-                // wg merges by public key, so a setPeer with the new allowed-ips
-                // is enough — no remove first.
-                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer));
+                // wg merges by public key, so a setPeer with updated params is enough.
+                // Pass pskForWg only when the PSK actually changed — null means "no PSK op".
+                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer),
+                        pskChanged ? pskForWg : null);
             } catch (RuntimeException e) {
                 LOG.errorf(e, "wg.setPeer failed for updated peer %s", peer.id);
                 throw new WebApplicationException(
@@ -277,13 +301,14 @@ public class PeerService {
         // Same response shape as create/reshow so the UI can treat it uniformly.
         // If a private key was stored, we can also rebuild the QR; otherwise the
         // conf is served keyless.
-        String conf = renderConf(peer.privateKeyPem, peer.assignedIp, settings);
+        String conf = renderConf(peer.privateKeyPem, peer.assignedIp, peer.presharedKey, settings);
         String qrPng = peer.privateKeyPem != null ? qr.toDataUrl(conf) : null;
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
                 peer.privateKeyPem,
                 conf,
-                qrPng);
+                qrPng,
+                peer.presharedKey);
     }
 
     /**
@@ -318,7 +343,8 @@ public class PeerService {
         try {
             wg.removePeer(wgInterface, oldKey);
             if (peer.enabled) {
-                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer));
+                // PSK is cleared when the key rotates (server no longer holds the matching half).
+                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), null);
             }
         } catch (RuntimeException e) {
             LOG.errorf(e, "wg key rotation failed for peer %s", peer.id);
@@ -353,7 +379,7 @@ public class PeerService {
         }
         peer.enabled = enabled;
         if (enabled) {
-            wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer));
+            wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
         } else {
             wg.removePeer(wgInterface, peer.publicKey);
         }
@@ -504,8 +530,11 @@ public class PeerService {
      * case the {@code PrivateKey} line is omitted entirely — the resulting .conf
      * is not directly importable but carries every other parameter, so the user
      * can paste their key in manually or use it as a template.
+     *
+     * <p>{@code presharedKey} may be {@code null} (no PSK configured). When present
+     * it is written as {@code PresharedKey} in the {@code [Peer]} section.
      */
-    private String renderConf(String privateKey, String assignedIp, Settings settings) {
+    private String renderConf(String privateKey, String assignedIp, String presharedKey, Settings settings) {
         StringBuilder sb = new StringBuilder();
         sb.append("[Interface]\n");
         if (privateKey != null) {
@@ -532,6 +561,9 @@ public class PeerService {
         // Hub peer — routes all configured networks including site CIDRs
         sb.append("\n[Peer]\n");
         sb.append("PublicKey = ").append(settings.wgServerPublicKey).append("\n");
+        if (presharedKey != null && !presharedKey.isBlank()) {
+            sb.append("PresharedKey = ").append(presharedKey).append("\n");
+        }
         sb.append("AllowedIPs = ").append(allowedIps).append("\n");
         sb.append("Endpoint = ").append(settings.wgServerEndpoint).append("\n");
         sb.append("PersistentKeepalive = 25\n");

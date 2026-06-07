@@ -113,7 +113,7 @@ class ActivityPollerTest {
     String createPeerAndRegisterWithWg(String ip) {
         String id = createPeer(ip);
         Peer p = findPeer(id);
-        wg.setPeer("wg0", p.publicKey, p.assignedIp + "/32");
+        wg.setPeer("wg0", p.publicKey, p.assignedIp + "/32", null);
         return id;
     }
 

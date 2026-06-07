@@ -41,7 +41,7 @@ class MockWgAdapterTest {
     @Test
     void setPeer_thenShow_includesIt() {
         WgAdapter.Keypair kp = adapter.genKeypair();
-        adapter.setPeer("wg0", kp.publicKey(), "10.8.0.5/32");
+        adapter.setPeer("wg0", kp.publicKey(), "10.8.0.5/32", null);
 
         List<WgAdapter.PeerStatus> peers = adapter.showPeers("wg0");
         assertThat(peers).hasSize(1);
@@ -53,8 +53,8 @@ class MockWgAdapterTest {
     void removePeer_dropsIt() {
         WgAdapter.Keypair a = adapter.genKeypair();
         WgAdapter.Keypair b = adapter.genKeypair();
-        adapter.setPeer("wg0", a.publicKey(), "10.8.0.5/32");
-        adapter.setPeer("wg0", b.publicKey(), "10.8.0.6/32");
+        adapter.setPeer("wg0", a.publicKey(), "10.8.0.5/32", null);
+        adapter.setPeer("wg0", b.publicKey(), "10.8.0.6/32", null);
 
         adapter.removePeer("wg0", a.publicKey());
 
@@ -66,8 +66,8 @@ class MockWgAdapterTest {
     @Test
     void setPeer_isIdempotent() {
         WgAdapter.Keypair kp = adapter.genKeypair();
-        adapter.setPeer("wg0", kp.publicKey(), "10.8.0.5/32");
-        adapter.setPeer("wg0", kp.publicKey(), "10.8.0.5/32");
+        adapter.setPeer("wg0", kp.publicKey(), "10.8.0.5/32", null);
+        adapter.setPeer("wg0", kp.publicKey(), "10.8.0.5/32", null);
 
         assertThat(adapter.showPeers("wg0")).hasSize(1);
     }

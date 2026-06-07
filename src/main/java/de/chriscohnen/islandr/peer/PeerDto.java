@@ -22,14 +22,16 @@ public final class PeerDto {
             Instant createdAt,
             String type,                // "client" | "site"
             String siteAllowedCidrs,    // null for client peers
-            String deviceType           // laptop | desktop | mobile | tablet | server | other | null
+            String deviceType,          // laptop | desktop | mobile | tablet | server | other | null
+            boolean hasPresharedKey     // true when a PSK is stored for this peer
     ) {
         public static Response from(Peer p) {
             return new Response(
                     p.id, p.userId, p.name, p.publicKey, p.assignedIp,
                     p.enabled, p.lastSeenAt, p.lastSeenEndpoint,
                     p.totalRxBytes, p.totalTxBytes, p.createdAt,
-                    p.type, p.siteAllowedCidrs, p.deviceType);
+                    p.type, p.siteAllowedCidrs, p.deviceType,
+                    p.presharedKey != null && !p.presharedKey.isBlank());
         }
     }
 
@@ -76,7 +78,12 @@ public final class PeerDto {
             // Optional cosmetic device category for client peers.
             @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
                     message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
-            String deviceType
+            String deviceType,
+
+            // When true, the server generates and stores a preshared key for this peer.
+            // Defaults to false (no PSK). The generated PSK is returned in CreateResponse
+            // and embedded in the .conf — the admin must hand the .conf to the client.
+            boolean generatePresharedKey
     ) {
         public boolean hasPublicKey()  { return publicKey  != null && !publicKey.isBlank(); }
         public boolean hasPrivateKey() { return privateKey != null && !privateKey.isBlank(); }
@@ -94,13 +101,16 @@ public final class PeerDto {
     /**
      * The one-shot creation response. The {@code privateKey} field is the only
      * place this value ever appears server-side; it is not persisted and there is
-     * no GET endpoint that returns it again.
+     * no GET endpoint that returns it again. The {@code presharedKey} is always
+     * stored in the DB but is also included here so the admin can verify it —
+     * it is already embedded in {@code conf} when present.
      */
     public record CreateResponse(
             Response peer,
             String privateKey,
             String conf,
-            String qrPngBase64
+            String qrPngBase64,
+            String presharedKey    // null when no PSK was generated for this peer
     ) {}
 
     public record EnabledRequest(boolean enabled) {}
@@ -124,7 +134,13 @@ public final class PeerDto {
 
             @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
                     message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
-            String deviceType
+            String deviceType,
+
+            // PSK rotation action. null = leave unchanged; "rotate" = generate new PSK;
+            // "remove" = clear the PSK (both sides must update their configs).
+            @Pattern(regexp = "^$|^(rotate|remove)$",
+                    message = "presharedKeyAction must be 'rotate', 'remove', or omitted")
+            String presharedKeyAction
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */

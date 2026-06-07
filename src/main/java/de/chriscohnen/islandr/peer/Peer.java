@@ -86,6 +86,16 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "device_type", length = 16)
     public String deviceType;
 
+    /**
+     * Optional WireGuard preshared key (PSK) for this peer — 32-byte random value, base64-encoded.
+     * Provides an additional layer of post-quantum symmetric security on top of the Curve25519
+     * key exchange. Always stored in plaintext (unlike the private key) because both sides
+     * of the tunnel need to know it; the client receives it in the creation response conf.
+     * NULL when no PSK was requested at creation.
+     */
+    @Column(name = "preshared_key", length = 44)
+    public String presharedKey;
+
     public boolean isSite() {
         return "site".equals(type);
     }

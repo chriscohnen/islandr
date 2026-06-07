@@ -51,12 +51,38 @@ public class RealWgAdapter implements WgAdapter {
     }
 
     @Override
-    public void setPeer(String iface, String publicKey, String allowedIps) {
-        runCapture(new String[]{
-                "wg", "set", iface,
-                "peer", publicKey,
-                "allowed-ips", allowedIps
-        }, null, useSudo);
+    public String genPsk() {
+        return runCapture(new String[]{"wg", "genpsk"}, null, false).trim();
+    }
+
+    @Override
+    public void setPeer(String iface, String publicKey, String allowedIps, String presharedKey) {
+        if (presharedKey == null) {
+            runCapture(new String[]{
+                    "wg", "set", iface,
+                    "peer", publicKey,
+                    "allowed-ips", allowedIps
+            }, null, useSudo);
+            return;
+        }
+        // wg set ... preshared-key takes a file path — write to a temp file and clean up.
+        java.nio.file.Path tmp = null;
+        try {
+            tmp = java.nio.file.Files.createTempFile("wg-psk-", ".key");
+            java.nio.file.Files.writeString(tmp, presharedKey);
+            runCapture(new String[]{
+                    "wg", "set", iface,
+                    "peer", publicKey,
+                    "preshared-key", tmp.toString(),
+                    "allowed-ips", allowedIps
+            }, null, useSudo);
+        } catch (java.io.IOException e) {
+            throw new WgException("could not write preshared-key temp file: " + e.getMessage(), e);
+        } finally {
+            if (tmp != null) {
+                try { java.nio.file.Files.deleteIfExists(tmp); } catch (java.io.IOException ignored) {}
+            }
+        }
     }
 
     @Override
