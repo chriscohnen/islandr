@@ -252,6 +252,15 @@ Bug reports and feature ideas via [GitHub Issues](https://github.com/chriscohnen
 
 **EUPL-1.2** (EU-governed, copyleft, AGPL-compatible). See [docs/adr/0009-license-eupl-1.2.md](docs/adr/0009-license-eupl-1.2.md) for the rationale.
 
----
+## Legal Notice / Trademark Disclaimer
+
+The name **islandr** and the project hosted under `islandr-gateway.net` or this GitHub repository are independent open-source developments by Chris Cohnen.
+
+This project is NOT affiliated, associated, authorized, endorsed by, or in any way officially connected with any other project or company using the name "islandr" or similar, including but not limited to:
+
+- **PerfTech Inc.** and their "Island Router" product (islandrouter.com)
+- The **islandr-project.eu** initiative
+
+All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
 
 WireGuard® is a registered trademark of Jason A. Donenfeld. Islandr is an independent project, not affiliated with or endorsed by the WireGuard project.
