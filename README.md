@@ -254,7 +254,7 @@ Bug reports and feature ideas via [GitHub Issues](https://github.com/chriscohnen
 
 ## Legal Notice / Trademark Disclaimer
 
-The name **islandr** and the project hosted under `islandr-gateway.net` or this GitHub repository are independent open-source developments by Chris Cohnen.
+The name **islandr** and the project hosted under `islandr-gateway.net` or this GitHub repository are independent open-source developments by Christian Cohnen.
 
 This project is NOT affiliated, associated, authorized, endorsed by, or in any way officially connected with any other project or company using the name "islandr" or similar, including but not limited to:
 
