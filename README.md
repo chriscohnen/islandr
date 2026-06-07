@@ -22,6 +22,11 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 
 ---
 
+> [!WARNING]
+> **Early access — not production-ready.**
+> Islandr manages your WireGuard interface directly (`wg set`, `ip link`). A misconfiguration or bug can disconnect peers, change firewall rules, or modify your WireGuard setup in unexpected ways. Always **back up your `/etc/wireguard/` config and your database file** before upgrading.
+> Breaking changes between versions are possible without notice until v1.0. Only install if you are comfortable reading logs and recovering a WireGuard setup manually.
+
 ![Dashboard screenshot](https://islandr-gateway.net/screenshots/light/dashboard.png)
 
 ---
