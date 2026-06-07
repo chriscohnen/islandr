@@ -1,9 +1,12 @@
 name: CodeQL
 
-# Automatic triggers suspended to preserve GitHub Actions minutes.
-# Restore by replacing this block with the original on: push/pull_request/schedule triggers.
 on:
-  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "0 3 * * 1"  # weekly Monday 03:00 UTC
 
 jobs:
   analyze:
