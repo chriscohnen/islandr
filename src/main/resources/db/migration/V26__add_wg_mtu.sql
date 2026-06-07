@@ -1,0 +1,2 @@
+ALTER TABLE settings ADD COLUMN wg_mtu INTEGER;
+ALTER TABLE settings ADD COLUMN wg_include_mtu_in_conf INTEGER NOT NULL DEFAULT 0;

@@ -18,6 +18,8 @@ public final class SettingsDto {
             boolean oidcAutoProvision,
             boolean firewallDryRun,
             boolean selfServicePeerCreation,
+            Integer wgMtu,
+            boolean wgIncludeMtuInConf,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete,
@@ -28,7 +30,7 @@ public final class SettingsDto {
                     s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
-                    s.selfServicePeerCreation,
+                    s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                     version);
@@ -62,7 +64,13 @@ public final class SettingsDto {
             boolean firewallDryRun,
 
             // optional — when false, POST /api/v1/peers/mine returns 403
-            boolean selfServicePeerCreation
+            boolean selfServicePeerCreation,
+
+            // optional — null means not set; stored from probe auto-save or manual entry
+            Integer wgMtu,
+
+            // optional — when true, MTU = <wgMtu> is written into client .conf files
+            boolean wgIncludeMtuInConf
     ) {}
 
     private SettingsDto() {}

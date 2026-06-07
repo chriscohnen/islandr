@@ -65,6 +65,9 @@ public interface WgAdapter {
     /** Snapshot every peer on the interface. Used by the activity poller. */
     List<PeerStatus> showPeers(String iface);
 
+    /** Set the MTU on a WireGuard interface via {@code ip link set <iface> mtu <mtu>}. */
+    void setIfMtu(String iface, int mtu);
+
     /**
      * Read the server's own public key and listen port from the live interface.
      * Used by the setup wizard to pre-fill settings from an existing WireGuard

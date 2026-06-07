@@ -544,6 +544,9 @@ public class PeerService {
         if (settings.wgClientDns != null && !settings.wgClientDns.isBlank()) {
             sb.append("DNS = ").append(settings.wgClientDns).append("\n");
         }
+        if (settings.wgIncludeMtuInConf && settings.wgMtu != null && settings.wgMtu > 0) {
+            sb.append("MTU = ").append(settings.wgMtu).append("\n");
+        }
 
         // Collect site CIDRs for sites that have an active gateway peer.
         // Traffic to these networks goes through the hub which routes it to the gateway.

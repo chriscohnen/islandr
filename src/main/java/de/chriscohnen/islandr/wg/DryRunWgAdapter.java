@@ -47,4 +47,10 @@ class DryRunWgAdapter implements WgAdapter {
         if (dryRun()) { LOG.infof("[dry-run] wg removePeer skipped for %s on %s", publicKey, iface); return; }
         delegate.removePeer(iface, publicKey);
     }
+
+    @Override
+    public void setIfMtu(String iface, int mtu) {
+        if (dryRun()) { LOG.infof("[dry-run] ip link set mtu skipped for %s mtu=%d", iface, mtu); return; }
+        delegate.setIfMtu(iface, mtu);
+    }
 }

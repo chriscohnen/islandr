@@ -62,6 +62,12 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "self_service_peer_creation", columnDefinition = "INTEGER")
     public boolean selfServicePeerCreation = true;
 
+    @Column(name = "wg_mtu")
+    public Integer wgMtu;
+
+    @Column(name = "wg_include_mtu_in_conf", columnDefinition = "INTEGER")
+    public boolean wgIncludeMtuInConf = false;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

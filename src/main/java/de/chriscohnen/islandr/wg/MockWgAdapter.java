@@ -116,6 +116,10 @@ public class MockWgAdapter implements WgAdapter {
     }
 
     @Override
+    public void setIfMtu(String iface, int mtu) {
+        LOG.debugf("mock: setIfMtu iface=%s mtu=%d", iface, mtu);
+    }
+
     public ServerInfo probeServer(String iface) {
         return new ServerInfo("MOCK+PublicKey+ProbeResult+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", 51820, 0, "unknown", 0);
     }

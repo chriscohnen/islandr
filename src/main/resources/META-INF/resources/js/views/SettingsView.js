@@ -25,6 +25,8 @@ export default defineComponent({
         oidcAutoProvision: true,
         firewallDryRun: true,
         selfServicePeerCreation: true,
+        wgMtu: null,
+        wgIncludeMtuInConf: false,
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
@@ -54,6 +56,8 @@ export default defineComponent({
           oidcAutoProvision: s.oidcAutoProvision !== false,
           firewallDryRun: !!s.firewallDryRun,
           selfServicePeerCreation: s.selfServicePeerCreation !== false,
+          wgMtu: s.wgMtu || null,
+          wgIncludeMtuInConf: !!s.wgIncludeMtuInConf,
         };
         this.meta = {
           updatedAt: s.updatedAt,
@@ -115,12 +119,27 @@ export default defineComponent({
         }
         const data = await res.json();
         this.form.wgServerPublicKey = data.publicKey;
+        if (data.mtu) this.form.wgMtu = data.mtu;  // auto-adopt probed MTU
         this.probeResult = data;
         this.info = t("settings.wg_probe_success", { iface: data.iface, port: data.listenPort });
       } catch (e) {
         this.error = t("settings.wg_probe_error", { error: e.message });
       } finally {
         this.probing = false;
+      }
+    },
+
+    async setIfMtu() {
+      try {
+        const res = await fetch("/api/v1/settings/wg-set-mtu", { method: "POST" });
+        if (res.ok) {
+          this.info = `MTU ${this.form.wgMtu} am Interface gesetzt.`;
+        } else {
+          const body = await res.json().catch(() => ({}));
+          this.error = "MTU setzen fehlgeschlagen: " + (body.error || res.status);
+        }
+      } catch (e) {
+        this.error = "MTU setzen fehlgeschlagen: " + e.message;
       }
     },
 
@@ -195,6 +214,22 @@ export default defineComponent({
           <label for="wgClientDns">{{ t('settings.field_dns') }}</label>
           <input id="wgClientDns" class="input mono" v-model="form.wgClientDns" placeholder="10.8.0.1 (optional)" />
           <div class="field-hint">Leer lassen, wenn kein DNS-Eintrag in die .conf soll.</div>
+        </div>
+
+        <div class="field">
+          <label>MTU</label>
+          <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
+            <span v-if="form.wgMtu" class="mono" style="font-size: var(--text-sm); color: var(--fg1)">{{ form.wgMtu }}</span>
+            <span v-else class="muted" style="font-size: var(--text-sm)">nicht ermittelt — Verbindung testen</span>
+            <button v-if="form.wgMtu" type="button" class="btn btn-ghost btn-sm" @click="setIfMtu">
+              Am WG-Interface setzen
+            </button>
+          </div>
+          <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0; margin-top:var(--space-2)">
+            <input type="checkbox" v-model="form.wgIncludeMtuInConf" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
+            <span>MTU in Client-.conf einschließen</span>
+          </label>
+          <div class="field-hint">Empfohlen nur bei Verbindungsproblemen (Fragmentierung). Wird nach "Verbindung testen" automatisch gespeichert.</div>
         </div>
 
         <div class="field">

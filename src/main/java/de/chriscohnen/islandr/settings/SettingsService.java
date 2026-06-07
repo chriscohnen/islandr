@@ -37,6 +37,8 @@ public class SettingsService {
         s.oidcAutoProvision = req.oidcAutoProvision();
         s.firewallDryRun = req.firewallDryRun();
         s.selfServicePeerCreation = req.selfServicePeerCreation();
+        s.wgMtu = (req.wgMtu() != null && req.wgMtu() > 0) ? req.wgMtu() : null;
+        s.wgIncludeMtuInConf = req.wgIncludeMtuInConf();
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
         // No explicit persist() needed — Panache flushes managed entities on commit.

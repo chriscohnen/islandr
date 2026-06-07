@@ -132,7 +132,8 @@ class UserAvatarResourceTest {
         settings.update(new SettingsDto.UpdateRequest(
                 cur.wgSubnet, cur.wgServerPublicKey, cur.wgServerEndpoint,
                 cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
-                enabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation
+                enabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
+                cur.wgMtu, cur.wgIncludeMtuInConf
         ), "test");
     }
 

@@ -101,6 +101,11 @@ public class RealWgAdapter implements WgAdapter {
     }
 
     @Override
+    public void setIfMtu(String iface, int mtu) {
+        runCapture(new String[]{"ip", "link", "set", iface, "mtu", String.valueOf(mtu)}, null, useSudo);
+    }
+
+    @Override
     public ServerInfo probeServer(String iface) {
         try {
             String dump = runCapture(new String[]{"wg", "show", iface, "dump"}, null, useSudo);
