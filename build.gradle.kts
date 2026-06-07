@@ -62,7 +62,7 @@ dependencies {
 }
 
 group = "de.chriscohnen.islandr"
-version = "0.8.0"
+version = "0.8.1"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

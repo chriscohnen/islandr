@@ -27,6 +27,7 @@ public interface WgAdapter {
     /** State of one peer as reported by {@code wg show <iface> dump}. */
     record PeerStatus(
             String publicKey,
+            String presharedKey,       // base64 PSK, or null if "(none)"
             String endpoint,           // IP:port; null if peer has never connected
             String allowedIps,         // CIDR list, e.g. "10.8.0.5/32"
             Instant lastHandshake,     // null if never

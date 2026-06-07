@@ -43,6 +43,8 @@ export const peerModalMixin = {
       // PSK (edit form): null = no change, "rotate" = regenerate, "remove" = clear
       pskAction: null,
       editHasPsk: false,
+      pskSyncing: false,
+      pskSyncResult: null,  // null | "found" | "not_found" | "error"
       creatingPeer: false,
       peerError: null,
       secret: null, // { peer, privateKey, conf, qrPngBase64, presharedKey }
@@ -160,6 +162,8 @@ export const peerModalMixin = {
       this.siteAllowedCidrs = peer.siteAllowedCidrs || "";
       this.editHasPsk = !!peer.hasPresharedKey;
       this.pskAction = null;
+      this.pskSyncing = false;
+      this.pskSyncResult = null;
       this.peerError = null;
       this.secret = null;
       this.secretIsReshow = false;
@@ -238,6 +242,25 @@ export const peerModalMixin = {
         this.modalMode = "secret";
       } catch (e) {
         alert(t("myaccess.error_conf", { error: e.message }));
+      }
+    },
+
+    async syncPskFromWg() {
+      this.pskSyncing = true;
+      this.pskSyncResult = null;
+      try {
+        const res = await fetch(`/api/v1/peers/${this.editPeerId}/psk/sync-from-wg`, { method: 'POST' });
+        if (res.ok) {
+          const body = await res.json();
+          this.pskSyncResult = body.imported ? 'found' : 'not_found';
+          if (body.imported) this.editHasPsk = true;
+        } else {
+          this.pskSyncResult = 'error';
+        }
+      } catch {
+        this.pskSyncResult = 'error';
+      } finally {
+        this.pskSyncing = false;
       }
     },
 
@@ -468,11 +491,17 @@ export const peerModalTemplate = `
                       :class="{ 'btn-danger': pskAction === 'remove' }"
                       @click="pskAction = pskAction === 'remove' ? null : 'remove'">Entfernen</button>
             </div>
-            <div v-else style="display:flex; align-items:center; gap: var(--space-3)">
+            <div v-else style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
               <span class="muted" style="font-size: var(--text-sm)">nicht gesetzt</span>
               <button type="button" class="btn btn-ghost btn-sm"
                       :class="{ 'btn-secondary': pskAction === 'rotate' }"
-                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">Setzen</button>
+                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">Neu generieren</button>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :disabled="pskSyncing"
+                      @click="syncPskFromWg">{{ pskSyncing ? '…' : 'Aus wg lesen' }}</button>
+              <span v-if="pskSyncResult === 'found'" class="badge badge-success">importiert</span>
+              <span v-if="pskSyncResult === 'not_found'" class="muted" style="font-size:var(--text-sm)">kein PSK in wg gefunden</span>
+              <span v-if="pskSyncResult === 'error'" class="badge badge-danger">Fehler</span>
             </div>
             <div v-if="pskAction" class="callout callout-warning" style="margin-top: var(--space-2)">
               <div v-if="pskAction === 'rotate'">Neuer Preshared Key wird generiert. Der Client muss danach die .conf neu importieren.</div>

@@ -110,7 +110,7 @@ public class MockWgAdapter implements WgAdapter {
             String endpoint = active
                     ? "203.0.113." + ThreadLocalRandom.current().nextInt(2, 254) + ":51820"
                     : null;
-            out.add(new PeerStatus(p.publicKey, endpoint, p.allowedIps, lastHandshake, rx, tx));
+            out.add(new PeerStatus(p.publicKey, null, endpoint, p.allowedIps, lastHandshake, rx, tx));
         }
         return out;
     }

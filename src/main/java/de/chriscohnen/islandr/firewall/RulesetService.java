@@ -55,7 +55,7 @@ public class RulesetService {
             // Keep the previous ruleset_text + rule_count so the UI can show
             // "last good was N rules at T". Only the freshly attempted text
             // would be misleading here.
-            audit.logEvent(actor, "firewall.apply_failed", "Firewall:singleton",
+            audit.logEvent(actor, "firewall.apply_failed", "Firewall:ruleset",
                     auditDetails(snap, validation.stderr()));
             return state;
         }
@@ -66,7 +66,7 @@ public class RulesetService {
             LOG.errorf(ex, "nftables apply failed despite validation passing");
             state.lastStatus = FirewallState.FAILED;
             state.stderrText = ex.getMessage();
-            audit.logEvent(actor, "firewall.apply_failed", "Firewall:singleton",
+            audit.logEvent(actor, "firewall.apply_failed", "Firewall:ruleset",
                     auditDetails(snap, ex.getMessage()));
             return state;
         }
@@ -79,7 +79,7 @@ public class RulesetService {
         // Audit the successful apply too — operators need to know "what
         // changed and when". Don't dump the full ruleset into the audit
         // JSON (could be MB at scale); just the rule count.
-        audit.logEvent(actor, "firewall.apply_ok", "Firewall:singleton",
+        audit.logEvent(actor, "firewall.apply_ok", "Firewall:ruleset",
                 Map.of("ruleCount", snap.ruleCount(), "rulesetBytes", snap.rulesetText().length()));
         return state;
     }

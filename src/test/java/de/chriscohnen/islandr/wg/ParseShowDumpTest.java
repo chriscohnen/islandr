@@ -32,6 +32,7 @@ class ParseShowDumpTest {
         assertThat(peers).hasSize(1);
         WgAdapter.PeerStatus p = peers.get(0);
         assertThat(p.publicKey()).isEqualTo("pBOBkey=");
+        assertThat(p.presharedKey()).isNull();
         assertThat(p.endpoint()).isEqualTo("203.0.113.5:51820");
         assertThat(p.allowedIps()).isEqualTo("10.8.0.5/32");
         assertThat(p.lastHandshake()).isEqualTo(Instant.ofEpochSecond(1719000000));
@@ -67,6 +68,17 @@ class ParseShowDumpTest {
         assertThat(peers).extracting(WgAdapter.PeerStatus::publicKey)
                 .containsExactly("pA=", "pB=", "pC=");
         assertThat(peers.get(2).allowedIps()).isEqualTo("10.8.0.7/32,10.8.0.8/32");
+    }
+
+    @Test
+    void parses_peerWithPsk() {
+        String dump = String.join("\n",
+                "iPriv\tiPub\t51820\toff",
+                "pBOBkey=\tABC123pskvalue==\t203.0.113.5:51820\t10.8.0.5/32\t1719000000\t0\t0\t25");
+
+        WgAdapter.PeerStatus p = RealWgAdapter.parseShowDump(dump).get(0);
+
+        assertThat(p.presharedKey()).isEqualTo("ABC123pskvalue==");
     }
 
     @Test

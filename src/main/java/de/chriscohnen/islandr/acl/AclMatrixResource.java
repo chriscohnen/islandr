@@ -72,8 +72,10 @@ public class AclMatrixResource {
                 details.put("ports", portIdsTolabels(d.toPortIds(), portLabels));
             if (d.fromPortIds() != null && !d.fromPortIds().isEmpty())
                 details.put("portsBefore", portIdsTolabels(d.fromPortIds(), portLabels));
+            String roleName     = roleNames.getOrDefault(d.roleId(), d.roleId());
+            String resourceName = resourceNames.getOrDefault(d.resourceId(), d.resourceId());
             audit.logEvent(a.principal(), action,
-                    "Grant:" + d.roleId() + "/" + d.resourceId(), details);
+                    "Grant:" + roleName + "/" + resourceName, details);
         }
         if (!diffs.isEmpty()) {
             // The matrix is the most rule-shifting action in the whole app —

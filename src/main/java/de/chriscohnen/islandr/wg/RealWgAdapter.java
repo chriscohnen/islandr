@@ -156,6 +156,7 @@ public class RealWgAdapter implements WgAdapter {
             if (fields.length < 7) continue;
 
             String pubKey = fields[0];
+            String psk = "(none)".equals(fields[1]) ? null : fields[1];
             String endpoint = "(none)".equals(fields[2]) ? null : fields[2];
             String allowedIps = fields[3];
             long handshakeEpoch = parseLong(fields[4]);
@@ -163,7 +164,7 @@ public class RealWgAdapter implements WgAdapter {
             long rx = parseLong(fields[5]);
             long tx = parseLong(fields[6]);
 
-            peers.add(new PeerStatus(pubKey, endpoint, allowedIps, lastHandshake, rx, tx));
+            peers.add(new PeerStatus(pubKey, psk, endpoint, allowedIps, lastHandshake, rx, tx));
         }
         return peers;
     }

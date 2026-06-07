@@ -161,6 +161,37 @@ public class PeerResource {
         return out;
     }
 
+    /**
+     * Read the preshared key for this peer from the live wg interface and store it.
+     * Returns 200 with {"imported": true} when a PSK was found and saved,
+     * or {"imported": false} when the peer has no PSK in wg.
+     * Returns 404 if the peer is not found in the DB, 409 if the peer already
+     * has a PSK stored (use the edit form to rotate/remove it explicitly).
+     */
+    @POST
+    @Path("/{id}/psk/sync-from-wg")
+    @jakarta.transaction.Transactional
+    public Response syncPskFromWg(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Peer peer = Peer.findById(id);
+        if (peer == null) throw new NotFoundException("peer not found: " + id);
+        if (peer.presharedKey != null) {
+            return Response.status(Response.Status.CONFLICT)
+                    .entity(Map.of("error", "PSK already set — use rotate/remove in the edit form"))
+                    .build();
+        }
+        WgAdapter.PeerStatus status = wg.showPeers(wgInterface).stream()
+                .filter(s -> peer.publicKey.equals(s.publicKey()))
+                .findFirst().orElse(null);
+        if (status == null || status.presharedKey() == null) {
+            return Response.ok(Map.of("imported", false)).build();
+        }
+        peer.presharedKey = status.presharedKey();
+        // wg already has the PSK — no need to call setPeer again
+        audit.logUpdate(a.principal(), "peer.psk-sync", "Peer:" + peer.name + " (" + id + ")", null, null);
+        return Response.ok(Map.of("imported", true)).build();
+    }
+
     @PUT
     @Path("/{id}/enabled")
     public PeerDto.Response setEnabled(@Context ContainerRequestContext ctx,

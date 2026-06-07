@@ -145,9 +145,13 @@ public class ResourceResource {
         // Audit only when something actually changed — applying the same
         // group twice is idempotent and shouldn't fill the log with no-ops.
         if (result.added() > 0) {
+            de.chriscohnen.islandr.acl.Resource res = de.chriscohnen.islandr.acl.Resource.findById(resourceId);
+            String resLabel = res != null ? res.name : resourceId;
+            de.chriscohnen.islandr.acl.PortGroup pg = de.chriscohnen.islandr.acl.PortGroup.findById(body.portGroupId());
+            String pgLabel = pg != null ? pg.name : body.portGroupId();
             audit.logEvent(a.principal(), "resource.port_group_apply",
-                    "Resource:" + resourceId, Map.of(
-                            "portGroupId", body.portGroupId(),
+                    "Resource:" + resLabel, Map.of(
+                            "portGroup", pgLabel,
                             "added", result.added(),
                             "skippedExisting", result.skippedExisting()));
             // Only need a recompute when we actually added ports — applying

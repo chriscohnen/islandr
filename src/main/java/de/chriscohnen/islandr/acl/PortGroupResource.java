@@ -66,7 +66,7 @@ public class PortGroupResource {
         snapshot.put("name", g.name);
         snapshot.put("description", g.description == null ? "" : g.description);
         snapshot.put("members", groups.memberSnapshot(g.id));
-        audit.logCreate(a.principal(), "port_group.create", "PortGroup:" + g.id, snapshot);
+        audit.logCreate(a.principal(), "port_group.create", "PortGroup:" + g.name, snapshot);
         return Response.created(UriBuilder.fromResource(PortGroupResource.class).path(g.id).build())
                 .entity(get(ctx, g.id))
                 .build();
@@ -91,7 +91,7 @@ public class PortGroupResource {
         afterSnap.put("description", body.description() == null ? "" : body.description());
         afterSnap.put("members", groups.memberSnapshot(id));
 
-        audit.logUpdate(a.principal(), "port_group.update", "PortGroup:" + id,
+        audit.logUpdate(a.principal(), "port_group.update", "PortGroup:" + body.name(),
                 beforeSnap, afterSnap);
         return get(ctx, id);
     }
@@ -105,7 +105,7 @@ public class PortGroupResource {
         snap.put("name", before.name);
         snap.put("members", groups.memberSnapshot(id));
         groups.delete(id);
-        audit.logDelete(a.principal(), "port_group.delete", "PortGroup:" + id, snap);
+        audit.logDelete(a.principal(), "port_group.delete", "PortGroup:" + before.name, snap);
         return Response.noContent().build();
     }
 }
