@@ -102,6 +102,19 @@ A deliberate stack choice: **no npm-heavy frontend toolchain**. Vue runs from CD
 
 Identity is intentionally implemented without `quarkus-oidc` so that all provider configuration (client id, secret, tenant, allowed email domains, enabled flag) lives in the DB and is editable via the Admin Console at runtime — no `application.properties` round-trip, no restart. Mutual exclusion is enforced at the service layer: at most one OIDC provider may be active at any time. The local ENV-admin is always available as a recovery path (`ISLANDR_ADMIN_USER` / `ISLANDR_ADMIN_PASSWORD`).
 
+## Quickstart
+
+Pre-built binaries for Linux x86_64 and ARM64 are attached to every [GitHub Release](https://github.com/chriscohnen/islandr/releases/latest):
+
+```bash
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -fsSL "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}" -o /tmp/islandr
+curl -fsSL "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}.sha256" | sha256sum -c -
+sudo install -m 0755 /tmp/islandr /usr/local/bin/islandr
+```
+
+Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/install.md).
+
 ## Prerequisites
 
 | | Dev / CI | Production hub |
@@ -123,7 +136,7 @@ Dev server (Quarkus live coding):
 
 The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
 
-Tests (176, runs in ~9 s after warm start):
+Tests (177, runs in ~9 s after warm start):
 
 ```bash
 ./gradlew test
@@ -168,7 +181,7 @@ islandr/
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 176 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 177 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
