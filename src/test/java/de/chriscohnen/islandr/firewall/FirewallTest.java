@@ -86,6 +86,31 @@ class FirewallTest {
         assertThat(snap.rulesetText()).contains("table inet islandr");
         assertThat(snap.rulesetText()).contains("policy drop");
         assertThat(snap.rulesetText()).contains("flush table inet islandr");
+        // Conntrack rules must always be present so return traffic is not dropped.
+        assertThat(snap.rulesetText()).contains("ct state established,related accept");
+        assertThat(snap.rulesetText()).contains("ct state invalid drop");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_conntrackRulesPrecedePerPeerRules() {
+        User u = persistUser("conntrack@example.test", "CT User");
+        Role role = persistRole("CTRole");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("CTSite", "10.40.0.0/16");
+        Resource res = persistResource(site.id, "Server", "10.40.0.1");
+        ResourcePort port = persistPort(res.id, 22, "tcp", "SSH");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(role.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+        persistPeer(u.id, "ct-peer", "10.8.0.50");
+
+        String text = builder.build().rulesetText();
+        int conntrackPos = text.indexOf("ct state established,related accept");
+        int peerRulePos  = text.indexOf("ip saddr 10.8.0.50");
+        assertThat(conntrackPos).isGreaterThan(0);
+        assertThat(conntrackPos).isLessThan(peerRulePos);
     }
 
     @Test

@@ -201,6 +201,9 @@ public class RuleBuilder {
         // (which sits at priority 0). On a UFW-free hub this is harmless;
         // on a UFW-managed Ubuntu it makes the ordering deterministic.
         sb.append("    type filter hook forward priority -1; policy drop;\n");
+        sb.append('\n');
+        sb.append("    ct state established,related accept comment \"islandr:conntrack return traffic\"\n");
+        sb.append("    ct state invalid drop comment \"islandr:conntrack invalid\"\n");
         if (!rulesByKey.isEmpty()) {
             sb.append('\n');
             for (String rule : rulesByKey.values()) {
@@ -221,6 +224,9 @@ public class RuleBuilder {
                 + "table inet islandr {\n"
                 + "  chain forward {\n"
                 + "    type filter hook forward priority -1; policy drop;\n"
+                + "\n"
+                + "    ct state established,related accept comment \"islandr:conntrack return traffic\"\n"
+                + "    ct state invalid drop comment \"islandr:conntrack invalid\"\n"
                 + "  }\n"
                 + "}\n";
     }
