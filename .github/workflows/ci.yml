@@ -57,11 +57,12 @@ jobs:
             -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 \
             --no-daemon
 
-      - name: Compress binary with UPX
+      - name: Compress binary with UPX (release tags only)
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           sudo apt-get install -y upx-ucl
           BINARY=$(ls build/islandr-*-runner)
-          upx --best "$BINARY"
+          upx -7 "$BINARY"
 
       - name: Locate binary and compute checksum
         id: artifact
@@ -106,7 +107,7 @@ jobs:
         run: |
           sudo apt-get install -y upx-ucl
           BINARY=$(ls build/islandr-*-runner)
-          upx --best "$BINARY"
+          upx -7 "$BINARY"
 
       - name: Locate binary and compute checksum
         id: artifact
