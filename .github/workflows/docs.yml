@@ -30,6 +30,8 @@ jobs:
               -workspace /workspace/workspace.dsl \
               -format plantuml/c4plantuml \
               -output /workspace/diagrams
+          echo "--- exported files ---"
+          ls -la architecture/diagrams/
 
       - name: Download PlantUML
         run: |
@@ -39,13 +41,21 @@ jobs:
 
       - name: Render PlantUML → PNG
         run: |
-          java -jar plantuml.jar -tpng architecture/diagrams/*.puml
+          PUML_FILES=$(find architecture/diagrams -name "*.puml")
+          if [ -z "$PUML_FILES" ]; then
+            echo "No .puml files found — aborting."
+            exit 1
+          fi
+          echo "Rendering: $PUML_FILES"
+          java -jar plantuml.jar -tpng $PUML_FILES
+          echo "--- rendered files ---"
+          ls -la architecture/diagrams/
 
       - name: Commit rendered PNGs
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add architecture/diagrams/*.png
+          git add architecture/diagrams/
           if git diff --staged --quiet; then
             echo "Diagrams unchanged — nothing to commit."
           else
