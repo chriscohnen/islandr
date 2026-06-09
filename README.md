@@ -152,6 +152,8 @@ islandr/
 ├── CLAUDE.md                                # guidance for Claude Code
 ├── build.gradle.kts                         # Gradle 9.1 / Kotlin DSL
 ├── docs/
+│   ├── prd.md                               # Product Requirements Document
+│   ├── install.md                           # Installation guide (native binary, Docker)
 │   └── adr/                                 # Architecture Decision Records
 │       ├── README.md
 │       ├── 0001-quarkus-backend.md
@@ -216,7 +218,13 @@ islandr/
 - End users add their own devices via a 3-step flow: platform → QR + `.conf` → wait for first handshake
 - Key rotation, device list, accessible resource overview with protocol icons
 - Admin toggle to disable self-service peer creation (stricter environments)
-- RDP quicklaunch: resources with port 3389 render a `.rdp` file download (Windows end-to-end not yet validated)
+- Protocol quicklaunch on granted resources:
+  - **HTTP/HTTPS** — opens directly in the browser
+  - **RDP** — `.rdp` file download (Windows/macOS) + `rdp://` URI (Linux/Remmina)
+  - **VNC** — `vnc://` URI link (RFC 7869; opens Remmina, GNOME Connections, RealVNC)
+  - **SSH** — `ssh://` URI (macOS Terminal, Linux terminal emulators)
+  - **SFTP** — `sftp://` URI (Nautilus, Dolphin file manager)
+  - **SMB** — `smb://` URI (Finder, Nautilus; Windows uses `\\host\share` natively)
 
 **Observability**
 - Audit log with cursor-based pagination, actor/action/target filters, meta-JSON expand

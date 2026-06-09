@@ -1638,6 +1638,61 @@ body {
   border-color: var(--accent);
 }
 
+.myaccess-port-rdp-group {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.myaccess-port-rdp-left {
+  border-top-right-radius: 5px;
+  border-bottom-right-radius: 5px;
+}
+
+.myaccess-port-rdp-right {
+  border-top-left-radius: 5px;
+  border-bottom-left-radius: 5px;
+  padding: 0 var(--space-2);
+}
+
+.myaccess-port-vnc {
+  --vnc-accent: #7C6AF7;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--vnc-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--vnc-accent) 25%, transparent);
+  color: var(--vnc-accent);
+}
+
+.myaccess-port-vnc:hover {
+  background: color-mix(in srgb, var(--vnc-accent) 20%, transparent);
+  border-color: var(--vnc-accent);
+}
+
+.myaccess-port-ssh,
+.myaccess-port-sftp {
+  --ssh-accent: #2EA87E;
+  background: color-mix(in srgb, var(--ssh-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--ssh-accent) 25%, transparent);
+  color: var(--ssh-accent);
+}
+
+.myaccess-port-ssh:hover,
+.myaccess-port-sftp:hover {
+  background: color-mix(in srgb, var(--ssh-accent) 20%, transparent);
+  border-color: var(--ssh-accent);
+}
+
+.myaccess-port-smb {
+  --smb-accent: #D07C2A;
+  background: color-mix(in srgb, var(--smb-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--smb-accent) 25%, transparent);
+  color: var(--smb-accent);
+}
+
+.myaccess-port-smb:hover {
+  background: color-mix(in srgb, var(--smb-accent) 20%, transparent);
+  border-color: var(--smb-accent);
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.35; }

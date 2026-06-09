@@ -115,6 +115,42 @@ export default defineComponent({
       return port.protocol === "RDP" || (port.port === 3389 && port.transport === "tcp");
     },
 
+    isVncPort(port) {
+      return port.protocol === "VNC" || (port.port === 5900 && port.transport === "tcp");
+    },
+
+    vncUrl(resource, port) {
+      return "vnc://" + resource.ip + ":" + port.port;
+    },
+
+    rdpUri(resource, port) {
+      return "rdp://" + resource.ip + ":" + port.port;
+    },
+
+    isSshPort(port) {
+      return port.protocol === "SSH" || (port.port === 22 && port.transport === "tcp");
+    },
+
+    sshUrl(resource, port) {
+      return "ssh://" + resource.ip + ":" + port.port;
+    },
+
+    isSftpPort(port) {
+      return port.protocol === "SFTP";
+    },
+
+    sftpUrl(resource, port) {
+      return "sftp://" + resource.ip + ":" + port.port;
+    },
+
+    isSmbPort(port) {
+      return port.protocol === "SMB" || (port.port === 445 && port.transport === "tcp");
+    },
+
+    smbUrl(resource, port) {
+      return "smb://" + resource.ip;
+    },
+
     downloadRdp(resource, port) {
       const content = [
         "full address:s:" + resource.ip + ":" + port.port,
@@ -407,26 +443,101 @@ export default defineComponent({
                   <span v-if="p.label" style="color:var(--fg3)">{{ p.label }}</span>
                   <Icon name="external-link" :size="11" style="opacity:.6; flex-shrink:0" />
                 </a>
-                <button v-else-if="isRdpPort(p)"
-                   @click="downloadRdp(r, p)"
-                   class="myaccess-port-link myaccess-port-rdp"
-                   :title="t('myaccess.rdp_title', { ip: r.ip, port: p.port })">
-                  <!-- Monitor + arrow badge icon -->
+                <div v-else-if="isRdpPort(p)" class="myaccess-port-rdp-group">
+                  <button @click="downloadRdp(r, p)"
+                     class="myaccess-port-link myaccess-port-rdp myaccess-port-rdp-left"
+                     :title="t('myaccess.rdp_title', { ip: r.ip, port: p.port })">
+                    <!-- Monitor + download badge icon -->
+                    <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                         style="flex-shrink:0" aria-hidden="true">
+                      <rect x="1" y="1" width="16" height="11" rx="2"/>
+                      <line x1="5" x2="13" y1="16" y2="16"/>
+                      <line x1="9" x2="9" y1="12" y2="16"/>
+                      <circle cx="17" cy="15" r="4" fill="var(--accent,#3BBBD2)" stroke="none"/>
+                      <path d="M15.3 15h3.4M17 13.3v3.4" stroke="white" stroke-width="1.4"
+                            stroke-linecap="round" transform="rotate(45 17 15)"/>
+                    </svg>
+                    <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+                    <span>{{ p.label || p.protocol }}</span>
+                  </button>
+                  <a :href="rdpUri(r, p)"
+                     class="myaccess-port-link myaccess-port-rdp myaccess-port-rdp-right"
+                     :title="t('myaccess.rdp_uri_title', { ip: r.ip, port: p.port })">
+                    <!-- Monitor icon for open-in-client -->
+                    <svg width="14" height="13" viewBox="0 0 18 16" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                         style="flex-shrink:0" aria-hidden="true">
+                      <rect x="1" y="1" width="16" height="10" rx="2"/>
+                      <line x1="5" x2="13" y1="15" y2="15"/>
+                      <line x1="9" x2="9" y1="11" y2="15"/>
+                    </svg>
+                  </a>
+                </div>
+                <a v-else-if="isVncPort(p)"
+                   :href="vncUrl(r, p)"
+                   class="myaccess-port-link myaccess-port-vnc"
+                   :title="t('myaccess.vnc_title', { ip: r.ip, port: p.port })">
+                  <!-- Monitor + VNC badge icon -->
                   <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
                        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
                        style="flex-shrink:0" aria-hidden="true">
-                    <!-- monitor body -->
                     <rect x="1" y="1" width="16" height="11" rx="2"/>
                     <line x1="5" x2="13" y1="16" y2="16"/>
                     <line x1="9" x2="9" y1="12" y2="16"/>
-                    <!-- arrow badge (bottom-right, filled circle + arrow) -->
-                    <circle cx="17" cy="15" r="4" fill="var(--accent,#3BBBD2)" stroke="none"/>
-                    <path d="M15.3 15h3.4M17 13.3v3.4" stroke="white" stroke-width="1.4"
-                          stroke-linecap="round" transform="rotate(45 17 15)"/>
+                    <!-- eye badge (bottom-right) -->
+                    <circle cx="17" cy="15" r="4" fill="var(--vnc-accent,#7C6AF7)" stroke="none"/>
+                    <ellipse cx="17" cy="15" rx="2.2" ry="1.4" stroke="white" stroke-width="1.2" fill="none"/>
+                    <circle cx="17" cy="15" r="0.7" fill="white" stroke="none"/>
                   </svg>
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
                   <span>{{ p.label || p.protocol }}</span>
-                </button>
+                </a>
+                <a v-else-if="isSshPort(p)"
+                   :href="sshUrl(r, p)"
+                   class="myaccess-port-link myaccess-port-ssh"
+                   :title="t('myaccess.ssh_title', { ip: r.ip, port: p.port })">
+                  <!-- Terminal icon -->
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                       stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                       style="flex-shrink:0" aria-hidden="true">
+                    <rect x="1" y="1" width="14" height="14" rx="2"/>
+                    <polyline points="4,5.5 7,8 4,10.5"/>
+                    <line x1="8" x2="12" y1="10.5" y2="10.5"/>
+                  </svg>
+                  <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+                  <span>{{ p.label || p.protocol }}</span>
+                </a>
+                <a v-else-if="isSftpPort(p)"
+                   :href="sftpUrl(r, p)"
+                   class="myaccess-port-link myaccess-port-sftp"
+                   :title="t('myaccess.sftp_title', { ip: r.ip, port: p.port })">
+                  <!-- Folder icon -->
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                       stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                       style="flex-shrink:0" aria-hidden="true">
+                    <path d="M1 4.5C1 3.7 1.7 3 2.5 3H6l1.5 2H13.5C14.3 5 15 5.7 15 6.5V12c0 .8-.7 1.5-1.5 1.5h-11C1.7 13.5 1 12.8 1 12V4.5z"/>
+                  </svg>
+                  <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+                  <span>{{ p.label || p.protocol }}</span>
+                </a>
+                <a v-else-if="isSmbPort(p)"
+                   :href="smbUrl(r, p)"
+                   class="myaccess-port-link myaccess-port-smb"
+                   :title="t('myaccess.smb_title', { ip: r.ip })">
+                  <!-- Network folder icon -->
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                       stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                       style="flex-shrink:0" aria-hidden="true">
+                    <path d="M1 4.5C1 3.7 1.7 3 2.5 3H6l1.5 2H13.5C14.3 5 15 5.7 15 6.5V12c0 .8-.7 1.5-1.5 1.5h-11C1.7 13.5 1 12.8 1 12V4.5z"/>
+                    <line x1="5.5" x2="5.5" y1="8" y2="11"/>
+                    <line x1="8" x2="8" y1="8" y2="11"/>
+                    <line x1="10.5" x2="10.5" y1="8" y2="11"/>
+                    <line x1="4" x2="12" y1="8" y2="8"/>
+                  </svg>
+                  <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+                  <span>{{ p.label || p.protocol }}</span>
+                </a>
                 <span v-else class="myaccess-port-chip">
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
                   <span>{{ p.protocol }}</span>
