@@ -18,20 +18,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Need full history so the bot commit does not rebase over concurrent pushes.
           fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
 
       - name: Export Structurizr DSL → PlantUML (C4)
         run: |
           mkdir -p architecture/diagrams
+          # structurizr/structurizr is the successor to the deprecated structurizr/cli.
+          # Mount point is /usr/local/structurizr; paths in -workspace/-output are relative to it.
           docker run --rm \
-            -v "$(pwd)/architecture:/workspace" \
-            structurizr/cli:latest export \
-              -workspace /workspace/workspace.dsl \
+            --user "$(id -u):$(id -g)" \
+            -v "$(pwd)/architecture:/usr/local/structurizr" \
+            structurizr/structurizr export \
+              -workspace workspace.dsl \
               -format plantuml/c4plantuml \
-              -output /workspace/diagrams
+              -output diagrams
           echo "--- exported files ---"
-          ls -la architecture/diagrams/
+          find architecture/ -type f | sort
 
       - name: Download PlantUML
         run: |
