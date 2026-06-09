@@ -1,0 +1,54 @@
+name: Render Architecture Diagrams
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - architecture/workspace.dsl
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    name: Render C4 diagrams
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so the bot commit does not rebase over concurrent pushes.
+          fetch-depth: 0
+
+      - name: Export Structurizr DSL → PlantUML (C4)
+        run: |
+          mkdir -p architecture/diagrams
+          docker run --rm \
+            -v "$(pwd)/architecture:/workspace" \
+            structurizr/cli:latest export \
+              -workspace /workspace/workspace.dsl \
+              -format plantuml/c4plantuml \
+              -output /workspace/diagrams
+
+      - name: Download PlantUML
+        run: |
+          curl -sL \
+            "https://github.com/plantuml/plantuml/releases/download/v1.2025.2/plantuml-1.2025.2.jar" \
+            -o plantuml.jar
+
+      - name: Render PlantUML → PNG
+        run: |
+          java -jar plantuml.jar -tpng architecture/diagrams/*.puml
+
+      - name: Commit rendered PNGs
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add architecture/diagrams/*.png
+          if git diff --staged --quiet; then
+            echo "Diagrams unchanged — nothing to commit."
+          else
+            git commit -m "chore: regenerate C4 diagrams from workspace.dsl [skip ci]"
+            git push
+          fi
