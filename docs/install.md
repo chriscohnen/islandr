@@ -180,6 +180,44 @@ server {
 }
 ```
 
+### 9. Encrypted private key retention (optional, recommended for compliance)
+
+By default, private keys are never stored (`retention=never`). If you enable `retention=plaintext`
+you can switch to `retention=encrypted` so keys are AES-256-GCM encrypted at rest. A DB-only
+breach cannot recover peer private keys without the separate master key.
+
+```bash
+# 1. Generate a 32-byte key and encrypt it, machine-bound via TPM2 (requires systemd ≥ 248):
+openssl rand -base64 32 | sudo systemd-creds encrypt --tpm2=yes - /etc/islandr/kek.cred
+sudo chown root:islandr /etc/islandr/kek.cred
+sudo chmod 0440 /etc/islandr/kek.cred
+
+# 2. Add to the [Service] section of /etc/systemd/system/islandr.service:
+#    LoadCredentialEncrypted=ENCRYPTION_KEY:/etc/islandr/kek.cred
+sudo systemctl edit islandr   # adds an override.conf with the line above
+
+# 3. Tell Islandr where to find the decrypted key at runtime (add to /etc/default/islandr):
+echo "ISLANDR_ENCRYPTION_KEY_PATH=/run/credentials/islandr.service/ENCRYPTION_KEY" | \
+    sudo tee -a /etc/default/islandr
+
+# 4. Reload and restart:
+sudo systemctl daemon-reload
+sudo systemctl restart islandr
+
+# 5. In Admin Console: Settings → Private Key Retention → encrypted
+#    Islandr auto-migrates any existing plaintext keys in the same transaction.
+```
+
+Without TPM2 (fallback — key is encrypted with the machine's host key, no hardware binding):
+```bash
+openssl rand -base64 32 | sudo systemd-creds encrypt - /etc/islandr/kek.cred
+```
+
+For Docker (dev only — no systemd-creds), use the env-var fallback instead:
+```bash
+echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
+```
+
 ---
 
 ## Docker Compose
@@ -250,9 +288,23 @@ curl http://localhost:8080
 **Native binary:**
 
 ```bash
+# 1. Download the new binary
+ARCH=$(dpkg --print-architecture)
+curl -L "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}" \
+     -o /tmp/islandr-new
+curl -L "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}.sha256" \
+     -o /tmp/islandr-new.sha256
+
+# 2. Verify checksum
+cd /tmp && sha256sum -c islandr-new.sha256
+
+# 3. Swap the binary
 sudo systemctl stop islandr
 sudo install -o islandr -g islandr -m 0755 /tmp/islandr-new /opt/islandr/islandr
 sudo systemctl start islandr
+
+# 4. Confirm startup
+sudo journalctl -u islandr -n 30
 ```
 
 **Docker:**
