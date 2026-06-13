@@ -54,7 +54,7 @@ export default defineComponent({
       }
       if (s.privateKeyRetention === "plaintext") {
         issues.push({
-          severity: "info",
+          severity: "warning",
           text: t("dashboard.setup_retention"),
           link: "/settings",
           linkText: t("dashboard.setup_ret_action"),

@@ -1,5 +1,7 @@
 # Gradle
 .gradle/
+.claude/
+.codegraph/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
@@ -39,16 +41,19 @@ application-local.properties
 client_secret_*.json
 *credentials*.json
 
-# Logs
+# Logsp
 *.log
 hs_err_pid*
 
 # Native build artefacts
 *.dump
 
+# Architecture diagrams — intermediate PlantUML files (PNGs are committed)
+architecture/diagrams/*.puml
+
 # Internal — planning notes (not for the public repo)
 TODO.md
-wg-dashboard-plan.md
-islandr-name.md
+
 EUPL-1.2
-logo islandr.zip
+
+.agents/*

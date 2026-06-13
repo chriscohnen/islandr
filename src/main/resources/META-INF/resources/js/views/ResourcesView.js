@@ -361,6 +361,7 @@ export default defineComponent({
                   <select class="select" v-model="portForm.protocol" required style="width: 130px">
                     <option value="">—</option>
                     <option>RDP</option>
+                    <option>VNC</option>
                     <option>SSH</option>
                     <option>SFTP</option>
                     <option>HTTP</option>

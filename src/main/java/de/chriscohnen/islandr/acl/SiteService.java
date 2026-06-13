@@ -58,6 +58,7 @@ public class SiteService {
                             .build());
         }
         Site s = Site.createNew(req.name(), req.cidr(), req.description(), req.lat(), req.lng());
+        s.locationLabel = req.locationLabel();
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         s.persist();
         return s;
@@ -77,6 +78,7 @@ public class SiteService {
         s.description = req.description();
         s.lat = req.lat();
         s.lng = req.lng();
+        s.locationLabel = req.locationLabel();
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         return s;
     }
