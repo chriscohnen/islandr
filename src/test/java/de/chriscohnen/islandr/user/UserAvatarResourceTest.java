@@ -130,10 +130,10 @@ class UserAvatarResourceTest {
     void setGravatarEnabled(boolean enabled) {
         var cur = settings.get();
         settings.update(new SettingsDto.UpdateRequest(
-                cur.wgSubnet, cur.wgServerPublicKey, cur.wgServerEndpoint,
+                cur.wgSubnet, cur.wgSubnet6, cur.wgServerPublicKey, cur.wgServerEndpoint,
                 cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
                 enabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
-                cur.wgMtu, cur.wgIncludeMtuInConf
+                cur.wgMtu, cur.wgIncludeMtuInConf, cur.nominatimUrl
         ), "test");
     }
 
