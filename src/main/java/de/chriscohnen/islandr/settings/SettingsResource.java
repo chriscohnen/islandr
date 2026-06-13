@@ -109,6 +109,18 @@ public class SettingsResource {
         }
     }
 
+    @PUT
+    @Path("/google-workspace")
+    public SettingsDto.Response updateGoogleWorkspace(@Context ContainerRequestContext ctx,
+                                                      SettingsDto.GoogleWorkspaceRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        Settings after = settings.updateGoogleWorkspace(body == null
+                ? new SettingsDto.GoogleWorkspaceRequest(null, null) : body, actor.principal());
+        audit.logUpdate(actor.principal(), "settings.google_ws_update", "Settings:singleton",
+                null, java.util.Map.of("googleWsConfigured", after.googleWsServiceAccountJson != null));
+        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured());
+    }
+
     private static Map<String, Object> settingsSnapshot(Settings s) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("wgSubnet", s.wgSubnet);

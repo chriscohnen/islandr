@@ -10,6 +10,7 @@ export default defineComponent({
   name: "UsersView",
   props: {
     retention: { type: String, default: "never" },
+    googleWsAvailable: { type: Boolean, default: false },
   },
   mixins: [peerModalMixin],
   components: { Avatar, Icon },
@@ -23,6 +24,15 @@ export default defineComponent({
       lang: locale.current,
       editingNicknameId: null,
       nicknameInput: "",
+      // Google Workspace import dialog
+      gwsOpen: false,
+      gwsLoading: false,
+      gwsError: null,
+      gwsUsers: [],
+      gwsConfigured: false,
+      gwsSelected: new Set(),
+      gwsImporting: false,
+      gwsResult: null,
     };
   },
   computed: {
@@ -143,10 +153,148 @@ export default defineComponent({
       if (!iso) return "";
       return new Date(iso).toLocaleString("de-DE");
     },
+
+    async openGwsDialog() {
+      this.gwsOpen = true;
+      this.gwsResult = null;
+      this.gwsError = null;
+      this.gwsSelected = new Set();
+      await this.loadGwsPreview();
+    },
+    closeGwsDialog() {
+      this.gwsOpen = false;
+      this.gwsUsers = [];
+      this.gwsResult = null;
+      this.gwsError = null;
+    },
+    async loadGwsPreview() {
+      this.gwsLoading = true;
+      this.gwsError = null;
+      try {
+        const res = await fetch("/api/v1/users/import/google");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        this.gwsConfigured = data.configured;
+        this.gwsUsers = data.users || [];
+      } catch (e) {
+        this.gwsError = t("users.gws_error", { error: e.message });
+      } finally {
+        this.gwsLoading = false;
+      }
+    },
+    toggleGwsUser(email) {
+      if (this.gwsSelected.has(email)) {
+        this.gwsSelected.delete(email);
+      } else {
+        this.gwsSelected.add(email);
+      }
+      // Trigger reactivity — Vue 3 doesn't observe Set mutations automatically
+      this.gwsSelected = new Set(this.gwsSelected);
+    },
+    selectAllNew() {
+      const newEmails = this.gwsUsers.filter(u => u.status === "new").map(u => u.email);
+      this.gwsSelected = new Set(newEmails);
+    },
+    async importGwsSelected() {
+      if (this.gwsSelected.size === 0) {
+        alert(t("users.gws_none_selected"));
+        return;
+      }
+      this.gwsImporting = true;
+      try {
+        const res = await fetch("/api/v1/users/import/google", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ emails: [...this.gwsSelected] }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        this.gwsResult = data;
+        this.gwsSelected = new Set();
+        await Promise.all([this.load(), this.loadGwsPreview()]);
+      } catch (e) {
+        this.gwsError = t("users.gws_error", { error: e.message });
+      } finally {
+        this.gwsImporting = false;
+      }
+    },
   },
   template: `
     <div class="page-header">
       <h1>{{ t('users.title') }} <span v-if="users.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">{{ users.length }}</span></h1>
+      <button v-if="googleWsAvailable" class="btn btn-ghost btn-sm" @click="openGwsDialog">
+        <Icon name="users" :size="13" />{{ t('users.gws_btn') }}
+      </button>
+    </div>
+
+    <!-- Google Workspace Import Dialog -->
+    <div v-if="gwsOpen" style="position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: flex; align-items: center; justify-content: center; padding: var(--space-4)">
+      <div class="card" style="width: 100%; max-width: 680px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border)">
+          <h2 style="margin: 0; font-size: var(--text-md)">{{ t('users.gws_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeGwsDialog">✕</button>
+        </div>
+
+        <div style="flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-5)">
+          <div v-if="gwsLoading" class="muted">{{ t('users.gws_loading') }}</div>
+          <div v-else-if="gwsError" class="error-banner">{{ gwsError }}</div>
+          <div v-else-if="!gwsConfigured" class="callout callout-warning">{{ t('users.gws_not_configured') }}</div>
+          <div v-else-if="gwsUsers.length === 0" class="muted">{{ t('users.gws_empty') }}</div>
+          <template v-else>
+            <div v-if="gwsResult" style="margin-bottom: var(--space-3); color: var(--status-ok); font-size: var(--text-sm)">
+              {{ t('users.gws_result', { imported: gwsResult.imported, skipped: gwsResult.skipped }) }}
+              <span v-if="gwsResult.errors && gwsResult.errors.length" style="color: var(--status-warn)">
+                {{ t('users.gws_result_errors', { n: gwsResult.errors.length }) }}
+              </span>
+            </div>
+            <div style="margin-bottom: var(--space-3)">
+              <button class="btn btn-ghost btn-sm" @click="selectAllNew">{{ t('users.gws_select_all_new') }}</button>
+            </div>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th style="width: 32px"></th>
+                  <th>{{ t('users.gws_th_name') }}</th>
+                  <th>{{ t('users.gws_th_email') }}</th>
+                  <th>{{ t('users.gws_th_status') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="u in gwsUsers" :key="u.email"
+                    :style="u.status !== 'new' ? 'opacity: 0.5' : ''"
+                    @click="u.status === 'new' && toggleGwsUser(u.email)"
+                    style="cursor: pointer">
+                  <td>
+                    <input type="checkbox"
+                           :checked="gwsSelected.has(u.email)"
+                           :disabled="u.status !== 'new'"
+                           @change.stop="toggleGwsUser(u.email)"
+                           @click.stop />
+                  </td>
+                  <td>{{ u.name || '—' }}</td>
+                  <td class="mono">{{ u.email }}</td>
+                  <td>
+                    <span :class="['badge', u.status === 'new' ? 'badge-success' : u.status === 'suspended' ? 'badge-neutral' : 'badge-info']">
+                      {{ t('users.gws_status_' + u.status) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+        </div>
+
+        <div style="display: flex; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-top: 1px solid var(--border); justify-content: flex-end">
+          <button class="btn btn-ghost btn-sm" @click="closeGwsDialog">{{ t('users.gws_btn_close') }}</button>
+          <button v-if="gwsConfigured && gwsUsers.length > 0"
+                  class="btn btn-primary btn-sm"
+                  :disabled="gwsImporting || gwsSelected.size === 0"
+                  @click="importGwsSelected">
+            {{ gwsImporting ? t('users.gws_importing') : t('users.gws_btn_import') }}
+            <span v-if="gwsSelected.size > 0" class="mono" style="margin-left: 4px">({{ gwsSelected.size }})</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>

@@ -24,6 +24,12 @@ export default defineComponent({
       draft: null,         // siehe draftFor()
       saving: false,
       pendingSwitch: null, // providerKey, wenn Wechsel-Confirm offen ist
+      // Google Workspace SA config
+      gwsForm: { serviceAccountJson: "", impersonationEmail: "" },
+      gwsConfigured: false,
+      gwsSaving: false,
+      gwsSaved: false,
+      gwsError: null,
     };
   },
   computed: {
@@ -38,7 +44,7 @@ export default defineComponent({
       return this.providers.find((p) => p.providerKey === this.editing) || null;
     },
   },
-  async mounted() { await this.load(); },
+  async mounted() { await Promise.all([this.load(), this.loadGwsSettings()]); },
   methods: {
     t(key, vars) { return t(key, vars); },
     async load() {
@@ -157,6 +163,49 @@ export default defineComponent({
       if (target) this.setEnabled(target, true);
     },
     abortSwitch() { this.pendingSwitch = null; },
+
+    async loadGwsSettings() {
+      try {
+        const res = await fetch("/api/v1/settings");
+        if (!res.ok) return;
+        const s = await res.json();
+        this.gwsConfigured = !!s.googleWsConfigured;
+        this.gwsForm.impersonationEmail = s.googleWsImpersonationEmail || "";
+        // Never prefill the JSON — force re-paste on change
+      } catch { /* non-critical */ }
+    },
+    async saveGwsSettings() {
+      this.gwsSaving = true;
+      this.gwsSaved = false;
+      this.gwsError = null;
+      try {
+        const res = await fetch("/api/v1/settings/google-workspace", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            serviceAccountJson: this.gwsForm.serviceAccountJson || null,
+            impersonationEmail: this.gwsForm.impersonationEmail || null,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.gwsConfigured = !!s.googleWsConfigured;
+        this.gwsForm.serviceAccountJson = "";
+        this.gwsSaved = true;
+      } catch (e) {
+        this.gwsError = t("identity.gws_error", { error: e.message });
+      } finally {
+        this.gwsSaving = false;
+      }
+    },
+    async clearGwsSettings() {
+      if (!confirm(t("identity.gws_clear") + "?")) return;
+      this.gwsForm = { serviceAccountJson: "", impersonationEmail: "" };
+      await this.saveGwsSettings();
+    },
 
     isConfigured(p) {
       return !!p.clientId && p.clientSecretSet &&
@@ -385,6 +434,42 @@ export default defineComponent({
           </div>
         </div>
       </div>
+
+      <!-- ========= GOOGLE WORKSPACE DIRECTORY IMPORT CONFIG ========= -->
+      <template v-if="providers.some(p => p.providerKey === 'google')">
+        <h2 style="margin-top: var(--space-8); margin-bottom: var(--space-3); font-size: var(--text-md)">{{ t('identity.gws_section') }}</h2>
+        <p class="muted" style="font-size: var(--text-sm); margin-bottom: var(--space-4)">{{ t('identity.gws_desc') }}</p>
+        <div class="card card-pad" style="max-width: 560px">
+          <div v-if="gwsError" class="error-banner" style="margin-bottom: var(--space-3)">{{ gwsError }}</div>
+          <div v-if="gwsSaved" style="margin-bottom: var(--space-3); font-size: var(--text-sm); color: var(--status-ok)">{{ t('identity.gws_saved') }}</div>
+          <p style="font-size: var(--text-sm); margin-bottom: var(--space-4)">
+            <span v-if="gwsConfigured" style="color: var(--status-ok)">{{ t('identity.gws_configured') }}</span>
+            <span v-else class="muted">{{ t('identity.gws_not_configured') }}</span>
+          </p>
+          <div class="field">
+            <label>{{ t('identity.gws_sa_json') }}</label>
+            <textarea class="input" rows="4"
+                      style="font-family: var(--font-mono); font-size: var(--text-xs); resize: vertical"
+                      v-model="gwsForm.serviceAccountJson"
+                      :placeholder="t('identity.gws_sa_json_ph')" />
+          </div>
+          <div class="field" style="margin-bottom: var(--space-5)">
+            <label>{{ t('identity.gws_email') }}</label>
+            <input class="input" type="email"
+                   v-model="gwsForm.impersonationEmail"
+                   :placeholder="t('identity.gws_email_ph')" />
+            <span class="muted" style="font-size: var(--text-xs); display: block; margin-top: var(--space-1)">{{ t('identity.gws_email_hint') }}</span>
+          </div>
+          <div style="display: flex; gap: var(--space-3)">
+            <button class="btn btn-primary btn-sm" :disabled="gwsSaving" @click="saveGwsSettings">
+              {{ gwsSaving ? t('identity.gws_saving') : t('identity.gws_save') }}
+            </button>
+            <button v-if="gwsConfigured" class="btn btn-ghost btn-sm" @click="clearGwsSettings">
+              {{ t('identity.gws_clear') }}
+            </button>
+          </div>
+        </div>
+      </template>
 
       <!-- ====================== CONFIRM-DIALOG ====================== -->
       <div v-if="pendingSwitch" class="modal-backdrop" @click.self="abortSwitch">

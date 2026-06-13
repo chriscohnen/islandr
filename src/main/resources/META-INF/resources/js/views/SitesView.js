@@ -121,6 +121,22 @@ export default defineComponent({
     formatDate(iso) {
       return iso ? new Date(iso).toLocaleString("de-DE") : "—";
     },
+
+    pasteCoordinates(event) {
+      const text = (event.clipboardData || window.clipboardData).getData("text").trim();
+      const parts = text.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const lat = parseFloat(parts[0]);
+        const lng = parseFloat(parts[1]);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          this.form.lat = lat;
+          this.form.lng = lng;
+          return;
+        }
+      }
+      // Fallback: paste only into lat field
+      this.form.lat = text;
+    },
   },
   template: `
     <div class="page-header">
@@ -220,7 +236,8 @@ export default defineComponent({
               <label>{{ t('sites.field_geo') }}</label>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3)">
                 <input class="input mono" v-model="form.lat" type="number" step="any" min="-90" max="90"
-                  :placeholder="t('sites.field_lat') + ' (z.B. 53.5753)'" />
+                  :placeholder="t('sites.field_lat') + ' (z.B. 53.5753)'"
+                  @paste.prevent="pasteCoordinates($event)" />
                 <input class="input mono" v-model="form.lng" type="number" step="any" min="-180" max="180"
                   :placeholder="t('sites.field_lng') + ' (z.B. 10.0153)'" />
               </div>

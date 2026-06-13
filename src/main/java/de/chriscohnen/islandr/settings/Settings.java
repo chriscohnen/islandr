@@ -79,6 +79,16 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "nominatim_url", length = 255)
     public String nominatimUrl;
 
+    // Google Workspace Directory import (V31).
+    // serviceAccountJson = full JSON key file from Google Cloud Console.
+    // impersonationEmail = a Workspace admin account the SA impersonates.
+    // Both null = import feature disabled.
+    @Column(name = "google_ws_service_account_json", columnDefinition = "TEXT")
+    public String googleWsServiceAccountJson;
+
+    @Column(name = "google_ws_impersonation_email", length = 255)
+    public String googleWsImpersonationEmail;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }
