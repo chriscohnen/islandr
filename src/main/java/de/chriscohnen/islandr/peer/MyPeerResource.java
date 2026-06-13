@@ -85,6 +85,7 @@ public class MyPeerResource {
         PeerDto.CreateRequest req = new PeerDto.CreateRequest(
                 body.name(),
                 peers.suggestNextIp(),
+                null,   // assignedIpv6 — server does not assign IPv6 for self-service
                 body.publicKey(),
                 null,
                 "client",
