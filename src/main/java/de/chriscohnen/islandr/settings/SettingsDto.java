@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.settings;
 
+import de.chriscohnen.islandr.validation.ValidCidr;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
@@ -9,6 +10,7 @@ public final class SettingsDto {
 
     public record Response(
             String wgSubnet,
+            String wgSubnet6,
             String wgServerPublicKey,
             String wgServerEndpoint,
             String wgClientAllowedIps,
@@ -20,27 +22,35 @@ public final class SettingsDto {
             boolean selfServicePeerCreation,
             Integer wgMtu,
             boolean wgIncludeMtuInConf,
+            String nominatimUrl,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete,
-            String version
+            String version,
+            boolean encryptionKeyConfigured
     ) {
-        public static Response from(Settings s, String version) {
+        public static Response from(Settings s, String version, boolean encryptionKeyConfigured) {
             return new Response(
-                    s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
+                    s.wgSubnet, s.wgSubnet6,
+                    s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
                     s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
+                    s.nominatimUrl,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
-                    version);
+                    version,
+                    encryptionKeyConfigured);
         }
     }
 
     public record UpdateRequest(
-            @NotBlank @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}$",
-                    message = "must be IPv4 CIDR (e.g. 10.8.0.0/24)")
+            @NotBlank @ValidCidr
             String wgSubnet,
+
+            // optional — null/blank = IPv4-only deployment
+            @ValidCidr
+            String wgSubnet6,
 
             @NotBlank String wgServerPublicKey,
             @NotBlank String wgServerEndpoint,
@@ -50,8 +60,8 @@ public final class SettingsDto {
             String wgClientDns,
 
             @NotBlank
-            @Pattern(regexp = "^(never|plaintext)$",
-                    message = "must be one of: never, plaintext")
+            @Pattern(regexp = "^(never|plaintext|encrypted)$",
+                    message = "must be one of: never, plaintext, encrypted")
             String privateKeyRetention,
 
             // optional — defaults to false (privacy-first; sends md5(email) to gravatar.com)
@@ -70,7 +80,10 @@ public final class SettingsDto {
             Integer wgMtu,
 
             // optional — when true, MTU = <wgMtu> is written into client .conf files
-            boolean wgIncludeMtuInConf
+            boolean wgIncludeMtuInConf,
+
+            // optional — base URL of a Nominatim instance; null/blank = geocoding disabled
+            String nominatimUrl
     ) {}
 
     private SettingsDto() {}

@@ -27,8 +27,9 @@ export const peerModalMixin = {
       editOriginalIp: null,
       editOriginalCidrs: null,
       editPeerPublicKey: null,
+      editMtu: null,
 
-      newPeer: { name: "", assignedIp: "" },
+      newPeer: { name: "", assignedIp: "", assignedIpv6: "" },
       // Peer kind: "client" (single device) or "site" (gateway exposing a
       // downstream network — see PRD §7).
       peerType: "client",
@@ -56,7 +57,7 @@ export const peerModalMixin = {
     async openCreatePeer(userId) {
       this.modalMode = "create";
       this.modalUserId = userId;
-      this.newPeer = { name: "", assignedIp: "" };
+      this.newPeer = { name: "", assignedIp: "", assignedIpv6: "" };
       this.peerType = "client";
       this.deviceType = "laptop";
       this.siteAllowedCidrs = "";
@@ -83,6 +84,19 @@ export const peerModalMixin = {
       } catch {
         // ignore — admin types it manually
       }
+      // Pre-fill assignedIpv6 with next free IPv6 address (best-effort, only if wgSubnet6 is set)
+      try {
+        const res6 = await fetch("/api/v1/peers/next-ip6");
+        if (res6.ok) {
+          const body6 = await res6.json();
+          if (this.modalMode === "create" && this.modalUserId === userId) {
+            this.newPeer.assignedIpv6 = body6.assignedIpv6 || "";
+          }
+        }
+        // 412 = wgSubnet6 not configured → leave field empty, no error
+      } catch {
+        // ignore
+      }
     },
 
     async submitCreatePeer() {
@@ -92,6 +106,7 @@ export const peerModalMixin = {
       const payload = {
         name: this.newPeer.name,
         assignedIp: this.newPeer.assignedIp,
+        assignedIpv6: this.newPeer.assignedIpv6 && this.newPeer.assignedIpv6.trim() ? this.newPeer.assignedIpv6.trim() : null,
         type: this.peerType,
         deviceType: this.peerType === "client" ? this.deviceType : null,
         generatePresharedKey: this.generatePresharedKey,
@@ -156,11 +171,12 @@ export const peerModalMixin = {
       this.editOriginalIp = peer.assignedIp;
       this.editOriginalCidrs = peer.siteAllowedCidrs || null;
       this.editPeerPublicKey = peer.publicKey;
-      this.newPeer = { name: peer.name, assignedIp: peer.assignedIp };
+      this.newPeer = { name: peer.name, assignedIp: peer.assignedIp, assignedIpv6: peer.assignedIpv6 || "" };
       this.peerType = peer.type || "client";
       this.deviceType = peer.deviceType || "laptop";
       this.siteAllowedCidrs = peer.siteAllowedCidrs || "";
       this.editHasPsk = !!peer.hasPresharedKey;
+      this.editMtu = peer.mtu || null;
       this.pskAction = null;
       this.pskSyncing = false;
       this.pskSyncResult = null;
@@ -175,8 +191,10 @@ export const peerModalMixin = {
       const payload = {
         name: this.newPeer.name,
         assignedIp: this.newPeer.assignedIp,
+        assignedIpv6: this.newPeer.assignedIpv6 && this.newPeer.assignedIpv6.trim() ? this.newPeer.assignedIpv6.trim() : null,
         deviceType: this.peerType === "client" ? (this.deviceType || null) : null,
         presharedKeyAction: this.pskAction || null,
+        mtu: this.editMtu || null,
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
@@ -366,6 +384,12 @@ export const peerModalTemplate = `
             <div class="field-hint">Muss im konfigurierten WireGuard-Subnetz liegen.</div>
           </div>
 
+          <div class="field" style="margin-bottom: var(--space-4)">
+            <label for="peerIpv6">{{ t('peer.field_ipv6') }}</label>
+            <input id="peerIpv6" class="input mono" v-model="newPeer.assignedIpv6" placeholder="fd11::3" />
+            <div class="field-hint">IPv6-Adresse für Dual-Stack (optional). Nur wenn wgSubnet6 konfiguriert ist.</div>
+          </div>
+
           <div v-if="peerType === 'site'" class="field" style="margin-bottom: var(--space-5)">
             <label for="siteCidrs">{{ t('peer.field_cidrs') }}</label>
             <textarea id="siteCidrs" class="textarea mono" rows="2" v-model="siteAllowedCidrs"
@@ -468,6 +492,12 @@ export const peerModalTemplate = `
             <div class="field-hint">Bei Änderung muss der Client die .conf neu importieren.</div>
           </div>
 
+          <div class="field" style="margin-bottom: var(--space-4)">
+            <label for="editIpv6">{{ t('peer.field_ipv6') }}</label>
+            <input id="editIpv6" class="input mono" v-model="newPeer.assignedIpv6" placeholder="fd11::3" />
+            <div class="field-hint">IPv6-Adresse für Dual-Stack (optional). Leer lassen zum Entfernen.</div>
+          </div>
+
           <div v-if="peerType === 'site'" class="field" style="margin-bottom: var(--space-4)">
             <label for="editCidrs">{{ t('peer.field_cidrs') }}</label>
             <textarea id="editCidrs" class="textarea mono" rows="2" v-model="siteAllowedCidrs" required></textarea>
@@ -509,6 +539,14 @@ export const peerModalTemplate = `
             </div>
             <div class="field-hint">Symmetrischer Schlüssel für Post-Quantum-Schutz. Beide Seiten des Tunnels müssen denselben Schlüssel kennen.</div>
           </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label>{{ t('peer.field_mtu') }}</label>
+            <input type="number" class="input mono" v-model.number="editMtu"
+                   min="576" max="65535" placeholder="leer = globale Einstellung"
+                   style="width: 200px" />
+            <div class="field-hint">{{ t('peer.field_mtu_hint') }}</div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('peer.btn_cancel') }}</button>
@@ -525,7 +563,7 @@ export const peerModalTemplate = `
         <button class="btn btn-ghost btn-sm" @click="closeModal">✕</button>
       </div>
       <div class="modal-body">
-        <div v-if="!secretIsReshow && secret.privateKey && retention !== 'plaintext'" class="callout callout-warning">
+        <div v-if="!secretIsReshow && secret.privateKey && retention === 'never'" class="callout callout-warning">
           <div>
             <strong>{{ t('peer.warn_once') }}</strong>
             {{ t('peer.warn_once_desc') }}
@@ -534,6 +572,11 @@ export const peerModalTemplate = `
         <div v-else-if="!secretIsReshow && secret.privateKey && retention === 'plaintext'" class="callout callout-info">
           <div>
             {{ t('peer.warn_plaintext') }}
+          </div>
+        </div>
+        <div v-else-if="!secretIsReshow && secret.privateKey && retention === 'encrypted'" class="callout callout-info">
+          <div>
+            {{ t('peer.warn_encrypted') }}
           </div>
         </div>
         <div v-else-if="!secretIsReshow && !secret.privateKey" class="callout callout-info">

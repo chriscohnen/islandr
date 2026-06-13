@@ -26,6 +26,11 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "wg_subnet", nullable = false, length = 50)
     public String wgSubnet;
 
+    /** Optional IPv6 ULA subnet for dual-stack WireGuard peers (e.g. {@code fd11::/64}).
+     *  null = IPv4-only deployment. */
+    @Column(name = "wg_subnet6", length = 50)
+    public String wgSubnet6;
+
     @Column(name = "wg_server_public_key", nullable = false, length = 44)
     public String wgServerPublicKey;
 
@@ -68,7 +73,17 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "wg_include_mtu_in_conf", columnDefinition = "INTEGER")
     public boolean wgIncludeMtuInConf = false;
 
+    // Optional Nominatim base URL for address geocoding in the Sites view.
+    // Empty / null = geocoding disabled. No external calls are made without
+    // an explicit admin-configured URL.
+    @Column(name = "nominatim_url", length = 255)
+    public String nominatimUrl;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
+    }
+
+    public boolean isEncryptedRetention() {
+        return "encrypted".equalsIgnoreCase(privateKeyRetention);
     }
 }

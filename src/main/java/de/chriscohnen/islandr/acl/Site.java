@@ -5,8 +5,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import de.chriscohnen.islandr.validation.ValidCidr;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -30,8 +30,7 @@ public class Site extends PanacheEntityBase {
     public String name;
 
     @NotBlank
-    @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}$",
-            message = "must be IPv4 CIDR (e.g. 10.20.0.0/16)")
+    @ValidCidr
     @Column(name = "cidr", nullable = false, length = 50)
     public String cidr;
 
@@ -43,6 +42,9 @@ public class Site extends PanacheEntityBase {
 
     @Column(name = "lng")
     public Double lng;
+
+    @Column(name = "location_label", length = 255)
+    public String locationLabel;
 
     /** Optional peer that routes traffic for this site's CIDR. Null = no gateway configured. */
     @Column(name = "gateway_peer_id", length = 36)

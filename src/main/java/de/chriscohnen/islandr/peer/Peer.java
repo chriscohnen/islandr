@@ -29,16 +29,20 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "assigned_ip", nullable = false, length = 45, unique = true)
     public String assignedIp;
 
+    /** Optional IPv6 address for dual-stack peers. null = IPv4-only peer. */
+    @Column(name = "assigned_ip6", length = 45, unique = true)
+    public String assignedIpv6;
+
     @Column(name = "enabled", nullable = false)
     public boolean enabled = true;
 
     /**
-     * Only populated when {@code islandr.peer.privateKey.retention=plaintext}.
-     * Always {@code null} in the default {@code never} mode. Never serialised
-     * via DTO — re-display goes through PeerService.renderConf().
+     * Populated in {@code plaintext} mode (raw key) or {@code encrypted} mode (enc$... format).
+     * Always {@code null} in the default {@code never} mode. Never serialised via DTO —
+     * re-display goes through PeerService which decrypts if needed.
      * See <a href="../../../../../../../docs/adr/0007-private-key-retention.md">ADR-0007</a>.
      */
-    @Column(name = "private_key_pem", length = 44)
+    @Column(name = "private_key_pem", length = 128)
     public String privateKeyPem;
 
     @Column(name = "last_seen_at")
@@ -95,6 +99,11 @@ public class Peer extends PanacheEntityBase {
      */
     @Column(name = "preshared_key", length = 44)
     public String presharedKey;
+
+    /** Per-peer MTU written into the client .conf [Interface] section.
+     *  null = defer to global setting (Settings.wgMtu / wgIncludeMtuInConf). */
+    @Column(name = "mtu")
+    public Integer mtu;
 
     public boolean isSite() {
         return "site".equals(type);

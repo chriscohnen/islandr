@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.peer;
 
+import de.chriscohnen.islandr.crypto.EncryptionService;
 import de.chriscohnen.islandr.firewall.RulesetService;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.settings.SettingsService;
@@ -25,25 +26,21 @@ public class PeerService {
     @Inject QrService qr;
     @Inject SettingsService settingsSvc;
     @Inject RulesetService rulesets;
+    @Inject EncryptionService encSvc;
 
-    // Bootstrap-only — see ADR-0008. The interface name is set in the systemd
-    // unit / docker-compose, not editable at runtime.
     @ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
     @Transactional
     public PeerDto.CreateResponse createForUser(String userId, PeerDto.CreateRequest req) {
-        // userId is null for site peers created without an owner
         if (userId != null) {
             User user = User.findById(userId);
             if (user == null) throw new NotFoundException("user not found: " + userId);
         }
         Settings settings = settingsSvc.get();
 
-        validateAssignedIp(req.assignedIp(), settings.wgSubnet);
+        validateAssignedIp(req.assignedIp(), settings.wgSubnet, null);
+        validateAssignedIpv6(req.assignedIpv6(), settings.wgSubnet6, null);
 
-        // Site peers need a CIDR list — and the CIDRs must not collide with the
-        // WG subnet itself or with any other site peer's reach. Done before the
-        // keypair branch so a validation failure never burns a wg.genKeypair() call.
         String normalisedSiteCidrs = null;
         if (req.isSite()) {
             normalisedSiteCidrs = validateSiteCidrs(req.siteAllowedCidrs(), settings.wgSubnet, null);
@@ -52,27 +49,17 @@ public class PeerService {
                     "siteAllowedCidrs is only meaningful for type='site' peers — leave it empty for clients");
         }
 
-        // Resolve the keypair from the three import modes. publicKeyToStore is
-        // always set; privateKeyForResponse may be null (admin imported a
-        // client-generated public key and the server never sees the private key).
         String publicKeyToStore;
         String privateKeyForResponse;
 
         if (!req.hasPublicKey() && !req.hasPrivateKey()) {
-            // Default path: server generates the whole keypair.
             WgAdapter.Keypair kp = wg.genKeypair();
             publicKeyToStore = kp.publicKey();
             privateKeyForResponse = kp.privateKey();
         } else if (req.hasPublicKey() && !req.hasPrivateKey()) {
-            // Public-only import: client generated their own key, only the
-            // public half ever reaches the server. Reshow/.conf will be served
-            // without a PrivateKey line.
             publicKeyToStore = req.publicKey();
             privateKeyForResponse = null;
         } else if (req.hasPublicKey() && req.hasPrivateKey()) {
-            // Full import (e.g. PiVPN migration). Validate that the two halves
-            // actually pair before persisting — saves the admin from a silent
-            // misconfig that would only surface when the client fails to connect.
             try {
                 String derived = wg.derivePublicKey(req.privateKey());
                 if (!derived.equals(req.publicKey())) {
@@ -81,26 +68,31 @@ public class PeerService {
                             "(derived public key differs). Double-check both fields.");
                 }
             } catch (WgException e) {
-                // Adapter could not derive (e.g. wg CLI missing). Log and accept —
-                // we'd rather let the admin proceed than block on environment quirks.
                 LOG.warnf("could not verify pubkey/privkey pairing — accepting blindly: %s", e.getMessage());
             }
             publicKeyToStore = req.publicKey();
             privateKeyForResponse = req.privateKey();
         } else {
-            // privateKey without publicKey is ambiguous: we could derive, but the
-            // admin should be explicit about both halves. Refuse.
             throw new BadRequestException(
                     "privateKey supplied without publicKey. Provide both, or only the publicKey, " +
                     "or neither (to have the server generate a fresh keypair).");
         }
 
         Peer peer = Peer.createNew(userId, req.name(), publicKeyToStore, req.assignedIp());
+        peer.assignedIpv6 = emptyToNull(req.assignedIpv6());
         peer.type = req.resolvedType();
         peer.siteAllowedCidrs = normalisedSiteCidrs;
-        if (settings.isPlaintextRetention() && privateKeyForResponse != null) {
-            // R-060 (ADR-0007): operator opted in to plaintext retention.
-            peer.privateKeyPem = privateKeyForResponse;
+        if (privateKeyForResponse != null) {
+            if (settings.isPlaintextRetention()) {
+                peer.privateKeyPem = privateKeyForResponse;
+            } else if (settings.isEncryptedRetention()) {
+                if (!encSvc.isConfigured()) {
+                    throw new WebApplicationException(
+                            "Encrypted retention is configured but no encryption key is loaded — " +
+                            "set ISLANDR_ENCRYPTION_KEY_PATH or ISLANDR_ENCRYPTION_KEY", 500);
+                }
+                peer.privateKeyPem = encSvc.encrypt(privateKeyForResponse);
+            }
         }
         if (req.deviceType() != null && !req.deviceType().isBlank()) {
             peer.deviceType = req.deviceType();
@@ -112,8 +104,6 @@ public class PeerService {
         }
         peer.persist();
 
-        // Saga step 1 — register peer with WireGuard kernel. If this fails the
-        // DB transaction will roll back (we're still inside @Transactional).
         try {
             wg.setPeer(wgInterface, publicKeyToStore, hubAllowedIpsFor(peer), presharedKey);
         } catch (RuntimeException e) {
@@ -121,10 +111,6 @@ public class PeerService {
             throw new WebApplicationException("could not register peer with wg: " + e.getMessage(), 500);
         }
 
-        // Saga step 2 — recompute nftables so the new peer immediately has the
-        // rules that match its grants. If this fails we compensate step 1 by
-        // removing the peer from WireGuard so both kernel states agree with
-        // what the DB will reflect after the transaction rolls back.
         try {
             rulesets.recomputeAndApply("system:peer_create:" + peer.id);
         } catch (RuntimeException e) {
@@ -137,9 +123,7 @@ public class PeerService {
             throw new WebApplicationException("peer registered with wg but nftables recompute failed: " + e.getMessage(), 500);
         }
 
-        // Render conf + QR only when we actually have a private key to embed.
-        // Public-only import gets the keyless conf shape (same as never-retention reshow).
-        String conf = renderConf(privateKeyForResponse, req.assignedIp(), presharedKey, settings);
+        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, null);
         String qrPng = privateKeyForResponse != null ? qr.toDataUrl(conf) : null;
 
         return new PeerDto.CreateResponse(
@@ -150,36 +134,24 @@ public class PeerService {
                 presharedKey);
     }
 
-    /**
-     * Re-render the .conf for an existing peer.
-     *
-     * <p>If the peer has a stored private key (retention=plaintext at create time),
-     * the response includes the key, a complete .conf and a QR code — same shape as
-     * the original create response.
-     *
-     * <p>If no key is stored, the response still carries a .conf containing the
-     * server-side parameters (Address, DNS, server PublicKey, AllowedIPs, Endpoint)
-     * — without a {@code PrivateKey} line. {@code privateKey} and {@code qrPngBase64}
-     * are {@code null}. The user can paste their key manually or use the .conf as a
-     * template for a fresh peer.
-     */
     public PeerDto.CreateResponse reshow(String peerId) {
         Settings settings = settingsSvc.get();
         Peer peer = Peer.findById(peerId);
-        if (peer == null) {
-            throw new NotFoundException("peer not found: " + peerId);
-        }
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
         if (peer.privateKeyPem != null) {
-            String conf = renderConf(peer.privateKeyPem, peer.assignedIp, peer.presharedKey, settings);
+            String rawKey = encSvc.isEncrypted(peer.privateKeyPem)
+                    ? encSvc.decrypt(peer.privateKeyPem)
+                    : peer.privateKeyPem;
+            String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu);
             String qrPng = qr.toDataUrl(conf);
             return new PeerDto.CreateResponse(
                     PeerDto.Response.from(peer),
-                    peer.privateKeyPem,
+                    rawKey,
                     conf,
                     qrPng,
                     peer.presharedKey);
         }
-        String confNoKey = renderConf(null, peer.assignedIp, peer.presharedKey, settings);
+        String confNoKey = renderConf(null, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu);
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
                 null,
@@ -189,16 +161,9 @@ public class PeerService {
     }
 
     /**
-     * Suggest the smallest free IPv4 host address inside the configured WireGuard
-     * subnet, skipping addresses already taken by other peers.
+     * Suggest the next free IPv4 address inside the configured WireGuard subnet.
      *
-     * <p>This is best-effort: between the suggestion and the actual create call
-     * a different request can still grab the same IP, in which case
-     * {@link #createForUser} will reject with 409. The UI is expected to handle
-     * that race the same as any other duplicate-IP rejection.
-     *
-     * @throws WebApplicationException 409 if every assignable address is taken,
-     *         or 500 if {@code settings.wgSubnet} cannot be parsed.
+     * @throws WebApplicationException 409 if every assignable address is taken.
      */
     public String suggestNextIp() {
         Settings settings = settingsSvc.get();
@@ -213,9 +178,7 @@ public class PeerService {
                 .map(p -> p.assignedIp)
                 .collect(java.util.stream.Collectors.toSet());
         for (String candidate : subnet.assignableHostIps()) {
-            if (!taken.contains(candidate)) {
-                return candidate;
-            }
+            if (!taken.contains(candidate)) return candidate;
         }
         throw new WebApplicationException(
                 Response.status(Response.Status.CONFLICT)
@@ -224,46 +187,68 @@ public class PeerService {
     }
 
     /**
-     * Edit a peer's mutable fields (name, assignedIp, siteAllowedCidrs).
-     * Public key and type are not editable here — delete + recreate for those.
+     * Suggest the next free IPv6 address inside the configured {@code wgSubnet6}.
      *
-     * <p>If the new AllowedIPs differ from what's on the wire (because IP or
-     * site CIDRs changed), pushes a {@code wg set peer} so the kernel state
-     * tracks the DB. The client needs to re-import the .conf in that case;
-     * the returned {@link PeerDto.CreateResponse} carries a fresh conf + QR
-     * for that.
+     * @throws WebApplicationException 412 if wgSubnet6 is not configured, 409 if exhausted.
      */
+    public String suggestNextIpv6() {
+        Settings settings = settingsSvc.get();
+        if (settings.wgSubnet6 == null || settings.wgSubnet6.isBlank()) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.PRECONDITION_FAILED)
+                            .entity("wgSubnet6 is not configured — set it in Settings first")
+                            .build());
+        }
+        IpSubnet subnet;
+        try {
+            subnet = IpSubnet.parse(settings.wgSubnet6);
+        } catch (IllegalArgumentException e) {
+            throw new WebApplicationException(
+                    "settings.wgSubnet6 is invalid: " + settings.wgSubnet6, 500);
+        }
+        java.util.Set<String> taken = Peer.<Peer>listAll().stream()
+                .filter(p -> p.assignedIpv6 != null)
+                .map(p -> p.assignedIpv6)
+                .collect(java.util.stream.Collectors.toSet());
+        for (String candidate : subnet.assignableHostIps()) {
+            if (!taken.contains(candidate)) return candidate;
+        }
+        throw new WebApplicationException(
+                Response.status(Response.Status.CONFLICT)
+                        .entity("no free IPv6 available in subnet " + settings.wgSubnet6)
+                        .build());
+    }
+
     @Transactional
     public PeerDto.CreateResponse update(String peerId, PeerDto.UpdateRequest req) {
         Settings settings = settingsSvc.get();
         Peer peer = Peer.findById(peerId);
-        if (peer == null) {
-            throw new NotFoundException("peer not found: " + peerId);
-        }
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
 
         boolean ipChanged = !peer.assignedIp.equals(req.assignedIp());
         if (ipChanged) {
             validateAssignedIp(req.assignedIp(), settings.wgSubnet, peer.id);
         }
 
+        String newIpv6 = emptyToNull(req.assignedIpv6());
+        boolean ip6Changed = !java.util.Objects.equals(peer.assignedIpv6, newIpv6);
+        if (ip6Changed && newIpv6 != null) {
+            validateAssignedIpv6(newIpv6, settings.wgSubnet6, peer.id);
+        }
+
         String normalisedCidrs;
         if (peer.isSite()) {
-            // Required + validated against WG subnet + against other site peers,
-            // excluding this peer's own current CIDRs from the overlap check.
             normalisedCidrs = validateSiteCidrs(req.siteAllowedCidrs(), settings.wgSubnet, peer.id);
         } else {
             if (req.siteAllowedCidrs() != null && !req.siteAllowedCidrs().isBlank()) {
-                throw new BadRequestException(
-                        "siteAllowedCidrs is only meaningful for type='site' peers");
+                throw new BadRequestException("siteAllowedCidrs is only meaningful for type='site' peers");
             }
             normalisedCidrs = null;
         }
         boolean cidrsChanged = !java.util.Objects.equals(peer.siteAllowedCidrs, normalisedCidrs);
 
-        // PSK rotation: determine new PSK value before persisting.
-        // null = no change; "rotate" = generate new; "remove" = clear.
         boolean pskChanged = false;
-        String pskForWg = null;  // value to pass to wg.setPeer (null = no change to kernel)
+        String pskForWg = null;
         if ("rotate".equals(req.presharedKeyAction())) {
             String newPsk = wg.genPsk();
             peer.presharedKey = newPsk;
@@ -271,24 +256,24 @@ public class PeerService {
             pskChanged = true;
         } else if ("remove".equals(req.presharedKeyAction())) {
             peer.presharedKey = null;
-            pskForWg = "";  // empty string signals "clear" to wg.setPeer
+            pskForWg = "";
             pskChanged = true;
         }
 
         peer.name = req.name();
         peer.assignedIp = req.assignedIp();
+        peer.assignedIpv6 = newIpv6;
         peer.siteAllowedCidrs = normalisedCidrs;
         if (req.deviceType() != null && !req.deviceType().isBlank()) {
             peer.deviceType = req.deviceType();
         } else if (req.deviceType() != null) {
-            peer.deviceType = null;  // explicit empty string clears the field
+            peer.deviceType = null;
         }
+        peer.mtu = (req.mtu() != null && req.mtu() > 0) ? req.mtu() : null;
         peer.persist();
 
-        if ((ipChanged || cidrsChanged || pskChanged) && peer.enabled) {
+        if ((ipChanged || ip6Changed || cidrsChanged || pskChanged) && peer.enabled) {
             try {
-                // wg merges by public key, so a setPeer with updated params is enough.
-                // Pass pskForWg only when the PSK actually changed — null means "no PSK op".
                 wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer),
                         pskChanged ? pskForWg : null);
             } catch (RuntimeException e) {
@@ -298,26 +283,19 @@ public class PeerService {
             }
         }
 
-        // Same response shape as create/reshow so the UI can treat it uniformly.
-        // If a private key was stored, we can also rebuild the QR; otherwise the
-        // conf is served keyless.
-        String conf = renderConf(peer.privateKeyPem, peer.assignedIp, peer.presharedKey, settings);
-        String qrPng = peer.privateKeyPem != null ? qr.toDataUrl(conf) : null;
+        String rawKey = (peer.privateKeyPem != null && encSvc.isEncrypted(peer.privateKeyPem))
+                ? encSvc.decrypt(peer.privateKeyPem)
+                : peer.privateKeyPem;
+        String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu);
+        String qrPng = rawKey != null ? qr.toDataUrl(conf) : null;
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
-                peer.privateKeyPem,
+                rawKey,
                 conf,
                 qrPng,
                 peer.presharedKey);
     }
 
-    /**
-     * Replace a peer's public key (and drop any retained private key — the
-     * server can no longer reach what's behind the new key). Used by the
-     * self-service flow: a user rotates the key on their device and pushes the
-     * new public half here. The kernel needs to learn the new key for traffic
-     * to still flow, so we remove + re-add the peer with the same allowed-ips.
-     */
     @Transactional
     public PeerDto.Response rotatePublicKey(String peerId, String newPublicKey) {
         Peer peer = Peer.findById(peerId);
@@ -337,19 +315,17 @@ public class PeerService {
         }
         String oldKey = peer.publicKey;
         peer.publicKey = newPublicKey;
-        peer.privateKeyPem = null;  // server no longer holds the matching half
+        peer.privateKeyPem = null;
         peer.persist();
 
         try {
             wg.removePeer(wgInterface, oldKey);
             if (peer.enabled) {
-                // PSK is cleared when the key rotates (server no longer holds the matching half).
                 wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), null);
             }
         } catch (RuntimeException e) {
             LOG.errorf(e, "wg key rotation failed for peer %s", peer.id);
-            throw new WebApplicationException(
-                    "could not rotate key on wg: " + e.getMessage(), 500);
+            throw new WebApplicationException("could not rotate key on wg: " + e.getMessage(), 500);
         }
         return PeerDto.Response.from(peer);
     }
@@ -357,9 +333,7 @@ public class PeerService {
     @Transactional
     public void delete(String peerId) {
         Peer peer = Peer.findById(peerId);
-        if (peer == null) {
-            throw new NotFoundException("peer not found: " + peerId);
-        }
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
         try {
             wg.removePeer(wgInterface, peer.publicKey);
         } catch (RuntimeException e) {
@@ -371,12 +345,8 @@ public class PeerService {
     @Transactional
     public PeerDto.Response setEnabled(String peerId, boolean enabled) {
         Peer peer = Peer.findById(peerId);
-        if (peer == null) {
-            throw new NotFoundException("peer not found: " + peerId);
-        }
-        if (peer.enabled == enabled) {
-            return PeerDto.Response.from(peer);
-        }
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
+        if (peer.enabled == enabled) return PeerDto.Response.from(peer);
         peer.enabled = enabled;
         if (enabled) {
             wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
@@ -387,39 +357,26 @@ public class PeerService {
     }
 
     /**
-     * Hub-side AllowedIPs for this peer: always the peer's own /32, plus the
-     * downstream CIDRs declared on a site peer. This is the value the kernel
-     * uses to decide which packets to encrypt to this peer.
+     * Hub-side AllowedIPs: peer's own /32 (and /128 when dual-stack),
+     * plus downstream CIDRs for site peers.
      */
     private static String hubAllowedIpsFor(Peer peer) {
-        if (peer.isSite() && peer.siteAllowedCidrs != null && !peer.siteAllowedCidrs.isBlank()) {
-            return peer.assignedIp + "/32," + peer.siteAllowedCidrs;
+        StringBuilder sb = new StringBuilder(peer.assignedIp).append("/32");
+        if (peer.assignedIpv6 != null && !peer.assignedIpv6.isBlank()) {
+            sb.append(",").append(peer.assignedIpv6).append("/128");
         }
-        return peer.assignedIp + "/32";
+        if (peer.isSite() && peer.siteAllowedCidrs != null && !peer.siteAllowedCidrs.isBlank()) {
+            sb.append(",").append(peer.siteAllowedCidrs);
+        }
+        return sb.toString();
     }
 
-    /**
-     * Validate the site CIDR list: format, no overlap with the WG subnet, no
-     * overlap across multiple entries in this list, and no overlap with any
-     * other site peer's already-declared CIDRs.
-     *
-     * @param raw raw user input, expected as comma-separated IPv4 CIDRs.
-     * @param wgSubnet the WireGuard subnet (e.g. {@code 10.8.0.0/24}).
-     * @param excludePeerId peer ID to skip in the cross-peer overlap check
-     *        (set on update to avoid the peer flagging itself); {@code null}
-     *        on create.
-     * @return normalised CIDR list (trimmed, no empty entries, single spaces
-     *         around commas) — ready to persist as-is.
-     */
     private static String validateSiteCidrs(String raw, String wgSubnet, String excludePeerId) {
         if (raw == null || raw.isBlank()) {
             throw new BadRequestException(
                     "siteAllowedCidrs must list at least one CIDR for type='site' peers");
         }
         IpSubnet wg = IpSubnet.parse(wgSubnet);
-
-        // Parse + format-validate each entry. Collect the IpSubnet objects so
-        // we can do intra-list and cross-peer overlap checks below.
         String[] parts = raw.split(",");
         java.util.List<String> normalised = new java.util.ArrayList<>(parts.length);
         java.util.List<IpSubnet> parsed = new java.util.ArrayList<>(parts.length);
@@ -440,23 +397,15 @@ public class PeerService {
             normalised.add(cidr);
             parsed.add(s);
         }
-        if (normalised.isEmpty()) {
-            throw new BadRequestException("siteAllowedCidrs is empty after trimming");
-        }
-        // Intra-list overlap: an admin who writes "10.20.0.0/16, 10.20.5.0/24"
-        // is contradicting themselves.
+        if (normalised.isEmpty()) throw new BadRequestException("siteAllowedCidrs is empty after trimming");
         for (int i = 0; i < parsed.size(); i++) {
             for (int j = i + 1; j < parsed.size(); j++) {
                 if (parsed.get(i).overlaps(parsed.get(j))) {
                     throw new BadRequestException(
-                            "site CIDRs " + normalised.get(i) + " and " + normalised.get(j) +
-                            " overlap each other");
+                            "site CIDRs " + normalised.get(i) + " and " + normalised.get(j) + " overlap each other");
                 }
             }
         }
-        // Cross-peer overlap: every existing site peer's CIDR list (minus self
-        // when updating) must be disjoint from this one. Otherwise the kernel
-        // can't decide which peer's tunnel to route a packet through.
         java.util.List<Peer> siteSiblings = Peer.list("type = ?1", "site");
         for (Peer other : siteSiblings) {
             if (excludePeerId != null && excludePeerId.equals(other.id)) continue;
@@ -468,8 +417,6 @@ public class PeerService {
                 try {
                     otherSubnet = IpSubnet.parse(otherCidr);
                 } catch (Exception e) {
-                    // Stored data is malformed — log and skip rather than blow up
-                    // a new admin action because of legacy garbage.
                     LOG.warnf("ignoring malformed stored site CIDR on peer %s: %s", other.id, otherCidr);
                     continue;
                 }
@@ -490,10 +437,6 @@ public class PeerService {
         validateAssignedIp(ip, wgSubnet, null);
     }
 
-    /**
-     * @param excludePeerId peer ID to skip in the duplicate-IP check; pass the
-     *        edited peer's own ID on update so it doesn't flag itself.
-     */
     private void validateAssignedIp(String ip, String wgSubnet, String excludePeerId) {
         IpSubnet subnet;
         try {
@@ -507,14 +450,11 @@ public class PeerService {
                 throw new BadRequestException("assigned IP " + ip + " is outside the wg subnet " + wgSubnet);
             }
         } catch (IllegalArgumentException e) {
-            throw new BadRequestException("invalid IPv4 address: " + ip);
+            throw new BadRequestException("invalid IP address: " + ip);
         }
-        long existing;
-        if (excludePeerId == null) {
-            existing = Peer.count("assignedIp = ?1", ip);
-        } else {
-            existing = Peer.count("assignedIp = ?1 and id <> ?2", ip, excludePeerId);
-        }
+        long existing = excludePeerId == null
+                ? Peer.count("assignedIp = ?1", ip)
+                : Peer.count("assignedIp = ?1 and id <> ?2", ip, excludePeerId);
         if (existing > 0) {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
@@ -523,33 +463,60 @@ public class PeerService {
         }
     }
 
-    /**
-     * Build the WireGuard {@code .conf} the client will import.
-     *
-     * <p>{@code privateKey} may be {@code null} (retention=never reshow). In that
-     * case the {@code PrivateKey} line is omitted entirely — the resulting .conf
-     * is not directly importable but carries every other parameter, so the user
-     * can paste their key in manually or use it as a template.
-     *
-     * <p>{@code presharedKey} may be {@code null} (no PSK configured). When present
-     * it is written as {@code PresharedKey} in the {@code [Peer]} section.
-     */
-    private String renderConf(String privateKey, String assignedIp, String presharedKey, Settings settings) {
+    private void validateAssignedIpv6(String ip6, String wgSubnet6, String excludePeerId) {
+        if (ip6 == null || ip6.isBlank()) return;
+        if (wgSubnet6 == null || wgSubnet6.isBlank()) {
+            throw new BadRequestException(
+                    "assignedIpv6 was provided but wgSubnet6 is not configured in Settings");
+        }
+        IpSubnet subnet;
+        try {
+            subnet = IpSubnet.parse(wgSubnet6);
+        } catch (IllegalArgumentException e) {
+            throw new WebApplicationException(
+                    "settings.wgSubnet6 is invalid: " + wgSubnet6, 500);
+        }
+        try {
+            if (!subnet.contains(ip6)) {
+                throw new BadRequestException("assigned IPv6 " + ip6 + " is outside the wg6 subnet " + wgSubnet6);
+            }
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("invalid IPv6 address: " + ip6);
+        }
+        long existing = excludePeerId == null
+                ? Peer.count("assignedIpv6 = ?1", ip6)
+                : Peer.count("assignedIpv6 = ?1 and id <> ?2", ip6, excludePeerId);
+        if (existing > 0) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("IPv6 " + ip6 + " is already assigned to another peer")
+                            .build());
+        }
+    }
+
+    private String renderConf(String privateKey, String assignedIp, String assignedIpv6,
+                               String presharedKey, Settings settings, Integer peerMtu) {
         StringBuilder sb = new StringBuilder();
         sb.append("[Interface]\n");
         if (privateKey != null) {
             sb.append("PrivateKey = ").append(privateKey).append("\n");
         }
-        sb.append("Address = ").append(assignedIp).append("/32\n");
+        if (assignedIpv6 != null && !assignedIpv6.isBlank()) {
+            sb.append("Address = ").append(assignedIp).append("/32,").append(assignedIpv6).append("/128\n");
+        } else {
+            sb.append("Address = ").append(assignedIp).append("/32\n");
+        }
         if (settings.wgClientDns != null && !settings.wgClientDns.isBlank()) {
             sb.append("DNS = ").append(settings.wgClientDns).append("\n");
         }
-        if (settings.wgIncludeMtuInConf && settings.wgMtu != null && settings.wgMtu > 0) {
-            sb.append("MTU = ").append(settings.wgMtu).append("\n");
+        Integer effectiveMtu = peerMtu != null
+                ? peerMtu
+                : (settings.wgIncludeMtuInConf && settings.wgMtu != null && settings.wgMtu > 0
+                    ? settings.wgMtu : null);
+        if (effectiveMtu != null) {
+            sb.append("MTU = ").append(effectiveMtu).append("\n");
         }
 
-        // Collect site CIDRs for sites that have an active gateway peer.
-        // Traffic to these networks goes through the hub which routes it to the gateway.
         String siteCidrs = de.chriscohnen.islandr.acl.Site.<de.chriscohnen.islandr.acl.Site>listAll().stream()
                 .filter(site -> site.gatewayPeerId != null)
                 .filter(site -> { Peer gw = Peer.findById(site.gatewayPeerId); return gw != null && gw.enabled; })
@@ -561,7 +528,6 @@ public class PeerService {
             allowedIps = allowedIps + ", " + siteCidrs;
         }
 
-        // Hub peer — routes all configured networks including site CIDRs
         sb.append("\n[Peer]\n");
         sb.append("PublicKey = ").append(settings.wgServerPublicKey).append("\n");
         if (presharedKey != null && !presharedKey.isBlank()) {
@@ -574,36 +540,40 @@ public class PeerService {
         return sb.toString();
     }
 
-    /**
-     * Read all peers from the live wg interface and compare with the DB.
-     * Returns a candidate record for each, flagging ones already in the DB.
-     */
     public java.util.List<PeerDto.WgImportCandidate> wgImportPreview() {
         java.util.List<WgAdapter.PeerStatus> live = wg.showPeers(wgInterface);
         java.util.Set<String> existingKeys = Peer.<Peer>listAll()
                 .stream().map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
         return live.stream().map(ps -> {
-            String ip = extractFirstIp(ps.allowedIps());
-            // Mark as non-importable (alreadyExists=true) when no IPv4 address found —
-            // e.g. IPv6-only peers. This grays them out in the UI without hiding them.
-            boolean skip = existingKeys.contains(ps.publicKey()) || ip == null;
+            String ip4 = extractFirstIpv4(ps.allowedIps());
+            String ip6 = extractFirstIpv6(ps.allowedIps());
+            boolean skip = existingKeys.contains(ps.publicKey()) || (ip4 == null && ip6 == null);
             return new PeerDto.WgImportCandidate(
                     ps.publicKey(),
                     ps.allowedIps(),
-                    ip,
+                    ip4,
+                    ip6,
                     ps.endpoint(),
                     skip);
         }).toList();
     }
 
-    /** Extract the first IPv4 host address from an allowedIps string like "10.8.0.5/32,fd11::1/128".
-     *  IPv6 addresses are skipped — Islandr manages IPv4 peers only. */
-    private static String extractFirstIp(String allowedIps) {
+    private static String extractFirstIpv4(String allowedIps) {
         if (allowedIps == null || allowedIps.isBlank()) return null;
         for (String entry : allowedIps.split(",")) {
             String addr = entry.trim();
             if (addr.contains("/")) addr = addr.substring(0, addr.indexOf('/'));
             if (addr.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) return addr;
+        }
+        return null;
+    }
+
+    private static String extractFirstIpv6(String allowedIps) {
+        if (allowedIps == null || allowedIps.isBlank()) return null;
+        for (String entry : allowedIps.split(",")) {
+            String addr = entry.trim();
+            if (addr.contains("/")) addr = addr.substring(0, addr.lastIndexOf('/'));
+            if (addr.contains(":")) return addr;
         }
         return null;
     }
@@ -626,5 +596,9 @@ public class PeerService {
             results.add(new PeerDto.WgImportResult(e.publicKey(), "imported", p.id));
         }
         return results;
+    }
+
+    private static String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 }

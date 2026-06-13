@@ -5,8 +5,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import de.chriscohnen.islandr.validation.ValidIpAddress;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -34,8 +34,7 @@ public class Resource extends PanacheEntityBase {
     public String name;
 
     @NotBlank
-    @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$",
-            message = "must be IPv4 address (e.g. 10.20.0.5)")
+    @ValidIpAddress
     @Column(name = "ip", nullable = false, length = 45)
     public String ip;
 

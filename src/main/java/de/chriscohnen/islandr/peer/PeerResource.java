@@ -70,6 +70,13 @@ public class PeerResource {
         return new PeerDto.NextIpResponse(peers.suggestNextIp());
     }
 
+    @GET
+    @Path("/next-ip6")
+    public PeerDto.NextIpv6Response nextIpv6(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        return new PeerDto.NextIpv6Response(peers.suggestNextIpv6());
+    }
+
     /**
      * Live snapshot from {@code wg show <iface> dump} — returns every peer that has
      * exchanged a handshake in the last 3 minutes. Cross-referenced with the DB so

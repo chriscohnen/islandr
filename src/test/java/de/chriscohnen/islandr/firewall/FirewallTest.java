@@ -341,6 +341,58 @@ class FirewallTest {
         assertThat(snap.rulesetText()).contains("udp dport 53");
     }
 
+    @Test
+    @Transactional
+    void ruleBuilder_ipv6PeerAndResource_emitsIp6Rules() {
+        User u = persistUser("v6user@example.test", "V6User");
+        Role role = persistRole("V6Role");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("V6Site", "fd20::/64");
+        Resource res = persistResource(site.id, "V6Server", "fd20::10");
+        ResourcePort port = persistPort(res.id, 22, "tcp", "SSH");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(role.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+        Peer peer = persistPeer(u.id, "v6-laptop", "10.8.0.99");
+        peer.assignedIpv6 = "fd11::2";
+
+        String text = builder.build().rulesetText();
+
+        // IPv6 rule for the v6 peer IP → v6 resource IP
+        assertThat(text).contains("ip6 saddr fd11::2");
+        assertThat(text).contains("ip6 daddr fd20::10");
+        assertThat(text).contains("icmpv6 type echo-request");
+        // No IPv4 rule for this same (peer, resource) combination — different families
+        assertThat(text).doesNotContain("ip saddr 10.8.0.99 ip daddr fd20::10");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_crossFamilyPairProducesNoRule() {
+        User u = persistUser("cross@example.test", "CrossUser");
+        Role role = persistRole("CrossRole");
+        addUserToRole(u.id, role.id);
+        // IPv4 resource, but peer only has IPv6 address for the rule we're testing
+        Site site = persistSite("CrossSite", "10.50.0.0/16");
+        Resource res = persistResource(site.id, "IPv4Res", "10.50.0.1");
+        ResourcePort port = persistPort(res.id, 80, "tcp", "HTTP");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(role.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+        // Peer with IPv6 only (assignedIp is required by DB, but we set it to a non-matching subnet)
+        Peer peer = persistPeer(u.id, "v6only", "10.8.0.60");
+        // Disconnect from IPv4 subnet for test purposes: only IPv6 address is relevant here
+        peer.assignedIpv6 = "fd11::60";
+        // IPv4 rule exists for the assignedIp vs IPv4 resource
+        String text = builder.build().rulesetText();
+        // IPv4 rule should exist (assignedIp 10.8.0.60 → 10.50.0.1)
+        assertThat(text).contains("ip saddr 10.8.0.60");
+        // IPv6 rule for fd11::60 → 10.50.0.1 must NOT be emitted (cross-family)
+        assertThat(text).doesNotContain("ip6 saddr fd11::60 ip6 daddr 10.50.0.1");
+    }
+
     // -- helpers --------------------------------------------------------------
 
     @Transactional

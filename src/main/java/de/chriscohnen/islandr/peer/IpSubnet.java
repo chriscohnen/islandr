@@ -1,115 +1,137 @@
 package de.chriscohnen.islandr.peer;
 
+import java.math.BigInteger;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
 /**
- * Tiny IPv4 CIDR parser. The JDK has no built-in for "is this IP inside this CIDR"
- * — pulling Guava or commons-net for one method is overkill. IPv6 deferred to v2.
+ * CIDR parser supporting both IPv4 and IPv6.
+ * All bitwise operations use {@link BigInteger} so both families share the same code paths.
  */
 public final class IpSubnet {
 
-    private final int networkInt;
-    private final int maskInt;
+    private final BigInteger networkInt;
+    private final BigInteger maskInt;
     private final int prefix;
+    private final boolean v6;
 
-    private IpSubnet(int networkInt, int maskInt, int prefix) {
+    private IpSubnet(BigInteger networkInt, BigInteger maskInt, int prefix, boolean v6) {
         this.networkInt = networkInt;
         this.maskInt = maskInt;
         this.prefix = prefix;
+        this.v6 = v6;
     }
 
     public static IpSubnet parse(String cidr) {
         int slash = cidr.indexOf('/');
-        if (slash < 0) {
-            throw new IllegalArgumentException("CIDR must contain '/': " + cidr);
+        if (slash < 0) throw new IllegalArgumentException("CIDR must contain '/': " + cidr);
+        String host = cidr.substring(0, slash);
+        int prefix;
+        try {
+            prefix = Integer.parseInt(cidr.substring(slash + 1));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid prefix in CIDR: " + cidr);
         }
-        int prefix = Integer.parseInt(cidr.substring(slash + 1));
-        if (prefix < 0 || prefix > 32) {
-            throw new IllegalArgumentException("CIDR prefix out of range: " + cidr);
+        InetAddress addr;
+        try {
+            addr = InetAddress.getByName(host);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("Invalid IP address in CIDR: " + host);
         }
-        int ip = ipv4ToInt(cidr.substring(0, slash));
-        int mask = prefix == 0 ? 0 : 0xFFFFFFFF << (32 - prefix);
-        return new IpSubnet(ip & mask, mask, prefix);
+        boolean v6 = addr instanceof Inet6Address;
+        int bitLen = v6 ? 128 : 32;
+        if (prefix < 0 || prefix > bitLen) {
+            throw new IllegalArgumentException("CIDR prefix out of range [0," + bitLen + "]: " + cidr);
+        }
+        BigInteger addrInt = new BigInteger(1, addr.getAddress());
+        // mask: high 'prefix' bits set. Works for prefix=0 (all zeros) and prefix=bitLen (all ones).
+        BigInteger allOnes = BigInteger.ONE.shiftLeft(bitLen).subtract(BigInteger.ONE);
+        BigInteger maskInt = allOnes.xor(BigInteger.ONE.shiftLeft(bitLen - prefix).subtract(BigInteger.ONE));
+        return new IpSubnet(addrInt.and(maskInt), maskInt, prefix, v6);
     }
 
-    public boolean contains(String ipv4) {
-        int ip = ipv4ToInt(ipv4);
-        return (ip & maskInt) == networkInt;
+    public boolean contains(String ipStr) {
+        InetAddress ip;
+        try {
+            ip = InetAddress.getByName(ipStr);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("Invalid IP address: " + ipStr);
+        }
+        if ((ip instanceof Inet6Address) != v6) return false;
+        return new BigInteger(1, ip.getAddress()).and(maskInt).equals(networkInt);
     }
 
     /**
-     * True if this subnet and {@code other} share any address. Either is a
-     * superset of the other, or they're literally equal. Used to keep site-peer
-     * CIDR declarations from clashing with the WG subnet or with each other.
+     * True if this subnet and {@code other} share at least one address.
+     * Subnets of different address families never overlap.
      */
     public boolean overlaps(IpSubnet other) {
-        int sharedMask = this.maskInt & other.maskInt;
-        return (this.networkInt & sharedMask) == (other.networkInt & sharedMask);
+        if (this.v6 != other.v6) return false;
+        BigInteger sharedMask = this.maskInt.and(other.maskInt);
+        return this.networkInt.and(sharedMask).equals(other.networkInt.and(sharedMask));
     }
 
-    /** Network address (first IP) of this subnet — typically the wg server IP. */
+    /** Returns the WireGuard server address (network + 1 convention). */
     public String networkAddress() {
-        return intToIpv4(networkInt | 1);
+        return intToAddr(networkInt.add(BigInteger.ONE), v6 ? 16 : 4);
     }
 
     public int prefix() {
         return prefix;
     }
 
+    /** True when this subnet contains IPv6 addresses. */
+    public boolean isV6() {
+        return v6;
+    }
+
     /**
-     * Iterate assignable host IPs inside this subnet, in ascending order.
-     *
-     * <p>Skips:
-     * <ul>
-     *   <li>{@code .0} — network address (or for prefixes &gt; 30, the single block address)</li>
-     *   <li>{@code .255} (or analog) — broadcast for prefixes &lt;= 30</li>
-     *   <li>{@code .1} — convention for the WireGuard server interface itself</li>
-     * </ul>
-     *
-     * <p>For odd prefixes ({@code /31}, {@code /32}) the iterable is empty —
-     * there's nothing useful to allocate inside a single-host or two-host block
-     * once the server takes one slot.
+     * Iterate assignable host IPs in ascending order.
+     * <p>Skips: network address (::0) and server address (::1).
+     * For IPv4, also skips the broadcast address.
+     * Empty for prefix &gt; 30 (IPv4) or prefix &gt; 126 (IPv6).
      */
     public Iterable<String> assignableHostIps() {
-        return () -> new java.util.Iterator<>() {
-            // long avoids sign-flip surprises around the 0.0.0.0/0 edges.
-            final long network = Integer.toUnsignedLong(networkInt);
-            final long size = prefix >= 32 ? 1L : 1L << (32 - prefix);
-            final long broadcast = prefix <= 30 ? network + size - 1 : -1L;
-            // Skip .0 and .1 (server). For /30 there are 4 addresses; .2 is the
-            // only legitimate peer slot. For /31, /32 nothing is assignable.
-            long next = prefix <= 30 ? network + 2 : network + size;
+        int bitLen = v6 ? 128 : 32;
+        int maxUsablePrefix = v6 ? 126 : 30;
+        return () -> new Iterator<>() {
+            final BigInteger limit = networkInt.add(BigInteger.ONE.shiftLeft(bitLen - prefix));
+            // IPv4 broadcast: one before limit; null for IPv6 (no broadcast)
+            final BigInteger broadcast = (!v6 && prefix <= maxUsablePrefix)
+                    ? limit.subtract(BigInteger.ONE) : null;
+            BigInteger next = networkInt.add(BigInteger.TWO); // skip ::0 and ::1
 
             @Override
             public boolean hasNext() {
-                return prefix <= 30 && next < broadcast;
+                if (prefix > maxUsablePrefix) return false;
+                if (broadcast != null && next.compareTo(broadcast) >= 0) return false;
+                return next.compareTo(limit) < 0;
             }
 
             @Override
             public String next() {
-                if (!hasNext()) throw new java.util.NoSuchElementException();
-                String ip = intToIpv4((int) next);
-                next++;
+                if (!hasNext()) throw new NoSuchElementException();
+                String ip = intToAddr(next, bitLen / 8);
+                next = next.add(BigInteger.ONE);
                 return ip;
             }
         };
     }
 
-    public static int ipv4ToInt(String ipv4) {
-        String[] parts = ipv4.split("\\.");
-        if (parts.length != 4) {
-            throw new IllegalArgumentException("not an IPv4 address: " + ipv4);
+    private static String intToAddr(BigInteger val, int byteLen) {
+        try {
+            byte[] raw = val.toByteArray();
+            byte[] padded = new byte[byteLen];
+            // BigInteger may have fewer bytes (leading zeros) or one extra sign byte
+            int srcOff = Math.max(0, raw.length - byteLen);
+            int dstOff = Math.max(0, byteLen - raw.length);
+            System.arraycopy(raw, srcOff, padded, dstOff, Math.min(raw.length, byteLen));
+            return InetAddress.getByAddress(padded).getHostAddress();
+        } catch (UnknownHostException e) {
+            throw new IllegalStateException("cannot format address", e);
         }
-        int result = 0;
-        for (String part : parts) {
-            int octet = Integer.parseInt(part);
-            if (octet < 0 || octet > 255) {
-                throw new IllegalArgumentException("octet out of range in: " + ipv4);
-            }
-            result = (result << 8) | octet;
-        }
-        return result;
-    }
-
-    public static String intToIpv4(int v) {
-        return ((v >>> 24) & 0xFF) + "." + ((v >>> 16) & 0xFF) + "." + ((v >>> 8) & 0xFF) + "." + (v & 0xFF);
     }
 }

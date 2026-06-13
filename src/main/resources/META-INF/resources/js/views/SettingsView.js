@@ -12,10 +12,14 @@ export default defineComponent({
       saving: false,
       probing: false,
       probeResult: null,
+      probedIfMtu: null,
       error: null,
       info: null,
+      savedRetention: "never",  // retention at last load/save — used to detect unsaved switch to never
+      encryptionKeyConfigured: false,
       form: {
         wgSubnet: "",
+        wgSubnet6: "",
         wgServerPublicKey: "",
         wgServerEndpoint: "",
         wgClientAllowedIps: "",
@@ -45,8 +49,11 @@ export default defineComponent({
         const res = await fetch("/api/v1/settings");
         if (!res.ok) throw new Error("HTTP " + res.status);
         const s = await res.json();
+        this.savedRetention = s.privateKeyRetention || "never";
+        this.encryptionKeyConfigured = !!s.encryptionKeyConfigured;
         this.form = {
           wgSubnet: s.wgSubnet || "",
+          wgSubnet6: s.wgSubnet6 || "",
           wgServerPublicKey: s.wgServerPublicKey || "",
           wgServerEndpoint: s.wgServerEndpoint || "",
           wgClientAllowedIps: s.wgClientAllowedIps || "",
@@ -80,6 +87,7 @@ export default defineComponent({
         const body = {
           ...this.form,
           wgClientDns: this.form.wgClientDns.trim() === "" ? null : this.form.wgClientDns.trim(),
+          wgMtu: this.form.wgMtu || null,
         };
         const res = await fetch("/api/v1/settings", {
           method: "PUT",
@@ -96,6 +104,8 @@ export default defineComponent({
           updatedBy: s.updatedBy,
           setupComplete: s.setupComplete,
         };
+        this.savedRetention = s.privateKeyRetention || "never";
+        this.encryptionKeyConfigured = !!s.encryptionKeyConfigured;
         this.info = t("settings.saved");
         this.$emit("settings-changed", s);
       } catch (e) {
@@ -119,7 +129,10 @@ export default defineComponent({
         }
         const data = await res.json();
         this.form.wgServerPublicKey = data.publicKey;
-        if (data.mtu) this.form.wgMtu = data.mtu;  // auto-adopt probed MTU
+        if (data.mtu) {
+          this.probedIfMtu = data.mtu;
+          this.form.wgMtu = data.mtu;
+        }
         this.probeResult = data;
         this.info = t("settings.wg_probe_success", { iface: data.iface, port: data.listenPort });
       } catch (e) {
@@ -171,6 +184,12 @@ export default defineComponent({
         </div>
 
         <div class="field">
+          <label for="wgSubnet6">{{ t('settings.field_subnet6') }}</label>
+          <input id="wgSubnet6" class="input mono" v-model="form.wgSubnet6" placeholder="fd11::/64" />
+          <div class="field-hint">IPv6-ULA-CIDR für Dual-Stack-Peers (optional). Leer lassen für IPv4-only.</div>
+        </div>
+
+        <div class="field">
           <label for="wgServerEndpoint">{{ t('settings.field_endpoint') }}</label>
           <input id="wgServerEndpoint" class="input mono" v-model="form.wgServerEndpoint" required placeholder="vpn.example.com:51820" />
           <div class="field-hint">Host:Port — wandert in jede .conf als [Peer] Endpoint.</div>
@@ -219,8 +238,12 @@ export default defineComponent({
         <div class="field">
           <label>MTU</label>
           <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
-            <span v-if="form.wgMtu" class="mono" style="font-size: var(--text-sm); color: var(--fg1)">{{ form.wgMtu }}</span>
-            <span v-else class="muted" style="font-size: var(--text-sm)">nicht ermittelt — Verbindung testen</span>
+            <input type="number" class="input mono" v-model.number="form.wgMtu"
+                   min="576" max="65535" placeholder="z. B. 1420" style="width: 120px" />
+            <span v-if="probedIfMtu && probedIfMtu !== form.wgMtu"
+                  style="font-size:var(--text-sm); color:var(--fg3)">
+              Gemessen: <span class="mono" style="color:var(--fg2)">{{ probedIfMtu }}</span>
+            </span>
             <button v-if="form.wgMtu" type="button" class="btn btn-ghost btn-sm" @click="setIfMtu">
               Am WG-Interface setzen
             </button>
@@ -229,16 +252,37 @@ export default defineComponent({
             <input type="checkbox" v-model="form.wgIncludeMtuInConf" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
             <span>MTU in Client-.conf einschließen</span>
           </label>
-          <div class="field-hint">Empfohlen nur bei Verbindungsproblemen (Fragmentierung). Wird nach "Verbindung testen" automatisch gespeichert.</div>
+          <div class="field-hint">Wird nach "Verbindung testen" automatisch ermittelt und gespeichert. Nur bei Verbindungsproblemen (Fragmentierung) in die .conf aufnehmen.</div>
         </div>
 
-        <div class="field">
-          <label for="retention">{{ t('settings.field_retention') }}</label>
-          <select id="retention" class="select" v-model="form.privateKeyRetention">
-            <option value="never">{{ t('settings.ret_never') }}</option>
-            <option value="plaintext">{{ t('settings.ret_plaintext') }}</option>
-          </select>
-          <div class="field-hint">Siehe docs/adr/0007-private-key-retention.md.</div>
+        <div class="field field-full">
+          <label>{{ t('settings.field_retention') }}</label>
+          <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0">
+            <input type="checkbox" :checked="form.privateKeyRetention !== 'never'"
+                   @change="form.privateKeyRetention = $event.target.checked ? 'plaintext' : 'never'"
+                   style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
+            <span>{{ t('settings.ret_store_label') }}</span>
+          </label>
+          <div class="field-hint">{{ t('settings.ret_store_hint') }}</div>
+
+          <div v-if="form.privateKeyRetention !== 'never'" style="margin-top:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2)">
+            <label for="ret-mode" style="font-size:var(--text-sm); font-weight:500; color:var(--fg2)">{{ t('settings.ret_mode_label') }}</label>
+            <select id="ret-mode" class="select" v-model="form.privateKeyRetention" style="max-width:420px">
+              <option value="plaintext">{{ t('settings.ret_plaintext') }}</option>
+              <option value="encrypted" :disabled="!encryptionKeyConfigured">{{ t('settings.ret_encrypted') }}</option>
+            </select>
+            <div v-if="!encryptionKeyConfigured" class="field-hint" style="margin-top:var(--space-1)">{{ t('settings.ret_encrypted_unavail') }}</div>
+          </div>
+
+          <div v-if="form.privateKeyRetention === 'never' && savedRetention !== 'never'" class="callout callout-warn" style="margin-top:var(--space-3)">
+            {{ t('settings.ret_never_warn') }}
+          </div>
+          <div v-if="form.privateKeyRetention === 'plaintext'" class="callout callout-warn" style="margin-top:var(--space-3)">
+            {{ t('settings.ret_plaintext_warn') }}
+          </div>
+          <div v-if="form.privateKeyRetention === 'encrypted'" class="callout callout-info" style="margin-top:var(--space-3)">
+            {{ t('settings.ret_encrypted_hint') }}
+          </div>
         </div>
       </div>
 

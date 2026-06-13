@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.acl;
 
+import de.chriscohnen.islandr.validation.ValidIpAddress;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -41,9 +42,7 @@ public final class ResourceDto {
 
     public record UpsertRequest(
             @NotBlank String name,
-            @NotBlank
-            @Pattern(regexp = "^\\s*\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\s*$",
-                    message = "must be IPv4 address")
+            @NotBlank @ValidIpAddress
             String ip,
             String description,
             // Optional in the request; defaults to 'computer' if null/blank.

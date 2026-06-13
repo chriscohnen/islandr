@@ -1,5 +1,8 @@
 package de.chriscohnen.islandr.peer;
 
+import de.chriscohnen.islandr.validation.ValidIpAddress;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
@@ -14,6 +17,7 @@ public final class PeerDto {
             String name,
             String publicKey,
             String assignedIp,
+            String assignedIpv6,
             boolean enabled,
             Instant lastSeenAt,
             String lastSeenEndpoint,
@@ -23,15 +27,17 @@ public final class PeerDto {
             String type,                // "client" | "site"
             String siteAllowedCidrs,    // null for client peers
             String deviceType,          // laptop | desktop | mobile | tablet | server | other | null
-            boolean hasPresharedKey     // true when a PSK is stored for this peer
+            boolean hasPresharedKey,    // true when a PSK is stored for this peer
+            Integer mtu                 // null = no per-peer override; use global setting
     ) {
         public static Response from(Peer p) {
             return new Response(
-                    p.id, p.userId, p.name, p.publicKey, p.assignedIp,
+                    p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.assignedIpv6,
                     p.enabled, p.lastSeenAt, p.lastSeenEndpoint,
                     p.totalRxBytes, p.totalTxBytes, p.createdAt,
                     p.type, p.siteAllowedCidrs, p.deviceType,
-                    p.presharedKey != null && !p.presharedKey.isBlank());
+                    p.presharedKey != null && !p.presharedKey.isBlank(),
+                    p.mtu);
         }
     }
 
@@ -51,10 +57,12 @@ public final class PeerDto {
      */
     public record CreateRequest(
             @NotBlank String name,
-            @NotBlank
-            @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$",
-                    message = "must be an IPv4 address (e.g. 10.8.0.5)")
+            @NotBlank @ValidIpAddress
             String assignedIp,
+
+            // Optional IPv6 address for dual-stack peers. Validated against wgSubnet6 in service.
+            @ValidIpAddress
+            String assignedIpv6,
 
             // Optional. Base64-encoded 32-byte WireGuard public key (44 chars incl. '=' padding).
             @Pattern(regexp = "^$|^[A-Za-z0-9+/]{43}=$",
@@ -71,8 +79,7 @@ public final class PeerDto {
                     message = "type must be 'client' or 'site'")
             String type,
 
-            // Required when type='site'. Comma-separated IPv4 CIDR list, e.g.
-            // "192.168.50.0/24, 10.20.0.0/16".
+            // Required when type='site'. Comma-separated CIDR list.
             String siteAllowedCidrs,
 
             // Optional cosmetic device category for client peers.
@@ -81,8 +88,6 @@ public final class PeerDto {
             String deviceType,
 
             // When true, the server generates and stores a preshared key for this peer.
-            // Defaults to false (no PSK). The generated PSK is returned in CreateResponse
-            // and embedded in the .conf — the admin must hand the .conf to the client.
             boolean generatePresharedKey
     ) {
         public boolean hasPublicKey()  { return publicKey  != null && !publicKey.isBlank(); }
@@ -101,9 +106,7 @@ public final class PeerDto {
     /**
      * The one-shot creation response. The {@code privateKey} field is the only
      * place this value ever appears server-side; it is not persisted and there is
-     * no GET endpoint that returns it again. The {@code presharedKey} is always
-     * stored in the DB but is also included here so the admin can verify it —
-     * it is already embedded in {@code conf} when present.
+     * no GET endpoint that returns it again.
      */
     public record CreateResponse(
             Response peer,
@@ -118,16 +121,15 @@ public final class PeerDto {
     /**
      * Mutable subset of a peer's state. Type and public key are not editable —
      * use delete + create for a key rotation or a type switch.
-     *
-     * <p>{@code siteAllowedCidrs} is required when the peer is type='site',
-     * forbidden when type='client'.
      */
     public record UpdateRequest(
             @NotBlank String name,
-            @NotBlank
-            @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$",
-                    message = "must be an IPv4 address (e.g. 10.8.0.5)")
+            @NotBlank @ValidIpAddress
             String assignedIp,
+
+            // Optional IPv6 address for dual-stack peers.
+            @ValidIpAddress
+            String assignedIpv6,
 
             // Required for site peers; rejected for client peers.
             String siteAllowedCidrs,
@@ -140,11 +142,17 @@ public final class PeerDto {
             // "remove" = clear the PSK (both sides must update their configs).
             @Pattern(regexp = "^$|^(rotate|remove)$",
                     message = "presharedKeyAction must be 'rotate', 'remove', or omitted")
-            String presharedKeyAction
+            String presharedKeyAction,
+
+            // Optional per-peer MTU override (576–65535). null = use global setting.
+            @Min(576) @Max(65535) Integer mtu
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */
     public record NextIpResponse(String assignedIp) {}
+
+    /** Response shape for {@code GET /api/v1/peers/next-ip6}. */
+    public record NextIpv6Response(String assignedIpv6) {}
 
     /**
      * One peer from {@code wg show <iface> dump} that is not yet in the Islandr DB.
@@ -153,18 +161,17 @@ public final class PeerDto {
     public record WgImportCandidate(
             String publicKey,
             String allowedIps,   // as reported by wg, e.g. "10.8.0.5/32"
-            String assignedIp,   // first IPv4 address stripped from allowedIps; null for IPv6-only peers
+            String assignedIp,   // first IPv4 address stripped from allowedIps; null if none
+            String assignedIpv6, // first IPv6 address stripped from allowedIps; null if none
             String endpoint,     // last known endpoint IP:port, null if never connected
-            boolean alreadyExists  // true when already in DB or when no IPv4 address available
+            boolean alreadyExists
     ) {}
 
     /** One entry in a {@code POST /api/v1/peers/wg-import} request. */
     public record WgImportEntry(
             @NotBlank String publicKey,
             @NotBlank String name,
-            @NotBlank
-            @Pattern(regexp = "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$",
-                    message = "must be an IPv4 address (e.g. 10.8.0.5)")
+            @NotBlank @ValidIpAddress
             String assignedIp,
             String userId,       // optional — peer may be unassigned
             String type          // "client" | "site", defaults to "client"
