@@ -41,6 +41,8 @@ export default defineComponent({
       configImportError: null,
       configImporting: false,
       configImportResult: null,
+      versionCheck: null,
+      versionChecking: false,
     };
   },
   async mounted() {
@@ -231,6 +233,18 @@ export default defineComponent({
         this.configImporting = false;
       }
     },
+    async checkVersion() {
+      this.versionChecking = true;
+      this.versionCheck = null;
+      try {
+        const r = await fetch("/api/v1/version/check");
+        this.versionCheck = await r.json();
+      } catch {
+        this.versionCheck = { error: t("settings.version_error") };
+      } finally {
+        this.versionChecking = false;
+      }
+    },
   },
   template: `
     <div class="page-header">
@@ -405,9 +419,20 @@ export default defineComponent({
         </div>
       </div>
 
-      <div v-if="meta.version" style="margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); display: flex; align-items: center; gap: var(--space-3)">
+      <div v-if="meta.version" style="margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap">
         <span class="muted" style="font-size: var(--text-sm)">Islandr</span>
         <span class="mono" style="font-size: var(--text-sm); color: var(--fg2)">v{{ meta.version }}</span>
+        <button class="btn btn-ghost btn-sm" :disabled="versionChecking" @click="checkVersion">
+          {{ versionChecking ? t('settings.version_checking') : t('settings.version_check_btn') }}
+        </button>
+        <span v-if="versionCheck && !versionCheck.error" style="font-size: var(--text-sm); font-family: var(--font-mono)">
+          <span v-if="versionCheck.upToDate" style="color: var(--status-ok)">{{ t('settings.version_current') }}</span>
+          <span v-else style="color: var(--status-warn)">
+            {{ t('settings.version_available', { latest: versionCheck.latest }) }}
+            <a v-if="versionCheck.releaseUrl" :href="versionCheck.releaseUrl" target="_blank" rel="noopener" style="margin-left: var(--space-2)">{{ t('settings.version_release') }}</a>
+          </span>
+        </span>
+        <span v-if="versionCheck && versionCheck.error" style="font-size: var(--text-sm); color: var(--status-warn)">{{ versionCheck.error }}</span>
       </div>
     </form>
 
