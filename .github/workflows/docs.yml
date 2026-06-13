@@ -46,6 +46,9 @@ jobs:
             "https://github.com/plantuml/plantuml/releases/download/v1.2025.2/plantuml-1.2025.2.jar" \
             -o plantuml.jar
 
+      - name: Install Graphviz
+        run: sudo apt-get install -y graphviz
+
       - name: Render PlantUML → PNG
         run: |
           PUML_FILES=$(find architecture/diagrams -name "*.puml")

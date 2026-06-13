@@ -122,16 +122,46 @@ public final class IpSubnet {
     }
 
     private static String intToAddr(BigInteger val, int byteLen) {
-        try {
-            byte[] raw = val.toByteArray();
-            byte[] padded = new byte[byteLen];
-            // BigInteger may have fewer bytes (leading zeros) or one extra sign byte
-            int srcOff = Math.max(0, raw.length - byteLen);
-            int dstOff = Math.max(0, byteLen - raw.length);
-            System.arraycopy(raw, srcOff, padded, dstOff, Math.min(raw.length, byteLen));
-            return InetAddress.getByAddress(padded).getHostAddress();
-        } catch (UnknownHostException e) {
-            throw new IllegalStateException("cannot format address", e);
+        byte[] raw = val.toByteArray();
+        byte[] padded = new byte[byteLen];
+        // BigInteger may have fewer bytes (leading zeros) or one extra sign byte
+        int srcOff = Math.max(0, raw.length - byteLen);
+        int dstOff = Math.max(0, byteLen - raw.length);
+        System.arraycopy(raw, srcOff, padded, dstOff, Math.min(raw.length, byteLen));
+        return byteLen == 16 ? toRfc5952(padded) : dotted(padded);
+    }
+
+    // Java's Inet6Address.getHostAddress() does not produce :: compression in JDK 21 —
+    // implement RFC 5952 §4 directly to get the canonical compressed form.
+    private static String toRfc5952(byte[] b) {
+        int[] g = new int[8];
+        for (int i = 0; i < 8; i++) g[i] = ((b[2 * i] & 0xff) << 8) | (b[2 * i + 1] & 0xff);
+        int bestStart = -1, bestLen = 0;
+        for (int i = 0; i < 8; ) {
+            if (g[i] == 0) {
+                int j = i;
+                while (j < 8 && g[j] == 0) j++;
+                int len = j - i;
+                if (len > bestLen) { bestLen = len; bestStart = i; }
+                i = j;
+            } else i++;
         }
+        if (bestLen < 2) bestStart = -1; // only compress runs of two or more groups
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 8; ) {
+            if (i == bestStart) {
+                sb.append("::");
+                i += bestLen;
+            } else {
+                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != ':') sb.append(':');
+                sb.append(Integer.toHexString(g[i]));
+                i++;
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String dotted(byte[] b) {
+        return (b[0] & 0xff) + "." + (b[1] & 0xff) + "." + (b[2] & 0xff) + "." + (b[3] & 0xff);
     }
 }

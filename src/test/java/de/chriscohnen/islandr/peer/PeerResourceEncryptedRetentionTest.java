@@ -74,7 +74,7 @@ class PeerResourceEncryptedRetentionTest {
         // NOT the "enc$..." stored form.
         given().contentType("application/json")
                 .body("""
-                        { "name": "phone", "assignedIp": "10.8.0.30" }
+                        { "name": "phone", "assignedIp": "10.8.0.150" }
                         """)
                 .when().post("/api/v1/users/" + userId + "/peers")
                 .then().statusCode(201)
@@ -88,7 +88,7 @@ class PeerResourceEncryptedRetentionTest {
         String userId = createUser();
         var created = given().contentType("application/json")
                 .body("""
-                        { "name": "laptop", "assignedIp": "10.8.0.31" }
+                        { "name": "laptop", "assignedIp": "10.8.0.151" }
                         """)
                 .when().post("/api/v1/users/" + userId + "/peers")
                 .then().statusCode(201)

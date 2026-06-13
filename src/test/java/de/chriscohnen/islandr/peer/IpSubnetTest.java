@@ -179,8 +179,9 @@ class IpSubnetTest {
 
     private static <T> List<T> collect(Iterable<T> it) {
         List<T> out = new ArrayList<>();
-        // For IPv6 /64, only collect a small head to avoid an astronomical iteration
-        int limit = 100;
+        // cap at 300: enough for the largest tested IPv4 subnet (/24 = 253 usable),
+        // while still stopping early when iterating a vast IPv6 /64.
+        int limit = 300;
         for (T item : it) {
             out.add(item);
             if (out.size() >= limit) break;
