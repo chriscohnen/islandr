@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.settings;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
+import de.chriscohnen.islandr.crypto.EncryptionService;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
@@ -29,6 +30,7 @@ public class SettingsResource {
     @Inject SettingsService settings;
     @Inject AuditService audit;
     @Inject WgAdapter wg;
+    @Inject EncryptionService encSvc;
 
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "quarkus.application.version", defaultValue = "dev")
     String appVersion;
@@ -36,7 +38,7 @@ public class SettingsResource {
     @GET
     public SettingsDto.Response get(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
-        return SettingsDto.Response.from(settings.get(), appVersion);
+        return SettingsDto.Response.from(settings.get(), appVersion, encSvc.isConfigured());
     }
 
     @PUT
@@ -47,7 +49,7 @@ public class SettingsResource {
         Settings after = settings.update(body, actor.principal());
         audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
                 before, settingsSnapshot(after));
-        return SettingsDto.Response.from(after, appVersion);
+        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured());
     }
 
     @GET
