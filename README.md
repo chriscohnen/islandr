@@ -202,8 +202,12 @@ islandr/
 **User & peer management**
 - User CRUD with admin/end-user role assignment
 - Peer CRUD: client and site peer types, IP suggestion from WG subnet, CIDR-overlap validation
+- **IPv6 dual-stack peers** — optional `assignedIpv6` per peer; nftables rules emit `ip`/`ip6` per address family; custom `@ValidIpAddress`/`@ValidCidr` validators replace regex patterns
+- Per-peer MTU override (default 1420)
+- Reverse geocoding — approximate peer location derived from endpoint IP
 - Server-side keypair generation or admin-imported public key (validated via `wg pubkey`)
-- QR code + `.conf` download with one-time-secret pattern; re-show in `plaintext` retention mode
+- **Private key retention** — three modes: `never` (default), `plaintext`, `encrypted` (AES-256-GCM, server-side master key)
+- QR code + `.conf` download with one-time-secret pattern; re-show in `plaintext` / `encrypted` retention mode
 - **Import peers from live wg0** — reads `wg show wg0 dump`, compares by public key, lets admin select and name unmanaged peers in one step
 
 **Networks, resources & firewall**
@@ -225,6 +229,9 @@ islandr/
   - **SSH** — `ssh://` URI (macOS Terminal, Linux terminal emulators)
   - **SFTP** — `sftp://` URI (Nautilus, Dolphin file manager)
   - **SMB** — `smb://` URI (Finder, Nautilus; Windows uses `\\host\share` natively)
+  - **IPP printer quick-install** — `ipp://` URI opens native OS print dialog (macOS, Windows, Linux/CUPS)
+- **WireGuard client setup guide** — platform-detected install links on first visit; Passepartout recommended for macOS/iOS; Linux commands include one-click copy
+- **Config export/import** — full DB snapshot as JSON (GET `/api/v1/admin/config/export`); FK-aware transactional import with preview and confirm step; optional private key inclusion
 
 **Observability**
 - Audit log with cursor-based pagination, actor/action/target filters, meta-JSON expand
@@ -233,10 +240,10 @@ islandr/
 - German (default) and English, switchable at runtime without reload
 
 **v2 — Usability & convenience**
-- Self-service portal: direct download links for WireGuard clients (Windows, macOS, iOS, Android) next to the QR code — no googling required
+- ~~Self-service portal: direct download links for WireGuard clients (Windows, macOS, iOS, Android) next to the QR code — no googling required~~ ✅ in 0.9.0 as full setup guide with platform detection
 - Peer expiry / auto-disable
 - Site map view: geographic topology for multi-site setups (Leaflet + OSM, no Google Maps)
-- Config export / import — set up on a dev machine, import to the production hub
+- ~~Config export / import — set up on a dev machine, import to the production hub~~ ✅ in 0.9.0
 - Google Workspace / Entra ID user import: browse org users, see who is already in Islandr, import selected
 - **Docker production support** via Unix socket proxy — container stays unprivileged, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
 - World map / topology map: sites as pins, active tunnels as lines, Leaflet + OSM
@@ -244,7 +251,7 @@ islandr/
 **v3 — Operations**
 - `.deb` package for `apt install islandr` on Ubuntu/Debian
 - API key management for automation
-- **IPv6 peer support** — assigned IPs, ACL rules, and nftables ruleset generation for dual-stack and IPv6-only deployments
+- ~~**IPv6 peer support** — assigned IPs, ACL rules, and nftables ruleset generation for dual-stack and IPv6-only deployments~~ ✅ in 0.9.0, pulled forward from v3
 
 ## Documentation
 

@@ -20,6 +20,8 @@ export default defineComponent({
       livePeers: [],       // from /api/v1/peers/live polling
       liveError: null,
       _liveTimer: null,
+      versionCheck: null,
+      versionChecking: false,
     };
   },
   async mounted() {
@@ -170,13 +172,40 @@ export default defineComponent({
       if (status === "failed") return "badge-warning";
       return "badge-neutral";
     },
+    async checkVersion() {
+      this.versionChecking = true;
+      this.versionCheck = null;
+      try {
+        const r = await fetch("/api/v1/version/check");
+        this.versionCheck = await r.json();
+      } catch {
+        this.versionCheck = { error: t("dashboard.version_error") };
+      } finally {
+        this.versionChecking = false;
+      }
+    },
   },
   template: `
     <div class="page-header">
       <h1>{{ t('dashboard.title') }}</h1>
-      <button class="btn btn-ghost btn-sm" :disabled="loading" @click="load">
-        {{ loading ? t('dashboard.loading') : t('dashboard.refresh_btn') }}
-      </button>
+      <div style="display: flex; align-items: center; gap: var(--space-3)">
+        <button class="btn btn-ghost btn-sm" :disabled="loading" @click="load">
+          {{ loading ? t('dashboard.loading') : t('dashboard.refresh_btn') }}
+        </button>
+        <button class="btn btn-ghost btn-sm" :disabled="versionChecking" @click="checkVersion">
+          {{ versionChecking ? t('dashboard.version_checking') : t('dashboard.version_check_btn') }}
+        </button>
+        <span v-if="versionCheck && !versionCheck.error" style="font-size: var(--text-sm); font-family: var(--font-mono)">
+          <span v-if="versionCheck.upToDate" style="color: var(--status-ok)">{{ t('dashboard.version_current', { v: versionCheck.current }) }}</span>
+          <span v-else style="color: var(--status-warn)">
+            {{ t('dashboard.version_available', { latest: versionCheck.latest }) }}
+            <a v-if="versionCheck.releaseUrl" :href="versionCheck.releaseUrl" target="_blank" rel="noopener" style="margin-left: var(--space-2)">{{ t('dashboard.version_release') }}</a>
+          </span>
+        </span>
+        <span v-if="versionCheck && versionCheck.error" style="font-size: var(--text-sm); color: var(--status-warn)">
+          {{ versionCheck.error }}
+        </span>
+      </div>
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>

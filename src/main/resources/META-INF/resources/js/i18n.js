@@ -99,6 +99,12 @@ const messages = {
     "dashboard.peers_link":        "All peers →",
     "dashboard.peers_empty":       "No peers created yet.",
     "dashboard.peers_never":       "never",
+    "dashboard.version_check_btn":  "Check for updates",
+    "dashboard.version_checking":   "Checking …",
+    "dashboard.version_current":    "{v} — up to date",
+    "dashboard.version_available":  "{latest} available",
+    "dashboard.version_release":    "Release notes →",
+    "dashboard.version_error":      "GitHub unreachable",
 
     // ── Peers ────────────────────────────────────────────────────────────────
     "peers.title":          "Peers",
@@ -698,6 +704,12 @@ const messages = {
     "dashboard.peers_link":        "Alle Peers →",
     "dashboard.peers_empty":       "Noch keine Peers angelegt.",
     "dashboard.peers_never":       "noch nie",
+    "dashboard.version_check_btn":  "Auf Updates prüfen",
+    "dashboard.version_checking":   "Prüfe …",
+    "dashboard.version_current":    "{v} — aktuell",
+    "dashboard.version_available":  "{latest} verfügbar",
+    "dashboard.version_release":    "Release-Notes →",
+    "dashboard.version_error":      "GitHub nicht erreichbar",
 
     // ── Peers ────────────────────────────────────────────────────────────────
     "peers.title":          "Peers",
