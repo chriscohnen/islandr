@@ -2,7 +2,7 @@
 
 ## 7.1 Production — Hub VM (Single Binary)
 
-![Deployment Diagram](../../architecture/diagrams/ProductionDeployment.png)
+![Deployment Diagram](../../architecture/diagrams/structurizr-ProductionDeployment.png)
 
 ### Hub VM requirements
 

@@ -4,7 +4,7 @@
 
 ### C4 Level 1 — System Context
 
-![System Context Diagram](../../architecture/diagrams/SystemContext.png)
+![System Context Diagram](../../architecture/diagrams/structurizr-SystemContext.png)
 
 > Diagram generated from [`architecture/workspace.dsl`](../../architecture/workspace.dsl) on every push.
 
