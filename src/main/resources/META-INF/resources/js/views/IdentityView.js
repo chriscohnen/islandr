@@ -452,6 +452,10 @@ export default defineComponent({
                       style="font-family: var(--font-mono); font-size: var(--text-xs); resize: vertical"
                       v-model="gwsForm.serviceAccountJson"
                       :placeholder="t('identity.gws_sa_json_ph')" />
+            <span class="muted" style="font-size: var(--text-xs); display: block; margin-top: var(--space-1)">
+              {{ t('identity.gws_sa_json_hint') }}
+              <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener">console.cloud.google.com</a>
+            </span>
           </div>
           <div class="field" style="margin-bottom: var(--space-5)">
             <label>{{ t('identity.gws_email') }}</label>

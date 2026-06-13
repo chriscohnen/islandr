@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.user;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
+import de.chriscohnen.islandr.crypto.EncryptionService;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.settings.SettingsService;
 import jakarta.inject.Inject;
@@ -34,6 +35,7 @@ public class GoogleWorkspaceImportResource {
     @Inject SettingsService settingsSvc;
     @Inject GoogleWorkspaceClient gwsClient;
     @Inject AuditService audit;
+    @Inject EncryptionService encSvc;
 
     public record PreviewUser(
             String email,
@@ -61,9 +63,13 @@ public class GoogleWorkspaceImportResource {
                 .map(u -> u.email.toLowerCase())
                 .collect(Collectors.toSet());
 
+        String saJson = encSvc.isEncrypted(s.googleWsServiceAccountJson)
+                ? encSvc.decrypt(s.googleWsServiceAccountJson)
+                : s.googleWsServiceAccountJson;
+
         try {
             List<GoogleWorkspaceClient.WorkspaceUser> wsUsers =
-                    gwsClient.listUsers(s.googleWsServiceAccountJson, s.googleWsImpersonationEmail);
+                    gwsClient.listUsers(saJson, s.googleWsImpersonationEmail);
 
             List<PreviewUser> preview = wsUsers.stream()
                     .filter(u -> u.email() != null)

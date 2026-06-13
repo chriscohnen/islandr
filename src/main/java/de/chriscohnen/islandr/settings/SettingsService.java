@@ -62,8 +62,12 @@ public class SettingsService {
     @Transactional
     public Settings updateGoogleWorkspace(SettingsDto.GoogleWorkspaceRequest req, String actor) {
         Settings s = get();
-        s.googleWsServiceAccountJson = (req.serviceAccountJson() == null || req.serviceAccountJson().isBlank())
-                ? null : req.serviceAccountJson().strip();
+        if (req.serviceAccountJson() == null || req.serviceAccountJson().isBlank()) {
+            s.googleWsServiceAccountJson = null;
+        } else {
+            String json = req.serviceAccountJson().strip();
+            s.googleWsServiceAccountJson = encSvc.isConfigured() ? encSvc.encrypt(json) : json;
+        }
         s.googleWsImpersonationEmail = (req.impersonationEmail() == null || req.impersonationEmail().isBlank())
                 ? null : req.impersonationEmail().strip();
         s.updatedAt = Instant.now();
