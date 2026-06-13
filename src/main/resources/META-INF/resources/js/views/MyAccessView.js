@@ -151,6 +151,14 @@ export default defineComponent({
       return "smb://" + resource.ip;
     },
 
+    isPrintPort(port) {
+      return port.protocol === "PRINT" || (port.port === 631 && port.transport === "tcp");
+    },
+
+    ippUrl(resource, port) {
+      return "ipp://" + resource.ip + ":" + port.port;
+    },
+
     downloadRdp(resource, port) {
       const content = [
         "full address:s:" + resource.ip + ":" + port.port,
@@ -534,6 +542,24 @@ export default defineComponent({
                     <line x1="8" x2="8" y1="8" y2="11"/>
                     <line x1="10.5" x2="10.5" y1="8" y2="11"/>
                     <line x1="4" x2="12" y1="8" y2="8"/>
+                  </svg>
+                  <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+                  <span>{{ p.label || p.protocol }}</span>
+                </a>
+                <a v-else-if="isPrintPort(p)"
+                   :href="ippUrl(r, p)"
+                   class="myaccess-port-link myaccess-port-print"
+                   :title="t('myaccess.print_title', { ip: r.ip, port: p.port })">
+                  <!-- Printer icon -->
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                       stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                       style="flex-shrink:0" aria-hidden="true">
+                    <rect x="3" y="1" width="10" height="4" rx="1"/>
+                    <path d="M3 5H1.5A.5.5 0 0 0 1 5.5v5A.5.5 0 0 0 1.5 11H3"/>
+                    <path d="M13 5h1.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5H13"/>
+                    <rect x="3" y="8" width="10" height="7" rx="1"/>
+                    <line x1="5" x2="11" y1="11" y2="11"/>
+                    <line x1="5" x2="11" y1="13" y2="13"/>
                   </svg>
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
                   <span>{{ p.label || p.protocol }}</span>

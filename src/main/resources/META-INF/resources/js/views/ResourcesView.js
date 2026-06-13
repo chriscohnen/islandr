@@ -367,6 +367,7 @@ export default defineComponent({
                     <option>HTTP</option>
                     <option>HTTPS</option>
                     <option>SMB</option>
+                    <option>PRINT</option>
                     <option>X11</option>
                     <option>CUSTOM</option>
                   </select>
