@@ -32,6 +32,16 @@ export default defineComponent({
       newDevice: { name: "", publicKey: "" },
       importPublicKey: false,
       submitting: false,
+      detectedPlatform: (() => {
+        const ua = navigator.userAgent;
+        if (/iPad|iPhone|iPod/.test(ua))          return 'ios';
+        if (/Macintosh|MacIntel/.test(ua))         return 'macos';
+        if (/Windows NT/.test(ua))                 return 'windows';
+        if (/Android/.test(ua))                    return 'android';
+        if (/Linux/.test(ua))                      return 'linux';
+        return null;
+      })(),
+      copiedCmd: null,
       // secret view (after create or reshow)
       secret: null,
       secretIsReshow: false,
@@ -217,6 +227,24 @@ export default defineComponent({
       URL.revokeObjectURL(url);
     },
 
+    pRow(key) {
+      const hit = this.detectedPlatform === key;
+      return {
+        display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap',
+        padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-md)',
+        border: `1px solid ${hit ? 'var(--accent)' : 'var(--border)'}`,
+        background: hit ? 'color-mix(in srgb, var(--accent) 5%, var(--surface))' : 'transparent',
+      };
+    },
+
+    async copyCmd(text, key) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this.copiedCmd = key;
+        setTimeout(() => { this.copiedCmd = null; }, 2000);
+      } catch (_) {}
+    },
+
     openCreate() {
       this.modalMode = "create";
       this.newDevice = { name: "", publicKey: "" };
@@ -375,6 +403,116 @@ export default defineComponent({
     <div v-if="error" class="error-banner">{{ error }}</div>
 
     <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
+
+    <div v-else-if="peers.length === 0 && !viewAsUserId" style="max-width:700px">
+
+      <!-- Step 1: Install client -->
+      <div style="display:flex; gap:var(--space-4); margin-bottom:var(--space-8)">
+        <span style="width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:var(--text-sm); font-weight:600; flex-shrink:0">1</span>
+        <div style="flex:1; min-width:0">
+          <h2 style="margin:2px 0 var(--space-2); font-size:var(--text-md)">{{ t('myaccess.setup_s1_title') }}</h2>
+          <p class="field-hint" style="margin-bottom:var(--space-5)">{{ t('myaccess.setup_s1_desc') }}</p>
+
+          <div style="display:flex; flex-direction:column; gap:var(--space-2)">
+
+            <!-- macOS -->
+            <div :style="pRow('macos')">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; color:var(--text-muted)">
+                <rect x="2" y="1" width="12" height="9" rx="1"/>
+                <path d="M0 12.5h16"/><path d="M5 12.5l1 2h4l1-2"/>
+              </svg>
+              <span style="font-weight:500; min-width:72px">macOS</span>
+              <span v-if="detectedPlatform==='macos'" style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); padding:1px 6px; border:1px solid var(--accent); border-radius:var(--radius-sm)">{{ t('myaccess.setup_detected') }}</span>
+              <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; margin-left:auto">
+                <a href="macappstore://apps.apple.com/app/passepartout-vpn-client/id1348646401" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">
+                  Passepartout&nbsp;<span style="font-size:11px; opacity:0.7">({{ t('myaccess.setup_recommended') }})</span>
+                </a>
+                <a href="macappstore://apps.apple.com/app/wireguard/id1451685025" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">WireGuard</a>
+              </div>
+            </div>
+            <p class="field-hint" style="margin:var(--space-1) 0 var(--space-2) calc(16px + var(--space-3))">{{ t('myaccess.setup_passepartout_desc') }}</p>
+
+            <!-- iOS -->
+            <div :style="pRow('ios')">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" style="flex-shrink:0; color:var(--text-muted)">
+                <rect x="4" y="1" width="8" height="14" rx="2"/>
+                <circle cx="8" cy="12.5" r="0.8" fill="currentColor" stroke="none"/>
+              </svg>
+              <span style="font-weight:500; min-width:72px">iOS</span>
+              <span v-if="detectedPlatform==='ios'" style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); padding:1px 6px; border:1px solid var(--accent); border-radius:var(--radius-sm)">{{ t('myaccess.setup_detected') }}</span>
+              <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; margin-left:auto">
+                <a href="https://apps.apple.com/app/passepartout-vpn-client/id1517229942" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">
+                  Passepartout&nbsp;<span style="font-size:11px; opacity:0.7">({{ t('myaccess.setup_recommended') }})</span>
+                </a>
+                <a href="https://apps.apple.com/app/wireguard/id1441195209" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">WireGuard</a>
+              </div>
+            </div>
+
+            <!-- Windows -->
+            <div :style="pRow('windows')">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; color:var(--text-muted)">
+                <rect x="1" y="2" width="14" height="10" rx="1"/>
+                <line x1="8" y1="12" x2="8" y2="14.5"/>
+                <line x1="5" y1="14.5" x2="11" y2="14.5"/>
+              </svg>
+              <span style="font-weight:500; min-width:72px">Windows</span>
+              <span v-if="detectedPlatform==='windows'" style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); padding:1px 6px; border:1px solid var(--accent); border-radius:var(--radius-sm)">{{ t('myaccess.setup_detected') }}</span>
+              <div style="margin-left:auto">
+                <a href="https://download.wireguard.com/windows-client/wireguard-installer.exe" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">WireGuard {{ t('myaccess.setup_download') }}</a>
+              </div>
+            </div>
+
+            <!-- Android -->
+            <div :style="pRow('android')">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; color:var(--text-muted)">
+                <rect x="3" y="3" width="10" height="12" rx="2"/>
+                <circle cx="8" cy="4.5" r="0.8" fill="currentColor" stroke="none"/>
+                <line x1="5.5" y1="1.5" x2="4.5" y2="3"/>
+                <line x1="10.5" y1="1.5" x2="11.5" y2="3"/>
+              </svg>
+              <span style="font-weight:500; min-width:72px">Android</span>
+              <span v-if="detectedPlatform==='android'" style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); padding:1px 6px; border:1px solid var(--accent); border-radius:var(--radius-sm)">{{ t('myaccess.setup_detected') }}</span>
+              <div style="margin-left:auto">
+                <a href="https://play.google.com/store/apps/details?id=com.wireguard.android" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">WireGuard (Play Store)</a>
+              </div>
+            </div>
+
+            <!-- Linux -->
+            <div :style="pRow('linux')">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; color:var(--text-muted)">
+                <rect x="1" y="2" width="14" height="12" rx="1"/>
+                <polyline points="4,7 7,10 4,13"/>
+                <line x1="8.5" y1="13" x2="12" y2="13"/>
+              </svg>
+              <span style="font-weight:500; min-width:72px">Linux</span>
+              <span v-if="detectedPlatform==='linux'" style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); padding:1px 6px; border:1px solid var(--accent); border-radius:var(--radius-sm)">{{ t('myaccess.setup_detected') }}</span>
+              <div style="display:flex; flex-direction:column; gap:var(--space-2); margin-left:auto">
+                <div style="display:flex; align-items:center; gap:var(--space-2)">
+                  <code style="font-family:var(--font-mono); font-size:var(--text-sm); background:var(--surface-raised); padding:2px 8px; border-radius:var(--radius-sm)">sudo apt install wireguard</code>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="copyCmd('sudo apt install wireguard', 'apt')">{{ copiedCmd === 'apt' ? t('myaccess.setup_copied') : t('myaccess.setup_copy') }}</button>
+                </div>
+                <div style="display:flex; align-items:center; gap:var(--space-2)">
+                  <code style="font-family:var(--font-mono); font-size:var(--text-sm); background:var(--surface-raised); padding:2px 8px; border-radius:var(--radius-sm)">sudo dnf install wireguard-tools</code>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="copyCmd('sudo dnf install wireguard-tools', 'dnf')">{{ copiedCmd === 'dnf' ? t('myaccess.setup_copied') : t('myaccess.setup_copy') }}</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Add device -->
+      <div style="display:flex; gap:var(--space-4)">
+        <span style="width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:var(--text-sm); font-weight:600; flex-shrink:0">2</span>
+        <div>
+          <h2 style="margin:2px 0 var(--space-2); font-size:var(--text-md)">{{ t('myaccess.setup_s2_title') }}</h2>
+          <p class="field-hint" style="margin-bottom:var(--space-4)">{{ t(selfServicePeerCreation ? 'myaccess.setup_s2_self' : 'myaccess.setup_s2_admin') }}</p>
+          <button v-if="selfServicePeerCreation" class="btn btn-primary btn-sm" @click="openCreate">{{ t('myaccess.add_btn') }}</button>
+        </div>
+      </div>
+
+    </div>
 
     <div v-else-if="peers.length === 0" class="empty-state">
       <h2>{{ t('myaccess.empty_title') }}</h2>
