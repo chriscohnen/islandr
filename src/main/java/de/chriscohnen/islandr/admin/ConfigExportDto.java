@@ -1,0 +1,156 @@
+package de.chriscohnen.islandr.admin;
+
+import java.time.Instant;
+import java.util.List;
+
+public class ConfigExportDto {
+
+    public record Export(
+        String version,
+        Instant exportedAt,
+        boolean privateKeysIncluded,
+        SettingsSnapshot settings,
+        List<OidcProviderSnapshot> oidcProviders,
+        List<UserSnapshot> users,
+        List<RoleSnapshot> roles,
+        List<RoleMembership> roleMemberships,
+        List<PeerSnapshot> peers,
+        List<SiteSnapshot> sites,
+        List<ResourceSnapshot> resources,
+        List<ResourcePortSnapshot> resourcePorts,
+        List<PortGroupSnapshot> portGroups,
+        List<PortGroupMemberSnapshot> portGroupMembers,
+        List<GrantSnapshot> roleResourceGrants,
+        List<GrantPortLink> grantPortLinks
+    ) {}
+
+    public record SettingsSnapshot(
+        String wgSubnet,
+        String wgServerPublicKey,
+        String wgServerEndpoint,
+        String wgClientAllowedIps,
+        String wgClientDns,
+        String privateKeyRetention,
+        boolean gravatarEnabled,
+        boolean oidcAutoProvision,
+        boolean firewallDryRun,
+        boolean selfServicePeerCreation,
+        Integer wgMtu,
+        boolean wgIncludeMtuInConf
+    ) {}
+
+    public record OidcProviderSnapshot(
+        String providerKey,
+        boolean enabled,
+        String clientId,
+        String clientSecret,
+        String tenantId,
+        String allowedDomains
+    ) {}
+
+    public record UserSnapshot(
+        String id,
+        String name,
+        String email,
+        String nickname,
+        boolean enabled,
+        boolean isAdmin,
+        String oidcProvider,
+        String oidcSubject,
+        String preferredLocale,
+        Instant createdAt
+    ) {}
+
+    public record RoleSnapshot(
+        String id,
+        String name,
+        String description,
+        Instant createdAt
+    ) {}
+
+    public record RoleMembership(String userId, String roleId) {}
+
+    public record PeerSnapshot(
+        String id,
+        String userId,
+        String name,
+        String publicKey,
+        String assignedIp,
+        boolean enabled,
+        String privateKeyPem,
+        String type,
+        String siteAllowedCidrs,
+        String deviceType,
+        String presharedKey,
+        Instant createdAt
+    ) {}
+
+    public record SiteSnapshot(
+        String id,
+        String name,
+        String cidr,
+        String description,
+        Double lat,
+        Double lng,
+        String gatewayPeerId,
+        Instant createdAt
+    ) {}
+
+    public record ResourceSnapshot(
+        String id,
+        String siteId,
+        String name,
+        String ip,
+        String description,
+        String type,
+        Instant createdAt
+    ) {}
+
+    public record ResourcePortSnapshot(
+        String id,
+        String resourceId,
+        int port,
+        Integer portEnd,
+        String transport,
+        String protocol,
+        String label,
+        Instant createdAt
+    ) {}
+
+    public record PortGroupSnapshot(
+        String id,
+        String name,
+        String description,
+        Instant createdAt
+    ) {}
+
+    public record PortGroupMemberSnapshot(
+        String id,
+        String portGroupId,
+        int port,
+        Integer portEnd,
+        String transport,
+        String protocol,
+        String label
+    ) {}
+
+    public record GrantSnapshot(
+        String id,
+        String roleId,
+        String resourceId,
+        boolean allPorts,
+        Instant createdAt
+    ) {}
+
+    public record GrantPortLink(String grantId, String portId) {}
+
+    public record ImportResult(
+        int users,
+        int roles,
+        int peers,
+        int sites,
+        int resources,
+        int portGroups,
+        int grants
+    ) {}
+}

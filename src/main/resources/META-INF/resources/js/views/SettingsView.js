@@ -34,6 +34,13 @@ export default defineComponent({
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
+      configIncludePrivateKeys: false,
+      configExporting: false,
+      configExportError: null,
+      configImportData: null,
+      configImportError: null,
+      configImporting: false,
+      configImportResult: null,
     };
   },
   async mounted() {
@@ -159,6 +166,70 @@ export default defineComponent({
     formatDate(iso) {
       if (!iso) return "—";
       return new Date(iso).toLocaleString("de-DE");
+    },
+
+    async exportConfig() {
+      this.configExporting = true;
+      this.configExportError = null;
+      try {
+        const url = "/api/v1/admin/config/export" + (this.configIncludePrivateKeys ? "?includePrivateKeys=true" : "");
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = "islandr-config-" + new Date().toISOString().slice(0, 10) + ".json";
+        a.click();
+        URL.revokeObjectURL(blobUrl);
+      } catch (e) {
+        this.configExportError = t("settings.config_export_error", { error: e.message });
+      } finally {
+        this.configExporting = false;
+      }
+    },
+
+    onImportFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          this.configImportData = JSON.parse(ev.target.result);
+          this.configImportError = null;
+          this.configImportResult = null;
+        } catch {
+          this.configImportData = null;
+          this.configImportError = t("settings.config_import_invalid");
+        }
+      };
+      reader.readAsText(file);
+    },
+
+    async confirmImport() {
+      if (!this.configImportData) return;
+      if (!confirm(t("settings.config_import_confirm"))) return;
+      this.configImporting = true;
+      this.configImportError = null;
+      try {
+        const res = await fetch("/api/v1/admin/config/import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(this.configImportData),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("HTTP " + res.status + (text ? " — " + text.slice(0, 300) : ""));
+        }
+        this.configImportResult = await res.json();
+        this.configImportData = null;
+        await this.load();
+      } catch (e) {
+        this.configImportError = t("settings.config_import_error", { error: e.message });
+      } finally {
+        this.configImporting = false;
+      }
     },
   },
   template: `
@@ -339,5 +410,49 @@ export default defineComponent({
         <span class="mono" style="font-size: var(--text-sm); color: var(--fg2)">v{{ meta.version }}</span>
       </div>
     </form>
+
+    <!-- Config Export / Import -->
+    <div style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
+      <h2 style="margin-bottom: var(--space-1); font-size: var(--text-md)">{{ t('settings.section_config') }}</h2>
+      <p class="field-hint" style="margin-bottom: var(--space-5)">{{ t('settings.config_hint') }}</p>
+
+      <div style="font-size: var(--text-sm); font-weight: 500; color: var(--fg2); margin-bottom: var(--space-2)">{{ t('settings.config_export_title') }}</div>
+      <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-5)">
+        <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: var(--text-sm); color: var(--fg1)">
+          <input type="checkbox" v-model="configIncludePrivateKeys" style="width: 14px; height: 14px; accent-color: var(--accent); margin: 0" />
+          <span>{{ t('settings.config_include_keys') }}</span>
+        </label>
+        <button type="button" class="btn btn-secondary btn-sm" @click="exportConfig" :disabled="configExporting">
+          {{ configExporting ? t('settings.config_exporting') : t('settings.config_export_btn') }}
+        </button>
+      </div>
+      <div v-if="configExportError" class="callout callout-error" style="margin-bottom: var(--space-4)">{{ configExportError }}</div>
+
+      <div style="font-size: var(--text-sm); font-weight: 500; color: var(--fg2); margin-bottom: var(--space-2)">{{ t('settings.config_import_title') }}</div>
+      <div class="callout callout-warn" style="margin-bottom: var(--space-3)">{{ t('settings.config_import_warn') }}</div>
+      <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2)">
+        <input type="file" accept=".json" @change="onImportFile" style="font-size: var(--text-sm); color: var(--fg2)" />
+        <button v-if="configImportData" type="button" class="btn btn-danger btn-sm" @click="confirmImport" :disabled="configImporting">
+          {{ configImporting ? t('settings.config_importing') : t('settings.config_import_btn') }}
+        </button>
+      </div>
+      <div v-if="configImportData && !configImportError" class="field-hint">
+        {{ t('settings.config_import_preview', {
+          users:     configImportData.users?.length     || 0,
+          peers:     configImportData.peers?.length     || 0,
+          sites:     configImportData.sites?.length     || 0,
+          resources: configImportData.resources?.length || 0
+        }) }}
+      </div>
+      <div v-if="configImportError"  class="callout callout-error"   style="margin-top: var(--space-2)">{{ configImportError }}</div>
+      <div v-if="configImportResult" class="callout callout-success"  style="margin-top: var(--space-2)">
+        {{ t('settings.config_import_done', {
+          users:     configImportResult.users,
+          peers:     configImportResult.peers,
+          sites:     configImportResult.sites,
+          resources: configImportResult.resources
+        }) }}
+      </div>
+    </div>
   `,
 });

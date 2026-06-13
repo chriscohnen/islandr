@@ -1,0 +1,342 @@
+package de.chriscohnen.islandr.admin;
+
+import de.chriscohnen.islandr.acl.*;
+import de.chriscohnen.islandr.identity.OidcProvider;
+import de.chriscohnen.islandr.peer.Peer;
+import de.chriscohnen.islandr.settings.Settings;
+import de.chriscohnen.islandr.user.User;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+
+import java.time.Instant;
+import java.util.List;
+
+@ApplicationScoped
+public class ConfigService {
+
+    @Inject
+    EntityManager em;
+
+    public ConfigExportDto.Export export(boolean includePrivateKeys) {
+        Settings s = Settings.findById(Settings.SINGLETON_ID);
+
+        var settings = new ConfigExportDto.SettingsSnapshot(
+                s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
+                s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
+                s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
+                s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf);
+
+        List<ConfigExportDto.OidcProviderSnapshot> providers = OidcProvider.<OidcProvider>listAll()
+                .stream().map(p -> new ConfigExportDto.OidcProviderSnapshot(
+                        p.providerKey, p.enabled, p.clientId, p.clientSecret,
+                        p.tenantId, p.allowedDomains))
+                .toList();
+
+        List<ConfigExportDto.UserSnapshot> users = User.<User>listAll()
+                .stream().map(u -> new ConfigExportDto.UserSnapshot(
+                        u.id, u.name, u.email, u.nickname, u.enabled, u.isAdmin,
+                        u.oidcProvider, u.oidcSubject, u.preferredLocale, u.createdAt))
+                .toList();
+
+        List<ConfigExportDto.RoleSnapshot> roles = Role.<Role>listAll()
+                .stream().map(r -> new ConfigExportDto.RoleSnapshot(
+                        r.id, r.name, r.description, r.createdAt))
+                .toList();
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> memberRows = em.createNativeQuery(
+                        "SELECT user_id, role_id FROM user_roles")
+                .getResultList();
+        List<ConfigExportDto.RoleMembership> memberships = memberRows.stream()
+                .map(r -> new ConfigExportDto.RoleMembership((String) r[0], (String) r[1]))
+                .toList();
+
+        List<ConfigExportDto.PeerSnapshot> peers = Peer.<Peer>listAll()
+                .stream().map(p -> new ConfigExportDto.PeerSnapshot(
+                        p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.enabled,
+                        includePrivateKeys ? p.privateKeyPem : null,
+                        p.type, p.siteAllowedCidrs, p.deviceType, p.presharedKey, p.createdAt))
+                .toList();
+
+        List<ConfigExportDto.SiteSnapshot> sites = Site.<Site>listAll()
+                .stream().map(site -> new ConfigExportDto.SiteSnapshot(
+                        site.id, site.name, site.cidr, site.description,
+                        site.lat, site.lng, site.gatewayPeerId, site.createdAt))
+                .toList();
+
+        List<ConfigExportDto.ResourceSnapshot> resources = Resource.<Resource>listAll()
+                .stream().map(r -> new ConfigExportDto.ResourceSnapshot(
+                        r.id, r.siteId, r.name, r.ip, r.description, r.type, r.createdAt))
+                .toList();
+
+        List<ConfigExportDto.ResourcePortSnapshot> ports = ResourcePort.<ResourcePort>listAll()
+                .stream().map(p -> new ConfigExportDto.ResourcePortSnapshot(
+                        p.id, p.resourceId, p.port, p.portEnd,
+                        p.transport, p.protocol, p.label, p.createdAt))
+                .toList();
+
+        List<ConfigExportDto.PortGroupSnapshot> portGroups = PortGroup.<PortGroup>listAll()
+                .stream().map(g -> new ConfigExportDto.PortGroupSnapshot(
+                        g.id, g.name, g.description, g.createdAt))
+                .toList();
+
+        List<ConfigExportDto.PortGroupMemberSnapshot> portGroupMembers = PortGroupMember.<PortGroupMember>listAll()
+                .stream().map(m -> new ConfigExportDto.PortGroupMemberSnapshot(
+                        m.id, m.portGroupId, m.port, m.portEnd,
+                        m.transport, m.protocol, m.label))
+                .toList();
+
+        List<ConfigExportDto.GrantSnapshot> grants = RoleResourceGrant.<RoleResourceGrant>listAll()
+                .stream().map(g -> new ConfigExportDto.GrantSnapshot(
+                        g.id, g.roleId, g.resourceId, g.allPorts, g.createdAt))
+                .toList();
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> grantPortRows = em.createNativeQuery(
+                        "SELECT grant_id, port_id FROM role_resource_grant_ports")
+                .getResultList();
+        List<ConfigExportDto.GrantPortLink> grantPortLinks = grantPortRows.stream()
+                .map(r -> new ConfigExportDto.GrantPortLink((String) r[0], (String) r[1]))
+                .toList();
+
+        return new ConfigExportDto.Export(
+                "1", Instant.now(), includePrivateKeys,
+                settings, providers, users, roles, memberships, peers,
+                sites, resources, ports, portGroups, portGroupMembers,
+                grants, grantPortLinks);
+    }
+
+    @Transactional
+    public ConfigExportDto.ImportResult importConfig(ConfigExportDto.Export p) {
+        // --- Tear-down in FK order -------------------------------------------
+        em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
+        em.createNativeQuery("DELETE FROM role_resource_grants").executeUpdate();
+        em.createNativeQuery("DELETE FROM resource_ports").executeUpdate();
+        em.createNativeQuery("DELETE FROM resources").executeUpdate();
+        // Break the sites ↔ peers FK cycle before deleting either table.
+        em.createNativeQuery("UPDATE sites SET gateway_peer_id = NULL").executeUpdate();
+        em.createNativeQuery("DELETE FROM sites").executeUpdate();
+        em.createNativeQuery("DELETE FROM port_group_members").executeUpdate();
+        em.createNativeQuery("DELETE FROM port_groups").executeUpdate();
+        em.createNativeQuery("DELETE FROM peers").executeUpdate();
+        em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
+        em.createNativeQuery("DELETE FROM users").executeUpdate();
+        em.createNativeQuery("DELETE FROM roles").executeUpdate();
+
+        // --- Users -----------------------------------------------------------
+        for (var u : safe(p.users())) {
+            em.createNativeQuery(
+                            "INSERT INTO users (id, name, email, nickname, enabled, is_admin," +
+                            " oidc_provider, oidc_subject, preferred_locale, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)")
+                    .setParameter(1, u.id())
+                    .setParameter(2, u.name())
+                    .setParameter(3, u.email())
+                    .setParameter(4, u.nickname())
+                    .setParameter(5, u.enabled() ? 1 : 0)
+                    .setParameter(6, u.isAdmin() ? 1 : 0)
+                    .setParameter(7, u.oidcProvider())
+                    .setParameter(8, u.oidcSubject())
+                    .setParameter(9, u.preferredLocale())
+                    .setParameter(10, ts(u.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Roles -----------------------------------------------------------
+        for (var r : safe(p.roles())) {
+            em.createNativeQuery(
+                            "INSERT INTO roles (id, name, description, created_at)" +
+                            " VALUES (?1,?2,?3,?4)")
+                    .setParameter(1, r.id())
+                    .setParameter(2, r.name())
+                    .setParameter(3, r.description())
+                    .setParameter(4, ts(r.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Role memberships ------------------------------------------------
+        for (var m : safe(p.roleMemberships())) {
+            em.createNativeQuery(
+                            "INSERT INTO user_roles (user_id, role_id) VALUES (?1,?2)")
+                    .setParameter(1, m.userId())
+                    .setParameter(2, m.roleId())
+                    .executeUpdate();
+        }
+
+        // --- Peers -----------------------------------------------------------
+        for (var peer : safe(p.peers())) {
+            em.createNativeQuery(
+                            "INSERT INTO peers (id, user_id, name, public_key, assigned_ip," +
+                            " enabled, private_key_pem, type, site_allowed_cidrs," +
+                            " device_type, preshared_key," +
+                            " total_rx_bytes, total_tx_bytes," +
+                            " last_sampled_rx_bytes, last_sampled_tx_bytes, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,0,0,0,?12)")
+                    .setParameter(1, peer.id())
+                    .setParameter(2, peer.userId())
+                    .setParameter(3, peer.name())
+                    .setParameter(4, peer.publicKey())
+                    .setParameter(5, peer.assignedIp())
+                    .setParameter(6, peer.enabled() ? 1 : 0)
+                    .setParameter(7, peer.privateKeyPem())
+                    .setParameter(8, peer.type())
+                    .setParameter(9, peer.siteAllowedCidrs())
+                    .setParameter(10, peer.deviceType())
+                    .setParameter(11, peer.presharedKey())
+                    .setParameter(12, ts(peer.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Sites -----------------------------------------------------------
+        for (var site : safe(p.sites())) {
+            em.createNativeQuery(
+                            "INSERT INTO sites (id, name, cidr, description," +
+                            " lat, lng, gateway_peer_id, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+                    .setParameter(1, site.id())
+                    .setParameter(2, site.name())
+                    .setParameter(3, site.cidr())
+                    .setParameter(4, site.description())
+                    .setParameter(5, site.lat())
+                    .setParameter(6, site.lng())
+                    .setParameter(7, site.gatewayPeerId())
+                    .setParameter(8, ts(site.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Resources -------------------------------------------------------
+        for (var res : safe(p.resources())) {
+            em.createNativeQuery(
+                            "INSERT INTO resources (id, site_id, name, ip, description, type, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7)")
+                    .setParameter(1, res.id())
+                    .setParameter(2, res.siteId())
+                    .setParameter(3, res.name())
+                    .setParameter(4, res.ip())
+                    .setParameter(5, res.description())
+                    .setParameter(6, res.type())
+                    .setParameter(7, ts(res.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Resource ports --------------------------------------------------
+        for (var port : safe(p.resourcePorts())) {
+            em.createNativeQuery(
+                            "INSERT INTO resource_ports" +
+                            " (id, resource_id, port, port_end, transport, protocol, label, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+                    .setParameter(1, port.id())
+                    .setParameter(2, port.resourceId())
+                    .setParameter(3, port.port())
+                    .setParameter(4, port.portEnd())
+                    .setParameter(5, port.transport())
+                    .setParameter(6, port.protocol())
+                    .setParameter(7, port.label())
+                    .setParameter(8, ts(port.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Port groups -----------------------------------------------------
+        for (var pg : safe(p.portGroups())) {
+            em.createNativeQuery(
+                            "INSERT INTO port_groups (id, name, description, created_at)" +
+                            " VALUES (?1,?2,?3,?4)")
+                    .setParameter(1, pg.id())
+                    .setParameter(2, pg.name())
+                    .setParameter(3, pg.description())
+                    .setParameter(4, ts(pg.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Port group members ----------------------------------------------
+        for (var m : safe(p.portGroupMembers())) {
+            em.createNativeQuery(
+                            "INSERT INTO port_group_members" +
+                            " (id, port_group_id, port, port_end, transport, protocol, label)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7)")
+                    .setParameter(1, m.id())
+                    .setParameter(2, m.portGroupId())
+                    .setParameter(3, m.port())
+                    .setParameter(4, m.portEnd())
+                    .setParameter(5, m.transport())
+                    .setParameter(6, m.protocol())
+                    .setParameter(7, m.label())
+                    .executeUpdate();
+        }
+
+        // --- ACL grants ------------------------------------------------------
+        for (var g : safe(p.roleResourceGrants())) {
+            em.createNativeQuery(
+                            "INSERT INTO role_resource_grants" +
+                            " (id, role_id, resource_id, all_ports, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5)")
+                    .setParameter(1, g.id())
+                    .setParameter(2, g.roleId())
+                    .setParameter(3, g.resourceId())
+                    .setParameter(4, g.allPorts() ? 1 : 0)
+                    .setParameter(5, ts(g.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- Grant-port links ------------------------------------------------
+        for (var gpl : safe(p.grantPortLinks())) {
+            em.createNativeQuery(
+                            "INSERT INTO role_resource_grant_ports (grant_id, port_id)" +
+                            " VALUES (?1,?2)")
+                    .setParameter(1, gpl.grantId())
+                    .setParameter(2, gpl.portId())
+                    .executeUpdate();
+        }
+
+        // --- Settings: update everything except the host-specific WG fields --
+        if (p.settings() != null) {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            var snap = p.settings();
+            s.wgSubnet = snap.wgSubnet();
+            s.wgClientAllowedIps = snap.wgClientAllowedIps();
+            s.wgClientDns = snap.wgClientDns();
+            s.privateKeyRetention = snap.privateKeyRetention();
+            s.gravatarEnabled = snap.gravatarEnabled();
+            s.oidcAutoProvision = snap.oidcAutoProvision();
+            s.firewallDryRun = snap.firewallDryRun();
+            s.selfServicePeerCreation = snap.selfServicePeerCreation();
+            s.wgMtu = snap.wgMtu();
+            s.wgIncludeMtuInConf = snap.wgIncludeMtuInConf();
+            // wgServerPublicKey + wgServerEndpoint: keep the target hub's own values
+            s.updatedAt = Instant.now();
+            s.updatedBy = "config-import";
+        }
+
+        // --- OIDC providers: update in-place (rows are pre-seeded, never deleted) ---
+        for (var op : safe(p.oidcProviders())) {
+            OidcProvider prov = OidcProvider.findById(op.providerKey());
+            if (prov == null) continue;
+            prov.enabled = op.enabled();
+            prov.clientId = op.clientId();
+            prov.clientSecret = op.clientSecret();
+            prov.tenantId = op.tenantId();
+            prov.allowedDomains = op.allowedDomains();
+            prov.updatedAt = Instant.now();
+            prov.updatedBy = "config-import";
+        }
+
+        return new ConfigExportDto.ImportResult(
+                safe(p.users()).size(),
+                safe(p.roles()).size(),
+                safe(p.peers()).size(),
+                safe(p.sites()).size(),
+                safe(p.resources()).size(),
+                safe(p.portGroups()).size(),
+                safe(p.roleResourceGrants()).size());
+    }
+
+    private static String ts(Instant instant) {
+        return instant != null ? instant.toString() : Instant.now().toString();
+    }
+
+    private static <T> List<T> safe(List<T> list) {
+        return list != null ? list : List.of();
+    }
+}
