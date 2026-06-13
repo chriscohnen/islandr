@@ -2,7 +2,7 @@ package de.chriscohnen.islandr.crypto;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.logging.Logger;
 
 import javax.crypto.Cipher;
@@ -27,9 +27,10 @@ import java.util.Base64;
  *       ({@code LoadCredentialEncrypted=} in the service unit places the key at
  *       {@code /run/credentials/islandr.service/ENCRYPTION_KEY}).
  *   <li>Env var {@code ISLANDR_ENCRYPTION_KEY} (base64, 32 bytes) — fallback for Docker / dev.
+ *   <li>Config property {@code islandr.encryption.key} — test profile only (never in production).
  * </ol>
  *
- * <p>If neither is configured, {@link #isConfigured()} returns {@code false} and the
+ * <p>If none is configured, {@link #isConfigured()} returns {@code false} and the
  * {@code encrypted} retention mode is unavailable. The {@code never} and {@code plaintext} modes
  * continue to work without a key.
  */
@@ -40,12 +41,6 @@ public class EncryptionService {
     private static final String PREFIX = "enc$";
     private static final int GCM_IV_LENGTH = 12;
     private static final int GCM_TAG_BITS = 128;
-
-    // Quarkus config property fallback — used in tests via %test profile.
-    // In production the key comes from ISLANDR_ENCRYPTION_KEY_PATH (systemd-creds)
-    // or ISLANDR_ENCRYPTION_KEY (env var). Never put a real key in application.properties.
-    @ConfigProperty(name = "islandr.encryption.key", defaultValue = "")
-    String configKey;
 
     private SecretKey key;
 
@@ -76,9 +71,14 @@ public class EncryptionService {
                 LOG.errorf("EncryptionService: ISLANDR_ENCRYPTION_KEY is not valid base64: %s", e.getMessage());
             }
         }
-        if (!configKey.isBlank()) {
+        // ConfigProvider.getConfig() is a runtime API call — no injection-point validation,
+        // safe in Quarkus native. Used for the %test profile key; never set in production.
+        String cfgKey = ConfigProvider.getConfig()
+                .getOptionalValue("islandr.encryption.key", String.class)
+                .orElse("");
+        if (!cfgKey.isBlank()) {
             try {
-                key = new SecretKeySpec(Base64.getDecoder().decode(configKey.strip()), "AES");
+                key = new SecretKeySpec(Base64.getDecoder().decode(cfgKey.strip()), "AES");
                 LOG.debug("EncryptionService: key loaded from config property");
                 return;
             } catch (Exception e) {
