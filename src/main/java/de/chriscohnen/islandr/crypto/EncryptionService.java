@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Optional;
 
 /**
  * AES-256-GCM encryption for retained WireGuard private keys (ADR-0007 "encrypted" mode).
@@ -44,8 +45,8 @@ public class EncryptionService {
     // Quarkus config property fallback — used in tests via %test profile.
     // In production the key comes from ISLANDR_ENCRYPTION_KEY_PATH (systemd-creds)
     // or ISLANDR_ENCRYPTION_KEY (env var). Never put a real key in application.properties.
-    @ConfigProperty(name = "islandr.encryption.key", defaultValue = "")
-    String configKey;
+    @ConfigProperty(name = "islandr.encryption.key")
+    Optional<String> configKey;
 
     private SecretKey key;
 
@@ -76,9 +77,9 @@ public class EncryptionService {
                 LOG.errorf("EncryptionService: ISLANDR_ENCRYPTION_KEY is not valid base64: %s", e.getMessage());
             }
         }
-        if (!configKey.isBlank()) {
+        if (configKey.isPresent() && !configKey.get().isBlank()) {
             try {
-                key = new SecretKeySpec(Base64.getDecoder().decode(configKey.strip()), "AES");
+                key = new SecretKeySpec(Base64.getDecoder().decode(configKey.get().strip()), "AES");
                 LOG.debug("EncryptionService: key loaded from config property");
                 return;
             } catch (Exception e) {
