@@ -61,6 +61,22 @@ dependencies {
     testImplementation("org.assertj:assertj-core:3.27.7")
 }
 
+// Force all Netty artifacts to a patched release. The Quarkus BOM (3.29.4)
+// pulls Netty transitively at a version with several CVEs (DNS cache
+// poisoning, memory exhaustion, IPv6 subnet-filter bypass). 4.1.135.Final is a
+// patch bump within the same 4.1.x line the BOM already uses, so it stays
+// compatible without moving off the pinned Quarkus version. The group-wide
+// force overrides the enforcedPlatform constraints and also covers transitive
+// Netty submodules that are not declared directly.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "io.netty") {
+            useVersion("4.1.135.Final")
+            because("CVE fixes patched in Netty 4.1.135.Final; same 4.1.x line as Quarkus 3.29 BOM")
+        }
+    }
+}
+
 group = "de.chriscohnen.islandr"
 version = "0.9.0"
 
