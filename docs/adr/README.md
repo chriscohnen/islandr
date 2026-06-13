@@ -16,8 +16,8 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0006](0006-resource-level-acl.md) | Resource-level ACL with NIST RBAC0 | Accepted | 2026-05-30 |
 | [0007](0007-private-key-retention.md) | Private-key retention policy (instance-wide, two modes in v1) | Accepted | 2026-05-30 |
 | [0008](0008-runtime-settings-in-db.md) | Runtime settings live in the database, not in application.properties | Accepted | 2026-05-30 |
-| [0009](0009-license-eupl-1.2.md) | License: EUPL-1.2 | Accepted | 2026-06-02 |
-| [0010](0010-font-and-icon-asset-self-hosting.md) | Font and icon asset self-hosting | Accepted | 2026-06-02 |
+| [0009](0009-license-eupl-1.2.md) | License: EUPL-1.2 | Accepted | 2026-06-01 |
+| [0010](0010-font-and-icon-asset-self-hosting.md) | Font and icon asset self-hosting | Accepted | 2026-06-04 |
 | [0011](0011-process-privilege-model.md) | Process privilege model: unprivileged user + scoped sudo for nft and wg | Accepted | 2026-06-06 |
 | [0012](0012-docker-socket-proxy.md) | Docker deployment via Unix socket proxy (v2) | Proposed | 2026-06-06 |
 

@@ -1,7 +1,7 @@
 # ADR-0009 — License: EUPL-1.2
 
 **Status:** Accepted
-**Date:** 2026-06-02
+**Date:** 2026-06-01
 **Deciders:** Christian Cohnen
 
 ## Context
@@ -31,18 +31,28 @@ License Islandr under **EUPL-1.2 only**.
 - Copyright holder: Christian Cohnen, 2026.
 - No dual-licensing or "or later" clause — EUPL-1.2 only, to keep the terms stable.
 
-## Pugh Matrix
+## Alternatives considered (Pugh Matrix)
 
-Evaluated against the project quality goals: openness, European legal clarity, and protection against proprietary forks.
+Baseline: **EUPL-1.2** (the decision). +1 better, 0 equal, −1 worse than EUPL-1.2.
 
-| Criterion | MIT | GPL-3.0 | **EUPL-1.2** |
+| Criterion (weight) | EUPL-1.2 (baseline) | MIT | GPL-3.0 |
 |---|---|---|---|
-| Forks stay open | −1 | +1 | **+1** |
-| EU legal enforceability | 0 | 0 | **+1** |
-| Network-use copyleft | −1 | −1 | **+1** |
-| Compatible with major FOSS licenses | +1 | 0 | **+1** |
-| Integrator friction | +1 | −1 | **0** |
-| **Total** | **0** | **−1** | **+4** |
+| Forks stay open (4) | 0 | −1 | 0 |
+| EU legal enforceability (3) | 0 | −1 | −1 |
+| Network-use copyleft / SaaS loophole closed (3) | 0 | −1 | −1 |
+| Explicit patent grant (2) | 0 | −1 | 0 |
+| FOSS license compatibility (2) | 0 | 0 | 0 |
+| Integrator friction (2) | 0 | +1 | −1 |
+| **Weighted total** | **0** | **−10** | **−8** |
+
+Notes:
+
+- **Forks stay open** — both EUPL and GPL-3.0 are strong copyleft; MIT places no obligation on forks → MIT=−1, GPL=0.
+- **EU legal enforceability** — only EUPL is drafted and approved under EU law; neither MIT nor GPL have EU-specific standing → both −1.
+- **Network-use copyleft** — GPL-3.0 does not treat network use as distribution (the AGPL loophole exists in GPL too); EUPL explicitly closes it → both −1.
+- **Explicit patent grant** — EUPL and GPL-3.0 both include explicit patent grants; MIT does not → MIT=−1.
+- **FOSS compatibility** — all three are compatible with major FOSS licenses (EUPL's Appendix lists compatible licenses) → all 0.
+- **Integrator friction** — MIT is permissive for commercial integrators; GPL-3.0 is stricter than EUPL for integrators who cannot comply with copyleft → MIT=+1, GPL=−1.
 
 ## Consequences
 

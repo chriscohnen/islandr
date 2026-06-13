@@ -69,23 +69,33 @@ Line-delimited JSON over a Unix domain socket (SOCK_STREAM). Request: `{"op":"..
 
 A small Go or Rust binary (< 300 lines), statically compiled, installed alongside the islandr native binary. Alternatively a shell script with `socat` for a first prototype. The proxy itself runs as `islandr` user with the same scoped sudoers rules as ADR-0011.
 
-## Alternatives considered
+## Alternatives considered (Pugh Matrix)
 
-| Alternative | Score vs. proxy |
-|-------------|----------------|
-| `--cap-add NET_ADMIN` | -1 — gives container process-level CAP_NET_ADMIN across all namespaces; with `--network host` equivalent to root on the host network stack |
-| Docker socket mount | -1 — full host escape; allows spawning `--privileged` containers |
-| `--pid=host` + nsenter | -1 — equivalent to root; no boundary |
-| systemd only (no Docker) | 0 — valid for v1; rules out operators who prefer containers for process isolation, log aggregation, and image-based deployments |
-| **Unix socket proxy** | baseline — least privilege preserved; container stays unprivileged; proxy is small and auditable |
+Baseline: **Unix socket proxy** (the decision). +1 better, 0 equal, −1 worse.
+
+| Criterion (weight) | Unix socket proxy (baseline) | `--cap-add NET_ADMIN` + `--network host` | Docker socket mount | `--pid=host` + nsenter | systemd only (no Docker) |
+|---|---|---|---|---|---|
+| Container gets no host capabilities (5) | 0 | −1 | −1 | −1 | +1 |
+| Blast radius if container is compromised (4) | 0 | −1 | −1 | −1 | +1 |
+| Supports production Docker deployments (4) | 0 | +1 | +1 | 0 | −1 |
+| Auditable allowed-op surface (3) | 0 | −1 | −1 | −1 | +1 |
+| Deployment complexity (2) | 0 | +1 | +1 | 0 | +1 |
+| **Weighted total** | **0** | **−6** | **−6** | **−24** | **+10** |
+
+Notes:
+
+- **`--cap-add NET_ADMIN`** — with `--network host`, `CAP_NET_ADMIN` inside the container spans all network namespaces on the host; a compromised process has root-equivalent control over every nftables table and interface. Scores identically to Docker socket on the table but the failure mode is different (capability escape vs. container spawn escalation).
+- **Docker socket mount** — `docker.sock` allows spawning `--privileged` containers, which is full host escape. Equally dangerous but via a different path.
+- **`--pid=host` + nsenter** — equivalent to root on the host; worst option.
+- **systemd only** scores +10 and is the current v1 strategy — it is the right answer when Docker is not required. The proxy is chosen for v2 specifically to enable production Docker deployments without surrendering privilege isolation. `systemd only` scores −4 on "supports production Docker" which is the v2 requirement that drives this ADR.
 
 ## Consequences
 
 - v2 adds `islandr-proxy` as a second deliverable (binary + systemd unit).
 - The real `WgAdapter` and `NftAdapter` in islandr gain a socket-client mode alongside the existing `ProcessBuilder` mode.
 - The Docker image graduates from demo-only to production-capable in v2.
-- **R-034** — The proxy socket must be owned by `islandr:islandr` with mode `0600`. If the socket is world-readable, any local process can send commands. Mitigation: systemd `RuntimeDirectory=islandr` sets ownership automatically.
-- **R-035** — The JSON protocol is unauthenticated (Unix socket ownership is the only gate). If another process runs as `islandr` user, it can send proxy commands. Mitigation: same as ADR-0011 R-031 — access as `islandr` already implies islandr is compromised; blast radius is still bounded to the WireGuard and nftables allowlist.
+- **R-120** — The proxy socket must be owned by `islandr:islandr` with mode `0600`. If the socket is world-readable, any local process can send commands. Mitigation: systemd `RuntimeDirectory=islandr` sets ownership automatically.
+- **R-121** — The JSON protocol is unauthenticated (Unix socket ownership is the only gate). If another process runs as `islandr` user, it can send proxy commands. Mitigation: same as ADR-0011 R-111 — access as `islandr` already implies islandr is compromised; blast radius is still bounded to the WireGuard and nftables allowlist.
 
 ## References
 

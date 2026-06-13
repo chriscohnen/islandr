@@ -1,6 +1,6 @@
 # ADR-0007 — Private-key retention policy (instance-wide, two modes in v1)
 
-**Status:** Accepted
+**Status:** Accepted (updated 2026-06-08 — `encrypted` mode implemented)
 **Date:** 2026-05-30
 **Deciders:** Christian Cohnen
 
@@ -27,20 +27,58 @@ A first attempt at this ADR (in OQ-1's original resolution) picked `never` as th
 
 - `never` (default) — server generates keypair, returns private key in the create-peer response body once, never persists it. No subsequent endpoint can return it. Recovery from lost artefact = regenerate peer.
 - `plaintext` — server generates keypair, returns it in the create-peer response, **also** persists it in the `peers.private_key_pem` column unencrypted. `GET /api/v1/peers/{id}/conf` re-renders the `.conf` and QR on demand. PiVPN-equivalent behaviour. Audit-logged on every re-display.
+- `encrypted` — same as `plaintext`, but the private key is stored AES-256-GCM encrypted. The encryption key is never written to the database. T-007 (DB-file exfiltration) requires a separate key compromise to recover any peer private key.
 
 **Not per-peer.** The mode is set once at the instance level and applies to every peer created from that point forward. Per-peer toggles invite "oops I clicked the wrong checkbox" leaks and make the threat model unfalsifiable ("which peers on this hub have keys server-side?" should have a single answer: all of them, or none).
 
-**`encrypted` mode deferred to v2.** Adds master-key management (where does it live? env var? hardware token? Vault?), key rotation policy, decryption on every re-display. We don't have evidence that the operator wants the middle option enough to justify the complexity now. Easy to add later: extend the enum, fill the column with ciphertext instead of plaintext.
+**`encrypted` mode is now implemented in v1** (implemented 2026-06-08; previously deferred). Encryption key delivery uses systemd-creds as the primary channel (machine-bound, no plaintext on disk) with an env-var fallback for Docker / dev use.
 
 ### Mode-specific behaviour
 
-| Aspect | `never` | `plaintext` |
-|---|---|---|
-| `peers.private_key_pem` column | Always `NULL` | Populated on insert |
-| `POST /users/{id}/peers` response | Includes `privateKey`, `conf`, `qrPngBase64` | Same |
-| `GET /peers/{id}/conf` | `404 Not Found` (with explanation body) | `200` with `conf` + `qrPngBase64` |
-| Audit on re-display | N/A | `PEER_CONF_RESHOW` entry, every call |
-| Allowed in `prod` profile | Yes | Yes, but admin sees a banner: "Private keys are stored unencrypted." |
+| Aspect | `never` | `plaintext` | `encrypted` |
+|---|---|---|---|
+| `peers.private_key_pem` column | Always `NULL` | Plaintext WireGuard key (44 chars) | `enc$` + Base64(IV ∥ ciphertext ∥ GCM tag) (~100 chars) |
+| `POST /users/{id}/peers` response | Includes `privateKey`, `conf`, `qrPngBase64` | Same | Same — key is decrypted before the response |
+| `GET /peers/{id}/conf` | `404 Not Found` (with explanation body) | `200` with `conf` + `qrPngBase64` | `200` — key decrypted on demand, never returned in stored form |
+| Audit on re-display | N/A | `PEER_CONF_RESHOW` entry, every call | Same |
+| Allowed in `prod` profile | Yes | Yes, but admin sees a banner: "Private keys are stored unencrypted." | Yes — recommended when `plaintext` is needed |
+| Required setup | None | None | Encryption key delivered via systemd-creds or `ISLANDR_ENCRYPTION_KEY` env var |
+
+### `encrypted` mode — key delivery
+
+The encryption master key is a 32-byte AES-256 key delivered out-of-band, never stored in the database:
+
+**systemd-creds (recommended for production):**
+```bash
+# Generate and encrypt the key, bound to this machine's TPM2:
+openssl rand -base64 32 | systemd-creds encrypt --tpm2=yes - /etc/islandr/kek.cred
+
+# Add to /etc/systemd/system/islandr.service:
+LoadCredentialEncrypted=ENCRYPTION_KEY:/etc/islandr/kek.cred
+
+# systemd decrypts and delivers it to:
+# /run/credentials/islandr.service/ENCRYPTION_KEY
+
+# Set in /etc/islandr/env:
+ISLANDR_ENCRYPTION_KEY_PATH=/run/credentials/islandr.service/ENCRYPTION_KEY
+```
+
+**Env-var fallback (Docker / dev):**
+```bash
+export ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)
+```
+
+### Mode migration (automatic)
+
+When the admin changes the retention mode in Settings, all existing stored keys are migrated atomically in the same DB transaction:
+
+| Transition | Effect |
+|---|---|
+| `plaintext` → `encrypted` | All plaintext keys are encrypted in-place |
+| `encrypted` → `plaintext` | All encrypted keys are decrypted in-place |
+| any → `never` | All stored keys are set to `NULL` (irreversible) |
+
+Changing from `encrypted` without a configured key results in a `400` error.
 
 ### Default rationale
 

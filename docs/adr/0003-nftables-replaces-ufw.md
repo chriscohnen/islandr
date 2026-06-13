@@ -26,30 +26,20 @@ Use **nftables** directly via the `nft` CLI. Drop ufw on the hub VM entirely.
 - The ruleset is **fully recomputed** from DB state on every relevant change. No partial-update path exists.
 - The recompute writes a string to a temp file, validates with `nft -c -f <tempfile>`, and on success replaces the live table with `nft -f <tempfile>`. nftables guarantees atomic table replacement.
 - If validation fails: log the `nft` stderr, keep the existing live table, surface the error in the UI.
-- Per-peer allowed-target sets are stored as nftables named sets (`set peer_10_8_0_5_allowed { type ipv4_addr; flags interval; elements = { 10.10.1.0/24, 10.10.2.0/24 } }`). Using sets keeps the rule count low even with many peers.
+- ACL target granularity is per `(peer.assignedIP, resource.ip, transport, port)` tuple — one `accept` rule per tuple. Site CIDRs are **not** used as nftables targets; they appear only in peer `.conf` `AllowedIPs` for routing. ([ADR-0006](0006-resource-level-acl.md) defines this granularity and supersedes the named-set approach considered during initial design.) This keeps the ruleset explicit, auditable, and easy to verify with `nft list ruleset`.
 - ufw is masked at the systemd level (`systemctl mask ufw`) so an admin reflex of `ufw allow 22` doesn't conflict with the Islandr-owned table.
 - SSH and the Islandr HTTPS port are **not** managed in the `islandr` table. They live in a separate `inet filter input` table maintained out-of-band by the operator, so an Islandr bug cannot lock the operator out.
 
-Example generated ruleset (illustrative):
+Example generated ruleset (illustrative — peer 10.8.0.5 has RDP+SSH to Terminal-01; peer 10.8.0.6 has RDP only):
 
 ```nftables
 table inet islandr {
-  set peer_10_8_0_5_allowed {
-    type ipv4_addr
-    flags interval
-    elements = { 10.10.1.0/24, 10.10.2.0/24 }
-  }
-  set peer_10_8_0_6_allowed {
-    type ipv4_addr
-    flags interval
-    elements = { 10.20.0.0/16 }
-  }
-
   chain forward {
     type filter hook forward priority 0; policy drop;
 
-    iifname "wg0" ip saddr 10.8.0.5 ip daddr @peer_10_8_0_5_allowed accept
-    iifname "wg0" ip saddr 10.8.0.6 ip daddr @peer_10_8_0_6_allowed accept
+    iifname "wg0" ip saddr 10.8.0.5 ip daddr 10.20.0.5 tcp dport 3389 accept
+    iifname "wg0" ip saddr 10.8.0.5 ip daddr 10.20.0.5 tcp dport 22 accept
+    iifname "wg0" ip saddr 10.8.0.6 ip daddr 10.20.0.5 tcp dport 3389 accept
   }
 }
 ```

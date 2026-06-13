@@ -1,0 +1,73 @@
+# 11. Risks and Technical Debt
+
+## 11.1 Risks
+
+Risks are ordered by priority (probability × impact). Each risk references the ADR that created it and the mitigation in Chapter 8 or quality scenario where one exists.
+
+**Probability:** H = High (>50%), M = Medium (10–50%), L = Low (<10%), Permanent = accepted ongoing condition
+**Impact:** H = High (data loss, security breach, service outage), M = Medium (degraded functionality), L = Low (minor friction)
+
+### High Priority
+
+| ID | Risk | Prob. | Impact | Priority | Mitigation | Source |
+|---|---|---|---|---|---|---|
+| R-031 | SQLite used in a team-sized deployment without replication or backup strategy. Single-file DB on a failing disk means data loss. | M | H | **High** | Documentation clearly states team self-hosters should use PostgreSQL. README does not bury this. | [ADR-0004](../adr/0004-sqlite-dev-postgres-prod.md) |
+| R-040 | UCG-side firewall rules drift from Islandr's ACL model in v1. No enforcement exists for what UCG actually allows. An admin may change UCG rules manually without updating Islandr. | H | M | **High** | v1 limitation — documented clearly. v2 pull-mode agent closes the gap. Admin Console shows Islandr's computed ruleset, not UCG's actual state. See §8.4 (dashboard shows last-known reload status). | [ADR-0005](../adr/0005-hub-only-firewall.md) |
+| R-062 | Backup files (SQLite `.db` snapshots, Postgres dumps) in `plaintext` retention mode contain every peer's private key. Off-host backup exposure is entirely the operator's responsibility. | M | H | **High** | Documented loudly in README.md; the `plaintext` Admin Console banner repeats this point. See §8.2 (no credential storage, least privilege). | [ADR-0007](../adr/0007-private-key-retention.md) |
+
+### Medium Priority
+
+| ID | Risk | Prob. | Impact | Priority | Mitigation | Source |
+|---|---|---|---|---|---|---|
+| R-001 | Native-image reflection/serialization bugs: code that works on JVM breaks on native due to missing reflection config or missing native-image metadata. | M | M | **Medium** | Run integration tests against the native binary in CI, not only the JVM build. Track config in `src/main/resources/META-INF/native-image/`. See §8.3 (integration tests cover native binary). | [ADR-0001](../adr/0001-quarkus-backend.md) |
+| R-002 | Native build requires ≥ 6–8 GB RAM. Fails silently on undersized CI runners or local machines. | H | L | **Medium** | Native build runs only on `main` and tags, not on every PR. Builders are ubuntu-latest (≥ 7 GB RAM). | [ADR-0001](../adr/0001-quarkus-backend.md) |
+| R-020 | A bug in the ruleset generator produces a syntactically valid but semantically wrong ruleset (e.g. drops all traffic) that passes `nft -c -f`. Validation catches syntax, not intent. | L | H | **Medium** | Integration-test the generator against known peer/role/resource fixtures with golden-file expected rulesets. "Preview ruleset" view in Admin Console before apply. See §8.3 (firewall adapter tests), §8.5 (nft error handling). | [ADR-0003](../adr/0003-nftables-replaces-ufw.md) |
+| R-034 | SQLite is not an official Quarkus extension. Native-image friction: reflection config, JNI metadata. May surface as intermittent failures in native builds. | M | M | **Medium** | Validate native build with SQLite as the first build artifact. Tracked as the first thing to fail and fix. Workaround: PostgreSQL if friction is sustained. | [ADR-0004](../adr/0004-sqlite-dev-postgres-prod.md) |
+| R-043 | A compromised hub can publish malicious ACL change instructions that the v2 pull-mode agent applies. The hub becomes a vector for reconfiguring the trusted-network firewall. | L | H | **Medium** | v2 agent-side policy (e.g. require operator approval for ACL changes outside an expected diff envelope); audit trail on the agent side independent of the hub. See §8.1 T-001. | [ADR-0005](../adr/0005-hub-only-firewall.md) |
+| R-051 | L4-only enforcement misunderstood as L7 enforcement. An admin grants "RDP only" but SSH over port 3389 is not blocked. | M | M | **Medium** | Admin Console labels the protocol field "Anzeige im Portal" (not a security control). Tooltip and docs name the L4/L7 boundary explicitly. | [ADR-0006](../adr/0006-resource-level-acl.md) |
+| R-054 | A poorly-scoped all-ports grant silently widens access when admins later add ports to a resource. No explicit admin action is required for the expansion to take effect. | M | M | **Medium** | UI shows "wird automatisch erweitert wenn neue Ports hinzukommen" warning on ⓐ-grants; audit log records "port added to resource X, role Y had ⓐ grant → N new accept rules" with a diff. | [ADR-0006](../adr/0006-resource-level-acl.md) |
+| R-060 | DB-file exfiltration exposes peer private keys in `plaintext` retention mode. | M | M | **Medium** | Use `encrypted` retention mode ([ADR-0007](../adr/0007-private-key-retention.md)): AES-256-GCM at rest, key delivered via systemd-creds. A DB-only attacker cannot recover keys without the separate master key. `plaintext` mode shows a permanent Admin Console banner. See §8.2, §8.1 T-007. | [ADR-0007](../adr/0007-private-key-retention.md) |
+| R-063 | `GET /peers/{id}/conf` is a re-display endpoint; a stolen admin session cookie grants access to every stored peer `.conf` file in `plaintext` or `encrypted` mode. | L | H | **Medium** | Same authentication requirements as the create endpoint; in v2 the system-role check restricts this to `ADMIN`s only (END_USERs can only re-display their own peers via `/me/peers/{id}/conf`). See §8.2, §8.1 T-002. | [ADR-0007](../adr/0007-private-key-retention.md) |
+| R-070 | Hub VM is internet-exposed. Targeted attacker exploiting a vulnerability in the Quarkus HTTP layer or a dependency gets code execution. | L | H | **Medium** | Unprivileged process user (ADR-0011). CVE scanning via Dependabot + CodeQL. Hardening guide (fail2ban, SSH key only, no password auth). See §8.2 (least privilege, CVE tracking), §8.1 T-009. | [ADR-0011](../adr/0011-process-privilege-model.md) |
+| R-110 | The fixed nft file path `/var/lib/islandr/ruleset.nft` must be writable only by the `islandr` user. If another process can write to that path, it can inject arbitrary nftables rules via the sudo grant. | L | H | **Medium** | `chmod 700 /var/lib/islandr/`; only `islandr` user owns the directory. See §8.2, §8.1 T-003. | [ADR-0011](../adr/0011-process-privilege-model.md) |
+| R-113 | A distro update that changes the path of `nft` or `wg` (e.g. from `/usr/sbin/nft` to `/usr/bin/nft`) silently breaks the sudoers rule, leaving Islandr unable to reload the firewall. | L | H | **Medium** | Deployment script uses `which nft` and `which wg` to verify paths match the sudoers file; CI smoke test calls `sudo -l -U islandr` and asserts expected commands are listed. See §8.5 (startup failure handling). | [ADR-0011](../adr/0011-process-privilege-model.md) |
+| R-120 | The v2 proxy socket `/run/islandr/proxy.sock` must be owned by `islandr:islandr` (mode 0600). If the socket is world-readable, any local process can send proxy commands. | L | H | **Medium** | systemd `RuntimeDirectory=islandr` sets ownership automatically. See §8.2. | [ADR-0012](../adr/0012-docker-socket-proxy.md) |
+
+### Low Priority
+
+| ID | Risk | Prob. | Impact | Priority | Mitigation | Source |
+|---|---|---|---|---|---|---|
+| R-003 | Long-running `ProcessBuilder` calls for `nft -f` block a Quarkus I/O thread, causing request timeouts under concurrent load. | L | M | **Low** | Run `ProcessBuilder` calls on Quarkus's worker pool, not the I/O thread; bound execution time. See §8.3. | [ADR-0001](../adr/0001-quarkus-backend.md) |
+| R-021 | Operators familiar with ufw undo the systemd masking and add conflicting `ufw allow` rules outside Islandr's table. | L | M | **Low** | Document loudly in README.md and in the systemd unit description that ufw is masked deliberately. | [ADR-0003](../adr/0003-nftables-replaces-ufw.md) |
+| R-022 | SSH and the Islandr HTTPS port living in a separate `inet filter input` table means two firewall surfaces on the hub VM. An operator mis-editing the input table could lock themselves out. | L | M | **Low** | Ship a documented "minimal input table" template alongside Islandr; deployment guide spells out the boundary explicitly. | [ADR-0003](../adr/0003-nftables-replaces-ufw.md) |
+| R-023 | Distros without nftables (older systems, niche derivatives) are unsupported. An operator installs Islandr on an incompatible host and gets opaque failures. | L | L | **Low** | Minimum distro version stated in PRD N-02. Startup check verifies `nft` is present and reachable. | [ADR-0003](../adr/0003-nftables-replaces-ufw.md) |
+| R-030 | "Portable SQL only" constraint erodes: a developer adds a Postgres `JSONB` column or SQLite-specific `CHECK` and breaks the other backend. | L | M | **Low** | Both CI jobs (SQLite + Postgres) must stay green. Rule documented in `CONTRIBUTING.md`. | [ADR-0004](../adr/0004-sqlite-dev-postgres-prod.md) |
+| R-032 | Flyway migrations that pass on SQLite may fail on PostgreSQL due to subtle dialect differences (default value syntax, identifier casing, constraint syntax). | L | M | **Low** | Flyway runs in CI on both backends; migrations are tested, not assumed portable. | [ADR-0004](../adr/0004-sqlite-dev-postgres-prod.md) |
+| R-033 | The activity-samples table approaches a write-rate concern on SQLite with mid-hundreds of peers (30s polling × N peers × 30 days). | M | L | **Low** | Documented limit; operators near the limit migrate to PostgreSQL. See §8.4 (activity samples retention). | [ADR-0004](../adr/0004-sqlite-dev-postgres-prod.md) |
+| R-035 | A future contributor adds a dependency under an EUPL-incompatible license; the combined work enters a license conflict. | L | M | **Low** | Check dependency licenses before merging any new dependency. Dependabot keeps existing deps updated. | [ADR-0009](../adr/0009-license-eupl-1.2.md) |
+| R-042 | The v2 pull-mode agent introduces a new component to design, build, secure, and operate. Plan accordingly; do not block v1 on it. | M | L | **Low** | Deferred to v2. Not a v1 concern. | [ADR-0005](../adr/0005-hub-only-firewall.md) |
+| R-050 | Ruleset size grows linearly with `(enabled peers × granted ports)`. At 200 peers × 20 avg granted ports = 4,000 accept rules. Performance degrades above ~10,000 rules. | L | L | **Low** | Count rules on every reload. Warn in Admin Console dashboard above configurable threshold (default 10,000). | [ADR-0006](../adr/0006-resource-level-acl.md) |
+| R-052 | Resource maintenance falls entirely on the admin — no auto-discovery means every new server must be manually added as a resource. | M | L | **Low** | An import API endpoint accepts JSON/CSV of `(site, ip, name, ports)` so power-users can script bulk additions. | [ADR-0006](../adr/0006-resource-level-acl.md) |
+| R-053 | Sites with many resources produce wide ACL matrix UIs; the Roles × Resources matrix becomes hard to navigate. | L | L | **Low** | Matrix is per-site (one tab per site, default to "most-granted site"), not a single table. | [ADR-0006](../adr/0006-resource-level-acl.md) |
+| R-061 | A mode change from `plaintext` → `never` sets all stored key rows to NULL. Any operator who expected re-display to remain available loses all stored keys without warning. | L | M | **Low** | A one-shot CLI / admin endpoint `purge-private-keys` that NULLs the column explicitly. Documented in the operations guide. Audit entry per row. | [ADR-0007](../adr/0007-private-key-retention.md) |
+| R-064 | Audit log of `PEER_CONF_RESHOW` events grows quickly when used in scripts or automation. | L | L | **Low** | Acceptable; the audit table is append-only and the retention story already exists (PRD F-15). | [ADR-0007](../adr/0007-private-key-retention.md) |
+| R-111 | The `wg set wg0 *` wildcard allows any `wg set` arguments for `wg0`. A malicious caller with a shell as `islandr` could inject a crafted peer with modified allowed-IPs. | L | M | **Low** | Access as `islandr` already implies islandr is compromised — the blast radius is still bounded to WireGuard peer management on `wg0`. | [ADR-0011](../adr/0011-process-privilege-model.md) |
+| R-121 | The v2 proxy JSON protocol is unauthenticated; Unix socket ownership is the only gate. Any process running as `islandr` user can send proxy commands. | L | M | **Low** | Same as R-111 — access as `islandr` already implies compromise; blast radius bounded to the WireGuard and nftables allowlist. | [ADR-0012](../adr/0012-docker-socket-proxy.md) |
+
+### Accepted (no further mitigation planned)
+
+| ID | Risk | Rationale |
+|---|---|---|
+| R-041 | Lateral movement within a site is not blocked by Islandr. A peer with RDP access to Terminal-01 can use Terminal-01 as a pivot to reach other hosts in the same VLAN. | Documented limitation. Operators who need intra-site ACL configure it in UCG natively. Source: [ADR-0005](../adr/0005-hub-only-firewall.md), [ADR-0006](../adr/0006-resource-level-acl.md). |
+| R-112 | Docker container deployment requires `--cap-add NET_ADMIN` and `--network host` to call `nft`/`wg` on the host, violating least-privilege. v1 Docker image uses mock adapters only. | v1 Docker is demo/dev only. Production Docker support is deferred to v2 via Unix socket proxy (ADR-0012). Source: [ADR-0011](../adr/0011-process-privilege-model.md). |
+
+---
+
+## 11.2 Technical Debt
+
+| ID | Item | Burden on | Description |
+|---|---|---|---|
+| TD-001 | No end-to-end firewall enforcement tests in CI | `firewall` package | `RealNftablesAdapter` is never tested in CI — only `MockNftablesAdapter` and `DryRunNftablesAdapter`. A rule generation bug that passes `nft -c -f` but produces the wrong ACL would not be caught until production. Fixing requires a CI environment with nftables and `CAP_NET_ADMIN`. |
+| TD-002 | Activity geocoding schema exists but is unimplemented | `peer` package | `V27__add_geocoding.sql` added geocoding columns. No geocoding service is wired up. Columns exist in DB but are always `NULL`. PRD F-14 (show city/IP) is not satisfied. |
+| TD-003 | Hand-rolled i18n | Frontend (all) | `src/main/resources/META-INF/resources/js/i18n.js` is a custom key/value store with no pluralization, no number formatting, no date formatting. Sufficient for the current German-only scope; will become friction when adding EN or additional locales. |
+| TD-004 | No OpenAPI spec | REST API | The REST API has no generated OpenAPI/Swagger document. Endpoint shapes are described only in PRD §9 and integration tests. Scripting and future agents have no machine-readable contract. |

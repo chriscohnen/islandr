@@ -104,10 +104,10 @@ Notes:
 
 **Risks created**
 
-- **R-030** — The fixed nft file path `/var/lib/islandr/ruleset.nft` must be writable only by the `islandr` user. If another process can write to that path, it can inject arbitrary nftables rules via the sudo grant. Mitigation: `chmod 700 /var/lib/islandr/`; only `islandr` user owns the directory.
-- **R-031** — The `wg set wg0 *` wildcard allows any `wg set` arguments for `wg0`. A malicious caller that already has a shell as `islandr` could inject a peer with a crafted public key or allowed-IPs. Mitigation: access as `islandr` already implies islandr is compromised — the blast radius is still bounded to WireGuard peer management on `wg0`.
-- **R-032** — The Docker image cannot safely call `nft`/`wg` on the host without elevated container capabilities (`--cap-add NET_ADMIN`, `--network host`), which violate least-privilege. Mitigation: the v1 Docker image uses mock adapters only (demo/dev). Production Docker support is deferred to v2 via a Unix socket proxy (ADR-0012).
-- **R-033** — A distro update that changes the path of `nft` or `wg` (e.g. from `/usr/sbin/nft` to `/usr/bin/nft`) silently breaks the sudoers rule. Mitigation: deployment script uses `which nft` and `which wg` to verify paths match the sudoers file; CI smoke test calls `sudo -l -U islandr` and asserts the expected commands are listed.
+- **R-110** — The fixed nft file path `/var/lib/islandr/ruleset.nft` must be writable only by the `islandr` user. If another process can write to that path, it can inject arbitrary nftables rules via the sudo grant. Mitigation: `chmod 700 /var/lib/islandr/`; only `islandr` user owns the directory.
+- **R-111** — The `wg set wg0 *` wildcard allows any `wg set` arguments for `wg0`. A malicious caller that already has a shell as `islandr` could inject a peer with a crafted public key or allowed-IPs. Mitigation: access as `islandr` already implies islandr is compromised — the blast radius is still bounded to WireGuard peer management on `wg0`.
+- **R-112** — The Docker image cannot safely call `nft`/`wg` on the host without elevated container capabilities (`--cap-add NET_ADMIN`, `--network host`), which violate least-privilege. Mitigation: the v1 Docker image uses mock adapters only (demo/dev). Production Docker support is deferred to v2 via a Unix socket proxy (ADR-0012).
+- **R-113** — A distro update that changes the path of `nft` or `wg` (e.g. from `/usr/sbin/nft` to `/usr/bin/nft`) silently breaks the sudoers rule. Mitigation: deployment script uses `which nft` and `which wg` to verify paths match the sudoers file; CI smoke test calls `sudo -l -U islandr` and asserts the expected commands are listed.
 
 **Accepted trade-offs**
 
