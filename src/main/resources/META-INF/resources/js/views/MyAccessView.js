@@ -69,6 +69,18 @@ export default defineComponent({
       }
       return t("myaccess.title");
     },
+    // Own view with no devices yet → the setup guide leads the page and is
+    // auto-expanded. Once a device exists (or an admin views another user),
+    // the guide collapses to a single bar and the daily-use sections lead.
+    isOnboarding() {
+      return !this.viewAsUserId && this.peers.length === 0;
+    },
+    detectedPlatformLabel() {
+      return {
+        ios: "iOS", macos: "macOS", windows: "Windows",
+        android: "Android", linux: "Linux",
+      }[this.detectedPlatform] || "";
+    },
   },
   async mounted() {
     if (this.$route.query.as) {
@@ -404,13 +416,17 @@ export default defineComponent({
 
     <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
 
-    <div v-else-if="peers.length === 0 && !viewAsUserId" style="max-width:700px">
+    <div v-else class="myaccess-stack" :class="{ 'is-onboarding': isOnboarding }">
 
-      <!-- Step 1: Install client -->
-      <div style="display:flex; gap:var(--space-4); margin-bottom:var(--space-8)">
-        <span style="width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:var(--text-sm); font-weight:600; flex-shrink:0">1</span>
-        <div style="flex:1; min-width:0">
-          <h2 style="margin:2px 0 var(--space-2); font-size:var(--text-md)">{{ t('myaccess.setup_s1_title') }}</h2>
+      <!-- WireGuard-Client installieren — collapsible; auto-open during onboarding,
+           collapsed to a single bar once a device exists. Hidden in admin view-as. -->
+      <details v-if="!viewAsUserId" class="myaccess-setup" :open="isOnboarding">
+        <summary>
+          <svg class="myaccess-setup-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6,4 10,8 6,12"/></svg>
+          <span class="myaccess-setup-label">{{ t('myaccess.setup_s1_title') }}</span>
+          <span v-if="detectedPlatformLabel" class="myaccess-setup-detected">{{ detectedPlatformLabel }} {{ t('myaccess.setup_detected_suffix') }}</span>
+        </summary>
+        <div class="myaccess-setup-body">
           <p class="field-hint" style="margin-bottom:var(--space-5)">{{ t('myaccess.setup_s1_desc') }}</p>
 
           <div style="display:flex; flex-direction:column; gap:var(--space-2)">
@@ -424,7 +440,7 @@ export default defineComponent({
               <span style="font-weight:500; min-width:72px">macOS</span>
               <span v-if="detectedPlatform==='macos'" style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); padding:1px 6px; border:1px solid var(--accent); border-radius:var(--radius-sm)">{{ t('myaccess.setup_detected') }}</span>
               <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; margin-left:auto">
-                <a href="macappstore://apps.apple.com/app/passepartout-vpn-client/id1348646401" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">
+                <a href="macappstore://apps.apple.com/de/app/passepartout-vpn-client/id1433648537" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">
                   Passepartout&nbsp;<span style="font-size:11px; opacity:0.7">({{ t('myaccess.setup_recommended') }})</span>
                 </a>
                 <a href="macappstore://apps.apple.com/app/wireguard/id1451685025" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">WireGuard</a>
@@ -441,7 +457,7 @@ export default defineComponent({
               <span style="font-weight:500; min-width:72px">iOS</span>
               <span v-if="detectedPlatform==='ios'" style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); padding:1px 6px; border:1px solid var(--accent); border-radius:var(--radius-sm)">{{ t('myaccess.setup_detected') }}</span>
               <div style="display:flex; gap:var(--space-2); flex-wrap:wrap; margin-left:auto">
-                <a href="https://apps.apple.com/app/passepartout-vpn-client/id1517229942" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">
+                <a href="https://apps.apple.com/de/app/passepartout-vpn-client/id1433648537" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">
                   Passepartout&nbsp;<span style="font-size:11px; opacity:0.7">({{ t('myaccess.setup_recommended') }})</span>
                 </a>
                 <a href="https://apps.apple.com/app/wireguard/id1441195209" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">WireGuard</a>
@@ -499,25 +515,30 @@ export default defineComponent({
             </div>
 
           </div>
+
+          <p class="myaccess-legal">{{ t('myaccess.setup_legal') }}</p>
         </div>
-      </div>
+      </details>
 
-      <!-- Step 2: Add device -->
-      <div style="display:flex; gap:var(--space-4)">
-        <span style="width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:var(--text-sm); font-weight:600; flex-shrink:0">2</span>
-        <div>
-          <h2 style="margin:2px 0 var(--space-2); font-size:var(--text-md)">{{ t('myaccess.setup_s2_title') }}</h2>
-          <p class="field-hint" style="margin-bottom:var(--space-4)">{{ t(selfServicePeerCreation ? 'myaccess.setup_s2_self' : 'myaccess.setup_s2_admin') }}</p>
-          <button v-if="selfServicePeerCreation" class="btn btn-primary btn-sm" @click="openCreate">{{ t('myaccess.add_btn') }}</button>
+      <!-- Meine Geräte -->
+      <section class="myaccess-devices">
+        <div class="page-header" style="margin-bottom: var(--space-4)">
+          <h2 style="margin: 0; font-size: var(--text-lg); font-weight: 600">
+            {{ t('myaccess.devices_title') }}
+            <span v-if="peers.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-2)">{{ peers.length }}</span>
+          </h2>
         </div>
-      </div>
 
-    </div>
+        <div v-if="peers.length === 0 && viewAsUserId" class="empty-state">
+          <h2>{{ t('myaccess.empty_title') }}</h2>
+          <p>{{ t('myaccess.empty_desc') }}</p>
+        </div>
 
-    <div v-else-if="peers.length === 0" class="empty-state">
-      <h2>{{ t('myaccess.empty_title') }}</h2>
-      <p>{{ t('myaccess.empty_desc') }}</p>
-    </div>
+        <div v-else-if="peers.length === 0" class="empty-state">
+          <h2>{{ t('myaccess.empty_title') }}</h2>
+          <p>{{ t(selfServicePeerCreation ? 'myaccess.setup_s2_self' : 'myaccess.setup_s2_admin') }}</p>
+          <button v-if="selfServicePeerCreation" class="btn btn-primary btn-sm" @click="openCreate" style="margin-top: var(--space-3)">{{ t('myaccess.add_btn') }}</button>
+        </div>
 
     <table v-else class="table">
       <thead>
@@ -548,12 +569,13 @@ export default defineComponent({
         </tr>
       </tbody>
     </table>
+      </section>
 
-    <!-- Freigegebene Ressourcen -->
-    <div style="margin-top: var(--space-8)">
-      <div class="page-header" style="margin-bottom: var(--space-4)">
-        <h2 style="margin: 0; font-size: var(--text-lg); font-weight: 600">{{ t('myaccess.grants_title') }}</h2>
-      </div>
+      <!-- Freigegebene Ressourcen -->
+      <section class="myaccess-resources">
+        <div class="page-header" style="margin-bottom: var(--space-4)">
+          <h2 style="margin: 0; font-size: var(--text-lg); font-weight: 600">{{ t('myaccess.grants_title') }}</h2>
+        </div>
 
       <div v-if="grantsLoading" class="muted">{{ t('common.loading') }}</div>
 
@@ -711,7 +733,8 @@ export default defineComponent({
             </div>
           </div>
         </template>
-      </div>
+        </div>
+      </section>
     </div>
 
     <div v-if="!viewAsUserId && modalMode" class="modal-backdrop" @click.self="closeModal">

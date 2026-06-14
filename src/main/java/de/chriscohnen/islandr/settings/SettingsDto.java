@@ -27,7 +27,9 @@ public final class SettingsDto {
             String updatedBy,
             boolean setupComplete,
             String version,
-            boolean encryptionKeyConfigured
+            boolean encryptionKeyConfigured,
+            boolean googleWsConfigured,
+            String googleWsImpersonationEmail
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured) {
             return new Response(
@@ -40,9 +42,16 @@ public final class SettingsDto {
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                     version,
-                    encryptionKeyConfigured);
+                    encryptionKeyConfigured,
+                    s.googleWsServiceAccountJson != null && !s.googleWsServiceAccountJson.isBlank(),
+                    s.googleWsImpersonationEmail);
         }
     }
+
+    public record GoogleWorkspaceRequest(
+            String serviceAccountJson,
+            String impersonationEmail
+    ) {}
 
     public record UpdateRequest(
             @NotBlank @ValidCidr

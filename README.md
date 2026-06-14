@@ -258,6 +258,17 @@ islandr/
 - [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
+- [docs/arc42/](docs/arc42/) — Architecture documentation (arc42, 12 chapters, C4 diagrams embedded)
+
+## Architecture diagrams
+
+The C4 model lives in [`architecture/workspace.dsl`](architecture/workspace.dsl) (Structurizr DSL). Diagrams are rendered automatically on every push by CI and committed to `architecture/diagrams/` as PNGs. They are embedded in the arc42 chapters.
+
+To explore the model interactively:
+
+1. Open [`architecture/workspace.dsl`](architecture/workspace.dsl) and copy its contents.
+2. Paste into the [Structurizr DSL editor (playground)](https://structurizr.com/dsl) — the playground has no URL-loading API, copy-paste is the only option.
+3. Alternatively, install the [Structurizr extension for VS Code](https://marketplace.visualstudio.com/items?itemName=systemsarchitect.vscode-structurizr) for local live preview.
 
 ## Contributing & feedback
 

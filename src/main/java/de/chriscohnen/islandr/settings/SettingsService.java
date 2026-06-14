@@ -59,6 +59,22 @@ public class SettingsService {
         return s;
     }
 
+    @Transactional
+    public Settings updateGoogleWorkspace(SettingsDto.GoogleWorkspaceRequest req, String actor) {
+        Settings s = get();
+        if (req.serviceAccountJson() == null || req.serviceAccountJson().isBlank()) {
+            s.googleWsServiceAccountJson = null;
+        } else {
+            String json = req.serviceAccountJson().strip();
+            s.googleWsServiceAccountJson = encSvc.isConfigured() ? encSvc.encrypt(json) : json;
+        }
+        s.googleWsImpersonationEmail = (req.impersonationEmail() == null || req.impersonationEmail().isBlank())
+                ? null : req.impersonationEmail().strip();
+        s.updatedAt = Instant.now();
+        s.updatedBy = actor;
+        return s;
+    }
+
     /**
      * Re-encrypt, decrypt, or null all stored private keys when the retention mode changes.
      * Runs inside the same transaction as {@link #update} so the settings row and key

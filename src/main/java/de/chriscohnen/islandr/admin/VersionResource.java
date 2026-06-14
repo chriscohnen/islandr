@@ -49,7 +49,7 @@ public class VersionResource {
             var node = mapper.readTree(r.body());
             String tag = node.path("tag_name").asText(null);
             String url = node.path("html_url").asText(null);
-            boolean upToDate = tag != null && strip(tag).equals(strip(appVersion));
+            boolean upToDate = tag != null && semverCompare(appVersion, tag) >= 0;
             return new VersionCheckResponse(appVersion, tag, upToDate, url, null);
         } catch (Exception e) {
             LOG.warnf("version check failed: %s", e.getMessage());
@@ -60,6 +60,25 @@ public class VersionResource {
     /** Strip leading 'v' so "v0.9.0" and "0.9.0" compare equal. */
     private static String strip(String v) {
         return (v != null && v.startsWith("v")) ? v.substring(1) : v;
+    }
+
+    /**
+     * Semantic version comparison (major.minor.patch only; ignores pre-release suffix).
+     * Returns negative if a < b, 0 if equal, positive if a > b.
+     */
+    private static int semverCompare(String a, String b) {
+        String[] pa = strip(a).split("[.\\-]", 4);
+        String[] pb = strip(b).split("[.\\-]", 4);
+        for (int i = 0; i < 3; i++) {
+            int va = i < pa.length ? parseIntSafe(pa[i]) : 0;
+            int vb = i < pb.length ? parseIntSafe(pb[i]) : 0;
+            if (va != vb) return Integer.compare(va, vb);
+        }
+        return 0;
+    }
+
+    private static int parseIntSafe(String s) {
+        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return 0; }
     }
 
     public record VersionCheckResponse(

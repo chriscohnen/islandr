@@ -50,15 +50,32 @@ dependencies {
     // Scheduling — for the activity poller (not used yet, but the dependency lives here)
     implementation("io.quarkus:quarkus-scheduler")
 
-    // QR code rendering for peer creation. zxing-javase is the AWT-using subset;
-    // we only use it for in-memory PNG encoding (no display, no GUI).
+    // QR code rendering for peer creation. Only zxing-core (the BitMatrix encoder);
+    // the PNG is written by QrService with java.util.zip — no AWT/ImageIO, so it
+    // works in the GraalVM native image we ship. (Dropped zxing-javase, which pulled
+    // in AWT and failed at runtime in native with "failed to encode QR".)
     implementation("com.google.zxing:core:3.5.3")
-    implementation("com.google.zxing:javase:3.5.3")
 
     // Test
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.rest-assured:rest-assured")
     testImplementation("org.assertj:assertj-core:3.27.7")
+}
+
+// Force all Netty artifacts to a patched release. The Quarkus BOM (3.29.4)
+// pulls Netty transitively at a version with several CVEs (DNS cache
+// poisoning, memory exhaustion, IPv6 subnet-filter bypass). 4.1.135.Final is a
+// patch bump within the same 4.1.x line the BOM already uses, so it stays
+// compatible without moving off the pinned Quarkus version. The group-wide
+// force overrides the enforcedPlatform constraints and also covers transitive
+// Netty submodules that are not declared directly.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "io.netty") {
+            useVersion("4.1.135.Final")
+            because("CVE fixes patched in Netty 4.1.135.Final; same 4.1.x line as Quarkus 3.29 BOM")
+        }
+    }
 }
 
 group = "de.chriscohnen.islandr"

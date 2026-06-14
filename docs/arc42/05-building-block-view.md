@@ -8,7 +8,7 @@ See [Chapter 3](03-system-scope-and-context.md). The C4 Level 1 diagram is there
 
 ### C4 Level 2 — Container View
 
-![Container Diagram](../../architecture/diagrams/Containers.png)
+![Container Diagram](../../architecture/diagrams/structurizr-Containers.png)
 
 ### Container descriptions
 
@@ -23,7 +23,7 @@ See [Chapter 3](03-system-scope-and-context.md). The C4 Level 1 diagram is there
 
 ### C4 Level 3 — Backend Components
 
-![Component Diagram](../../architecture/diagrams/Components.png)
+![Component Diagram](../../architecture/diagrams/structurizr-Components.png)
 
 ### Component descriptions
 

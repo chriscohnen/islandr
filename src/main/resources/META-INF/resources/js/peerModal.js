@@ -158,7 +158,7 @@ export const peerModalMixin = {
         }
         this.$emit("peer-created", { userId: this.modalUserId, peer: this.secret.peer });
       } catch (e) {
-        this.peerError = t("peers.error_load", { error: e.message });
+        this.peerError = t("peers.error_create", { error: e.message });
       } finally {
         this.creatingPeer = false;
       }
