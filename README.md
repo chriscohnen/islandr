@@ -22,10 +22,10 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 
 ---
 
-> [!WARNING]
-> **Early access — not production-ready.**
-> Islandr manages your WireGuard interface directly (`wg set`, `ip link`). A misconfiguration or bug can disconnect peers, change firewall rules, or modify your WireGuard setup in unexpected ways. Always **back up your `/etc/wireguard/` config and your database file** before upgrading.
-> Breaking changes between versions are possible without notice until v1.0. Only install if you are comfortable reading logs and recovering a WireGuard setup manually.
+> [!NOTE]
+> **Early access — perfect for a homelab or a spare VM, not your production gateway just yet.**
+> Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so point it at a test box or lab network first and back up `/etc/wireguard/` and the database before upgrading — pre-1.0 releases can still bring breaking changes.
+> This is exactly the stage where testers make the biggest difference. Kick the tyres, and if you hit a rough edge [open an issue](https://github.com/chriscohnen/islandr/issues) — that feedback is what moves it toward 1.0. Starring or watching the repo is the easiest way to follow releases.
 
 ![Dashboard screenshot](https://islandr-gateway.net/screenshots/light/dashboard.png)
 
