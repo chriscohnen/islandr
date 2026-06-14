@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - architecture/workspace.dsl
+      # Re-render when the workflow itself changes (e.g. the Graphviz install
+      # fix) — otherwise a tooling fix never re-runs while workspace.dsl is
+      # unchanged, leaving stale/broken diagrams committed.
+      - .github/workflows/docs.yml
   workflow_dispatch:
 
 permissions:
