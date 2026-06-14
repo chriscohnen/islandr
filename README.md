@@ -235,23 +235,22 @@ islandr/
 
 **Observability**
 - Audit log with cursor-based pagination, actor/action/target filters, meta-JSON expand
+- Update check — Settings shows the running version with an on-demand button to check GitHub for a newer release; you stay current without leaving the console. No background polling, no telemetry — the check only runs when you click it
 
 **Bilingual UI**
 - German (default) and English, switchable at runtime without reload
 
-**v2 — Usability & convenience**
-- ~~Self-service portal: direct download links for WireGuard clients (Windows, macOS, iOS, Android) next to the QR code — no googling required~~ ✅ in 0.9.0 as full setup guide with platform detection
-- Peer expiry / auto-disable
-- Site map view: geographic topology for multi-site setups (Leaflet + OSM, no Google Maps)
-- ~~Config export / import — set up on a dev machine, import to the production hub~~ ✅ in 0.9.0
-- Google Workspace / Entra ID user import: browse org users, see who is already in Islandr, import selected
-- **Docker production support** via Unix socket proxy — container stays unprivileged, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
-- World map / topology map: sites as pins, active tunnels as lines, Leaflet + OSM
+Planned features are tracked as GitHub issues — 👍 or comment to signal what matters to you. Items already delivered in 0.9.0 (full WireGuard client setup guide, config export/import, IPv6 dual-stack) are listed under [What works today](#what-works-today).
 
-**v3 — Operations**
-- `.deb` package for `apt install islandr` on Ubuntu/Debian
-- API key management for automation
-- ~~**IPv6 peer support** — assigned IPs, ACL rules, and nftables ruleset generation for dual-stack and IPv6-only deployments~~ ✅ in 0.9.0, pulled forward from v3
+**v2 — Usability & convenience** ([milestone](https://github.com/chriscohnen/islandr/milestone/1))
+- [Peer expiry / auto-disable](https://github.com/chriscohnen/islandr/issues/10)
+- [Multi-site map view](https://github.com/chriscohnen/islandr/issues/11) — sites and live tunnels on a map (Leaflet + OSM, no Google Maps)
+- [Google Workspace / Entra ID user import](https://github.com/chriscohnen/islandr/issues/12) — browse org users, import selected
+- [Docker production support](https://github.com/chriscohnen/islandr/issues/13) — unprivileged container via Unix socket proxy, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
+
+**v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))
+- [`.deb` package](https://github.com/chriscohnen/islandr/issues/14) for `apt install islandr` on Ubuntu/Debian
+- [API key management](https://github.com/chriscohnen/islandr/issues/15) for automation
 
 ## Documentation
 
