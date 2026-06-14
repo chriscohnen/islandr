@@ -50,10 +50,11 @@ dependencies {
     // Scheduling — for the activity poller (not used yet, but the dependency lives here)
     implementation("io.quarkus:quarkus-scheduler")
 
-    // QR code rendering for peer creation. zxing-javase is the AWT-using subset;
-    // we only use it for in-memory PNG encoding (no display, no GUI).
+    // QR code rendering for peer creation. Only zxing-core (the BitMatrix encoder);
+    // the PNG is written by QrService with java.util.zip — no AWT/ImageIO, so it
+    // works in the GraalVM native image we ship. (Dropped zxing-javase, which pulled
+    // in AWT and failed at runtime in native with "failed to encode QR".)
     implementation("com.google.zxing:core:3.5.3")
-    implementation("com.google.zxing:javase:3.5.3")
 
     // Test
     testImplementation("io.quarkus:quarkus-junit5")

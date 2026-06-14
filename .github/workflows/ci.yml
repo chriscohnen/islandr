@@ -71,6 +71,59 @@ jobs:
           echo "binary=$BINARY" >> "$GITHUB_OUTPUT"
           sha256sum "$BINARY" | tee build/islandr-runner.sha256
 
+      # Boots the actual native binary (the artifact we ship) and drives peer
+      # creation end-to-end, asserting a QR PNG comes back. This guards the
+      # JVM↔native gap: QR encoding works on the JVM but broke in the native
+      # image when it depended on AWT/ImageIO (FROM scratch has neither). JVM
+      # unit tests can't see that — only running the native binary can.
+      - name: Native smoke test (boot binary, create peer, assert QR)
+        run: |
+          set -euo pipefail
+          BINARY="${{ steps.artifact.outputs.binary }}"
+          chmod +x "$BINARY"
+
+          # Run with the prod profile (as deployed): local admin via env, a
+          # throwaway SQLite DB, default mock wg/nft adapters.
+          ISLANDR_ADMIN_PASSWORD=ci-smoke-pw \
+          QUARKUS_HTTP_PORT=8081 \
+          QUARKUS_DATASOURCE_JDBC_URL="jdbc:sqlite:/tmp/islandr-smoke.db" \
+          "$BINARY" > /tmp/islandr-smoke.log 2>&1 &
+          trap 'kill $! 2>/dev/null || true' EXIT
+
+          # Wait until the HTTP port answers (401 from an authed endpoint = up).
+          code=000
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/v1/peers/next-ip || true)
+            [ "$code" != "000" ] && break
+            sleep 1
+          done
+          [ "$code" != "000" ] || { echo "::error::native binary did not start"; cat /tmp/islandr-smoke.log; exit 1; }
+
+          login=$(curl -s -c /tmp/cj.txt -o /dev/null -w '%{http_code}' \
+            -X POST http://localhost:8081/api/v1/auth/login \
+            -H 'content-type: application/json' \
+            -d '{"username":"admin","password":"ci-smoke-pw"}')
+          [ "$login" = "200" ] || { echo "::error::admin login failed (HTTP $login)"; cat /tmp/islandr-smoke.log; exit 1; }
+
+          USER_ID=$(curl -s -b /tmp/cj.txt -X POST http://localhost:8081/api/v1/users \
+            -H 'content-type: application/json' \
+            -d '{"name":"Smoke","email":"smoke@example.com"}' | jq -r .id)
+          IP=$(curl -s -b /tmp/cj.txt http://localhost:8081/api/v1/peers/next-ip | jq -r .assignedIp)
+          [ -n "$USER_ID" ] && [ "$USER_ID" != "null" ] || { echo "::error::could not create user"; cat /tmp/islandr-smoke.log; exit 1; }
+          echo "created user=$USER_ID, next ip=$IP"
+
+          QR=$(curl -s -b /tmp/cj.txt -X POST "http://localhost:8081/api/v1/users/$USER_ID/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"smoke-device\",\"assignedIp\":\"$IP\"}" | jq -r .qrPngBase64)
+
+          if [[ "$QR" == data:image/png* ]]; then
+            echo "✓ native binary returned a QR PNG"
+          else
+            echo "::error::QR generation failed in the native binary (AWT/ImageIO regression). Got: ${QR:0:40}"
+            cat /tmp/islandr-smoke.log
+            exit 1
+          fi
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
