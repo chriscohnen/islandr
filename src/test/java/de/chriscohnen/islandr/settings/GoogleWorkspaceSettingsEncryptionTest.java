@@ -8,6 +8,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.util.Map;
+
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -20,12 +22,8 @@ import static org.hamcrest.Matchers.is;
 @ExtendWith(AdminSessionExtension.class)
 class GoogleWorkspaceSettingsEncryptionTest {
 
-    static final String FAKE_SA_JSON = """
-            {"type":"service_account","project_id":"test","private_key_id":"kid1",
-             "private_key":"-----BEGIN RSA PRIVATE KEY-----\\nMIIEowIBAAKCAQEA\\n-----END RSA PRIVATE KEY-----\\n",
-             "client_email":"sa@test.iam.gserviceaccount.com","client_id":"123",
-             "auth_uri":"https://accounts.google.com/o/oauth2/auth",
-             "token_uri":"https://oauth2.googleapis.com/token"}""";
+    static final String FAKE_SA_JSON =
+            "{\"type\":\"service_account\",\"project_id\":\"test\",\"client_email\":\"sa@test.iam.gserviceaccount.com\"}";
 
     @Inject SettingsService settingsSvc;
     @Inject EncryptionService encSvc;
@@ -33,7 +31,7 @@ class GoogleWorkspaceSettingsEncryptionTest {
     @AfterEach
     void clearGwsConfig() {
         given().contentType("application/json")
-                .body("{\"serviceAccountJson\":null,\"impersonationEmail\":null}")
+                .body(Map.of())
                 .when().put("/api/v1/settings/google-workspace")
                 .then().statusCode(200);
     }
@@ -43,7 +41,7 @@ class GoogleWorkspaceSettingsEncryptionTest {
         assertThat(encSvc.isConfigured()).isTrue();
 
         given().contentType("application/json")
-                .body("{\"serviceAccountJson\":" + quoteJson(FAKE_SA_JSON) + ",\"impersonationEmail\":\"admin@test.com\"}")
+                .body(Map.of("serviceAccountJson", FAKE_SA_JSON, "impersonationEmail", "admin@test.com"))
                 .when().put("/api/v1/settings/google-workspace")
                 .then().statusCode(200)
                 .body("googleWsConfigured", is(true));
@@ -57,32 +55,27 @@ class GoogleWorkspaceSettingsEncryptionTest {
     @Test
     void saJson_decryptsToOriginalValue() {
         given().contentType("application/json")
-                .body("{\"serviceAccountJson\":" + quoteJson(FAKE_SA_JSON) + ",\"impersonationEmail\":\"admin@test.com\"}")
+                .body(Map.of("serviceAccountJson", FAKE_SA_JSON, "impersonationEmail", "admin@test.com"))
                 .when().put("/api/v1/settings/google-workspace")
                 .then().statusCode(200);
 
         String stored = settingsSvc.get().googleWsServiceAccountJson;
-        String decrypted = encSvc.decrypt(stored);
-        assertThat(decrypted).isEqualTo(FAKE_SA_JSON.strip());
+        assertThat(encSvc.decrypt(stored)).isEqualTo(FAKE_SA_JSON);
     }
 
     @Test
     void clearingConfig_removesStoredJson() {
         given().contentType("application/json")
-                .body("{\"serviceAccountJson\":" + quoteJson(FAKE_SA_JSON) + ",\"impersonationEmail\":\"admin@test.com\"}")
+                .body(Map.of("serviceAccountJson", FAKE_SA_JSON, "impersonationEmail", "admin@test.com"))
                 .when().put("/api/v1/settings/google-workspace")
                 .then().statusCode(200);
 
         given().contentType("application/json")
-                .body("{\"serviceAccountJson\":null,\"impersonationEmail\":null}")
+                .body(Map.of())
                 .when().put("/api/v1/settings/google-workspace")
                 .then().statusCode(200)
                 .body("googleWsConfigured", is(false));
 
         assertThat(settingsSvc.get().googleWsServiceAccountJson).isNull();
-    }
-
-    private static String quoteJson(String json) {
-        return "\"" + json.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
     }
 }
