@@ -261,13 +261,11 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 
 ## Architecture diagrams
 
-The C4 model lives in [`architecture/workspace.dsl`](architecture/workspace.dsl) (Structurizr DSL). Diagrams are rendered automatically on every push by CI and committed to `architecture/diagrams/` as PNGs. They are embedded in the arc42 chapters.
+The C4 model lives in [`architecture/workspace.dsl`](architecture/workspace.dsl) (Structurizr DSL). Diagrams are rendered automatically on every push by CI and committed to `architecture/diagrams/` as PNGs, and embedded in the arc42 chapters.
 
-To explore the model interactively:
+**[Explore the model interactively →](https://islandr-gateway.net/architecture/master/islandr/container/)** — browsable C4 views (context, container, component, deployment), generated from the same DSL and hosted alongside the landing page.
 
-1. Open [`architecture/workspace.dsl`](architecture/workspace.dsl) and copy its contents.
-2. Paste into the [Structurizr DSL editor (playground)](https://structurizr.com/dsl) — the playground has no URL-loading API, copy-paste is the only option.
-3. Alternatively, install the [Structurizr extension for VS Code](https://marketplace.visualstudio.com/items?itemName=systemsarchitect.vscode-structurizr) for local live preview.
+For local editing, the [Structurizr extension for VS Code](https://marketplace.visualstudio.com/items?itemName=systemsarchitect.vscode-structurizr) gives a live preview.
 
 ## Contributing & feedback
 

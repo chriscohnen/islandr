@@ -98,6 +98,20 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
 
     views {
 
+        // ── Static-site rendering (structurizr-site-generatr) ─────────────
+        // Branding for the published interactive site at /architecture.
+        // Ignored by the C4-PlantUML PNG export in docs.yml.
+        properties {
+            "generatr.site.exporter"          "structurizr"
+            "generatr.site.theme"             "light"
+            "plantuml.title"                  "false"
+            "generatr.style.colors.primary"   "#0A1320"
+            "generatr.style.colors.secondary" "#3BBBD2"
+            "generatr.style.logoPath"         "site/logo.svg"
+            "generatr.style.faviconPath"      "site/favicon.png"
+            "generatr.style.customStylesheet" "site/custom.css"
+        }
+
         systemContext islandr "SystemContext" "C4 Level 1 — System Context" {
             include *
             autoLayout lr
