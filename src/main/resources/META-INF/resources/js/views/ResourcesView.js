@@ -26,7 +26,7 @@ export default defineComponent({
       formError: null,
       // Inline port form (one per resource at a time)
       portFormFor: null,
-      portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "" },
+      portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "" },
       portError: null,
       // Port-group apply (separate inline form, one resource at a time)
       portGroups: [],
@@ -189,7 +189,7 @@ export default defineComponent({
     },
     openPortForm(resourceId) {
       this.portFormFor = resourceId;
-      this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "" };
+      this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "" };
       this.portError = null;
       // Close the group-apply UI to keep only one inline form open at a time.
       this.groupFormFor = null;
@@ -226,6 +226,7 @@ export default defineComponent({
             transport: this.portForm.transport,
             protocol: this.portForm.protocol,
             label: this.portForm.label || null,
+            pathPrefix: this.portForm.pathPrefix || null,
           }),
         });
         if (!res.ok) {
@@ -375,6 +376,10 @@ export default defineComponent({
                 <div class="field" style="margin: 0; flex: 1">
                   <label>Label (optional)</label>
                   <input class="input" v-model="portForm.label" placeholder="z.B. Admin RDP" />
+                </div>
+                <div v-if="portForm.protocol === 'HTTP' || portForm.protocol === 'HTTPS'" class="field" style="margin: 0; flex: 1">
+                  <label>Pfad-Präfix (optional)</label>
+                  <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
                 </div>
                 <div style="display: flex; gap: var(--space-2); align-self: flex-end">
                   <button type="submit" class="btn btn-primary btn-sm">Hinzufügen</button>

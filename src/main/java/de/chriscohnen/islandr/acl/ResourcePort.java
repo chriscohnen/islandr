@@ -53,11 +53,15 @@ public class ResourcePort extends PanacheEntityBase {
     @Column(name = "label", length = 255)
     public String label;
 
+    @Column(name = "path_prefix", length = 255)
+    public String pathPrefix;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
     public static ResourcePort createNew(String resourceId, int port, Integer portEnd,
-                                         String transport, String protocol, String label) {
+                                         String transport, String protocol, String label,
+                                         String pathPrefix) {
         ResourcePort p = new ResourcePort();
         p.id = UUID.randomUUID().toString();
         p.resourceId = resourceId;
@@ -66,6 +70,7 @@ public class ResourcePort extends PanacheEntityBase {
         p.transport = transport;
         p.protocol = protocol;
         p.label = label;
+        p.pathPrefix = pathPrefix;
         p.createdAt = Instant.now();
         return p;
     }

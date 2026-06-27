@@ -126,7 +126,8 @@ export default defineComponent({
 
     httpUrl(resource, port) {
       const scheme = port.protocol === "HTTPS" ? "https" : "http";
-      return scheme + "://" + resource.ip + ":" + port.port;
+      const base = scheme + "://" + resource.ip + ":" + port.port;
+      return port.pathPrefix ? base + port.pathPrefix : base;
     },
 
     isWebPort(port) {

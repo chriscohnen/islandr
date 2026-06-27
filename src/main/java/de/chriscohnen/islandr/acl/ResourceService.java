@@ -102,7 +102,7 @@ public class ResourceService {
                                     + " already exists on this resource").build());
         }
         ResourcePort p = ResourcePort.createNew(r.id, req.port(), req.portEnd(), req.transport(),
-                req.protocol(), req.label());
+                req.protocol(), req.label(), req.pathPrefix());
         p.persist();
         return p;
     }
@@ -126,6 +126,7 @@ public class ResourceService {
         p.transport = req.transport();
         p.protocol = req.protocol();
         p.label = req.label();
+        p.pathPrefix = req.pathPrefix();
         return p;
     }
 

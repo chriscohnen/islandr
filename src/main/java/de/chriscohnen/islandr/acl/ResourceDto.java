@@ -33,10 +33,11 @@ public final class ResourceDto {
             String transport,
             String protocol,
             String label,
+            String pathPrefix,
             Instant createdAt
     ) {
         public static PortResponse from(ResourcePort p) {
-            return new PortResponse(p.id, p.port, p.portEnd, p.transport, p.protocol, p.label, p.createdAt);
+            return new PortResponse(p.id, p.port, p.portEnd, p.transport, p.protocol, p.label, p.pathPrefix, p.createdAt);
         }
     }
 
@@ -77,7 +78,9 @@ public final class ResourceDto {
             @Pattern(regexp = "^(tcp|udp|both)$", message = "transport must be 'tcp', 'udp', or 'both'")
             String transport,
             @NotBlank String protocol,
-            String label
+            String label,
+            @Pattern(regexp = "^(/[^\\s]*)?$", message = "pathPrefix must start with /")
+            String pathPrefix
     ) {}
 
     private ResourceDto() {}
