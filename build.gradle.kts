@@ -78,7 +78,7 @@ configurations.all {
 }
 
 group = "de.chriscohnen.islandr"
-version = "0.9.0"
+version = "0.9.1"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
