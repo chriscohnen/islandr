@@ -89,6 +89,16 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "google_ws_impersonation_email", length = 255)
     public String googleWsImpersonationEmail;
 
+    // Hub location for topology map (future). All three fields are optional.
+    @Column(name = "hub_lat")
+    public Double hubLat;
+
+    @Column(name = "hub_lon")
+    public Double hubLon;
+
+    @Column(name = "hub_location_label", length = 255)
+    public String hubLocationLabel;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

@@ -51,6 +51,10 @@ public class SettingsService {
         s.wgIncludeMtuInConf = req.wgIncludeMtuInConf();
         s.nominatimUrl = (req.nominatimUrl() == null || req.nominatimUrl().isBlank())
                 ? null : req.nominatimUrl().strip();
+        s.hubLat = req.hubLat();
+        s.hubLon = req.hubLon();
+        s.hubLocationLabel = (req.hubLocationLabel() == null || req.hubLocationLabel().isBlank())
+                ? null : req.hubLocationLabel().strip();
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
 

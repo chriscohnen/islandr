@@ -23,6 +23,9 @@ public final class SettingsDto {
             Integer wgMtu,
             boolean wgIncludeMtuInConf,
             String nominatimUrl,
+            Double hubLat,
+            Double hubLon,
+            String hubLocationLabel,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete,
@@ -39,6 +42,7 @@ public final class SettingsDto {
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
                     s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
                     s.nominatimUrl,
+                    s.hubLat, s.hubLon, s.hubLocationLabel,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                     version,
@@ -92,7 +96,12 @@ public final class SettingsDto {
             boolean wgIncludeMtuInConf,
 
             // optional — base URL of a Nominatim instance; null/blank = geocoding disabled
-            String nominatimUrl
+            String nominatimUrl,
+
+            // optional — hub location for topology map
+            Double hubLat,
+            Double hubLon,
+            String hubLocationLabel
     ) {}
 
     private SettingsDto() {}
