@@ -66,6 +66,18 @@ All checks run in `PeerService.validateSiteCidrs()`.
 |---|---|---|---|
 | BR-026 | Every mutating API action writes an audit log entry before returning | — | `AuditService` called in each `*Resource.java` (not in `*Service.java`) |
 
+### 1.7 Proxy enforcement availability (v2 — ADR-0012)
+
+These rules govern the v2 Docker deployment, where enforcement runs through `islandr-proxy`. Source locations are planned, not yet implemented.
+
+| ID | Rule | Status | Source location |
+|----|------|--------|-----------------|
+| BR-027 | The container starts and serves the configuration plane (GUI, CRUD, JSON export/import) regardless of proxy-socket availability | — | v2 — socket-client adapter startup probe (planned) |
+| BR-028 | While the proxy socket is absent or unreachable, an enforcing operation (`nft` apply, `wg set`) is persisted as **pending** and the config write still returns success | 200/201 | v2 — degraded adapter (planned) |
+| BR-029 | The degraded adapter never reports a fake success for an enforcing operation; enforcement state stays `unavailable` until a proxy connects (closes R-122) | — | v2 — degraded adapter (planned) |
+| BR-030 | On proxy (re)connect, pending configuration is reconciled via a full recompute and applied before enforcement state becomes `active` | — | v2 — reconcile-on-connect (planned) |
+| BR-031 | Proxy availability is exposed via the API; while degraded the GUI shows an "enforcement unavailable" banner with install instructions | — | v2 — health endpoint + GUI banner (planned) |
+
 ---
 
 ## 2. Peer State Machine
@@ -160,6 +172,32 @@ The happy paths for UC-01/02/03 are in `docs/prd.md` §8. This section adds the 
 - **4a.** `wg.setPeer()` fails → 500; no DB row created. User sees a generic error and may retry.
 - **5a.** nftables recompute fails → same as UC-01 extension 5a. Peer is created, but traffic is governed by the previous firewall state until the next successful recompute.
 
+### UC-04: Operator configures islandr in Docker without the proxy (v2)
+
+**Primary Actor:** Operator (admin)  
+**Trigger:** container started via `docker run` with no `islandr-proxy` socket mounted  
+**ADR reference:** ADR-0012 — configuration plane vs enforcement plane  
+**Scope:** v2 (planned) — there is no PRD happy path yet, so the main scenario is given here.
+
+**Main Success Scenario:**
+
+1. The container boots; the socket-client adapter probes `/run/islandr/proxy.sock`, finds it absent, and sets enforcement state to `unavailable` (BR-027).
+2. The operator opens the GUI and sees an "enforcement unavailable" banner linking to the install instructions (BR-031).
+3. The operator configures peers, users, groups, and ACLs. Each change is persisted and marked pending; the API returns success with a "saved, not yet enforced" indication (BR-028). No enforcing call is faked (BR-029).
+4. The operator runs `install.sh` on the host to bring up the proxy, then mounts its socket into the same container.
+5. The adapter reconnects, reconciles the pending configuration via a full recompute, and applies it; enforcement state becomes `active` and the banner clears (BR-030).
+
+**Extensions:**
+
+- **1a.** Proxy socket present but unreachable (proxy crashed) → same degraded state as step 1; the adapter retries on each enforcing operation and on a periodic probe.
+- **3a.** Operator prefers native operation → exports the full config as JSON (`GET /api/v1/admin/config/export`) and imports it into a native islandr install that already holds privilege; the container is then discarded.
+- **5a.** Reconcile fails (the host `nft` rejects the computed ruleset) → enforcement state is `failed`, the previous host ruleset stays active, and the failure surfaces in the dashboard and audit log (consistent with §6.2 / BR-024).
+
+**Postconditions:**
+
+- **Success:** the configuration built while degraded is enforced on the host; enforcement state `active`.
+- **Degraded (no proxy):** all configuration is persisted and exportable; nothing is enforced, and the GUI says so — no silent gap (R-122).
+
 ---
 
 ## 4. Acceptance Criteria (Gherkin — error paths not covered by existing tests)
@@ -216,4 +254,27 @@ Feature: Site CIDR overlap
     When an admin creates a new site peer with siteAllowedCidrs "192.168.10.0/28"
     Then the server responds with 400
     And the error message references "Office A"
+
+
+Feature: Enforcement degraded mode (v2 — ADR-0012)
+
+  Scenario: Container boots without a proxy (BR-027, BR-031)
+    Given the container is started with no proxy socket mounted
+    When an admin opens the GUI
+    Then the GUI is reachable
+    And an "enforcement unavailable" banner with install instructions is shown
+
+  Scenario: ACL change is saved but not enforced while degraded (BR-028, BR-029)
+    Given the proxy socket is unavailable
+    When an admin applies an ACL change
+    Then the change is persisted and marked pending
+    And the API response indicates "saved, not yet enforced"
+    And no enforcing wg/nft call reports a fake success
+
+  Scenario: Pending config is reconciled on proxy connect (BR-030)
+    Given pending configuration exists from degraded mode
+    When the proxy socket becomes available
+    Then islandr recomputes and applies the full ruleset
+    And enforcement state becomes "active"
+    And the "enforcement unavailable" banner clears
 ```

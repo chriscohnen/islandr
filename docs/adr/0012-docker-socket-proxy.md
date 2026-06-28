@@ -1,7 +1,7 @@
 # ADR-0012 — Docker deployment via Unix socket proxy (v2)
 
-**Status:** Proposed
-**Date:** 2026-06-06
+**Status:** Accepted
+**Date:** 2026-06-06 (proposed) · 2026-06-28 (accepted)
 **Deciders:** Christian Cohnen
 
 ## Context
@@ -24,7 +24,7 @@ Container                          Host
 islandr-binary
   │
   │  JSON over Unix socket:
-  │  {"op":"nft_reload","path":"/var/lib/islandr/ruleset.nft"}
+  │  {"op":"nft_reload"}            (ruleset path is a server constant)
   │  {"op":"wg_set_peer","interface":"wg0","pubkey":"...","allowedIps":"..."}
   │
   └── /run/islandr/proxy.sock ────► islandr-proxy.service (host)
@@ -39,13 +39,13 @@ islandr-binary
 
 ### What the proxy allows (complete allowlist)
 
-| Op | Command | Constraints |
-|----|---------|-------------|
-| `nft_reload` | `sudo nft -f <path>` | path must be `/var/lib/islandr/ruleset.nft` |
-| `nft_flush` | `sudo nft flush ruleset islandr` | no args |
-| `wg_set_peer` | `sudo wg set wg0 peer <pubkey> allowed-ips <cidr>` | interface fixed to `wg0`; pubkey and CIDR validated by format |
-| `wg_remove_peer` | `sudo wg set wg0 peer <pubkey> remove` | same constraints |
-| `wg_show` | `sudo wg show wg0 dump` | read-only |
+| Op               | Command                                            | Constraints                                                   |
+| ---------------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| `nft_reload`     | `sudo nft -f /var/lib/islandr/ruleset.nft`         | ruleset path is a server-side constant, not a request field   |
+| `nft_flush`      | `sudo nft flush ruleset islandr`                   | no args                                                       |
+| `wg_set_peer`    | `sudo wg set wg0 peer <pubkey> allowed-ips <cidr>` | interface fixed to `wg0`; pubkey and CIDR validated by format |
+| `wg_remove_peer` | `sudo wg set wg0 peer <pubkey> remove`             | same constraints                                              |
+| `wg_show`        | `sudo wg show wg0 dump`                            | read-only                                                     |
 
 Anything outside this list is rejected with an error — the proxy has no shell, no exec, no wildcard.
 
@@ -61,29 +61,49 @@ docker run \
 
 No `--cap-add`, no `--network host`, no `--privileged`.
 
+### Configuration plane vs enforcement plane (running without the proxy)
+
+islandr separates two planes. The **configuration plane** — GUI, peers, users, groups, ACLs, settings, audit, JSON export/import — runs unconditionally inside the container and persists to its volume. The **enforcement plane** — pushing the computed ruleset to `nft` and peers to `wg` on the host kernel — is the only part that needs privilege, and privilege cannot be bootstrapped from an unprivileged container (the premise of this ADR and of ADR-0011).
+
+So the container **always boots, with or without the proxy**. The socket-client `WgAdapter`/`NftAdapter` probe `/run/islandr/proxy.sock` at startup and per operation; when it is absent or unreachable, islandr runs in a degraded **"enforcement unavailable"** state instead of failing. A bare `docker run` — volume and port, no socket mount — therefore gives the full GUI to explore, evaluate, and build a complete configuration:
+
+```bash
+docker run -v islandr-data:/var/lib/islandr -p 8080:8080 ghcr.io/chriscohnen/islandr:latest
+```
+
+The GUI surfaces proxy availability honestly: a persistent banner ("Socket-Proxy nicht verfügbar — Konfiguration wird gespeichert, aber nicht durchgesetzt") linking to the install instructions, plus per-change feedback ("gespeichert, noch nicht durchgesetzt"). Changes made while degraded are persisted and marked pending; once a proxy connects, islandr reconciles and applies the pending state. The published image runs the **real** socket-client adapter in this degraded mode — not the dev/CI mock, which fakes success and would mislead.
+
+From there, two graduation paths, both maximally convenient:
+
+1. **Stay in Docker** — run `install.sh` on the host to add the socket proxy (`islandr` user, scoped sudoers, `wg0`, `islandr-proxy` + systemd units), mount its socket into the *same* container, and the existing configuration starts enforcing. No rebuild; the GUI banner links exactly this path.
+2. **Move to native** — export the full config as JSON (`GET /api/v1/admin/config/export`) and import it into a native islandr install (ADR-0011) that already holds privilege.
+
+A privileged **sidecar** proxy container (`--network host` + `CAP_NET_ADMIN`, the app still unprivileged) was considered to approach a pure `docker compose up`. It is rejected: a compromised sidecar holds raw `CAP_NET_ADMIN` in the host network namespace, so the allowlist no longer bounds it, whereas a compromised host daemon is still constrained by the scoped sudoers rules. The host daemon trades some deployment convenience for stronger worst-case containment (see the Pugh matrix).
+
 ### Protocol
 
 Line-delimited JSON over a Unix domain socket (SOCK_STREAM). Request: `{"op":"...", ...fields}`. Response: `{"ok":true}` or `{"ok":false,"error":"..."}`. Synchronous — the proxy processes one request at a time per connection.
 
 ### islandr-proxy implementation
 
-A small Go or Rust binary (< 300 lines), statically compiled, installed alongside the islandr native binary. Alternatively a shell script with `socat` for a first prototype. The proxy itself runs as `islandr` user with the same scoped sudoers rules as ADR-0011.
+A small **Go** binary (< 300 lines), statically compiled, shipped in the same release artifacts as the islandr native binary and installed alongside it. The implementation must execute every host command as an **argument vector** (no shell string), so the validation/allowlist is the only path to `nft`/`wg`; this is why a `socat` + shell handler is unfit for the shipped version — a quoting bug at the `sudo` call is a command-injection hole. A Python-stdlib single-file script (`subprocess` with arg lists, `json`, `re`/`ipaddress`) is an acceptable prototype; `socat` + bash is fine only for a throwaway spike. The proxy runs as the `islandr` user with the scoped sudoers rules of ADR-0011, and takes its listening socket from **systemd socket activation** (`RuntimeDirectory=islandr`, `SocketMode=0600`, `SocketUser`/`SocketGroup=islandr`), which establishes the R-120 ownership and mode without custom code.
 
 ## Alternatives considered (Pugh Matrix)
 
-Baseline: **Unix socket proxy** (the decision). +1 better, 0 equal, −1 worse.
+Baseline: **Unix socket proxy — host daemon** (the decision). +1 better, 0 equal, −1 worse.
 
-| Criterion (weight) | Unix socket proxy (baseline) | `--cap-add NET_ADMIN` + `--network host` | Docker socket mount | `--pid=host` + nsenter | systemd only (no Docker) |
-|---|---|---|---|---|---|
-| Container gets no host capabilities (5) | 0 | −1 | −1 | −1 | +1 |
-| Blast radius if container is compromised (4) | 0 | −1 | −1 | −1 | +1 |
-| Supports production Docker deployments (4) | 0 | +1 | +1 | 0 | −1 |
-| Auditable allowed-op surface (3) | 0 | −1 | −1 | −1 | +1 |
-| Deployment complexity (2) | 0 | +1 | +1 | 0 | +1 |
-| **Weighted total** | **0** | **−6** | **−6** | **−24** | **+10** |
+| Criterion (weight)                           | Socket proxy — host daemon (baseline) | Socket proxy — privileged sidecar | `--cap-add NET_ADMIN` + `--network host` | Docker socket mount | `--pid=host` + nsenter | systemd only (no Docker) |
+| -------------------------------------------- | ------------------------------------- | --------------------------------- | ---------------------------------------- | ------------------- | ---------------------- | ------------------------ |
+| Container gets no host capabilities (5)      | 0                                     | −1                                | −1                                       | −1                  | −1                     | +1                       |
+| Blast radius if container is compromised (4) | 0                                     | −1                                | −1                                       | −1                  | −1                     | +1                       |
+| Supports production Docker deployments (4)   | 0                                     | +1                                | +1                                       | +1                  | 0                      | −1                       |
+| Auditable allowed-op surface (3)             | 0                                     | 0                                 | −1                                       | −1                  | −1                     | +1                       |
+| Deployment complexity (2)                    | 0                                     | +1                                | +1                                       | +1                  | 0                      | +1                       |
+| **Weighted total**                           | **0**                                 | **−3**                            | **−6**                                   | **−6**              | **−24**                | **+10**                  |
 
 Notes:
 
+- **Socket proxy — privileged sidecar** — runs the proxy in its own `--network host` + `CAP_NET_ADMIN` container, so the deployment is `docker compose up` with no host binary, and the app still stays unprivileged. That shrinks the *privileged attack surface* to the ~150-line proxy. But on a proxy compromise the attacker holds raw `CAP_NET_ADMIN`, which the JSON allowlist cannot bound — unlike the host daemon, whose scoped sudoers still constrain a compromised proxy. The −3 reflects trading worst-case containment for deployment convenience.
 - **`--cap-add NET_ADMIN`** — with `--network host`, `CAP_NET_ADMIN` inside the container spans all network namespaces on the host; a compromised process has root-equivalent control over every nftables table and interface. Scores identically to Docker socket on the table but the failure mode is different (capability escape vs. container spawn escalation).
 - **Docker socket mount** — `docker.sock` allows spawning `--privileged` containers, which is full host escape. Equally dangerous but via a different path.
 - **`--pid=host` + nsenter** — equivalent to root on the host; worst option.
@@ -92,10 +112,13 @@ Notes:
 ## Consequences
 
 - v2 adds `islandr-proxy` as a second deliverable (binary + systemd unit).
-- The real `WgAdapter` and `NftAdapter` in islandr gain a socket-client mode alongside the existing `ProcessBuilder` mode.
-- The Docker image graduates from demo-only to production-capable in v2.
+- The real `WgAdapter` and `NftAdapter` in islandr gain a socket-client mode alongside the existing `ProcessBuilder` mode, plus a degraded "enforcement unavailable" state (probe + pending-config reconcile on connect). The published image runs this real adapter; the mock stays for dev/CI only.
+- The Docker image graduates from demo-only to a full evaluation-and-config experience from a bare `docker run`, and becomes enforcement-capable once a socket proxy is attached — same image, no rebuild.
+- The GUI gains a proxy-availability indicator: an "enforcement unavailable" banner with install instructions and a per-change "saved, not yet enforced" state. This is a new UI requirement and warrants a use-case in `spec.md` and a runtime scenario in arc42 Ch. 6.
+- Enforcement keeps an irreducible one-time host install (`install.sh`: `islandr` user, scoped sudoers, `wg0`, proxy binary + systemd units); `docker run` of the app never bootstraps it. The privileged-sidecar shortcut that would have avoided the host binary was rejected — see Decision and the Pugh matrix.
 - **R-120** — The proxy socket must be owned by `islandr:islandr` with mode `0600`. If the socket is world-readable, any local process can send commands. Mitigation: systemd `RuntimeDirectory=islandr` sets ownership automatically.
 - **R-121** — The JSON protocol is unauthenticated (Unix socket ownership is the only gate). If another process runs as `islandr` user, it can send proxy commands. Mitigation: same as ADR-0011 R-111 — access as `islandr` already implies islandr is compromised; blast radius is still bounded to the WireGuard and nftables allowlist.
+- **R-122** — In the degraded state an operator may believe rules are enforced when no proxy is attached, leaving the network open. Mitigation: the GUI must show the "enforcement unavailable" banner and label every unenforced change as pending; the degraded adapter never fakes success (unlike the dev/CI mock), so the gap is always visible.
 
 ## References
 

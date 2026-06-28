@@ -123,3 +123,48 @@ On startup, Islandr runs the following initialization sequence (relevant for ops
 5. **HTTP server** — Quarkus starts accepting requests on port 8080.
 
 If FirewallBootstrap fails (nft not available, syntax error), Islandr logs the error and starts anyway — the existing kernel rules remain in place. The failure is visible in the Admin Console dashboard.
+
+## 6.6 Configuration without enforcement — Docker, proxy absent (v2)
+
+This is the degraded-mode recovery scenario for the v2 Docker deployment (ADR-0012). The container runs the **configuration plane** even when the `islandr-proxy` socket is absent; the **enforcement plane** activates and reconciles once a proxy connects. It exercises the socket-client `WgAdapter`/`NftAdapter` in their degraded state and the reconcile-on-connect path (BR-027..031).
+
+```mermaid
+sequenceDiagram
+    actor Op as Operator (Admin)
+    participant GUI as Admin Console
+    participant API as Islandr Backend
+    participant ADP as Socket-client Adapter
+    participant DB as Database
+    participant PX as islandr-proxy (host)
+
+    Note over API,PX: Container started via docker run, no proxy socket mounted
+    API->>ADP: startup probe /run/islandr/proxy.sock
+    ADP-->>API: unreachable → enforcement = UNAVAILABLE
+    Op->>GUI: open console
+    GUI->>Op: banner "Socket-Proxy nicht verfügbar" + install link
+    Op->>GUI: apply ACL change
+    GUI->>API: PUT /api/v1/roles/{id}/grants
+    API->>DB: persist grants, mark pending
+    API->>ADP: enforce ruleset
+    ADP-->>API: UNAVAILABLE (not faked)
+    API-->>GUI: 200 "gespeichert, noch nicht durchgesetzt"
+    Note over Op,PX: Operator runs install.sh on host, mounts the socket
+    Op->>PX: install.sh (user, sudoers, wg0, proxy + systemd units)
+    API->>ADP: periodic probe
+    ADP->>PX: connect /run/islandr/proxy.sock
+    PX-->>ADP: ok
+    ADP->>API: enforcement = RECONCILING
+    API->>DB: load full state
+    API->>ADP: full recompute → nft -f, wg set (pending applied)
+    ADP->>PX: {op:nft_reload}, {op:wg_set_peer ...}
+    PX-->>ADP: ok
+    ADP-->>API: enforcement = ACTIVE
+    API->>GUI: status active → banner clears
+```
+
+**Error/recovery characteristics:**
+- The container never fails to boot because the proxy is missing — the config plane is independent of enforcement (BR-027).
+- Degraded enforcement is honest: the adapter reports `UNAVAILABLE`, it does not fake success (BR-029, closes R-122). Contrast with the dev/CI mock adapter, which *does* fake success and is therefore never used in the published image.
+- Recovery is automatic on proxy connect: a full recompute reconciles pending state (BR-030), consistent with the "always full ruleset replacement" rule (BR-025).
+- If the host `nft` rejects the reconciled ruleset, enforcement state becomes `FAILED` and the previous host rules stay active — same failure handling as §6.2.
+- Alternative exit: instead of installing the proxy, the operator can export the config as JSON and import it into a native install (ADR-0011) — see spec.md UC-04 extension 3a.
