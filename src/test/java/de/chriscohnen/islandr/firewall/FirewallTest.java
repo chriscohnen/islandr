@@ -436,7 +436,7 @@ class FirewallTest {
 
     @Transactional
     ResourcePort persistPort(String resourceId, int port, Integer portEnd, String transport, String protocol) {
-        ResourcePort p = ResourcePort.createNew(resourceId, port, portEnd, transport, protocol, null);
+        ResourcePort p = ResourcePort.createNew(resourceId, port, portEnd, transport, protocol, null, null);
         p.persist();
         return p;
     }

@@ -105,7 +105,7 @@ public class PortGroupService {
                 skipped++;
                 continue;
             }
-            ResourcePort.createNew(r.id, m.port, m.portEnd, m.transport, m.protocol, m.label).persist();
+            ResourcePort.createNew(r.id, m.port, m.portEnd, m.transport, m.protocol, m.label, null).persist();
             existing.add(key);
             added++;
         }

@@ -118,7 +118,7 @@ public class MyAccessResource {
         // All ports for the relevant resources.
         @SuppressWarnings("unchecked")
         List<Object[]> portRows = em.createNativeQuery(
-                        "SELECT id, resource_id, port, port_end, transport, protocol, label " +
+                        "SELECT id, resource_id, port, port_end, transport, protocol, label, path_prefix " +
                         "FROM resource_ports WHERE resource_id IN ?1 ORDER BY port")
                 .setParameter(1, resourceIds)
                 .getResultList();
@@ -134,6 +134,7 @@ public class MyAccessResource {
                             (String) p[4],
                             (String) p[5],
                             (String) p[6],
+                            (String) p[7],
                             null));
         }
 
