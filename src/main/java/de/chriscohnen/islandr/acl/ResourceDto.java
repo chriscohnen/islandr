@@ -34,10 +34,14 @@ public final class ResourceDto {
             String protocol,
             String label,
             String pathPrefix,
+            boolean rdpClipboard,
+            boolean rdpFileTransfer,
+            String rdpAccessMode,
             Instant createdAt
     ) {
         public static PortResponse from(ResourcePort p) {
-            return new PortResponse(p.id, p.port, p.portEnd, p.transport, p.protocol, p.label, p.pathPrefix, p.createdAt);
+            return new PortResponse(p.id, p.port, p.portEnd, p.transport, p.protocol, p.label,
+                    p.pathPrefix, p.rdpClipboard, p.rdpFileTransfer, p.rdpAccessMode, p.createdAt);
         }
     }
 
@@ -80,7 +84,12 @@ public final class ResourceDto {
             @NotBlank String protocol,
             String label,
             @Pattern(regexp = "^(/[^\\s]*)?$", message = "pathPrefix must start with /")
-            String pathPrefix
+            String pathPrefix,
+            // RDP-specific — ignored for non-RDP protocols
+            boolean rdpClipboard,
+            boolean rdpFileTransfer,
+            @Pattern(regexp = "^(native|web-only)$", message = "rdpAccessMode must be 'native' or 'web-only'")
+            String rdpAccessMode
     ) {}
 
     private ResourceDto() {}

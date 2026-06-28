@@ -99,6 +99,9 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "hub_location_label", length = 255)
     public String hubLocationLabel;
 
+    @Column(name = "iron_rdp_enabled", nullable = false, columnDefinition = "INTEGER")
+    public boolean ironRdpEnabled = false;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

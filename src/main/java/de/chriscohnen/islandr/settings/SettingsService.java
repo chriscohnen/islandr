@@ -55,6 +55,7 @@ public class SettingsService {
         s.hubLon = req.hubLon();
         s.hubLocationLabel = (req.hubLocationLabel() == null || req.hubLocationLabel().isBlank())
                 ? null : req.hubLocationLabel().strip();
+        s.ironRdpEnabled = req.ironRdpEnabled();
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
 

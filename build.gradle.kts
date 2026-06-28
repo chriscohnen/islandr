@@ -25,6 +25,7 @@ dependencies {
     // Web layer
     implementation("io.quarkus:quarkus-rest")
     implementation("io.quarkus:quarkus-rest-jackson")
+    implementation("io.quarkus:quarkus-websockets-next")
 
     // Persistence — Panache active record + JDBC
     implementation("io.quarkus:quarkus-hibernate-orm-panache")
@@ -78,7 +79,7 @@ configurations.all {
 }
 
 group = "de.chriscohnen.islandr"
-version = "0.9.1"
+version = "0.10.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

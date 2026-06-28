@@ -63,9 +63,9 @@ class DashboardResourceTest {
         r1.persist();
         Resource r2 = Resource.createNew(site.id, "NAS-1", "10.99.0.10", null, "nas");
         r2.persist();
-        ResourcePort.createNew(r1.id, 3389, null, "tcp", "RDP", null, null).persist();
-        ResourcePort.createNew(r1.id, 22, null, "tcp", "SSH", null, null).persist();
-        ResourcePort.createNew(r2.id, 445, null, "tcp", "SMB", null, null).persist();
+        ResourcePort.createNew(r1.id, 3389, null, "tcp", "RDP", null, null, true, false, "native").persist();
+        ResourcePort.createNew(r1.id, 22, null, "tcp", "SSH", null, null, true, false, "native").persist();
+        ResourcePort.createNew(r2.id, 445, null, "tcp", "SMB", null, null, true, false, "native").persist();
 
         // Two roles, one of which has a grant.
         Role roleWithGrants = Role.createNew("IT", null);

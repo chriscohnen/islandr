@@ -50,6 +50,14 @@ export default defineComponent({
       rotatePeer: null,
       rotateKey: "",
       formError: null,
+      // IronRDP browser client
+      rdpDialog: null,
+      rdpCreds: { username: "", password: "", domain: "" },
+      rdpOverlay: null,
+      rdpModule: null,
+      rdpActiveSession: null,
+      rdpStatus: "",
+      rdpError: "",
     };
   },
   computed: {
@@ -396,6 +404,133 @@ export default defineComponent({
       if (!iso) return "—";
       return new Date(iso).toLocaleString("de-DE");
     },
+
+    // ── IronRDP browser-RDP ──────────────────────────────────────────────────
+
+    openRdpDialog(resource, port) {
+      this.rdpDialog = { resource, port };
+      this.rdpError = "";
+    },
+    closeRdpDialog() { this.rdpDialog = null; },
+
+    async connectRdpInBrowser() {
+      const { resource, port } = this.rdpDialog;
+      this.rdpDialog = null;
+      this.rdpOverlay = { resource, port };
+      this.rdpStatus = "connecting";
+      this.rdpError = "";
+
+      try {
+        if (!this.rdpModule) {
+          const mod = await import("/vendor/ironrdp/rdp_client.js");
+          await mod.default("/vendor/ironrdp/rdp_client_bg.wasm");
+          mod.setup("WARN");
+          this.rdpModule = mod;
+        }
+
+        await this.$nextTick();
+        const canvas = this.$refs.rdpCanvas;
+        canvas.focus();
+
+        const w = Math.max(canvas.offsetWidth, 800);
+        const h = Math.max(canvas.offsetHeight, 600);
+        const wsScheme = location.protocol === "https:" ? "wss" : "ws";
+        const proxyUrl = `${wsScheme}://${location.host}/api/v1/rdp/proxy/${port.id}`;
+
+        const { SessionBuilder, DesktopSize } = this.rdpModule;
+        let b = new SessionBuilder()
+          .proxyAddress(proxyUrl)
+          .destination(`${resource.ip}:${port.port}`)
+          .renderCanvas(canvas)
+          .desktopSize(new DesktopSize(w, h));
+
+        if (this.rdpCreds.username) b = b.username(this.rdpCreds.username);
+        if (this.rdpCreds.password) b = b.password(this.rdpCreds.password);
+        if (this.rdpCreds.domain)   b = b.serverDomain(this.rdpCreds.domain);
+
+        const session = await b.connect();
+        this.rdpActiveSession = session;
+        this.rdpStatus = "connected";
+        this.setupRdpInput(canvas, session);
+
+        await session.run();
+
+        if (this.rdpOverlay) this.rdpStatus = "disconnected";
+      } catch (e) {
+        if (this.rdpOverlay) {
+          this.rdpStatus = "error";
+          this.rdpError = e.message || String(e);
+        }
+      }
+    },
+
+    closeRdpOverlay() {
+      if (this.rdpActiveSession) {
+        try { this.rdpActiveSession.shutdown(); } catch {}
+        this.rdpActiveSession = null;
+      }
+      this.rdpOverlay = null;
+      this.rdpStatus = "";
+      this.rdpError = "";
+    },
+
+    setupRdpInput(canvas, session) {
+      const SCANCODES = {
+        Escape:0x01,Digit1:0x02,Digit2:0x03,Digit3:0x04,Digit4:0x05,
+        Digit5:0x06,Digit6:0x07,Digit7:0x08,Digit8:0x09,Digit9:0x0A,
+        Digit0:0x0B,Minus:0x0C,Equal:0x0D,Backspace:0x0E,Tab:0x0F,
+        KeyQ:0x10,KeyW:0x11,KeyE:0x12,KeyR:0x13,KeyT:0x14,KeyY:0x15,
+        KeyU:0x16,KeyI:0x17,KeyO:0x18,KeyP:0x19,BracketLeft:0x1A,
+        BracketRight:0x1B,Enter:0x1C,ControlLeft:0x1D,
+        KeyA:0x1E,KeyS:0x1F,KeyD:0x20,KeyF:0x21,KeyG:0x22,KeyH:0x23,
+        KeyJ:0x24,KeyK:0x25,KeyL:0x26,Semicolon:0x27,Quote:0x28,
+        Backquote:0x29,ShiftLeft:0x2A,Backslash:0x2B,
+        KeyZ:0x2C,KeyX:0x2D,KeyC:0x2E,KeyV:0x2F,KeyB:0x30,KeyN:0x31,
+        KeyM:0x32,Comma:0x33,Period:0x34,Slash:0x35,ShiftRight:0x36,
+        NumpadMultiply:0x37,AltLeft:0x38,Space:0x39,CapsLock:0x3A,
+        F1:0x3B,F2:0x3C,F3:0x3D,F4:0x3E,F5:0x3F,F6:0x40,
+        F7:0x41,F8:0x42,F9:0x43,F10:0x44,NumLock:0x45,ScrollLock:0x46,
+        Numpad7:0x47,Numpad8:0x48,Numpad9:0x49,NumpadSubtract:0x4A,
+        Numpad4:0x4B,Numpad5:0x4C,Numpad6:0x4D,NumpadAdd:0x4E,
+        Numpad1:0x4F,Numpad2:0x50,Numpad3:0x51,Numpad0:0x52,
+        NumpadDecimal:0x53,F11:0x57,F12:0x58,
+        NumpadEnter:0xE01C,ControlRight:0xE01D,NumpadDivide:0xE035,
+        PrintScreen:0xE037,AltRight:0xE038,Home:0xE047,ArrowUp:0xE048,
+        PageUp:0xE049,ArrowLeft:0xE04B,ArrowRight:0xE04D,End:0xE04F,
+        ArrowDown:0xE050,PageDown:0xE051,Insert:0xE052,Delete:0xE053,
+        MetaLeft:0xE05B,MetaRight:0xE05C,ContextMenu:0xE05D,
+      };
+      const { DeviceEvent, InputTransaction } = this.rdpModule;
+      const send = (evt) => {
+        try { const t = new InputTransaction(); t.addEvent(evt); session.applyInputs(t); } catch {}
+      };
+      canvas.addEventListener("keydown", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const sc = SCANCODES[e.code]; if (sc != null) send(DeviceEvent.keyPressed(sc));
+      });
+      canvas.addEventListener("keyup", (e) => {
+        e.preventDefault();
+        const sc = SCANCODES[e.code]; if (sc != null) send(DeviceEvent.keyReleased(sc));
+      });
+      canvas.addEventListener("mousemove", (e) => {
+        const r = canvas.getBoundingClientRect();
+        const x = Math.round((e.clientX - r.left) * (canvas.width / r.width));
+        const y = Math.round((e.clientY - r.top) * (canvas.height / r.height));
+        send(DeviceEvent.mouseMove(x, y));
+      });
+      canvas.addEventListener("mousedown", (e) => {
+        e.preventDefault(); canvas.focus(); send(DeviceEvent.mouseButtonPressed(e.button));
+      });
+      canvas.addEventListener("mouseup", (e) => {
+        e.preventDefault(); send(DeviceEvent.mouseButtonReleased(e.button));
+      });
+      canvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        if (e.deltaY) send(DeviceEvent.wheelRotations(true,  e.deltaY > 0 ? -1 : 1, 1));
+        if (e.deltaX) send(DeviceEvent.wheelRotations(false, e.deltaX > 0 ? -1 : 1, 1));
+      }, { passive: false });
+      canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    },
   },
   template: `
     <div class="page-header">
@@ -613,35 +748,57 @@ export default defineComponent({
                   <Icon name="external-link" :size="11" style="opacity:.6; flex-shrink:0" />
                 </a>
                 <div v-else-if="isRdpPort(p)" class="myaccess-port-rdp-group">
-                  <button @click="downloadRdp(r, p)"
-                     class="myaccess-port-link myaccess-port-rdp myaccess-port-rdp-left"
-                     :title="t('myaccess.rdp_title', { ip: r.ip, port: p.port })">
-                    <!-- Monitor + download badge icon -->
+                  <!-- Native buttons: hidden for web-only mode -->
+                  <template v-if="p.rdpAccessMode !== 'web-only'">
+                    <button @click="downloadRdp(r, p)"
+                       class="myaccess-port-link myaccess-port-rdp myaccess-port-rdp-left"
+                       :title="t('myaccess.rdp_title', { ip: r.ip, port: p.port })">
+                      <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
+                           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                           style="flex-shrink:0" aria-hidden="true">
+                        <rect x="1" y="1" width="16" height="11" rx="2"/>
+                        <line x1="5" x2="13" y1="16" y2="16"/>
+                        <line x1="9" x2="9" y1="12" y2="16"/>
+                        <circle cx="17" cy="15" r="4" fill="var(--accent,#3BBBD2)" stroke="none"/>
+                        <path d="M15.3 15h3.4M17 13.3v3.4" stroke="white" stroke-width="1.4"
+                              stroke-linecap="round" transform="rotate(45 17 15)"/>
+                      </svg>
+                      <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+                      <span>{{ p.label || p.protocol }}</span>
+                    </button>
+                    <a :href="rdpUri(r, p)"
+                       class="myaccess-port-link myaccess-port-rdp myaccess-port-rdp-right"
+                       :title="t('myaccess.rdp_uri_title', { ip: r.ip, port: p.port })">
+                      <svg width="14" height="13" viewBox="0 0 18 16" fill="none" stroke="currentColor"
+                           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                           style="flex-shrink:0" aria-hidden="true">
+                        <rect x="1" y="1" width="16" height="10" rx="2"/>
+                        <line x1="5" x2="13" y1="15" y2="15"/>
+                        <line x1="9" x2="9" y1="11" y2="15"/>
+                      </svg>
+                    </a>
+                  </template>
+                  <!-- Browser button: always shown for RDP -->
+                  <button @click="openRdpDialog(r, p)"
+                     :class="['myaccess-port-link', 'myaccess-port-rdp',
+                              p.rdpAccessMode === 'web-only' ? '' : 'myaccess-port-rdp-browser-adj']"
+                     title="Im Browser öffnen">
+                    <!-- Monitor + globe badge -->
                     <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
                          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
                          style="flex-shrink:0" aria-hidden="true">
                       <rect x="1" y="1" width="16" height="11" rx="2"/>
                       <line x1="5" x2="13" y1="16" y2="16"/>
                       <line x1="9" x2="9" y1="12" y2="16"/>
+                      <!-- globe badge -->
                       <circle cx="17" cy="15" r="4" fill="var(--accent,#3BBBD2)" stroke="none"/>
-                      <path d="M15.3 15h3.4M17 13.3v3.4" stroke="white" stroke-width="1.4"
-                            stroke-linecap="round" transform="rotate(45 17 15)"/>
+                      <circle cx="17" cy="15" r="2.5" stroke="white" stroke-width="1.1" fill="none"/>
+                      <line x1="17" y1="12.5" x2="17" y2="17.5" stroke="white" stroke-width="1.1"/>
+                      <line x1="13" y1="15" x2="21" y2="15" stroke="white" stroke-width="1.1"/>
                     </svg>
-                    <span class="mono">{{ p.port }}/{{ p.transport }}</span>
-                    <span>{{ p.label || p.protocol }}</span>
+                    <span v-if="p.rdpAccessMode === 'web-only'" class="mono">{{ p.port }}/{{ p.transport }}</span>
+                    <span v-if="p.rdpAccessMode === 'web-only'">{{ p.label || p.protocol }}</span>
                   </button>
-                  <a :href="rdpUri(r, p)"
-                     class="myaccess-port-link myaccess-port-rdp myaccess-port-rdp-right"
-                     :title="t('myaccess.rdp_uri_title', { ip: r.ip, port: p.port })">
-                    <!-- Monitor icon for open-in-client -->
-                    <svg width="14" height="13" viewBox="0 0 18 16" fill="none" stroke="currentColor"
-                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
-                         style="flex-shrink:0" aria-hidden="true">
-                      <rect x="1" y="1" width="16" height="10" rx="2"/>
-                      <line x1="5" x2="13" y1="15" y2="15"/>
-                      <line x1="9" x2="9" y1="11" y2="15"/>
-                    </svg>
-                  </a>
                 </div>
                 <a v-else-if="isVncPort(p)"
                    :href="vncUrl(r, p)"
@@ -859,6 +1016,56 @@ export default defineComponent({
           <button class="btn btn-primary" @click="closeModal">{{ t('peer.btn_done') }}</button>
         </div>
       </div>
+    </div>
+    <!-- IronRDP credential dialog -->
+    <div v-if="rdpDialog" class="modal-overlay" @click.self="closeRdpDialog">
+      <div class="modal" style="max-width: 400px">
+        <div class="modal-header">
+          <h3 style="margin:0; font-size: var(--text-md)">Im Browser öffnen</h3>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom: var(--space-4); font-size: var(--text-sm)">
+            {{ rdpDialog.resource.name }} &mdash;
+            {{ rdpDialog.port.label || rdpDialog.port.protocol }}
+            ({{ rdpDialog.resource.ip }}:{{ rdpDialog.port.port }})
+          </div>
+          <form id="rdp-cred-form" @submit.prevent="connectRdpInBrowser">
+            <div class="form-group">
+              <label class="label" for="rdpUser">Benutzername</label>
+              <input id="rdpUser" class="input" v-model="rdpCreds.username"
+                     type="text" autocomplete="username" placeholder="z.B. Administrator" />
+            </div>
+            <div class="form-group">
+              <label class="label" for="rdpPass">Passwort</label>
+              <input id="rdpPass" class="input" v-model="rdpCreds.password"
+                     type="password" autocomplete="current-password" />
+            </div>
+            <div class="form-group">
+              <label class="label" for="rdpDomain">Domäne <span class="muted">(optional)</span></label>
+              <input id="rdpDomain" class="input" v-model="rdpCreds.domain"
+                     type="text" autocomplete="off" placeholder="z.B. FIRMA" />
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" @click="closeRdpDialog">Abbrechen</button>
+          <button class="btn btn-primary" form="rdp-cred-form" type="submit">Verbinden</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- IronRDP browser canvas overlay -->
+    <div v-if="rdpOverlay" class="rdp-overlay">
+      <div class="rdp-toolbar">
+        <span class="rdp-toolbar-title">
+          {{ rdpOverlay.resource.name }} &mdash; {{ rdpOverlay.port.label || rdpOverlay.port.protocol }}
+        </span>
+        <span v-if="rdpStatus === 'connecting'" class="muted" style="font-size: var(--text-xs)">Verbinde...</span>
+        <span v-else-if="rdpStatus === 'disconnected'" class="muted" style="font-size: var(--text-xs)">Verbindung beendet</span>
+        <span v-else-if="rdpStatus === 'error'" style="color: var(--danger); font-size: var(--text-xs)">{{ rdpError }}</span>
+        <button class="btn btn-ghost btn-sm rdp-close-btn" @click="closeRdpOverlay">Trennen</button>
+      </div>
+      <canvas ref="rdpCanvas" class="rdp-canvas" tabindex="0"></canvas>
     </div>
   `,
 });
