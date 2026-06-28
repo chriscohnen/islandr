@@ -154,8 +154,9 @@ islandr/
 ├── docs/
 │   ├── prd.md                               # Product Requirements Document
 │   ├── install.md                           # Installation guide (native binary, Docker)
-│   └── adr/                                 # Architecture Decision Records
-│       ├── README.md
+│   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
+│   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
+│       ├── README.md                        # ADR index
 │       ├── 0001-quarkus-backend.md
 │       ├── 0002-vue-without-npm.md
 │       ├── 0003-nftables-replaces-ufw.md
@@ -166,24 +167,36 @@ islandr/
 │       ├── 0008-runtime-settings-in-db.md
 │       ├── 0009-license-eupl-1.2.md
 │       ├── 0010-font-and-icon-asset-self-hosting.md
-│       └── 0011-process-privilege-model.md
+│       ├── 0011-process-privilege-model.md
+│       └── 0012-docker-socket-proxy.md
+├── architecture/
+│   ├── workspace.dsl                        # C4 model (Structurizr DSL) — source of diagrams
+│   └── diagrams/                            # generated C4 PNGs + .puml, embedded in arc42
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
+│   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang"
+│   │   ├── admin/       # config export/import, version check
+│   │   ├── audit/       # audit log (entity, diff, resource, service)
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
+│   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
+│   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
+│   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── identity/    # OidcProvider, JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
-│   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet
-│   │   ├── settings/    # Singleton settings (WG topology, retention mode, Gravatar toggle)
-│   │   ├── user/        # User + Resource + AvatarService (3-tier: cached → Gravatar → 404)
-│   │   └── wg/          # WgAdapter (real shells out, mock for dev/CI)
+│   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
+│   │   ├── settings/    # singleton settings (WG topology, retention mode, hub geocoding)
+│   │   ├── user/        # User + Resource + AvatarService + Google Workspace import
+│   │   ├── validation/  # @ValidIpAddress / @ValidCidr custom validators
+│   │   ├── wg/          # WgAdapter (real shells out, mock for dev/CI)
+│   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V21, portable SQL
+│   │   ├── db/migration/                    # Flyway migrations V1–V33, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 177 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 209 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
