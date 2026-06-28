@@ -136,7 +136,7 @@ Dev server (Quarkus live coding):
 
 The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
 
-Tests (177, runs in ~9 s after warm start):
+Tests (209, runs in ~9 s after warm start):
 
 ```bash
 ./gradlew test
@@ -253,7 +253,27 @@ islandr/
 **Bilingual UI**
 - German (default) and English, switchable at runtime without reload
 
-Planned features are tracked as GitHub issues — 👍 or comment to signal what matters to you. Items already delivered in 0.9.0 (full WireGuard client setup guide, config export/import, IPv6 dual-stack) are listed under [What works today](#what-works-today).
+### Release notes
+
+Only the changes that matter if you actually use it — see the [GitHub releases](https://github.com/chriscohnen/islandr/releases) for the full list.
+
+**0.9.1**
+- **Path prefix for HTTP/HTTPS resources** — a resource port can carry an optional URL path (e.g. `/admin`), so the portal's quicklaunch opens `https://host/admin` instead of just the host root.
+- **Hub coordinates** — set the gateway's own location (latitude/longitude + label) in Settings, by entering coordinates or geocoding an address, so the hub shows up where it really is instead of being guessed from its IP.
+- **Settings page restructured** into clearer sections.
+- **Google Workspace user import** — browse your org's users and import the ones you pick; the service-account JSON is encrypted at rest.
+- Update check moved into Settings with a corrected semver comparison.
+
+**0.9.0**
+- **Protocol quicklaunch in the self-service portal** — granted resources open directly: HTTP/HTTPS in the browser, plus RDP, VNC, SSH, SFTP, SMB and IPP printer install via native URI handlers.
+- **WireGuard client setup guide** — platform-detected install links for new users on first visit.
+- **IPv6 dual-stack peers** — optional IPv6 address per peer alongside IPv4.
+- **Encrypted private-key retention** — optionally keep keys server-side under AES-256-GCM so a config can be re-shown later, or stay key-less (the default).
+- **Config export/import** — full snapshot as JSON with a preview-and-confirm import.
+- **Per-peer MTU override** and **reverse geocoding** of a peer's approximate location from its endpoint IP.
+- **Update check** — Settings shows the running version and checks GitHub for a newer release on demand (no telemetry, no background polling).
+
+Planned features are tracked as GitHub issues — 👍 or comment to signal what matters to you.
 
 **v2 — Usability & convenience** ([milestone](https://github.com/chriscohnen/islandr/milestone/1))
 - [Peer expiry / auto-disable](https://github.com/chriscohnen/islandr/issues/10)
