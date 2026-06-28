@@ -134,7 +134,8 @@ class UserAvatarResourceTest {
                 cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
                 enabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.nominatimUrl,
-                cur.hubLat, cur.hubLon, cur.hubLocationLabel
+                cur.hubLat, cur.hubLon, cur.hubLocationLabel,
+                cur.ironRdpEnabled
         ), "test");
     }
 

@@ -118,7 +118,8 @@ public class MyAccessResource {
         // All ports for the relevant resources.
         @SuppressWarnings("unchecked")
         List<Object[]> portRows = em.createNativeQuery(
-                        "SELECT id, resource_id, port, port_end, transport, protocol, label, path_prefix " +
+                        "SELECT id, resource_id, port, port_end, transport, protocol, label, path_prefix, " +
+                        "rdp_clipboard, rdp_file_transfer, rdp_access_mode " +
                         "FROM resource_ports WHERE resource_id IN ?1 ORDER BY port")
                 .setParameter(1, resourceIds)
                 .getResultList();
@@ -126,6 +127,9 @@ public class MyAccessResource {
         for (Object[] p : portRows) {
             String rid = (String) p[1];
             Integer portEnd = p[3] == null ? null : ((Number) p[3]).intValue();
+            boolean rdpClipboard = p[8] == null || ((Number) p[8]).intValue() != 0;
+            boolean rdpFileTransfer = p[9] != null && ((Number) p[9]).intValue() != 0;
+            String rdpAccessMode = p[10] != null ? (String) p[10] : "native";
             portsByResource.computeIfAbsent(rid, k -> new ArrayList<>()).add(
                     new ResourceDto.PortResponse(
                             (String) p[0],
@@ -135,6 +139,9 @@ public class MyAccessResource {
                             (String) p[5],
                             (String) p[6],
                             (String) p[7],
+                            rdpClipboard,
+                            rdpFileTransfer,
+                            rdpAccessMode,
                             null));
         }
 

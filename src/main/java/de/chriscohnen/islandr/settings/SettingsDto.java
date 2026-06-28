@@ -26,6 +26,7 @@ public final class SettingsDto {
             Double hubLat,
             Double hubLon,
             String hubLocationLabel,
+            boolean ironRdpEnabled,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete,
@@ -43,6 +44,7 @@ public final class SettingsDto {
                     s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
                     s.nominatimUrl,
                     s.hubLat, s.hubLon, s.hubLocationLabel,
+                    s.ironRdpEnabled,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                     version,
@@ -101,7 +103,10 @@ public final class SettingsDto {
             // optional — hub location for topology map
             Double hubLat,
             Double hubLon,
-            String hubLocationLabel
+            String hubLocationLabel,
+
+            // optional — enable IronRDP browser-based RDP proxy (global toggle)
+            boolean ironRdpEnabled
     ) {}
 
     private SettingsDto() {}
