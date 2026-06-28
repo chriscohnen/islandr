@@ -136,7 +136,7 @@ Dev server (Quarkus live coding):
 
 The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
 
-Tests (177, runs in ~9 s after warm start):
+Tests (209, runs in ~9 s after warm start):
 
 ```bash
 ./gradlew test
@@ -204,7 +204,7 @@ islandr/
 - Peer CRUD: client and site peer types, IP suggestion from WG subnet, CIDR-overlap validation
 - **IPv6 dual-stack peers** — optional `assignedIpv6` per peer; nftables rules emit `ip`/`ip6` per address family; custom `@ValidIpAddress`/`@ValidCidr` validators replace regex patterns
 - Per-peer MTU override (default 1420)
-- Reverse geocoding — approximate peer location derived from endpoint IP
+- Reverse geocoding — approximate peer location derived from endpoint IP; hub location label editable in Settings with geocoding assist
 - Server-side keypair generation or admin-imported public key (validated via `wg pubkey`)
 - **Private key retention** — three modes: `never` (default), `plaintext`, `encrypted` (AES-256-GCM, server-side master key)
 - QR code + `.conf` download with one-time-secret pattern; re-show in `plaintext` / `encrypted` retention mode
@@ -223,8 +223,8 @@ islandr/
 - Key rotation, device list, accessible resource overview with protocol icons
 - Admin toggle to disable self-service peer creation (stricter environments)
 - Protocol quicklaunch on granted resources:
-  - **HTTP/HTTPS** — opens directly in the browser
-  - **RDP** — `.rdp` file download (Windows/macOS) + `rdp://` URI (Linux/Remmina)
+  - **HTTP/HTTPS** — opens directly in the browser; optional per-port path prefix (e.g. `/admin`) so multi-app hosts work without a dedicated port per app
+  - **RDP** — `.rdp` file download (Windows/macOS) + `rdp://` URI (Linux/Remmina) + **browser-based RDP** via IronRDP WASM (no client install); `web-only` access mode blocks direct WireGuard port access so users are forced through the browser proxy; per-port clipboard and file-transfer toggles; global enable toggle in Settings
   - **VNC** — `vnc://` URI link (RFC 7869; opens Remmina, GNOME Connections, RealVNC)
   - **SSH** — `ssh://` URI (macOS Terminal, Linux terminal emulators)
   - **SFTP** — `sftp://` URI (Nautilus, Dolphin file manager)
@@ -232,6 +232,9 @@ islandr/
   - **IPP printer quick-install** — `ipp://` URI opens native OS print dialog (macOS, Windows, Linux/CUPS)
 - **WireGuard client setup guide** — platform-detected install links on first visit; Passepartout recommended for macOS/iOS; Linux commands include one-click copy
 - **Config export/import** — full DB snapshot as JSON (GET `/api/v1/admin/config/export`); FK-aware transactional import with preview and confirm step; optional private key inclusion
+
+**Google Workspace integration**
+- Import users from a GWS directory — browse org users, see who is already in Islandr, import selected; configurable via OAuth service account in Settings
 
 **Observability**
 - Audit log with cursor-based pagination, actor/action/target filters, meta-JSON expand
