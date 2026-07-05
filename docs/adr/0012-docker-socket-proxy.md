@@ -1,12 +1,13 @@
-# ADR-0012 — Docker deployment via Unix socket proxy (v2)
+# ADR-0012 — Docker deployment via Unix socket proxy (v1 line, 0.11.0)
 
 **Status:** Accepted
 **Date:** 2026-06-06 (proposed) · 2026-06-28 (accepted)
 **Deciders:** Christian Cohnen
+**Target release:** 0.11.0 — pulled forward into the v1 line (production Docker is v1-core, not a later usability tier).
 
 ## Context
 
-Islandr v1 ships a Docker image for demo and dev use only. The image uses the mock WireGuard and nftables adapters — it cannot manage real peers or firewall rules. Production deployments require the native binary under systemd (ADR-0011).
+The early Islandr Docker image ships for demo and evaluation only: it uses the mock WireGuard and nftables adapters and cannot manage real peers or firewall rules, so production deployments require the native binary under systemd (ADR-0011). Making Docker production-capable is v1-core work, targeted for 0.11.0 — pulled forward from the originally planned v2 usability line.
 
 The reason: `nft` and `wg` run on the host kernel, not inside the container. To call them from a container, Docker would need `--cap-add NET_ADMIN` and `--network host`. With `--network host` that capability spans all network namespaces visible to the host — a compromised islandr process could manipulate any nftables table and any network interface on the machine. This violates ADR-0011's principle of least privilege.
 
@@ -16,7 +17,7 @@ There is no safe way to call host-privileged tools from a container without a me
 
 ## Decision
 
-In v2, a **Unix socket proxy** (`islandr-proxy`) runs as a systemd service on the host alongside the container. The container mounts only the proxy socket — no capabilities, no host PID namespace, no Docker socket.
+In 0.11.0 (v1 line), a **Unix socket proxy** (`islandr-proxy`) runs as a systemd service on the host alongside the container. The container mounts only the proxy socket — no capabilities, no host PID namespace, no Docker socket.
 
 ```
 Container                          Host
@@ -49,7 +50,7 @@ islandr-binary
 
 Anything outside this list is rejected with an error — the proxy has no shell, no exec, no wildcard.
 
-### Container run (v2)
+### Container run (0.11.0)
 
 ```bash
 docker run \
@@ -109,11 +110,11 @@ Notes:
 - **`--cap-add NET_ADMIN`** — with `--network host`, `CAP_NET_ADMIN` inside the container spans all network namespaces on the host; a compromised process has root-equivalent control over every nftables table and interface. Scores identically to Docker socket on the table but the failure mode is different (capability escape vs. container spawn escalation).
 - **Docker socket mount** — `docker.sock` allows spawning `--privileged` containers, which is full host escape. Equally dangerous but via a different path.
 - **`--pid=host` + nsenter** — equivalent to root on the host; worst option.
-- **systemd only** scores +10 and is the current v1 strategy — it is the right answer when Docker is not required. The proxy is chosen for v2 specifically to enable production Docker deployments without surrendering privilege isolation. `systemd only` scores −4 on "supports production Docker" which is the v2 requirement that drives this ADR.
+- **systemd only** scores +10 and is the baseline strategy — it is the right answer when Docker is not required. The proxy is chosen for 0.11.0 specifically to enable production Docker deployments without surrendering privilege isolation. `systemd only` scores −4 on "supports production Docker" which is the requirement that drives this ADR.
 
 ## Consequences
 
-- v2 adds `islandr-proxy` as a second deliverable (binary + systemd unit).
+- 0.11.0 adds `islandr-proxy` as a second deliverable (binary + systemd unit).
 - The real `WgAdapter` and `NftAdapter` in islandr gain a socket-client mode alongside the existing `ProcessBuilder` mode, plus a degraded "enforcement unavailable" state (probe + pending-config reconcile on connect). The published image runs this real adapter; the mock stays for dev/CI only.
 - The Docker image graduates from demo-only to a full evaluation-and-config experience from a bare `docker run`, and becomes enforcement-capable once a socket proxy is attached — same image, no rebuild.
 - The GUI gains a proxy-availability indicator: an "enforcement unavailable" banner with install instructions and a per-change "saved, not yet enforced" state. This is a new UI requirement and warrants a use-case in `spec.md` and a runtime scenario in arc42 Ch. 6.

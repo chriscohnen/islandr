@@ -1,9 +1,9 @@
 # Socket Proxy — JVM-side degraded mode (design)
 
 **Date:** 2026-06-28
-**Status:** Approved (design) — implementation pending
+**Status:** Approved — JVM side implemented on `feature/socket-proxy`; the Go `islandr-proxy` binary + production Docker image remain (branch 2).
 **Branch:** `feature/socket-proxy` (off `main` @ 0.9.1, independent sibling of `feature/ironrdp-browser-rdp`)
-**Target version:** 0.11.0 (the "v2" line; independent of 0.10.0/ironrdp)
+**Target version:** 0.11.0 — v1-core, pulled forward from the originally planned v2 line (independent of 0.10.0/ironrdp).
 **Implements:** ADR-0012 (Docker via Unix socket proxy), spec.md UC-04 + BR-027..031, arc42 §6.6
 
 ## 1. Problem & scope
@@ -151,7 +151,7 @@ Mode resolution (both producers): explicit config value > (unset && container ma
 
 - **R-122** (from ADR-0012) is closed here by the honest-status design: the degraded adapter never
   reports a fake success, and the banner + per-change hint make the gap visible.
-- `setIfMtu` no-op in socket mode (see §4) — acceptable for v2 evaluation; revisit if MTU tuning is
+- `setIfMtu` no-op in socket mode (see §4) — acceptable for 0.11.0 evaluation; revisit if MTU tuning is
   needed inside the container path.
 - Minor merge with `feature/ironrdp-browser-rdp` expected only in `settings` (both add fields) — trivial.
-- Version `0.11.0` is a proposal; confirm at release time.
+- Version `0.11.0` confirmed for the socket-proxy line; the version is bumped once the feature is complete (Go proxy binary shipped in branch 2), not on this JVM-only branch.
