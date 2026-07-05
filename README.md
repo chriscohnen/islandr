@@ -113,6 +113,16 @@ curl -fsSL "https://github.com/chriscohnen/islandr/releases/latest/download/isla
 sudo install -m 0755 /tmp/islandr /usr/local/bin/islandr
 ```
 
+Or run the container image (published to GHCR for `amd64` and `arm64`):
+
+```bash
+docker run -d -p 7080:8080 -e ISLANDR_ADMIN_PASSWORD=change-me \
+  -v islandr-data:/var/lib/islandr ghcr.io/chriscohnen/islandr:latest
+# → http://localhost:7080
+```
+
+The image runs the full configuration plane; enforcing rules on the host kernel from an unprivileged container needs the socket proxy (planned, [ADR-0012](docs/adr/0012-docker-socket-proxy.md)). A Compose file with both modes is at [docs/install/docker-compose.yml](docs/install/docker-compose.yml).
+
 Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/install.md).
 
 ## Prerequisites
@@ -136,7 +146,7 @@ Dev server (Quarkus live coding):
 
 The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
 
-Tests (209, runs in ~9 s after warm start):
+Tests (208, runs in ~9 s after warm start):
 
 ```bash
 ./gradlew test
@@ -196,7 +206,7 @@ islandr/
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 209 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 208 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -256,6 +266,8 @@ islandr/
 ### Release notes
 
 Only the changes that matter if you actually use it — see the [GitHub releases](https://github.com/chriscohnen/islandr/releases) for the full list.
+
+**0.9.2 – 0.9.4** — Fixes only, no new features: the Docker image and native binary now boot on a plain `docker run` and on CPU-restricted hosts (e.g. a Proxmox VM on the default CPU model). If you deploy with Docker, install **0.9.4 or later**.
 
 **0.9.1**
 - **Path prefix for HTTP/HTTPS resources** — a resource port can carry an optional URL path (e.g. `/admin`), so the portal's quicklaunch opens `https://host/admin` instead of just the host root.
