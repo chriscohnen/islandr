@@ -55,6 +55,7 @@ jobs:
           ./gradlew buildNative -Psqlite \
             -Dquarkus.native.container-build=true \
             -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 \
+            -Dquarkus.native.additional-build-args=-march=compatibility \
             --no-daemon
 
       - name: Compress binary with UPX (release tags only)
@@ -154,6 +155,7 @@ jobs:
           ./gradlew buildNative -Psqlite \
             -Dquarkus.native.container-build=true \
             -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 \
+            -Dquarkus.native.additional-build-args=-march=compatibility \
             --no-daemon
 
       - name: Compress binary with UPX
