@@ -1,0 +1,77 @@
+# islandr — Docker Compose (v2, Unix socket proxy — ADR-0012)
+#
+# This file runs the unprivileged islandr container. It boots in two stages:
+#
+#   1. Evaluation (default below): no proxy mounted. The full configuration
+#      plane runs — GUI, peers, users, groups, ACLs, settings, audit, JSON
+#      export/import — and persists to the data volume. Nothing is enforced on
+#      the host kernel; the Admin Console shows a persistent "Socket-Proxy
+#      nicht verfügbar" banner. This is the honest degraded mode, not the mock.
+#
+#   2. Enforcement (commented block): after running the host-side install.sh
+#      (creates the `islandr` user, scoped sudoers, `wg0`, `islandr-proxy` +
+#      systemd units), uncomment the socket mount and mode variables. islandr
+#      connects to /run/islandr/proxy.sock, reconciles the pending config, and
+#      starts pushing rules to `nft` and peers to `wg` — same image, no rebuild.
+#
+# The container never gets --cap-add, --network host, --privileged, or the
+# Docker socket. All host privilege stays behind the proxy's JSON allowlist.
+# See docs/adr/0012-docker-socket-proxy.md.
+
+services:
+  islandr:
+    image: ghcr.io/chriscohnen/islandr:latest
+    restart: unless-stopped
+
+    # Host port 7080 (8080 is often already taken); the container keeps 8080
+    # internally. Published on all interfaces so the app is reachable over the
+    # LAN (e.g. http://<vm-ip>:7080). If a reverse proxy terminates TLS on the
+    # SAME host, restrict this to "127.0.0.1:7080:8080" and point the proxy at
+    # it. See the post-install checklist in ../install.md.
+    ports:
+      - "7080:8080"
+
+    environment:
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      QUARKUS_HTTP_PORT: "8080"
+
+      # Local recovery admin. OIDC is the intended login (Settings → Identity);
+      # the local admin exists for recovery. Leave the password empty to disable
+      # local login entirely. Set it in a .env file next to this compose file
+      # (see step below) — never commit it.
+      ISLANDR_ADMIN_USER: admin
+      ISLANDR_ADMIN_PASSWORD: "${ISLANDR_ADMIN_PASSWORD:-}"
+
+      # SQLite lives on the data volume so config survives container restarts.
+      # DB sits at the volume root (which always exists); the container image has
+      # no /var/lib/islandr/data subdir, so pointing at data/ fails on a fresh
+      # volume with SQLite error 14 (SQLITE_CANTOPEN). For a team-size Postgres
+      # instead, set QUARKUS_DATASOURCE_DB_KIND=postgresql and the
+      # QUARKUS_DATASOURCE_* / _DIALECT vars (see ../install.md).
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:sqlite:/var/lib/islandr/islandr.db
+
+      # Encryption key for the `encrypted` private-key retention mode (ADR-0007).
+      # Without it only `never` and `plaintext` retention are available. Generate
+      # 32 random bytes into .env:  echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
+      ISLANDR_ENCRYPTION_KEY: "${ISLANDR_ENCRYPTION_KEY:-}"
+
+      # --- Enforcement (stage 2): uncomment once the host proxy is installed ---
+      # ISLANDR_WG_MODE: socket
+      # ISLANDR_NFT_MODE: socket
+      # ISLANDR_PROXY_SOCKET: /run/islandr/proxy.sock
+
+    volumes:
+      # Config plane persistence (evaluation default). This is a named volume,
+      # so it does NOT expose /var/lib/islandr on the host — fine while the proxy
+      # is absent. For enforcement, replace it with the host bind mount below so
+      # the proxy can read the ruleset islandr writes to /var/lib/islandr.
+      - islandr-data:/var/lib/islandr
+
+      # --- Enforcement (stage 2): uncomment, and comment out the named volume above ---
+      # The proxy reads the ruleset from a path shared with the host, and islandr
+      # talks to it over the socket. No capabilities are granted to the container.
+      # - /var/lib/islandr:/var/lib/islandr
+      # - /run/islandr/proxy.sock:/run/islandr/proxy.sock
+
+volumes:
+  islandr-data:
