@@ -51,6 +51,7 @@ export default defineComponent({
       rotateKey: "",
       formError: null,
       // IronRDP browser client
+      ironRdpEnabled: false,   // gates the "open in browser" button; comes from /my-resources
       rdpDialog: null,
       rdpCreds: { username: "", password: "", domain: "" },
       rdpOverlay: null,
@@ -124,7 +125,9 @@ export default defineComponent({
             : "/api/v1/acl/my-resources";
         const res = await fetch(url);
         if (!res.ok) return;
-        this.grants = await res.json();
+        const data = await res.json();
+        this.grants = data.resources;
+        this.ironRdpEnabled = !!data.ironRdpEnabled;
       } catch {
         // non-fatal — grants section simply stays empty
       } finally {
@@ -778,8 +781,8 @@ export default defineComponent({
                       </svg>
                     </a>
                   </template>
-                  <!-- Browser button: always shown for RDP -->
-                  <button @click="openRdpDialog(r, p)"
+                  <!-- Browser button: only when the admin has enabled browser-based RDP -->
+                  <button v-if="ironRdpEnabled" @click="openRdpDialog(r, p)"
                      :class="['myaccess-port-link', 'myaccess-port-rdp',
                               p.rdpAccessMode === 'web-only' ? '' : 'myaccess-port-rdp-browser-adj']"
                      title="Im Browser öffnen">

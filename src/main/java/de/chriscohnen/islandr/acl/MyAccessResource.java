@@ -2,7 +2,9 @@ package de.chriscohnen.islandr.acl;
 
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
+import de.chriscohnen.islandr.settings.SettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.ws.rs.GET;
@@ -32,11 +34,22 @@ import java.util.Set;
 public class MyAccessResource {
 
     @PersistenceContext EntityManager em;
+    @Inject SettingsService settings;
 
     @GET
-    public List<ResourceDto.MyAccessResource> myResources(
+    public ResourceDto.MyAccessResponse myResources(
             @Context ContainerRequestContext ctx,
             @QueryParam("userId") String userIdParam) {
+        // The portal-level flags travel with the user's own payload because end
+        // users cannot read the admin-only /settings endpoint (design 2026-06-28).
+        return new ResourceDto.MyAccessResponse(
+                settings.get().ironRdpEnabled,
+                resolveResources(ctx, userIdParam));
+    }
+
+    private List<ResourceDto.MyAccessResource> resolveResources(
+            ContainerRequestContext ctx,
+            String userIdParam) {
 
         AuthContext a = Auth.require(ctx);
 

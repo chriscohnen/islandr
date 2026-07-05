@@ -75,6 +75,16 @@ public final class ResourceDto {
             List<PortResponse> grantedPorts
     ) {}
 
+    /**
+     * Portal view for one user: their granted resources plus the portal-level flags
+     * they need but cannot read from the admin-only settings endpoint. Currently just
+     * {@code ironRdpEnabled}, which gates the "open in browser" RDP button.
+     */
+    public record MyAccessResponse(
+            boolean ironRdpEnabled,
+            List<MyAccessResource> resources
+    ) {}
+
     public record PortRequest(
             @Min(0) @Max(65535) int port,
             Integer portEnd,

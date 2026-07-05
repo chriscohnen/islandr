@@ -29,6 +29,7 @@ export default defineComponent({
         oidcAutoProvision: true,
         firewallDryRun: true,
         selfServicePeerCreation: true,
+        ironRdpEnabled: false,
         wgMtu: null,
         wgIncludeMtuInConf: false,
         hubLat: null,
@@ -75,6 +76,7 @@ export default defineComponent({
           oidcAutoProvision: s.oidcAutoProvision !== false,
           firewallDryRun: !!s.firewallDryRun,
           selfServicePeerCreation: s.selfServicePeerCreation !== false,
+          ironRdpEnabled: !!s.ironRdpEnabled,
           wgMtu: s.wgMtu || null,
           wgIncludeMtuInConf: !!s.wgIncludeMtuInConf,
           hubLat: s.hubLat ?? null,
@@ -436,6 +438,11 @@ export default defineComponent({
             <span>{{ t('settings.self_service_peer_creation_label') }}</span>
           </label>
           <div class="field-hint" style="margin-top: 0">{{ t('settings.self_service_peer_creation_hint') }}</div>
+          <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0; margin-top: var(--space-3)">
+            <input type="checkbox" v-model="form.ironRdpEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <span>{{ t('settings.iron_rdp_label') }}</span>
+          </label>
+          <div class="field-hint" style="margin-top: 0">{{ t('settings.iron_rdp_hint') }}</div>
         </div>
       </div>
 
