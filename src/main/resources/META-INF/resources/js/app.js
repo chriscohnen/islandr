@@ -134,6 +134,7 @@ const App = defineComponent({
       retention: "never",
       selfServicePeerCreation: true,
       googleWsAvailable: false,
+      enforcement: { status: "active", runtime: null },
       session,
         theme: document.documentElement.getAttribute("data-theme") || "light",
       lang: locale.current,
@@ -146,7 +147,7 @@ const App = defineComponent({
   watch: {
     "$route"(to) {
       if (to.meta.requiresAuth) {
-        if (this.isAdmin) this.refreshSettings();
+        if (this.isAdmin) { this.refreshSettings(); this.refreshEnforcement(); }
         this.refreshMe();
       }
     },
@@ -154,8 +155,11 @@ const App = defineComponent({
   async mounted() {
     if (this.$route.meta.requiresAuth) {
       await this.refreshMe();
-      if (this.isAdmin) await this.refreshSettings();
+      if (this.isAdmin) { await this.refreshSettings(); this.refreshEnforcement(); }
     }
+  },
+  beforeUnmount() {
+    clearTimeout(this._enfTimer);
   },
   methods: {
     async refreshSettings() {
@@ -191,6 +195,23 @@ const App = defineComponent({
             }
           }
         } catch { /* non-critical */ }
+      }
+    },
+    async refreshEnforcement() {
+      if (!this.isAdmin) return;
+      try {
+        const res = await fetch("/api/v1/enforcement/status");
+        if (!res.ok) return;
+        this.enforcement = await res.json();
+      } catch {
+        // ignore — banner just won't show
+      }
+      // Poll only while degraded, to catch recovery — no constant background polling
+      // when enforcement is healthy (which is the normal case, and always so in
+      // real/mock mode where the proxy is not involved).
+      clearTimeout(this._enfTimer);
+      if (this.enforcement.status !== "active") {
+        this._enfTimer = setTimeout(() => this.refreshEnforcement(), 10000);
       }
     },
     onSettingsChanged(s) {
@@ -301,6 +322,13 @@ const App = defineComponent({
             <strong>Setup unvollständig.</strong>
             Der WireGuard-Server-Public-Key trägt noch den Platzhalter.
             <router-link to="/settings">Jetzt in den Einstellungen ergänzen.</router-link>
+          </div>
+        </div>
+        <div v-if="isAdmin && enforcement.status !== 'active'" class="callout callout-warning">
+          <div>
+            <strong>{{ t('enforcement.banner_title') }}</strong>
+            {{ t('enforcement.banner_body') }}
+            <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener">{{ t('enforcement.banner_link') }}</a>
           </div>
         </div>
         <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" :google-ws-available="googleWsAvailable" @settings-changed="onSettingsChanged" />
