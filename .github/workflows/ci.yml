@@ -255,6 +255,66 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Build amd64 image locally (for smoke test)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: islandr:smoke
+
+      # Runs the ACTUAL image (not the raw binary on the runner, like the
+      # native-* smoke does) and drives the API end-to-end. This guards the
+      # native↔container gap: a runtime base that cannot execute the
+      # glibc-dynamic native binary (e.g. FROM scratch, or a base missing libz)
+      # makes the container exit 127 with no logs — invisible to the
+      # binary-on-runner smoke. Fails the release before anything is pushed.
+      - name: Image smoke test (boot container, create peer, assert QR)
+        run: |
+          set -euo pipefail
+          docker run -d --name islandr-smoke \
+            -p 8081:8080 \
+            -e ISLANDR_ADMIN_PASSWORD=ci-smoke-pw \
+            -e QUARKUS_HTTP_HOST=0.0.0.0 \
+            -e QUARKUS_DATASOURCE_JDBC_URL="jdbc:sqlite:/var/lib/islandr/islandr.db" \
+            -v islandr-smoke-data:/var/lib/islandr \
+            islandr:smoke
+          trap 'docker rm -f islandr-smoke >/dev/null 2>&1 || true' EXIT
+
+          # Wait until the image serves HTTP. Fail loudly if the container exits
+          # (the exit-127 / wrong-base regression) instead of waiting the full loop.
+          code=000
+          for _ in $(seq 1 60); do
+            running=$(docker inspect -f '{{.State.Running}}' islandr-smoke 2>/dev/null || echo false)
+            if [ "$running" != "true" ]; then
+              echo "::error::container exited before serving — base image cannot run the native binary"
+              docker logs islandr-smoke || true
+              exit 1
+            fi
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/v1/peers/next-ip || true)
+            [ "$code" != "000" ] && break
+            sleep 1
+          done
+          [ "$code" != "000" ] || { echo "::error::image did not serve HTTP"; docker logs islandr-smoke; exit 1; }
+
+          login=$(curl -s -c /tmp/cj.txt -o /dev/null -w '%{http_code}' \
+            -X POST http://localhost:8081/api/v1/auth/login \
+            -H 'content-type: application/json' \
+            -d '{"username":"admin","password":"ci-smoke-pw"}')
+          [ "$login" = "200" ] || { echo "::error::admin login failed (HTTP $login)"; docker logs islandr-smoke; exit 1; }
+
+          USER_ID=$(curl -s -b /tmp/cj.txt -X POST http://localhost:8081/api/v1/users \
+            -H 'content-type: application/json' \
+            -d '{"name":"Smoke","email":"smoke@example.com"}' | jq -r .id)
+          IP=$(curl -s -b /tmp/cj.txt http://localhost:8081/api/v1/peers/next-ip | jq -r .assignedIp)
+          [ -n "$USER_ID" ] && [ "$USER_ID" != "null" ] || { echo "::error::could not create user"; docker logs islandr-smoke; exit 1; }
+
+          QR=$(curl -s -b /tmp/cj.txt -X POST "http://localhost:8081/api/v1/users/$USER_ID/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"smoke-device\",\"assignedIp\":\"$IP\"}" | jq -r .qrPngBase64)
+          [[ "$QR" == data:image/png* ]] || { echo "::error::QR generation failed on the image base (AWT/ImageIO/libz)"; docker logs islandr-smoke; exit 1; }
+          echo "✓ image booted, login OK, peer + QR PNG OK"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
