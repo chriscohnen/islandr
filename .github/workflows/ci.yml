@@ -274,11 +274,15 @@ jobs:
       - name: Image smoke test (boot container, create peer, assert QR)
         run: |
           set -euo pipefail
+          # Deliberately do NOT override QUARKUS_DATASOURCE_JDBC_URL: this exercises
+          # the image's own baked-in default DB path. A relative default (data/…)
+          # resolves to a non-existent /data and dies at Flyway with SQLITE_CANTOPEN
+          # (error 14) on a bare run — this catches that regression, which an
+          # explicit override would mask.
           docker run -d --name islandr-smoke \
             -p 8081:8080 \
             -e ISLANDR_ADMIN_PASSWORD=ci-smoke-pw \
             -e QUARKUS_HTTP_HOST=0.0.0.0 \
-            -e QUARKUS_DATASOURCE_JDBC_URL="jdbc:sqlite:/var/lib/islandr/islandr.db" \
             -v islandr-smoke-data:/var/lib/islandr \
             islandr:smoke
           trap 'docker rm -f islandr-smoke >/dev/null 2>&1 || true' EXIT
