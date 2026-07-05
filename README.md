@@ -270,6 +270,9 @@ islandr/
 
 Only the changes that matter if you actually use it — see the [GitHub releases](https://github.com/chriscohnen/islandr/releases) for the full list.
 
+**0.10.0**
+- **Browser-based RDP** — open a granted RDP resource straight from the self-service portal, with no local client to install. An IronRDP WASM client runs in the browser and the hub proxies the connection over a WebSocket, gated by the resource ACL (the target is derived from the database, not the request). Per-port clipboard and file-transfer toggles; a `web-only` access mode blocks the direct WireGuard port so users are forced through the auditable browser proxy. Off by default — enable it globally in Settings.
+
 **0.9.2 – 0.9.4** — Fixes only, no new features: the Docker image and native binary now boot on a plain `docker run` and on CPU-restricted hosts (e.g. a Proxmox VM on the default CPU model). If you deploy with Docker, install **0.9.4 or later**.
 
 **0.9.1**
