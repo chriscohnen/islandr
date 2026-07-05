@@ -1,6 +1,8 @@
 package de.chriscohnen.islandr.firewall;
 
 import de.chriscohnen.islandr.audit.AuditService;
+import de.chriscohnen.islandr.proxy.EnforcementStatus;
+import de.chriscohnen.islandr.proxy.ProxyUnavailableException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -28,6 +30,7 @@ public class RulesetService {
     @Inject RuleBuilder builder;
     @Inject NftablesAdapter adapter;
     @Inject AuditService audit;
+    @Inject EnforcementStatus enforcement;
 
     /**
      * Build a fresh ruleset from DB state and apply it. Persists the result
@@ -47,7 +50,17 @@ public class RulesetService {
         FirewallState state = FirewallState.get();
         state.lastAttemptAt = Instant.now();
 
-        NftablesAdapter.ValidationResult validation = adapter.validate(snap.rulesetText());
+        NftablesAdapter.ValidationResult validation;
+        try {
+            validation = adapter.validate(snap.rulesetText());
+        } catch (ProxyUnavailableException ex) {
+            // Enforcement plane unreachable (socket proxy down): the config still
+            // committed, we just cannot push it. Record it honestly and leave
+            // FirewallState untouched — FAILED is reserved for a real nft rejection.
+            LOG.warnf("enforcement unavailable during validate — config persisted, not enforced: %s", ex.getMessage());
+            enforcement.markUnavailable(ex.getMessage());
+            return state;
+        }
         if (!validation.ok()) {
             LOG.warnf("nftables validation failed: %s", validation.stderr());
             state.lastStatus = FirewallState.FAILED;
@@ -62,6 +75,10 @@ public class RulesetService {
 
         try {
             adapter.apply(snap.rulesetText());
+        } catch (ProxyUnavailableException ex) {
+            LOG.warnf("enforcement unavailable during apply — config persisted, not enforced: %s", ex.getMessage());
+            enforcement.markUnavailable(ex.getMessage());
+            return state;
         } catch (NftablesException ex) {
             LOG.errorf(ex, "nftables apply failed despite validation passing");
             state.lastStatus = FirewallState.FAILED;
@@ -71,6 +88,8 @@ public class RulesetService {
             return state;
         }
 
+        // Enforcement plane reachable and applied — clear any prior degraded state.
+        enforcement.markActive();
         state.lastStatus = FirewallState.OK;
         state.lastOkAt = state.lastAttemptAt;
         state.ruleCount = snap.ruleCount();

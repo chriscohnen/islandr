@@ -2,6 +2,8 @@ package de.chriscohnen.islandr.peer;
 
 import de.chriscohnen.islandr.crypto.EncryptionService;
 import de.chriscohnen.islandr.firewall.RulesetService;
+import de.chriscohnen.islandr.proxy.EnforcementStatus;
+import de.chriscohnen.islandr.proxy.ProxyUnavailableException;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.settings.SettingsService;
 import de.chriscohnen.islandr.user.User;
@@ -27,6 +29,7 @@ public class PeerService {
     @Inject SettingsService settingsSvc;
     @Inject RulesetService rulesets;
     @Inject EncryptionService encSvc;
+    @Inject EnforcementStatus enforcement;
 
     @ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
@@ -106,6 +109,11 @@ public class PeerService {
 
         try {
             wg.setPeer(wgInterface, publicKeyToStore, hubAllowedIpsFor(peer), presharedKey);
+        } catch (ProxyUnavailableException e) {
+            // Enforcement plane unreachable: keep the peer persisted, mark the gap
+            // honestly, and let the reconciler push it once the proxy is back (design §5).
+            LOG.warnf("enforcement unavailable during setPeer for peer %s — persisted, not enforced: %s", peer.id, e.getMessage());
+            enforcement.markUnavailable(e.getMessage());
         } catch (RuntimeException e) {
             LOG.errorf(e, "wg.setPeer failed for peer %s — transaction will roll back", peer.id);
             throw new WebApplicationException("could not register peer with wg: " + e.getMessage(), 500);
@@ -276,6 +284,9 @@ public class PeerService {
             try {
                 wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer),
                         pskChanged ? pskForWg : null);
+            } catch (ProxyUnavailableException e) {
+                LOG.warnf("enforcement unavailable during update setPeer for peer %s — persisted, not enforced: %s", peer.id, e.getMessage());
+                enforcement.markUnavailable(e.getMessage());
             } catch (RuntimeException e) {
                 LOG.errorf(e, "wg.setPeer failed for updated peer %s", peer.id);
                 throw new WebApplicationException(
@@ -336,6 +347,9 @@ public class PeerService {
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
         try {
             wg.removePeer(wgInterface, peer.publicKey);
+        } catch (ProxyUnavailableException e) {
+            LOG.warnf("enforcement unavailable during delete removePeer for %s — deleting DB row anyway: %s", peerId, e.getMessage());
+            enforcement.markUnavailable(e.getMessage());
         } catch (RuntimeException e) {
             LOG.warnf("wg.removePeer failed for %s; deleting DB row anyway: %s", peerId, e.getMessage());
         }
@@ -354,6 +368,21 @@ public class PeerService {
             wg.removePeer(wgInterface, peer.publicKey);
         }
         return PeerDto.Response.from(peer);
+    }
+
+    /**
+     * Re-push every enabled peer to the WireGuard interface. Used by the proxy
+     * reconciler after the enforcement plane comes back (design §6): a full
+     * re-apply, not a delta, so the live interface converges to DB state.
+     *
+     * <p>Propagates {@link ProxyUnavailableException} if the proxy drops
+     * mid-reconcile — the reconciler catches it and re-enters the degraded state.
+     */
+    @Transactional
+    public void repushEnabledPeers() {
+        for (Peer peer : Peer.<Peer>list("enabled", true)) {
+            wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+        }
     }
 
     /**
