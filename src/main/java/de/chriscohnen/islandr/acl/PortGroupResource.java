@@ -39,7 +39,7 @@ public class PortGroupResource {
                 .map(g -> PortGroupDto.Response.from(g,
                         byGroup.getOrDefault(g.id, List.of()).stream()
                                 .map(m -> new ResourceDto.PortResponse(
-                                        m.id, m.port, m.portEnd, m.transport, m.protocol, m.label, null, null))
+                                        m.id, m.port, m.portEnd, m.transport, m.protocol, m.label, null, true, false, "native", null))
                                 .toList()))
                 .toList();
     }
@@ -53,7 +53,7 @@ public class PortGroupResource {
         return PortGroupDto.Response.from(g,
                 groups.membersFor(id).stream()
                         .map(m -> new ResourceDto.PortResponse(
-                                m.id, m.port, m.portEnd, m.transport, m.protocol, m.label, null, null))
+                                m.id, m.port, m.portEnd, m.transport, m.protocol, m.label, null, true, false, "native", null))
                         .toList());
     }
 

@@ -140,6 +140,8 @@ public class RuleBuilder {
                         String uName    = escape(userName.getOrDefault(peer.userId, "?"));
 
                         for (ResourcePort rp : grantedPorts) {
+                            // web-only RDP: direct peer access is blocked; traffic must go through the IronRDP proxy
+                            if ("web-only".equals(rp.rdpAccessMode)) continue;
                             String comment = String.format(
                                     "islandr:role=%s peer=%s user=%s resource=%s %s%s",
                                     escape(role.name), peerName, uName,

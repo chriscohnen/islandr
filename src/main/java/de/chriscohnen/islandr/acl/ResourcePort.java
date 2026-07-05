@@ -56,12 +56,25 @@ public class ResourcePort extends PanacheEntityBase {
     @Column(name = "path_prefix", length = 255)
     public String pathPrefix;
 
+    // RDP-specific options (only meaningful when protocol = "RDP")
+    @Column(name = "rdp_clipboard", nullable = false, columnDefinition = "INTEGER")
+    public boolean rdpClipboard = true;
+
+    @Column(name = "rdp_file_transfer", nullable = false, columnDefinition = "INTEGER")
+    public boolean rdpFileTransfer = false;
+
+    // "native" = nftables opens dport, client connects directly
+    // "web-only" = nftables blocks dport; access only via IronRDP browser proxy
+    @Column(name = "rdp_access_mode", nullable = false, length = 16)
+    public String rdpAccessMode = "native";
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
     public static ResourcePort createNew(String resourceId, int port, Integer portEnd,
                                          String transport, String protocol, String label,
-                                         String pathPrefix) {
+                                         String pathPrefix, boolean rdpClipboard,
+                                         boolean rdpFileTransfer, String rdpAccessMode) {
         ResourcePort p = new ResourcePort();
         p.id = UUID.randomUUID().toString();
         p.resourceId = resourceId;
@@ -71,6 +84,9 @@ public class ResourcePort extends PanacheEntityBase {
         p.protocol = protocol;
         p.label = label;
         p.pathPrefix = pathPrefix;
+        p.rdpClipboard = rdpClipboard;
+        p.rdpFileTransfer = rdpFileTransfer;
+        p.rdpAccessMode = rdpAccessMode != null ? rdpAccessMode : "native";
         p.createdAt = Instant.now();
         return p;
     }
