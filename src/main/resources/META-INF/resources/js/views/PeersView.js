@@ -96,11 +96,10 @@ export default defineComponent({
     },
 
     openCreate() {
-      if (!this.createUserId) {
-        alert(t("peers.no_users_alert"));
-        return;
-      }
-      this.openCreatePeer(this.createUserId);
+      // No users yet: still allow a site peer (which needs no user). The modal
+      // disables the client option with a hint to create a user first (F-3b).
+      this.openCreatePeer(this.createUserId || null);
+      if (!this.createUserId) this.peerType = "site";
     },
 
     async deletePeer(peerId) {

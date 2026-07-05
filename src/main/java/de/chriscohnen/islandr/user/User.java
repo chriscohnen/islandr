@@ -37,6 +37,11 @@ public class User extends PanacheEntityBase {
     @Column(name = "is_admin", nullable = false)
     public boolean isAdmin = false;
 
+    // PBKDF2 PHC string for local password login (F-01a). Null = no local password
+    // (OIDC-only, or the ENV-admin path). Never serialised to any DTO.
+    @Column(name = "password_hash")
+    public String passwordHash;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 

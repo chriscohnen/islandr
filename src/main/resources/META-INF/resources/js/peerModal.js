@@ -338,11 +338,12 @@ export const peerModalTemplate = `
 
           <fieldset class="key-mode" style="margin-bottom: var(--space-4)">
             <legend>{{ t('peer.type_label') }}</legend>
-            <label class="key-mode-option">
-              <input type="radio" v-model="peerType" value="client" />
+            <label class="key-mode-option" :style="users.length === 0 ? 'opacity:0.5; cursor:not-allowed' : ''">
+              <input type="radio" v-model="peerType" value="client" :disabled="users.length === 0" />
               <div>
                 <div class="key-mode-title">Client</div>
                 <div class="key-mode-hint">Einzelnes Gerät eines Benutzers (Laptop, Smartphone). Routet nur Traffic für sich selbst.</div>
+                <div v-if="users.length === 0" class="key-mode-hint" style="color: var(--accent)">{{ t('peer.no_users_hint') }}</div>
               </div>
             </label>
             <label class="key-mode-option">

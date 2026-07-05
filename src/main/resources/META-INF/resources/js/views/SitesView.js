@@ -226,7 +226,11 @@ export default defineComponent({
                 <option value="">{{ t('sites.field_gateway_none') }}</option>
                 <option v-for="p in peers" :key="p.id" :value="p.id">{{ p.name }} ({{ p.assignedIp }})</option>
               </select>
-              <div class="field-hint">{{ t('sites.field_gateway_hint') }}</div>
+              <div v-if="peers.length === 0" class="field-hint">
+                {{ t('sites.field_gateway_empty') }}
+                <router-link :to="{ name: 'peers' }">{{ t('sites.field_gateway_empty_link') }}</router-link>
+              </div>
+              <div v-else class="field-hint">{{ t('sites.field_gateway_hint') }}</div>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteDesc">{{ t('sites.field_desc') }}</label>

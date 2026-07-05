@@ -34,6 +34,7 @@ public class UserResource {
 
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
+    @Inject de.chriscohnen.islandr.crypto.PasswordHasher passwordHasher;
 
     /** Returns the profile of the currently authenticated user. Available to all logged-in users. */
     @GET
@@ -140,6 +141,37 @@ public class UserResource {
         String action = wanted ? "user.admin_grant" : "user.admin_revoke";
         audit.logUpdate(a.principal(), action, "User:" + u.name + " (" + u.id + ")",
                 Map.of("isAdmin", !wanted), Map.of("isAdmin", wanted));
+        return UserDto.Response.from(u);
+    }
+
+    /**
+     * Set (non-blank, min 8 chars) or clear (blank) a user's local password (F-01a).
+     * Setting enables local email+password login; clearing disables it (OIDC/ENV only).
+     * The password is never echoed back and never audited in plaintext.
+     */
+    @PUT
+    @Path("/{id}/password")
+    @Transactional
+    public UserDto.Response setPassword(@Context ContainerRequestContext ctx,
+                                        @PathParam("id") String id,
+                                        UserDto.PasswordRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        User u = User.findById(id);
+        if (u == null) throw new NotFoundException("user not found: " + id);
+        String pw = body != null ? body.password() : null;
+        if (pw == null || pw.isBlank()) {
+            if (u.passwordHash == null) return UserDto.Response.from(u); // no-op, no audit
+            u.passwordHash = null;
+            audit.logUpdate(a.principal(), "user.password_reset", "User:" + u.name + " (" + u.id + ")",
+                    Map.of("hadPassword", true), Map.of("hadPassword", false));
+            return UserDto.Response.from(u);
+        }
+        if (pw.length() < 8) {
+            throw new jakarta.ws.rs.BadRequestException("password must be at least 8 characters");
+        }
+        u.passwordHash = passwordHasher.hash(pw);
+        audit.logUpdate(a.principal(), "user.password_set", "User:" + u.name + " (" + u.id + ")",
+                Map.of(), Map.of("passwordSet", true));
         return UserDto.Response.from(u);
     }
 

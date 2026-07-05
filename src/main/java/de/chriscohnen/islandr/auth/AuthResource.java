@@ -30,6 +30,9 @@ public class AuthResource {
     @Inject SessionService sessions;
     @Inject OidcProviderService providers;
     @Inject AuditService audit;
+    @Inject de.chriscohnen.islandr.crypto.PasswordHasher passwordHasher;
+
+    private volatile String dummyHash;
 
     @RegisterForReflection
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {}
@@ -66,24 +69,68 @@ public class AuthResource {
         if (body == null || body.username() == null || body.password() == null) {
             return Response.status(400).build();
         }
-        if (!adminBootstrap.isEnabled()) {
-            // No ENV admin configured — local login is intentionally disabled.
-            return Response.status(503).entity(error("local admin login disabled")).build();
-        }
-        if (!adminBootstrap.matches(body.username(), body.password())) {
-            // Failed login is interesting — repeated failures are an
-            // intrusion signal. The actor is the *attempted* username, not
-            // the empty string, so a brute-force shows up filterable.
-            audit.logEvent(body.username(), "auth.login_failed", null,
+        // 1. ENV bootstrap admin (in-memory credential), bound to its admin@local
+        //    identity (F-01b) so it can own peers and self-assign roles.
+        if (adminBootstrap.isEnabled() && adminBootstrap.matches(body.username(), body.password())) {
+            de.chriscohnen.islandr.user.User adminUser =
+                    de.chriscohnen.islandr.user.User.find("email", AdminUserBootstrap.ADMIN_EMAIL).firstResult();
+            String adminUserId = adminUser != null ? adminUser.id : null;
+            Session s = sessions.create(Session.LOCAL, adminBootstrap.userName(), adminUserId);
+            audit.logEvent(s.principal, "auth.login_local", "Session:" + s.id,
                     java.util.Map.of("provider", "local"));
-            return Response.status(401).entity(error("invalid credentials")).build();
+            return okSession(s, new MeResponse(s.principal, s.provider, adminUserId, true, s.expiresAt));
         }
-        Session s = sessions.create(Session.LOCAL, adminBootstrap.userName(), null);
-        audit.logEvent(s.principal, "auth.login_local", "Session:" + s.id,
+
+        // 2. Local DB user with a password (F-01a) — works independently of the ENV
+        //    admin and of any configured OIDC provider.
+        de.chriscohnen.islandr.user.User localUser = findLocalUser(body.username());
+        if (verifyLocalPassword(localUser, body.password())) {
+            Session s = sessions.create(Session.LOCAL, localUser.email, localUser.id);
+            audit.logEvent(s.principal, "auth.login_local", "Session:" + s.id,
+                    java.util.Map.of("provider", "local"));
+            return okSession(s, new MeResponse(localUser.email, s.provider, localUser.id, localUser.isAdmin, s.expiresAt));
+        }
+
+        // 3. Neither matched. Failed logins are an intrusion signal — audit the
+        //    attempted username so a brute-force shows up filterable.
+        audit.logEvent(body.username(), "auth.login_failed", null,
                 java.util.Map.of("provider", "local"));
-        return Response.ok(new MeResponse(s.principal, s.provider, null, true, s.expiresAt))
+        return Response.status(401).entity(error("invalid credentials")).build();
+    }
+
+    private Response okSession(Session s, MeResponse me) {
+        return Response.ok(me)
                 .cookie(buildCookie(s.id, (int) java.time.Duration.between(Instant.now(), s.expiresAt).getSeconds()))
                 .build();
+    }
+
+    /** Match a local user by email, then by name. */
+    private de.chriscohnen.islandr.user.User findLocalUser(String username) {
+        de.chriscohnen.islandr.user.User byEmail =
+                de.chriscohnen.islandr.user.User.find("email", username).firstResult();
+        return byEmail != null ? byEmail
+                : de.chriscohnen.islandr.user.User.find("name", username).firstResult();
+    }
+
+    /**
+     * Verify a password against a local user, equalising timing for the
+     * not-found / no-password / disabled cases with a dummy PBKDF2 run so a login
+     * attempt does not leak which usernames exist (design 2026-07-05 §6).
+     */
+    private boolean verifyLocalPassword(de.chriscohnen.islandr.user.User user, String password) {
+        boolean eligible = user != null && user.enabled && user.passwordHash != null;
+        String hash = eligible ? user.passwordHash : dummyHash();
+        boolean match = passwordHasher.verify(password, hash);
+        return eligible && match;
+    }
+
+    private String dummyHash() {
+        String d = dummyHash;
+        if (d == null) {
+            d = passwordHasher.hash("timing-equalizer");
+            dummyHash = d;
+        }
+        return d;
     }
 
     @POST

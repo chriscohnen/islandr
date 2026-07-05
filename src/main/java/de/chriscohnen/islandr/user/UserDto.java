@@ -33,6 +33,9 @@ public final class UserDto {
 
     public record AdminFlagRequest(boolean isAdmin) {}
 
+    /** Set (non-blank, min length enforced in the handler) or clear (blank) a local password. */
+    public record PasswordRequest(String password) {}
+
     public record NicknameRequest(String nickname) {}
 
     public record LocaleRequest(String locale) {}

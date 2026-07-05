@@ -24,6 +24,8 @@ export default defineComponent({
       lang: locale.current,
       editingNicknameId: null,
       nicknameInput: "",
+      editingPasswordId: null,
+      passwordInput: "",
       // Google Workspace import dialog
       gwsOpen: false,
       gwsLoading: false,
@@ -146,6 +148,32 @@ export default defineComponent({
         this.cancelNicknameEdit();
       } catch (e) {
         this.error = t("users.error_nickname", { error: e.message });
+      }
+    },
+
+    startPasswordEdit(u) {
+      this.editingPasswordId = u.id;
+      this.passwordInput = "";
+    },
+    cancelPasswordEdit() {
+      this.editingPasswordId = null;
+      this.passwordInput = "";
+    },
+    async savePassword(userId) {
+      try {
+        const res = await fetch("/api/v1/users/" + userId + "/password", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password: this.passwordInput }),
+        });
+        if (!res.ok) {
+          const b = await res.text();
+          throw new Error("HTTP " + res.status + (b ? " — " + b.slice(0, 120) : ""));
+        }
+        await this.load();
+        this.cancelPasswordEdit();
+      } catch (e) {
+        this.error = t("users.error_password", { error: e.message });
       }
     },
 
@@ -360,21 +388,34 @@ export default defineComponent({
           </td>
           <td class="muted">{{ formatDate(u.createdAt) }}</td>
           <td style="text-align: right">
-            <router-link
-              :to="{ name: 'my-access', query: { as: u.id, asName: u.displayName } }"
-              class="btn btn-ghost btn-sm">
-              <Icon name="external-link" :size="13" />{{ t('users.btn_view') }}
-            </router-link>
-            <button class="btn btn-ghost btn-sm" @click="toggleAdmin(u)">
-              <Icon :name="u.isAdmin ? 'shield-off' : 'shield'" :size="13" />
-              {{ u.isAdmin ? t('users.btn_revoke_admin') : t('users.btn_make_admin') }}
-            </button>
-            <button class="btn btn-ghost btn-sm" @click="toggleEnabled(u)">
-              <Icon :name="u.enabled ? 'pause-circle' : 'play-circle'" :size="13" />
-              {{ u.enabled ? t('users.btn_disable') : t('users.btn_enable') }}
-            </button>
-            <button class="btn btn-secondary btn-sm" @click="openCreatePeer(u.id)"><Icon name="peers" :size="13" />{{ t('users.btn_add_peer') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteUser(u.id)"><Icon name="trash" :size="13" />{{ t('users.btn_delete') }}</button>
+            <template v-if="editingPasswordId !== u.id">
+              <router-link
+                :to="{ name: 'my-access', query: { as: u.id, asName: u.displayName } }"
+                class="btn btn-ghost btn-sm">
+                <Icon name="external-link" :size="13" />{{ t('users.btn_view') }}
+              </router-link>
+              <button class="btn btn-ghost btn-sm" @click="toggleAdmin(u)">
+                <Icon :name="u.isAdmin ? 'shield-off' : 'shield'" :size="13" />
+                {{ u.isAdmin ? t('users.btn_revoke_admin') : t('users.btn_make_admin') }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="toggleEnabled(u)">
+                <Icon :name="u.enabled ? 'pause-circle' : 'play-circle'" :size="13" />
+                {{ u.enabled ? t('users.btn_disable') : t('users.btn_enable') }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="startPasswordEdit(u)"><Icon name="edit" :size="13" />{{ t('users.btn_password') }}</button>
+              <button class="btn btn-secondary btn-sm" @click="openCreatePeer(u.id)"><Icon name="peers" :size="13" />{{ t('users.btn_add_peer') }}</button>
+              <button class="btn btn-ghost btn-sm" @click="deleteUser(u.id)"><Icon name="trash" :size="13" />{{ t('users.btn_delete') }}</button>
+            </template>
+            <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2); justify-content: flex-end">
+              <input class="input" type="password" style="width: 170px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
+                     v-model="passwordInput"
+                     :placeholder="t('users.password_placeholder')"
+                     @keyup.enter="savePassword(u.id)"
+                     @keyup.escape="cancelPasswordEdit"
+                     autofocus />
+              <button @click="savePassword(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
+              <button @click="cancelPasswordEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+            </span>
           </td>
         </tr>
       </tbody>
