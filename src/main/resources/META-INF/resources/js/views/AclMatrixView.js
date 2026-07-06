@@ -122,24 +122,17 @@ export default defineComponent({
     },
 
     /**
-     * Click a cell. Cycles through the tri-state for single-port resources
-     * (∅ → ⓐ → ∅). For multi-port resources, opens a port-picker so the
-     * admin can pick "all" / "limited subset" / "none".
+     * Click a cell. Opens the port-picker so the admin explicitly chooses
+     * "all ports (incl. future)" / a limited subset / none — for single-port
+     * resources too. The old single-port shortcut only ever granted the one
+     * specific port, so "all ports" could not be selected on a one-port resource
+     * and a later-added port would silently be excluded (bug).
      */
     onCellClick(roleId, resource) {
       if (resource.ports.length === 0) {
-        // No ports defined yet — can't grant anything. Loud no-op.
+        // No ports defined yet — can't grant anything. No-op.
         return;
       }
-      if (resource.ports.length === 1) {
-        const cur = this.cellState(roleId, resource.id);
-        const next = cur === null
-            ? { allPorts: false, portIds: [resource.ports[0].id] }
-            : null;
-        this.setPending(roleId, resource.id, next);
-        return;
-      }
-      // Multi-port — open the picker.
       this.picker = {
         roleId,
         resourceId: resource.id,
