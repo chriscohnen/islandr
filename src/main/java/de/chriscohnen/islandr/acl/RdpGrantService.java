@@ -36,6 +36,14 @@ public class RdpGrantService {
         return new RdpTarget(resource.ip, port.port, port.rdpClipboard, port.rdpFileTransfer);
     }
 
+    /** True if the user exists and is an admin. Used to gate {@code ?as=} impersonation. */
+    @Transactional
+    public boolean isAdmin(String userId) {
+        if (userId == null) return false;
+        de.chriscohnen.islandr.user.User u = de.chriscohnen.islandr.user.User.findById(userId);
+        return u != null && u.isAdmin;
+    }
+
     private boolean hasGrant(String userId, String resourceId, String portId) {
         @SuppressWarnings("unchecked")
         List<Number> rows = em.createNativeQuery(

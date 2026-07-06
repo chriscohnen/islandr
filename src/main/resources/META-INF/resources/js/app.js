@@ -80,7 +80,7 @@ const router = createRouter({
     { path: "/", name: "root", component: { render: () => null }, meta: { requiresAuth: true } },
     { path: "/login", name: "login", component: LoginView },
 
-    { path: "/mein-zugang", name: "my-access", component: MyAccessView, meta: { requiresAuth: true } },
+    { path: "/my-access", name: "my-access", component: MyAccessView, meta: { requiresAuth: true } },
 
     { path: "/dashboard", name: "dashboard", component: DashboardView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/peers", name: "peers", component: PeersView, meta: { requiresAuth: true, requiresAdmin: true } },
@@ -269,7 +269,7 @@ const App = defineComponent({
 
         <template v-else>
           <div class="section-label">{{ t('nav.my_account') }}</div>
-          <router-link to="/mein-zugang" class="nav-item"><Icon name="peers" />{{ t('nav.my_access') }}</router-link>
+          <router-link to="/my-access" class="nav-item"><Icon name="peers" />{{ t('nav.my_access') }}</router-link>
         </template>
       </aside>
 

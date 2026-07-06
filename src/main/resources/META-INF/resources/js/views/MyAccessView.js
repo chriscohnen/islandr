@@ -438,7 +438,10 @@ export default defineComponent({
         const w = Math.max(canvas.offsetWidth, 800);
         const h = Math.max(canvas.offsetHeight, 600);
         const wsScheme = location.protocol === "https:" ? "wss" : "ws";
-        const proxyUrl = `${wsScheme}://${location.host}/api/v1/rdp/proxy/${port.id}`;
+        let proxyUrl = `${wsScheme}://${location.host}/api/v1/rdp/proxy/${port.id}`;
+        // When an admin previews another user's access, tell the proxy to gate on
+        // that user's grants (the same ?as= the my-resources view uses).
+        if (this.viewAsUserId) proxyUrl += `?as=${encodeURIComponent(this.viewAsUserId)}`;
 
         const { SessionBuilder, DesktopSize } = this.rdpModule;
         let b = new SessionBuilder()
@@ -461,10 +464,34 @@ export default defineComponent({
         if (this.rdpOverlay) this.rdpStatus = "disconnected";
       } catch (e) {
         if (this.rdpOverlay) {
+          const reached = this.rdpStatus === "connected";
           this.rdpStatus = "error";
-          this.rdpError = e.message || String(e);
+          this.rdpError = this.rdpErrorMessage(e, reached);
         }
       }
+    },
+
+    // Turn the WASM client's thrown value into a readable message. connect()
+    // fails before the RDP session starts (reached=false) — almost always the
+    // proxy could not reach/handshake the target; the real reason is in the
+    // server log (RdpProxyEndpoint). A failure after "connected" is an in-session
+    // error. Never render a bare object as "[object Object]".
+    rdpErrorMessage(e, reached) {
+      let detail = "";
+      if (e != null) {
+        if (typeof e === "string") detail = e;
+        else if (e.message) detail = String(e.message);
+        else {
+          try { const s = e.toString(); if (s && s !== "[object Object]") detail = s; } catch {}
+          // Skip opaque wasm-bindgen handles ({"__wbg_ptr":…}) — just internal noise.
+          if (!detail) { try { const j = JSON.stringify(e); if (j && j !== "{}" && !j.includes("__wbg_ptr")) detail = j; } catch {} }
+        }
+      }
+      if (reached) {
+        return detail ? ("RDP-Sitzung fehlgeschlagen: " + detail) : "RDP-Sitzung unerwartet beendet.";
+      }
+      return "Verbindung zum RDP-Server fehlgeschlagen. Erreicht der Hub den Host, und läuft dort RDP mit TLS? Details stehen im Server-Log."
+        + (detail ? " (" + detail + ")" : "");
     },
 
     closeRdpOverlay() {

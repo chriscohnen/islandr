@@ -14,6 +14,7 @@ import io.quarkus.websockets.next.WebSocketConnection;
 import io.smallrye.common.annotation.Blocking;
 import io.vertx.core.buffer.Buffer;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
@@ -47,6 +48,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @WebSocket(path = "/api/v1/rdp/proxy/{portId}")
 public class RdpProxyEndpoint {
 
+    private static final Logger LOG = Logger.getLogger(RdpProxyEndpoint.class);
+
     @Inject SessionService sessions;
     @Inject RdpGrantService grants;
     @Inject SettingsService settingsService;
@@ -58,16 +61,33 @@ public class RdpProxyEndpoint {
     @OnOpen
     @Blocking
     public void onOpen(WebSocketConnection conn, @PathParam("portId") String portId) {
-        if (!settingsService.get().ironRdpEnabled) { reject(conn); return; }
+        if (!settingsService.get().ironRdpEnabled) { reject(conn, "browser-RDP is disabled in Settings (ironRdpEnabled=false)"); return; }
 
         String token = extractSessionCookie(conn);
         Session session = token != null ? sessions.findActive(token) : null;
-        if (session == null) { reject(conn); return; }
+        if (session == null) { reject(conn, "no valid session cookie on the WebSocket upgrade"); return; }
 
-        RdpGrantService.RdpTarget target =
-                grants.resolveTarget(portId, session.userId, session.isLocalAdmin());
-        if (target == null) { reject(conn); return; }
+        // Whose access applies. Normally the session's own user. When an admin
+        // previews another user (?as=<userId>, same param the my-resources view
+        // uses), resolve against the impersonated user's real grants — no local-admin
+        // bypass — so the preview reflects exactly what that user can reach.
+        String asUserId = queryParam(conn, "as");
+        String effectiveUserId;
+        boolean bypassAcl;
+        if (asUserId != null && !asUserId.isBlank()) {
+            if (!isRequesterAdmin(session)) { reject(conn, "impersonation (?as) requires an admin session"); return; }
+            effectiveUserId = asUserId;
+            bypassAcl = false;
+        } else {
+            effectiveUserId = session.userId;
+            bypassAcl = session.isLocalAdmin();
+        }
 
+        RdpGrantService.RdpTarget target = grants.resolveTarget(portId, effectiveUserId, bypassAcl);
+        if (target == null) { reject(conn, "no RDP access for user=" + effectiveUserId + " on portId=" + portId + " (port missing, not RDP, or no grant)"); return; }
+
+        LOG.infof("RDP proxy open: requester=%s effectiveUser=%s target=%s:%d",
+                session.userId, effectiveUserId, target.host(), target.port());
         connections.put(conn.id(), new ConnectionState(target));
     }
 
@@ -137,6 +157,10 @@ public class RdpProxyEndpoint {
             state.readerThread = Thread.ofVirtual().start(() -> relayTlsToWs(conn, state));
 
         } catch (Exception e) {
+            // Surface the real reason: this is almost always the RDP target being
+            // unreachable (wrong IP, refused, timeout) or not speaking RDP-over-TLS.
+            // Without this log the failure is invisible to the operator.
+            LOG.warnf(e, "RDP proxy handshake to %s:%d failed", state.target.host(), state.target.port());
             if (tls != null) { try { tls.close(); } catch (IOException ignored) {} }
             else if (tcp != null) { try { tcp.close(); } catch (IOException ignored) {} }
             sendError(conn, 502);
@@ -169,7 +193,8 @@ public class RdpProxyEndpoint {
         if (state != null) state.close();
     }
 
-    private void reject(WebSocketConnection conn) {
+    private void reject(WebSocketConnection conn, String reason) {
+        LOG.infof("RDP proxy rejected connection: %s", reason);
         conn.close().await().indefinitely();
     }
 
@@ -178,6 +203,24 @@ public class RdpProxyEndpoint {
             byte[] errPdu = RdpCleanPath.buildError(1, httpStatus);
             conn.sendBinary(Buffer.buffer(errPdu)).await().indefinitely();
         } catch (Exception ignored) {}
+    }
+
+    private boolean isRequesterAdmin(Session session) {
+        return session.isLocalAdmin() || grants.isAdmin(session.userId);
+    }
+
+    private static String queryParam(WebSocketConnection conn, String name) {
+        String query = conn.handshakeRequest().query();
+        if (query == null || query.isEmpty()) return null;
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            String key = eq >= 0 ? pair.substring(0, eq) : pair;
+            if (key.equals(name)) {
+                String value = eq >= 0 ? pair.substring(eq + 1) : "";
+                return java.net.URLDecoder.decode(value, java.nio.charset.StandardCharsets.UTF_8);
+            }
+        }
+        return null;
     }
 
     private String extractSessionCookie(WebSocketConnection conn) {
