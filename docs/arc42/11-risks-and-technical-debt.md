@@ -31,7 +31,7 @@ Risks are ordered by priority (probability × impact). Each risk references the 
 | R-070 | Hub VM is internet-exposed. Targeted attacker exploiting a vulnerability in the Quarkus HTTP layer or a dependency gets code execution. | L | H | **Medium** | Unprivileged process user (ADR-0011). CVE scanning via Dependabot + CodeQL. Hardening guide (fail2ban, SSH key only, no password auth). See §8.2 (least privilege, CVE tracking), §8.1 T-009. | [ADR-0011](../adr/0011-process-privilege-model.md) |
 | R-110 | The fixed nft file path `/var/lib/islandr/ruleset.nft` must be writable only by the `islandr` user. If another process can write to that path, it can inject arbitrary nftables rules via the sudo grant. | L | H | **Medium** | `chmod 700 /var/lib/islandr/`; only `islandr` user owns the directory. See §8.2, §8.1 T-003. | [ADR-0011](../adr/0011-process-privilege-model.md) |
 | R-113 | A distro update that changes the path of `nft` or `wg` (e.g. from `/usr/sbin/nft` to `/usr/bin/nft`) silently breaks the sudoers rule, leaving Islandr unable to reload the firewall. | L | H | **Medium** | Deployment script uses `which nft` and `which wg` to verify paths match the sudoers file; CI smoke test calls `sudo -l -U islandr` and asserts expected commands are listed. See §8.5 (startup failure handling). | [ADR-0011](../adr/0011-process-privilege-model.md) |
-| R-120 | The v2 proxy socket `/run/islandr/proxy.sock` must be owned by `islandr:islandr` (mode 0600). If the socket is world-readable, any local process can send proxy commands. | L | H | **Medium** | systemd `RuntimeDirectory=islandr` sets ownership automatically. See §8.2. | [ADR-0012](../adr/0012-docker-socket-proxy.md) |
+| R-120 | The 0.11.0 proxy socket `/run/islandr/proxy.sock` must be owned by `islandr:islandr` (mode 0600). If the socket is world-readable, any local process can send proxy commands. | L | H | **Medium** | systemd `RuntimeDirectory=islandr` sets ownership automatically. See §8.2. | [ADR-0012](../adr/0012-docker-socket-proxy.md) |
 
 ### Low Priority
 
@@ -52,14 +52,14 @@ Risks are ordered by priority (probability × impact). Each risk references the 
 | R-061 | A mode change from `plaintext` → `never` sets all stored key rows to NULL. Any operator who expected re-display to remain available loses all stored keys without warning. | L | M | **Low** | A one-shot CLI / admin endpoint `purge-private-keys` that NULLs the column explicitly. Documented in the operations guide. Audit entry per row. | [ADR-0007](../adr/0007-private-key-retention.md) |
 | R-064 | Audit log of `PEER_CONF_RESHOW` events grows quickly when used in scripts or automation. | L | L | **Low** | Acceptable; the audit table is append-only and the retention story already exists (PRD F-15). | [ADR-0007](../adr/0007-private-key-retention.md) |
 | R-111 | The `wg set wg0 *` wildcard allows any `wg set` arguments for `wg0`. A malicious caller with a shell as `islandr` could inject a crafted peer with modified allowed-IPs. | L | M | **Low** | Access as `islandr` already implies islandr is compromised — the blast radius is still bounded to WireGuard peer management on `wg0`. | [ADR-0011](../adr/0011-process-privilege-model.md) |
-| R-121 | The v2 proxy JSON protocol is unauthenticated; Unix socket ownership is the only gate. Any process running as `islandr` user can send proxy commands. | L | M | **Low** | Same as R-111 — access as `islandr` already implies compromise; blast radius bounded to the WireGuard and nftables allowlist. | [ADR-0012](../adr/0012-docker-socket-proxy.md) |
+| R-121 | The 0.11.0 proxy JSON protocol is unauthenticated; Unix socket ownership is the only gate. Any process running as `islandr` user can send proxy commands. | L | M | **Low** | Same as R-111 — access as `islandr` already implies compromise; blast radius bounded to the WireGuard and nftables allowlist. | [ADR-0012](../adr/0012-docker-socket-proxy.md) |
 
 ### Accepted (no further mitigation planned)
 
 | ID | Risk | Rationale |
 |---|---|---|
 | R-041 | Lateral movement within a site is not blocked by Islandr. A peer with RDP access to Terminal-01 can use Terminal-01 as a pivot to reach other hosts in the same VLAN. | Documented limitation. Operators who need intra-site ACL configure it in UCG natively. Source: [ADR-0005](../adr/0005-hub-only-firewall.md), [ADR-0006](../adr/0006-resource-level-acl.md). |
-| R-112 | Docker container deployment requires `--cap-add NET_ADMIN` and `--network host` to call `nft`/`wg` on the host, violating least-privilege. v1 Docker image uses mock adapters only. | v1 Docker is demo/dev only. Production Docker support is deferred to v2 via Unix socket proxy (ADR-0012). Source: [ADR-0011](../adr/0011-process-privilege-model.md). |
+| R-112 | Docker container deployment requires `--cap-add NET_ADMIN` and `--network host` to call `nft`/`wg` on the host, violating least-privilege. v1 Docker image uses mock adapters only. | Demo Docker is demo/dev only. Production Docker support is targeted for 0.11.0 (v1 line) via Unix socket proxy (ADR-0012). Source: [ADR-0011](../adr/0011-process-privilege-model.md). |
 
 ---
 

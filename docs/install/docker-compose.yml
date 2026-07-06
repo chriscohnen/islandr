@@ -1,4 +1,4 @@
-# islandr — Docker Compose (v2, Unix socket proxy — ADR-0012)
+# islandr — Docker Compose (0.11.0, Unix socket proxy — ADR-0012)
 #
 # This file runs the unprivileged islandr container. It boots in two stages:
 #

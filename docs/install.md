@@ -7,7 +7,7 @@ Two deployment paths:
 | [Native binary + systemd](#native-binary--systemd) | Production — runs as an unprivileged user with scoped `sudo` for `nft` and `wg` ([ADR-0011](adr/0011-process-privilege-model.md)) |
 | [Docker Compose](#docker-compose) | **Demo / dev only** — uses mock adapters, no real WireGuard or firewall management |
 
-> **Docker in production** is planned for v2 via a Unix socket proxy that keeps the container unprivileged ([ADR-0012](adr/0012-docker-socket-proxy.md)).
+> **Docker in production** is targeted for 0.11.0 (v1 line) via a Unix socket proxy that keeps the container unprivileged ([ADR-0012](adr/0012-docker-socket-proxy.md)).
 
 Both paths require a **Linux host (Ubuntu 22.04+ or Debian 12+)** with:
 - WireGuard kernel module loaded (`modprobe wireguard`)
@@ -222,7 +222,7 @@ echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
 
 ## Docker Compose
 
-> **Demo and dev use only.** The Docker image uses mock WireGuard and nftables adapters — it does not manage real peers or firewall rules. For production, use the [native binary + systemd](#native-binary--systemd) path. Production Docker support is planned for v2 ([ADR-0012](adr/0012-docker-socket-proxy.md)).
+> **Demo and dev use only.** The Docker image uses mock WireGuard and nftables adapters — it does not manage real peers or firewall rules. For production, use the [native binary + systemd](#native-binary--systemd) path. Production Docker support is targeted for 0.11.0 (v1 line) ([ADR-0012](adr/0012-docker-socket-proxy.md)).
 
 ### 1. Prerequisites
 

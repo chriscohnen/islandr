@@ -450,6 +450,9 @@ const messages = {
     // ── Firewall ─────────────────────────────────────────────────────────────
     "firewall.title":        "Firewall",
     "firewall.dry_run_banner": "Firewall writes are paused — WireGuard and nftables changes are not being applied.",
+    "enforcement.banner_title": "Enforcement unavailable",
+    "enforcement.banner_body":  "The socket proxy is unreachable. Changes are saved but not applied to WireGuard and the firewall — they take effect once the proxy is back.",
+    "enforcement.banner_link":  "Set up the socket proxy",
     "firewall.dry_run_link":   "Enable in settings →",
     "firewall.reload_btn":   "↻ Reload",
     "firewall.resync_btn":   "Resync — reapply",
@@ -1101,6 +1104,9 @@ const messages = {
     // ── Firewall ─────────────────────────────────────────────────────────────
     "firewall.title":        "Firewall",
     "firewall.dry_run_banner": "Firewall-Schreiben ist pausiert — WireGuard- und nftables-Änderungen werden nicht angewendet.",
+    "enforcement.banner_title": "Enforcement nicht verfügbar",
+    "enforcement.banner_body":  "Der Socket-Proxy ist nicht erreichbar. Änderungen werden gespeichert, aber nicht auf WireGuard und die Firewall angewendet — sie greifen, sobald der Proxy wieder da ist.",
+    "enforcement.banner_link":  "Socket-Proxy einrichten",
     "firewall.dry_run_link":   "In Einstellungen aktivieren →",
     "firewall.reload_btn":   "↻ Neu laden",
     "firewall.resync_btn":   "Resync — neu anwenden",

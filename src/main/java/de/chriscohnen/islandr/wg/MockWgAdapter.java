@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.wg;
 
+import de.chriscohnen.islandr.proxy.ProxyUnavailableException;
 import org.jboss.logging.Logger;
 
 import java.nio.charset.StandardCharsets;
@@ -31,6 +32,14 @@ public class MockWgAdapter implements WgAdapter {
     // Lazily initialised — GraalVM native-image refuses to seed a SecureRandom
     // during build-time bean instantiation (the seed source is a native handle).
     private volatile SecureRandom rng;
+
+    /**
+     * Test seam: when true, the enforcing ops ({@link #setPeer}, {@link #removePeer},
+     * {@link #showPeers}, {@link #probeServer}) throw {@link ProxyUnavailableException}
+     * exactly as {@code SocketWgAdapter} does when the host proxy is unreachable, so the
+     * degraded call-site paths can be exercised without a real socket.
+     */
+    public volatile boolean forceUnavailable;
 
     private final Map<String, MockPeer> peers = new LinkedHashMap<>();
 
@@ -87,18 +96,21 @@ public class MockWgAdapter implements WgAdapter {
 
     @Override
     public synchronized void setPeer(String iface, String publicKey, String allowedIps, String presharedKey) {
+        if (forceUnavailable) throw new ProxyUnavailableException("mock: proxy unavailable");
         LOG.debugf("mock: setPeer iface=%s pubkey=%s allowed=%s psk=%s", iface, abbreviate(publicKey), allowedIps, presharedKey != null ? "set" : "none");
         peers.put(publicKey, new MockPeer(publicKey, allowedIps, Instant.now()));
     }
 
     @Override
     public synchronized void removePeer(String iface, String publicKey) {
+        if (forceUnavailable) throw new ProxyUnavailableException("mock: proxy unavailable");
         LOG.debugf("mock: removePeer iface=%s pubkey=%s", iface, abbreviate(publicKey));
         peers.remove(publicKey);
     }
 
     @Override
     public synchronized List<PeerStatus> showPeers(String iface) {
+        if (forceUnavailable) throw new ProxyUnavailableException("mock: proxy unavailable");
         List<PeerStatus> out = new ArrayList<>(peers.size());
         for (MockPeer p : peers.values()) {
             boolean active = ThreadLocalRandom.current().nextDouble() < 0.7;
@@ -121,12 +133,15 @@ public class MockWgAdapter implements WgAdapter {
     }
 
     public ServerInfo probeServer(String iface) {
+        // Match SocketWgAdapter's contract: a probe against an unreachable proxy returns null.
+        if (forceUnavailable) return null;
         return new ServerInfo("MOCK+PublicKey+ProbeResult+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", 51820, 0, "unknown", 0);
     }
 
     /** Test-only hook to reset state between tests. */
     public synchronized void reset() {
         peers.clear();
+        forceUnavailable = false;
     }
 
     private static String abbreviate(String publicKey) {
