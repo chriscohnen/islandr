@@ -17,7 +17,9 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "id", nullable = false, length = 36)
     public String id;
 
-    @Column(name = "user_id", nullable = false, length = 36)
+    // Nullable: site peers have no owning user (see migration V37 + commit 43faed0).
+    // Client peers always carry a userId, enforced at the service layer.
+    @Column(name = "user_id", length = 36)
     public String userId;
 
     @Column(name = "name", nullable = false)
