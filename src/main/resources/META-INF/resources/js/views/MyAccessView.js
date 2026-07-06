@@ -1089,6 +1089,7 @@ export default defineComponent({
       <div class="rdp-toolbar">
         <span class="rdp-toolbar-title">
           {{ rdpOverlay.resource.name }} &mdash; {{ rdpOverlay.port.label || rdpOverlay.port.protocol }}
+          <span class="mono muted" style="font-size: var(--text-xs)">({{ rdpOverlay.resource.ip }}:{{ rdpOverlay.port.port }})</span>
         </span>
         <span v-if="rdpStatus === 'connecting'" class="muted" style="font-size: var(--text-xs)">Verbinde...</span>
         <span v-else-if="rdpStatus === 'disconnected'" class="muted" style="font-size: var(--text-xs)">Verbindung beendet</span>

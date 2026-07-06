@@ -203,7 +203,8 @@ public class DashboardResource {
 
         DashboardDto.Topology topology = new DashboardDto.Topology(
                 topoSites, topoResources, livePeers, resourceOverflow,
-                s == null ? null : s.wgServerEndpoint);
+                s == null ? null : s.wgServerEndpoint,
+                s == null ? null : s.hubLocationLabel);
 
         FirewallState fs = FirewallState.get();
         DashboardDto.FirewallStatus firewallStatus = new DashboardDto.FirewallStatus(

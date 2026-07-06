@@ -289,6 +289,7 @@ export default defineComponent({
             :live-peers="liveMode ? livePeers : data.topology.livePeers"
             :resource-overflow="data.topology.resourceOverflow"
             :endpoint="data.topology.hubEndpoint"
+            :hub-label="data.topology.hubLabel"
             @site="onTopologySite"
             @resource="onTopologyResource" />
 

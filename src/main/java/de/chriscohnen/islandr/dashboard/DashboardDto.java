@@ -49,7 +49,10 @@ public final class DashboardDto {
             // under the central hub node so the operator sees at a glance
             // which DNS/IP the clients reach. Null/blank means Settings
             // hasn't been set up yet.
-            String hubEndpoint
+            String hubEndpoint,
+            // Operator-set hub location name (Settings) shown as the hub node
+            // label instead of the generic "Hub". Null/blank → "Hub".
+            String hubLabel
     ) {}
 
     public record TopologySite(

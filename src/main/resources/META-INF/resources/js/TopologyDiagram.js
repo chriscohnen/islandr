@@ -66,6 +66,7 @@ export default defineComponent({
     livePeers:        { type: Array,  default: () => [] },
     resourceOverflow: { type: Number, default: 0 },
     endpoint:         { type: String, default: "" },
+    hubLabel:         { type: String, default: "" },
   },
   emits: ["site", "resource"],
   data() {
@@ -243,7 +244,7 @@ export default defineComponent({
         <!-- Hub -->
         <circle class="hub-pulse" :cx="CX" :cy="CY" :r="HUB_R" />
         <circle class="hub-core"  :cx="CX" :cy="CY" :r="HUB_R - 6" />
-        <text   class="hub-label" :x="CX" :y="CY + HUB_R + 16">Hub</text>
+        <text   class="hub-label" :x="CX" :y="CY + HUB_R + 16">{{ hubLabel || 'Hub' }}</text>
         <text v-if="endpoint" class="hub-endpoint" :x="CX" :y="CY + HUB_R + 30">{{ endpoint }}</text>
 
         <!-- Live-peer dots -->
