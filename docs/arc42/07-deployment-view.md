@@ -2,7 +2,7 @@
 
 ## 7.1 Production — Hub VM (Single Binary)
 
-![Deployment Diagram](../../architecture/diagrams/structurizr-ProductionDeployment.png)
+![Native Deployment Diagram](../../architecture/diagrams/structurizr-NativeDeployment.png)
 
 ### Hub VM requirements
 
@@ -43,6 +43,8 @@ See [docs/install.md](../install.md) for the full installation guide.
 ## 7.2 Docker — v1 Demo/Dev Only (Mock Adapters)
 
 A Docker image is published at `ghcr.io/chriscohnen/islandr` for demo and local development. **This image uses mock WireGuard and nftables adapters and cannot manage real peers or firewall rules.**
+
+![Docker Deployment Diagram (evaluation)](../../architecture/diagrams/structurizr-DockerDeployment.png)
 
 ```yaml
 # docker-compose.yml — DEMO / DEV ONLY, not for production use
