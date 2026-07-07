@@ -64,6 +64,21 @@
 .input.is-invalid { border-color: var(--danger-solid); }
 .input.is-invalid:focus { box-shadow: 0 0 0 3px var(--danger-bg); }
 
+/* Password field with a reveal toggle. The eye button sits inside the input on
+   the right; the input reserves padding so text never runs under it. */
+.input-reveal { position: relative; display: block; }
+.input-reveal .input { width: 100%; padding-right: calc(var(--space-3) + 26px); }
+.input-reveal-btn {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: none; border: none; border-radius: var(--radius-sm);
+  color: var(--fg3); cursor: pointer;
+  transition: color var(--dur) var(--ease-standard), background var(--dur) var(--ease-standard);
+}
+.input-reveal-btn:hover { color: var(--fg1); background: var(--surface-3); }
+.input-reveal-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft-bg); }
+
 /* ---- Toggle -------------------------------------------------------------- */
 .toggle { position: relative; display: inline-flex; width: 38px; height: 22px; flex: none; }
 .toggle input { opacity: 0; width: 0; height: 0; }

@@ -247,7 +247,7 @@ islandr/
 - Admin toggle to disable self-service peer creation (stricter environments)
 - Protocol quicklaunch on granted resources:
   - **HTTP/HTTPS** — opens directly in the browser; optional per-port path prefix (e.g. `/admin`) so multi-app hosts work without a dedicated port per app
-  - **RDP** — `.rdp` file download (Windows/macOS) + `rdp://` URI (Linux/Remmina) + **browser-based RDP** via IronRDP WASM (no client install); `web-only` access mode blocks direct WireGuard port access so users are forced through the browser proxy; per-port clipboard and file-transfer toggles; global enable toggle in Settings
+  - **RDP** — `.rdp` file download (Windows/macOS) + `rdp://` URI (Linux/Remmina) + **browser-based RDP** via IronRDP WASM (no client install); `web-only` access mode blocks direct WireGuard port access so users are forced through the browser proxy; per-port clipboard and file-transfer toggles; password-manager autofill + show/hide toggle on the credential dialog; global enable toggle in Settings
   - **VNC** — `vnc://` URI link (RFC 7869; opens Remmina, GNOME Connections, RealVNC)
   - **SSH** — `ssh://` URI (macOS Terminal, Linux terminal emulators)
   - **SFTP** — `sftp://` URI (Nautilus, Dolphin file manager)
@@ -272,6 +272,7 @@ Only the changes that matter if you actually use it — see the [GitHub releases
 
 **0.10.0**
 - **Browser-based RDP** — open a granted RDP resource straight from the self-service portal, with no local client to install. An IronRDP WASM client runs in the browser and the hub proxies the connection over a WebSocket, gated by the resource ACL (the target is derived from the database, not the request). Per-port clipboard and file-transfer toggles; a `web-only` access mode blocks the direct WireGuard port so users are forced through the auditable browser proxy. Off by default — enable it globally in Settings.
+- **Password-manager-friendly credentials** — the local login form and the browser-RDP credential dialog use proper form and field semantics (`name` + `autocomplete` + `type`), so KeePassXC, Bitwarden and the browser's own manager detect and autofill them. The RDP dialog adds a copyable per-resource URI (keep one vault entry per host) and a show/hide toggle on the password field.
 - **Local users with passwords** — you no longer need an external IdP to hand out logins. An admin sets a per-user password (PBKDF2-hashed, never stored or returned in plaintext) and that user signs in with email + password, alongside or instead of Microsoft/Google OIDC.
 - **Usable bootstrap admin** — a fresh install seeds an `admin@local` user and binds the `ISLANDR_ADMIN_PASSWORD` login to it, so you can immediately own a peer and assign yourself roles instead of logging in as a rights-less admin.
 - **Onboarding polish** — the port form pre-fills the default port per protocol (RDP 3389, SSH 22, HTTPS 443, …); a peer can be created with no users yet as a site gateway (the client type is disabled with a hint to add a user first); networks hint when there is no gateway peer to pick; the ACL matrix lets you grant "all ports" on single-port resources too; and the dashboard shows your configured hub location name instead of a generic "Hub".
