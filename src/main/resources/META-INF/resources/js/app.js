@@ -135,6 +135,8 @@ const App = defineComponent({
       selfServicePeerCreation: true,
       googleWsAvailable: false,
       enforcement: { status: "active", runtime: null },
+      installOpen: false,
+      installCopied: null,
       session,
         theme: document.documentElement.getAttribute("data-theme") || "light",
       lang: locale.current,
@@ -143,6 +145,18 @@ const App = defineComponent({
   computed: {
     me() { return this.session.me; },
     isAdmin() { return !!(this.me && this.me.isAdmin); },
+    // Install commands for the enforcement banner (shown only in a container).
+    // install-proxy.sh auto-detects the host arch and verifies the checksum, so
+    // the one-liner needs no arch here.
+    installCmdRemote() {
+      return "curl -fsSL https://github.com/chriscohnen/islandr/releases/latest/download/install-proxy.sh | sudo bash";
+    },
+    installCmdSource() {
+      return "git clone https://github.com/chriscohnen/islandr && cd islandr/islandr-proxy && CGO_ENABLED=0 go build -trimpath -o islandr-proxy . && sudo ./install.sh ./islandr-proxy";
+    },
+    installCmdMount() {
+      return "-v /run/islandr/proxy.sock:/run/islandr/proxy.sock";
+    },
   },
   watch: {
     "$route"(to) {
@@ -197,6 +211,14 @@ const App = defineComponent({
         } catch { /* non-critical */ }
       }
     },
+    async copyInstall(text, key) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this.installCopied = key;
+        setTimeout(() => { if (this.installCopied === key) this.installCopied = null; }, 2000);
+      } catch (_) {}
+    },
+
     async refreshEnforcement() {
       if (!this.isAdmin) return;
       try {
@@ -329,6 +351,36 @@ const App = defineComponent({
             <strong>{{ t('enforcement.banner_title') }}</strong>
             {{ t('enforcement.banner_body') }}
             <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener">{{ t('enforcement.banner_link') }}</a>
+
+            <!-- Running in a container with no reachable socket: offer the copy-paste
+                 install path (auto-detected via runtime.container from the status API). -->
+            <div v-if="enforcement.runtime && enforcement.runtime.container" style="margin-top: var(--space-3)">
+              <button type="button" class="btn btn-ghost btn-sm" @click="installOpen = !installOpen">
+                {{ installOpen ? t('enforcement.install_hide') : t('enforcement.install_show') }}
+              </button>
+
+              <div v-if="installOpen" style="margin-top: var(--space-3)">
+                <p class="muted" style="font-size: var(--text-xs); margin: 0 0 var(--space-3)">{{ t('enforcement.install_intro') }}</p>
+
+                <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_binary') }}</label>
+                <div style="display:flex; gap: var(--space-2); align-items:center; margin-bottom: var(--space-3)">
+                  <code class="mono" style="flex:1; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdRemote }}</code>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdRemote, 'remote')">{{ installCopied === 'remote' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
+                </div>
+
+                <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_source') }}</label>
+                <div style="display:flex; gap: var(--space-2); align-items:center; margin-bottom: var(--space-3)">
+                  <code class="mono" style="flex:1; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdSource }}</code>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdSource, 'source')">{{ installCopied === 'source' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
+                </div>
+
+                <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_mount') }}</label>
+                <div style="display:flex; gap: var(--space-2); align-items:center">
+                  <code class="mono" style="flex:1; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdMount }}</code>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdMount, 'mount')">{{ installCopied === 'mount' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" :google-ws-available="googleWsAvailable" @settings-changed="onSettingsChanged" />
