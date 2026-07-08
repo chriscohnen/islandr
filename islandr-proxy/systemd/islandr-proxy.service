@@ -1,0 +1,26 @@
+[Unit]
+Description=islandr-proxy — executes the wg/nft allowlist for the islandr container
+Documentation=https://github.com/chriscohnen/islandr/blob/main/docs/adr/0012-docker-socket-proxy.md
+Requires=islandr-proxy.socket
+After=islandr-proxy.socket
+
+[Service]
+Type=simple
+User=islandr
+Group=islandr
+ExecStart=/usr/local/bin/islandr-proxy
+
+# The listening socket is handed in by systemd (LISTEN_FDS); the process never
+# opens one itself. sudo must be able to escalate, so NoNewPrivileges stays off.
+NoNewPrivileges=false
+
+# Light hardening that does not interfere with sudo wg/nft:
+ProtectHome=true
+ProtectSystem=full
+PrivateTmp=true
+# /run/islandr already exists (tmpfiles, islandr:islandr 0700); short-lived
+# preshared-key files are written there. runtimeDir() falls back to it when
+# RUNTIME_DIRECTORY is unset, so no RuntimeDirectory= is declared here.
+
+[Install]
+WantedBy=multi-user.target

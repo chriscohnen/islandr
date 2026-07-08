@@ -40,15 +40,21 @@ islandr-binary
 
 ### What the proxy allows (complete allowlist)
 
-| Op               | Command                                            | Constraints                                                   |
-| ---------------- | -------------------------------------------------- | ------------------------------------------------------------- |
-| `nft_reload`     | `sudo nft -f /var/lib/islandr/ruleset.nft`         | ruleset path is a server-side constant, not a request field   |
-| `nft_flush`      | `sudo nft flush ruleset islandr`                   | no args                                                       |
-| `wg_set_peer`    | `sudo wg set wg0 peer <pubkey> allowed-ips <cidr>` | interface fixed to `wg0`; pubkey and CIDR validated by format |
-| `wg_remove_peer` | `sudo wg set wg0 peer <pubkey> remove`             | same constraints                                              |
-| `wg_show`        | `sudo wg show wg0 dump`                            | read-only                                                     |
+| Op               | Command                                                                    | Constraints                                                                                                                     |
+| ---------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `wg_set_peer`    | `sudo wg set wg0 peer <pubkey> allowed-ips <cidr>[ preshared-key <file>]`  | interface fixed to `wg0`; pubkey & preshared key = base64 of exactly 32 bytes; every `allowed-ips` element validated as a CIDR; the PSK is written to a short-lived `0600` file and passed by path, never on the command line |
+| `wg_remove_peer` | `sudo wg set wg0 peer <pubkey> remove`                                     | pubkey validated (base64/32 bytes)                                                                                             |
+| `wg_show`        | `sudo wg show wg0 dump`                                                     | read-only; stdout returned in the `dump` field                                                                                |
+| `nft_validate`   | `sudo nft -c -f /var/lib/islandr/ruleset.nft`                              | ruleset path is a server-side constant, not a request field                                                                   |
+| `nft_reload`     | `sudo nft -f /var/lib/islandr/ruleset.nft`                                 | ruleset path is a server-side constant, not a request field                                                                   |
 
 Anything outside this list is rejected with an error — the proxy has no shell, no exec, no wildcard.
+
+> This table matches the ops actually sent by `ProxyClient` and implemented in
+> `islandr-proxy/`. An earlier draft listed `nft_flush` (`nft flush ruleset islandr`);
+> the JVM never emits it — it clears rules by reloading a validated ruleset via
+> `nft_validate` + `nft_reload` — so it is not a proxy op. `wg_set_peer` carries an
+> optional `presharedKey`, and `nft_validate` (dry-run `nft -c -f`) was added.
 
 ### Container run (0.11.0)
 

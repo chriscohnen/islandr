@@ -1,0 +1,8 @@
+# Installed to /etc/sudoers.d/islandr-proxy (mode 0440, root:root).
+# Scoped sudoers per ADR-0011: the islandr user may run exactly wg and nft as
+# root, nothing else. Argument shaping is enforced by islandr-proxy's allowlist,
+# not here (sudoers arg-globbing is brittle); the real gate is the daemon.
+#
+# Paths are distro-dependent — verify with `command -v wg nft` and adjust.
+# Debian/Ubuntu: wg=/usr/bin/wg, nft=/usr/sbin/nft.
+islandr ALL=(root) NOPASSWD: /usr/bin/wg, /usr/sbin/nft
