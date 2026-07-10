@@ -287,6 +287,7 @@ const messages = {
     "sites.field_gateway":      "Gateway peer",
     "sites.field_gateway_none": "No gateway",
     "sites.field_gateway_hint": "Site peer that routes traffic for this network. Status shown in the table.",
+    "sites.field_gateway_ranges": "Adopt a range from this peer:",
     "sites.field_gateway_empty": "No site peer available yet — create one first, then select it here.",
     "sites.field_gateway_empty_link": "Go to Peers",
     "sites.th_resources": "Resources",
@@ -339,6 +340,8 @@ const messages = {
     "resources.type_camera":    "Camera",
     "resources.type_iot":       "IoT / Smart Home",
     "resources.type_virt":      "Virt-Host",
+    "resources.type_rackserver": "Rack server",
+    "resources.type_kvm":       "KVM / NanoKVM",
     "resources.type_mgmt":      "Management (IPMI)",
     "resources.type_other":     "Other",
 
@@ -951,6 +954,7 @@ const messages = {
     "sites.field_gateway":      "Gateway-Peer",
     "sites.field_gateway_none": "Kein Gateway",
     "sites.field_gateway_hint": "Site-Peer der den Traffic für dieses Netz routet. Status wird in der Tabelle angezeigt.",
+    "sites.field_gateway_ranges": "Range dieses Peers übernehmen:",
     "sites.field_gateway_empty": "Noch kein Site-Peer vorhanden — leg zuerst einen an, dann kannst du ihn hier auswählen.",
     "sites.field_gateway_empty_link": "Zu den Peers",
     "sites.th_resources": "Ressourcen",
@@ -1003,6 +1007,8 @@ const messages = {
     "resources.type_camera":    "Kamera",
     "resources.type_iot":       "IoT / Smarthome",
     "resources.type_virt":      "Virt-Host",
+    "resources.type_rackserver": "Rackserver",
+    "resources.type_kvm":       "KVM / NanoKVM",
     "resources.type_mgmt":      "Management (IPMI)",
     "resources.type_other":     "Sonstiges",
 

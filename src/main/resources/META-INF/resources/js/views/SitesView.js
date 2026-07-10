@@ -25,8 +25,19 @@ export default defineComponent({
   async mounted() {
     await this.load();
   },
-  computed: { _lang() { return locale.current; } },
+  computed: {
+    _lang() { return locale.current; },
+    // Routed CIDRs of the selected gateway peer, offered as one-click fills for
+    // the site CIDR so it need not be retyped.
+    gatewayRanges() {
+      const p = this.peers.find((x) => x.id === this.form.gatewayPeerId);
+      if (!p || !p.siteAllowedCidrs) return [];
+      return p.siteAllowedCidrs.split(",").map((s) => s.trim()).filter(Boolean);
+    },
+  },
   methods: {
+    useRange(cidr) { this.form.cidr = cidr; },
+
     t(key, vars) { return t(key, vars); },
     async load() {
       this.loading = true;
@@ -231,6 +242,14 @@ export default defineComponent({
                 <router-link :to="{ name: 'peers' }">{{ t('sites.field_gateway_empty_link') }}</router-link>
               </div>
               <div v-else class="field-hint">{{ t('sites.field_gateway_hint') }}</div>
+              <!-- Adopt one of the gateway peer's routed CIDRs into the site CIDR
+                   above, so it need not be retyped. Manual entry stays possible. -->
+              <div v-if="gatewayRanges.length" style="margin-top: var(--space-2); display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center">
+                <span class="muted" style="font-size: var(--text-xs)">{{ t('sites.field_gateway_ranges') }}</span>
+                <button v-for="r in gatewayRanges" :key="r" type="button"
+                        class="btn btn-sm mono" :class="form.cidr === r ? 'btn-primary' : 'btn-ghost'"
+                        style="font-size: var(--text-xs)" @click="useRange(r)">{{ r }}</button>
+              </div>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteDesc">{{ t('sites.field_desc') }}</label>

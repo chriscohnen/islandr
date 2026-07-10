@@ -217,6 +217,28 @@ export const PATHS = {
     '<line x1="6" x2="6.01" y1="18" y2="18"/>',
   ],
 
+  // rack cabinet — dedizierter Rackserver (z.B. Dell PowerEdge), abgesetzt vom
+  // virt-host-Look. Vier Höheneinheiten mit Status-LED + Slot-Linie.
+  rackserver: [
+    '<rect width="16" height="20" x="4" y="2" rx="2"/>',
+    '<path d="M8 6h.01"/>',
+    '<path d="M8 10h.01"/>',
+    '<path d="M8 14h.01"/>',
+    '<path d="M8 18h.01"/>',
+    '<path d="M12 6h4"/>',
+    '<path d="M12 10h4"/>',
+    '<path d="M12 14h4"/>',
+    '<path d="M12 18h4"/>',
+  ],
+
+  // square-terminal — NanoKVM / KVM-over-IP (Remote-Konsole). Out-of-Band,
+  // sicherheitskritisch wie management.
+  kvm: [
+    '<path d="m7 11 2-2-2-2"/>',
+    '<path d="M11 13h4"/>',
+    '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>',
+  ],
+
   // cpu — Out-of-Band-Management (IPMI, iDRAC, iLO). Sicherheitskritisch.
   management: [
     '<rect x="4" y="4" width="16" height="16" rx="2"/>',
