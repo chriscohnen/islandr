@@ -20,6 +20,13 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# Interface must match the container's islandr.wg.interface (default wg0).
+IFACE="${ISLANDR_WG_INTERFACE:-wg0}"
+if ! [[ "$IFACE" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,14}$ ]]; then
+  echo "error: invalid ISLANDR_WG_INTERFACE '$IFACE' (1-15 chars: letters, digits, '.' '-')" >&2
+  exit 1
+fi
+
 if [[ ! -x "$BIN_SRC" ]]; then
   echo "error: proxy binary not found/executable at: $BIN_SRC" >&2
   echo "       pass the path as the first argument, or build it first:" >&2
@@ -45,6 +52,8 @@ echo "→ Installiere tmpfiles / socket / service"
 install -o root -g root -m 0644 "$UNIT_DIR/islandr.tmpfiles.conf" /etc/tmpfiles.d/islandr.conf
 install -o root -g root -m 0644 "$UNIT_DIR/islandr-proxy.socket"   /etc/systemd/system/islandr-proxy.socket
 install -o root -g root -m 0644 "$UNIT_DIR/islandr-proxy.service"  /etc/systemd/system/islandr-proxy.service
+# Bind the interface into the service (default wg0 is the proxy's own fallback).
+sed -i "/^\[Service\]/a Environment=ISLANDR_WG_INTERFACE=$IFACE" /etc/systemd/system/islandr-proxy.service
 
 echo "→ Installiere scoped sudoers (mit erkannten Pfaden: $WG_PATH, $NFT_PATH)"
 tmp_sudo="$(mktemp)"

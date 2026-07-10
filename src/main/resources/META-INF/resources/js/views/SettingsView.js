@@ -17,6 +17,7 @@ export default defineComponent({
       info: null,
       savedRetention: "never",
       encryptionKeyConfigured: false,
+      wgInterface: "wg0", // read-only; set via ISLANDR_WG_INTERFACE at deploy time
       form: {
         wgSubnet: "",
         wgSubnet6: "",
@@ -64,9 +65,11 @@ export default defineComponent({
         const s = await res.json();
         this.savedRetention = s.privateKeyRetention || "never";
         this.encryptionKeyConfigured = !!s.encryptionKeyConfigured;
+        this.wgInterface = s.wgInterface || "wg0";
         this.form = {
           wgSubnet: s.wgSubnet || "",
           wgSubnet6: s.wgSubnet6 || "",
+          // (wgInterface handled below — read-only, not part of the editable form)
           wgServerPublicKey: s.wgServerPublicKey || "",
           wgServerEndpoint: s.wgServerEndpoint || "",
           wgClientAllowedIps: s.wgClientAllowedIps || "",
@@ -280,6 +283,12 @@ export default defineComponent({
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">WireGuard</h2>
         <div class="form-grid">
+          <div class="field">
+            <label>{{ t('settings.field_interface') }}</label>
+            <input class="input mono" :value="wgInterface" disabled readonly />
+            <div class="field-hint">{{ t('settings.field_interface_hint') }}</div>
+          </div>
+
           <div class="field">
             <label for="wgSubnet">{{ t('settings.field_subnet') }}</label>
             <input id="wgSubnet" class="input mono" v-model="form.wgSubnet" required placeholder="10.8.0.0/24" />

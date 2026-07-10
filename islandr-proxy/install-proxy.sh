@@ -19,6 +19,12 @@ set -euo pipefail
 
 REPO="chriscohnen/islandr"
 VERSION="${ISLANDR_PROXY_VERSION:-latest}"
+# Interface must match the container's islandr.wg.interface (default wg0).
+IFACE="${ISLANDR_WG_INTERFACE:-wg0}"
+if ! [[ "$IFACE" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,14}$ ]]; then
+  echo "error: invalid ISLANDR_WG_INTERFACE '$IFACE' (1-15 chars: letters, digits, '.' '-')" >&2
+  exit 1
+fi
 
 if [[ $EUID -ne 0 ]]; then
   echo "error: run as root (pipe to 'sudo bash', or 'sudo $0')" >&2
@@ -120,6 +126,8 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
+# Bind the interface into the service (default wg0 is the proxy's own fallback).
+sed -i "/^\[Service\]/a Environment=ISLANDR_WG_INTERFACE=$IFACE" /etc/systemd/system/islandr-proxy.service
 
 SUDO_TMP="$(mktemp)"
 cat > "$SUDO_TMP" <<EOF

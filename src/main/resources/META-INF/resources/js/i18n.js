@@ -566,6 +566,8 @@ const messages = {
     // ── Settings ─────────────────────────────────────────────────────────────
     "settings.title":          "Settings",
     "settings.setup_warn":     "Setup incomplete.",
+    "settings.field_interface":      "WireGuard interface",
+    "settings.field_interface_hint": "Read-only. Set at deploy time via ISLANDR_WG_INTERFACE; the socket proxy and firewall rules use this interface.",
     "settings.field_subnet":   "WireGuard subnet (CIDR)",
     "settings.field_subnet6":  "IPv6 subnet (optional, e.g. fd11::/64)",
     "settings.field_endpoint": "Server endpoint",
@@ -1228,6 +1230,8 @@ const messages = {
     // ── Settings ─────────────────────────────────────────────────────────────
     "settings.title":          "Einstellungen",
     "settings.setup_warn":     "Setup unvollständig.",
+    "settings.field_interface":      "WireGuard-Interface",
+    "settings.field_interface_hint": "Nur lesbar. Wird beim Deploy über ISLANDR_WG_INTERFACE gesetzt; Socket-Proxy und Firewall-Regeln nutzen dieses Interface.",
     "settings.field_subnet":   "WireGuard-Subnetz (CIDR)",
     "settings.field_subnet6":  "IPv6-Subnetz (optional, z. B. fd11::/64)",
     "settings.field_endpoint": "Server-Endpoint",
