@@ -64,10 +64,12 @@ public class MyAccessResource {
             userId = a.userId();
         }
 
-        // 1. Roles this user belongs to.
+        // 1. Roles this user belongs to — explicit memberships plus every auto_all
+        //    role (Everyone), which includes all users implicitly (ADR-0013).
         @SuppressWarnings("unchecked")
         List<String> roleIds = em.createNativeQuery(
-                        "SELECT role_id FROM user_roles WHERE user_id = ?1")
+                        "SELECT role_id FROM user_roles WHERE user_id = ?1 "
+                                + "UNION SELECT id FROM roles WHERE auto_all = 1")
                 .setParameter(1, userId)
                 .getResultList();
         if (roleIds.isEmpty()) return List.of();

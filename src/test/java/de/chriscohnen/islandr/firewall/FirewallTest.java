@@ -393,6 +393,50 @@ class FirewallTest {
         assertThat(text).doesNotContain("ip6 saddr fd11::60 ip6 daddr 10.50.0.1");
     }
 
+    // -- auto_all "Everyone" role (ADR-0013) ---------------------------------
+
+    @Test
+    @Transactional
+    void ruleBuilder_autoAllRole_reachesUserWithNoExplicitRoles() {
+        // User has a peer but NO user_roles row.
+        User user = persistUser("nobody@example.test", "Nobody");
+        Role everyone = Role.createNew("Everyone", null);
+        everyone.autoAll = true;
+        everyone.persist();
+        Site site = persistSite("HQ", "10.20.0.0/16");
+        Resource res = persistResource(site.id, "Terminal-01", "10.20.0.5");
+        ResourcePort port = persistPort(res.id, 3389, "tcp", "RDP");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(everyone.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+        persistPeer(user.id, "laptop", "10.8.0.9");
+
+        String text = builder.build().rulesetText();
+        // Reaches the Everyone-granted resource despite no explicit role membership.
+        assertThat(text).contains("ip saddr 10.8.0.9 ip daddr 10.20.0.5 tcp dport 3389 accept");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_autoAllRole_doesNotReachSitePeers() {
+        // A site/gateway peer has userId=null — Everyone models user access, not routing.
+        Role everyone = Role.createNew("Everyone", null);
+        everyone.autoAll = true;
+        everyone.persist();
+        Site site = persistSite("HQ", "10.20.0.0/16");
+        Resource res = persistResource(site.id, "Terminal-01", "10.20.0.5");
+        ResourcePort port = persistPort(res.id, 3389, "tcp", "RDP");
+        RoleResourceGrant grant = RoleResourceGrant.createNew(everyone.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+        persistPeer(null, "site-gw", "10.8.0.99");
+
+        String text = builder.build().rulesetText();
+        assertThat(text).doesNotContain("ip saddr 10.8.0.99");
+    }
+
     // -- helpers --------------------------------------------------------------
 
     @Transactional

@@ -236,6 +236,9 @@ const messages = {
     "roles.btn_save":        "Save",
     "roles.btn_saving":      "Saving …",
     "roles.btn_edit":        "Edit",
+    "roles.auto_all_badge":  "all users",
+    "roles.all_members":     "all",
+    "roles.protected":       "protected",
     "roles.btn_delete":      "Delete",
 
     // ── ACL Matrix ───────────────────────────────────────────────────────────
@@ -903,6 +906,9 @@ const messages = {
     "roles.btn_save":        "Speichern",
     "roles.btn_saving":      "Speichert …",
     "roles.btn_edit":        "Bearbeiten",
+    "roles.auto_all_badge":  "alle Nutzer",
+    "roles.all_members":     "alle",
+    "roles.protected":       "geschützt",
     "roles.btn_delete":      "Löschen",
 
     // ── ACL Matrix ───────────────────────────────────────────────────────────

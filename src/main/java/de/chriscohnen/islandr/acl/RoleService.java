@@ -52,6 +52,9 @@ public class RoleService {
     @Transactional
     public Role update(String id, RoleDto.UpsertRequest req) {
         Role r = get(id);
+        if (r.autoAll) {
+            throw protectedRole("renamed or edited");
+        }
         if (!r.name.equals(req.name()) && Role.count("name", req.name()) > 0) {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
@@ -66,8 +69,24 @@ public class RoleService {
     @Transactional
     public void delete(String id) {
         Role r = get(id);
+        if (r.autoAll) {
+            throw protectedRole("deleted");
+        }
         // ON DELETE CASCADE removes user_roles + role_resource_grants rows.
         r.delete();
+    }
+
+    /**
+     * The auto-membership Everyone role is protected: deleting, renaming, or
+     * clearing its flag would silently break the "reaches all users" contract
+     * (ADR-0013, R-131). Grants on it stay editable.
+     */
+    private WebApplicationException protectedRole(String verb) {
+        return new WebApplicationException(
+                Response.status(Response.Status.CONFLICT)
+                        .entity("the '" + RoleBootstrap.EVERYONE_ROLE_NAME
+                                + "' role is protected and cannot be " + verb)
+                        .build());
     }
 
     // -- Membership (User × Role) --------------------------------------------

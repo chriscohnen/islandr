@@ -22,7 +22,7 @@ A sibling idea — a default **"admins" access-role** — is explicitly out of s
 Concretely:
 
 1. **Schema.** Add `auto_all BOOLEAN NOT NULL DEFAULT 0` to the `roles` table (Flyway migration). Only the seeded `Everyone` role has it set; ordinary roles never do (no UI to toggle it in v1).
-2. **Seed.** `AdminUserBootstrap` idempotently creates the `Everyone` role (`auto_all = 1`) on first startup, alongside the `admin@local` seed. It is created **with zero grants** — inert until the admin deliberately grants something to it.
+2. **Seed.** `RoleBootstrap` idempotently creates the `Everyone` role (`auto_all = 1`) on first startup (unconditionally — unlike the ENV-gated `admin@local` seed). It is created **with zero grants** — inert until the admin deliberately grants something to it.
 3. **Resolution.** Everywhere access is resolved from users, the effective role set for a user is `roles(user_roles) ∪ roles(auto_all = 1)`:
    - [`MyAccessResource`](../../src/main/java/de/chriscohnen/islandr/acl/MyAccessResource.java) — the portal "what can I reach?" query unions the auto-all roles.
    - [`RuleBuilder`](../../src/main/java/de/chriscohnen/islandr/firewall/RuleBuilder.java) — the firewall recompute adds every auto-all role's grants to every **user-linked** peer. Site/gateway peers have no `userId` and are unaffected (Everyone models *user* access, not routing).

@@ -25,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(AdminSessionExtension.class)
 class AclEndpointsTest {
 
+    @jakarta.inject.Inject RoleBootstrap roleBootstrap;
+
     @BeforeEach
     @Transactional
     void wipe() {
@@ -39,6 +41,25 @@ class AclEndpointsTest {
         Resource.deleteAll();
         Site.deleteAll();
         Role.deleteAll();
+    }
+
+    // -- Everyone role protection (ADR-0013) ---------------------------------
+
+    @Test
+    void everyoneRole_isProtectedFromRenameAndDelete() {
+        String id = roleBootstrap.seedEveryoneRole().id;
+
+        // Rename / edit → 409
+        given().contentType("application/json")
+                .body("{\"name\":\"Renamed\",\"description\":null}")
+                .when().put("/api/v1/roles/" + id).then().statusCode(409);
+
+        // Delete → 409
+        given().when().delete("/api/v1/roles/" + id).then().statusCode(409);
+
+        // Still present and unchanged
+        given().when().get("/api/v1/roles/" + id).then().statusCode(200)
+                .body("name", org.hamcrest.Matchers.equalTo(RoleBootstrap.EVERYONE_ROLE_NAME));
     }
 
     // -- Sites ----------------------------------------------------------------
