@@ -9,24 +9,36 @@ This site is the interactive C4 model of the system, generated from
 It is the source of truth for how the pieces fit together; the PNG exports in
 the repo's `docs/` are rendered from the same model.
 
-## What Islandr is
+## ▶ Start here: the Islandr container view
 
-A machine (the **hub**) terminates WireGuard, and Islandr runs on it. Admins
-manage peers, users, roles, sites and resources; end users enroll their own
-devices through a guided self-service portal. Access is enforced at the hub by
-nftables rules that Islandr computes from the ACL model — the firewall is the
-single choke point, so a peer can only reach what its roles grant.
+The diagrams live under the **Islandr** software system — that is the entry
+point. Open **[Islandr → Container view](islandr/container/)** to see the
+runnable parts, then drill down: click a container to zoom into its components,
+or switch to the deployment views.
 
-- **Deployment:** one native binary under `systemd` (production), or a Docker
-  container (evaluation today; production Docker via a Unix socket proxy is on
-  the roadmap — see below).
-- **Auth:** local login or OIDC (Microsoft 365 / Google Workspace).
-- **Storage:** SQLite by default, PostgreSQL for larger installs.
+## One system, plus its context
+
+This model documents **exactly one** software system: **Islandr**. Everything
+else in the *Software Systems* list is an **external dependency** Islandr talks
+to — those pages carry a short description and a context diagram, but no
+internal views, because they are not ours to design.
+
+| System | Role | Has internal views? |
+|--------|------|:---:|
+| **Islandr** | The platform itself — hub backend, both SPAs, database | **Yes — start here** |
+| OIDC Provider | Authenticates users (Microsoft 365 / Google Workspace) | No (external) |
+| WireGuard | Linux kernel VPN module, managed via `wg` | No (external) |
+| nftables | Linux kernel packet filter, enforces the ACL ruleset | No (external) |
+| Cloudflare / Reverse Proxy | Edge and TLS termination | No (external) |
+| Resource Host | A machine behind the VPN (e.g. an RDP server) | No (external) |
+
+So if a system in the sidebar shows only text, it is external context. The one
+you can walk through is Islandr.
 
 ## How to read this model (C4)
 
-The model follows the [C4 notation](https://c4model.com) — four zoom levels,
-each a tab on the **Islandr** software-system page:
+The Islandr system follows the [C4 notation](https://c4model.com) — four zoom
+levels, each a tab on the **Islandr** page:
 
 | Level | View | What it answers |
 |-------|------|-----------------|
@@ -35,14 +47,10 @@ each a tab on the **Islandr** software-system page:
 | 3 | **Component** | Inside the backend: `auth`, `acl`, `peer`, `firewall`, `wg`, `audit`, … |
 | — | **Deployment** | How containers map onto real infrastructure — **native (systemd)** and **Docker (evaluation)** |
 
-Start with **Container views** for the overview, drop into **Component views**
-to see the backend's internal packages, and use **Deployment views** to see how
-it all lands on a host.
-
 ## Related documentation
 
 - **[Roadmap](roadmap/)** — what's shipped, in progress, and planned.
-- **Decisions** — the architecture decisions (ADRs) live in the repo under
-  [`docs/adr/`](https://github.com/chriscohnen/islandr/tree/main/docs/adr).
+- **[Decisions](islandr/decisions/)** — the architecture decision records (ADRs)
+  behind the design, browsable per decision.
 - **[README](https://github.com/chriscohnen/islandr#readme)** — install, run,
   and operate Islandr.
