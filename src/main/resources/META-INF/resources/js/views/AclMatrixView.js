@@ -243,23 +243,34 @@ export default defineComponent({
       <p v-else-if="sites.length === 0">{{ t('acl.empty_sites') }}</p>
     </div>
 
-    <div v-else>
-      <div style="display: flex; gap: var(--space-2); border-bottom: 1px solid var(--border); margin-bottom: var(--space-4); overflow-x: auto">
-        <button v-for="s in sites" :key="s.id"
-                @click="activeSiteId = s.id"
-                :class="['btn', s.id === activeSiteId ? 'btn-secondary' : 'btn-ghost', 'btn-sm']"
-                style="border-radius: 0; border-bottom: 2px solid transparent"
-                :style="s.id === activeSiteId ? 'border-bottom-color: var(--accent)' : ''">
-          {{ s.name }} <span class="muted mono" style="margin-left: 6px; font-size: var(--text-xs)">{{ s.cidr }}</span>
-        </button>
-      </div>
+    <div v-else style="display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap">
+      <!-- Site list (master): a vertical, scannable list scales past a horizontal
+           tab strip that overflowed off-screen once a hub had many sites. -->
+      <aside style="flex: 0 0 240px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden">
+        <div style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-size: var(--text-xs); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg2)">
+          {{ t('acl.sites_heading') }} <span class="mono" style="margin-left: 4px; letter-spacing: 0">{{ sites.length }}</span>
+        </div>
+        <div style="max-height: 65vh; overflow-y: auto">
+          <button v-for="s in sites" :key="s.id"
+                  @click="activeSiteId = s.id"
+                  style="display: block; width: 100%; text-align: left; padding: var(--space-3) var(--space-4); background: transparent; border: none; border-left: 3px solid transparent; border-bottom: 1px solid var(--border); cursor: pointer"
+                  :style="s.id === activeSiteId ? 'background: var(--surface-2); border-left-color: var(--accent)' : ''">
+            <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.3">{{ s.name }}</div>
+            <div class="mono muted" style="font-size: var(--text-xs); margin-top: 2px">{{ s.cidr }}</div>
+            <div class="muted" style="font-size: var(--text-xs); margin-top: 2px">{{ (resourcesBySite[s.id] || []).length }} {{ t('acl.resources_count') }}</div>
+          </button>
+        </div>
+      </aside>
 
-      <div v-if="activeResources.length === 0" class="empty-state">
-        <h2>{{ t('acl.no_res_title') }}</h2>
-        <p>{{ t('acl.no_res_desc') }}</p>
-      </div>
+      <!-- Matrix (detail) for the active site; scrolls horizontally on its own. -->
+      <div style="flex: 1 1 420px; min-width: 0">
+        <div v-if="activeResources.length === 0" class="empty-state" style="margin: 0">
+          <h2>{{ t('acl.no_res_title') }}</h2>
+          <p>{{ t('acl.no_res_desc') }}</p>
+        </div>
 
-      <table v-else class="table" style="width: auto; min-width: 100%">
+        <div v-else style="overflow-x: auto">
+        <table class="table" style="width: auto; min-width: 100%">
         <thead>
           <tr>
             <th style="position: sticky; left: 0; background: var(--surface-2); min-width: 220px">{{ t('acl.th_resource') }}</th>
@@ -294,12 +305,14 @@ export default defineComponent({
           </tr>
         </tbody>
       </table>
+        </div>
 
-      <div class="muted" style="margin-top: var(--space-4); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
-        <span class="mono">∅</span> {{ t('acl.legend_none') }} &nbsp;·&nbsp;
-        <span class="mono">ⓐ</span> {{ t('acl.legend_all') }} &nbsp;·&nbsp;
-        <span class="mono">N</span> N {{ t('acl.legend_selected') }} &nbsp;·&nbsp;
-        {{ t('acl.legend_amber') }}
+        <div class="muted" style="margin-top: var(--space-4); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
+          <span class="mono">∅</span> {{ t('acl.legend_none') }} &nbsp;·&nbsp;
+          <span class="mono">ⓐ</span> {{ t('acl.legend_all') }} &nbsp;·&nbsp;
+          <span class="mono">N</span> N {{ t('acl.legend_selected') }} &nbsp;·&nbsp;
+          {{ t('acl.legend_amber') }}
+        </div>
       </div>
     </div>
 

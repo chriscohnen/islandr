@@ -178,7 +178,7 @@ export default defineComponent({
             {{ r.name }}
             <span v-if="r.autoAll" class="tag" style="margin-left: var(--space-2)">{{ t('roles.auto_all_badge') }}</span>
           </td>
-          <td class="muted">{{ r.description || "—" }}</td>
+          <td class="muted">{{ r.autoAll ? t('roles.everyone_description') : (r.description || "—") }}</td>
           <td>
             <span v-if="r.autoAll" class="muted">{{ t('roles.all_members') }}</span>
             <button v-else class="btn btn-ghost btn-sm" @click="openMembers(r)">

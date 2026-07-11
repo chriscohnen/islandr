@@ -241,6 +241,7 @@ const messages = {
     "roles.auto_all_badge":  "all users",
     "roles.all_members":     "all",
     "roles.protected":       "protected",
+    "roles.everyone_description": "All users — automatic membership. Grants on this role reach every user (including future ones).",
     "roles.btn_delete":      "Delete",
 
     // ── ACL Matrix ───────────────────────────────────────────────────────────
@@ -253,6 +254,8 @@ const messages = {
     "acl.empty_title":        "Matrix empty",
     "acl.empty_roles":        "Create roles first.",
     "acl.empty_sites":        "Create sites with resources first.",
+    "acl.sites_heading":      "Sites",
+    "acl.resources_count":    "resources",
     "acl.no_res_title":       "No resources in this site",
     "acl.no_res_desc":        "Create resources first, then they appear as rows here.",
     "acl.th_resource":        "Resource",
@@ -915,6 +918,7 @@ const messages = {
     "roles.auto_all_badge":  "alle Nutzer",
     "roles.all_members":     "alle",
     "roles.protected":       "geschützt",
+    "roles.everyone_description": "Alle Nutzer — automatische Mitgliedschaft. Grants auf dieser Rolle erreichen jeden Nutzer (auch künftige).",
     "roles.btn_delete":      "Löschen",
 
     // ── ACL Matrix ───────────────────────────────────────────────────────────
@@ -927,6 +931,8 @@ const messages = {
     "acl.empty_title":        "Matrix noch leer",
     "acl.empty_roles":        "Lege erst Rollen an.",
     "acl.empty_sites":        "Lege erst Standorte mit Ressourcen an.",
+    "acl.sites_heading":      "Standorte",
+    "acl.resources_count":    "Ressourcen",
     "acl.no_res_title":       "Keine Ressourcen in diesem Standort",
     "acl.no_res_desc":        "Erst Ressourcen anlegen, dann erscheinen sie als Zeilen hier.",
     "acl.th_resource":        "Ressource",
