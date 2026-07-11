@@ -1,6 +1,7 @@
 import { defineComponent, ref } from "vue";
 import { auth } from "/js/app.js";
 import { t, setLocale, locale } from "/js/i18n.js";
+import { Icon } from "/js/Icons.js";
 
 // Login-Card mit Provider-Hierarchie:
 //   1. Aktivierter OIDC-Provider (max. einer) erscheint als prominenter Primär-Button oben.
@@ -11,10 +12,12 @@ import { t, setLocale, locale } from "/js/i18n.js";
 //      (das ist dann der einzige Weg rein).
 export default defineComponent({
   name: "LoginView",
+  components: { Icon },
   data() {
     return {
       username: "admin",
       password: "",
+      showPassword: false,
       loading: false,
       error: null,
       providers: { microsoft: false, google: false },
@@ -158,14 +161,21 @@ export default defineComponent({
 
             <div class="field">
               <label for="username">{{ t('login.user') }}</label>
-              <input id="username" class="input" type="text" v-model="username"
+              <input id="username" name="username" class="input" type="text" v-model="username"
                      autocomplete="username" required />
             </div>
 
             <div class="field">
               <label for="password">{{ t('login.password') }}</label>
-              <input id="password" class="input" type="password" v-model="password"
-                     autocomplete="current-password" required />
+              <div class="input-reveal">
+                <input id="password" name="password" class="input" :type="showPassword ? 'text' : 'password'"
+                       v-model="password" autocomplete="current-password" required />
+                <button type="button" class="input-reveal-btn" @click="showPassword = !showPassword"
+                        :aria-label="showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'"
+                        :title="showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'">
+                  <Icon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
+                </button>
+              </div>
             </div>
 
             <button type="submit"

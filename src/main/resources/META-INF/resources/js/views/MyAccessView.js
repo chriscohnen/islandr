@@ -54,6 +54,7 @@ export default defineComponent({
       ironRdpEnabled: false,   // gates the "open in browser" button; comes from /my-resources
       rdpDialog: null,
       rdpCreds: { username: "", password: "", domain: "" },
+      rdpShowPassword: false,
       rdpOverlay: null,
       rdpModule: null,
       rdpActiveSession: null,
@@ -412,9 +413,17 @@ export default defineComponent({
 
     openRdpDialog(resource, port) {
       this.rdpDialog = { resource, port };
+      this.rdpShowPassword = false;
       this.rdpError = "";
     },
     closeRdpDialog() { this.rdpDialog = null; },
+
+    // A per-resource URI the user can store in their password manager. Built on the
+    // real islandr origin (which KeePassXC / Bitwarden match on) with the resource
+    // name in the route, so each RDP resource maps to a distinct, named vault entry.
+    rdpMatchUri(resource) {
+      return window.location.origin + "/#/my-access/" + encodeURIComponent(resource.name);
+    },
 
     async connectRdpInBrowser() {
       const { resource, port } = this.rdpDialog;
@@ -446,9 +455,20 @@ export default defineComponent({
         const { SessionBuilder, DesktopSize } = this.rdpModule;
         let b = new SessionBuilder()
           .proxyAddress(proxyUrl)
+          // The WASM client requires a non-empty auth token (RDCleanPath / Devolutions
+          // Gateway convention — normally a JWT). Our proxy does NOT use it: it
+          // authenticates via the session cookie on the WS handshake plus the per-port
+          // grant check (RdpProxyEndpoint). A placeholder just satisfies the client so
+          // connect() proceeds instead of throwing "auth_token missing".
+          .authToken("islandr")
           .destination(`${resource.ip}:${port.port}`)
           .renderCanvas(canvas)
-          .desktopSize(new DesktopSize(w, h));
+          .desktopSize(new DesktopSize(w, h))
+          // connect() requires a cursor-style callback + its context. The WASM hands
+          // us a ready-to-use CSS cursor value; apply it to the canvas. Context is the
+          // canvas itself (matches the IronRDP web reference client).
+          .setCursorStyleCallback((style) => { canvas.style.cursor = style || "default"; })
+          .setCursorStyleCallbackContext(canvas);
 
         if (this.rdpCreds.username) b = b.username(this.rdpCreds.username);
         if (this.rdpCreds.password) b = b.password(this.rdpCreds.password);
@@ -463,20 +483,80 @@ export default defineComponent({
 
         if (this.rdpOverlay) this.rdpStatus = "disconnected";
       } catch (e) {
+        // Surface the real error + stack in the browser console — the failure is
+        // otherwise invisible (a connect() failure before the WebSocket opens
+        // never reaches the server log). Helps tell a client-side (WASM/canvas)
+        // failure from a proxy/handshake one.
+        const iron = this.decodeIronError(e);
+        console.error("Browser-RDP failed:", iron || e, e && e.stack);
+        // kind() alone (esp. General) is not enough — backtrace() carries the real
+        // underlying message. Log it on its own line so it is readable, uncollapsed.
+        if (iron && iron.backtrace) console.error("IronError backtrace:\n" + iron.backtrace);
         if (this.rdpOverlay) {
           const reached = this.rdpStatus === "connected";
           this.rdpStatus = "error";
-          this.rdpError = this.rdpErrorMessage(e, reached);
+          this.rdpError = this.rdpErrorMessage(e, reached, iron);
         }
       }
     },
 
-    // Turn the WASM client's thrown value into a readable message. connect()
-    // fails before the RDP session starts (reached=false) — almost always the
-    // proxy could not reach/handshake the target; the real reason is in the
-    // server log (RdpProxyEndpoint). A failure after "connected" is an in-session
-    // error. Never render a bare object as "[object Object]".
-    rdpErrorMessage(e, reached) {
+    // IronError (the WASM client's thrown type) is an opaque wasm-bindgen handle
+    // — it renders as {__wbg_ptr:…} and has no .message. But it exposes kind(),
+    // backtrace(), and rdcleanpathDetails() (HTTP status / TLS alert / WSA code).
+    // Pull those out so the real reason is visible instead of a bare pointer.
+    decodeIronError(e) {
+      if (!e || typeof e.kind !== "function") return null;
+      const KINDS = {
+        0: "Allgemeiner Fehler",
+        1: "Falsches Passwort",
+        2: "Anmeldung am Host fehlgeschlagen",
+        3: "Zugriff verweigert (Server)",
+        4: "Verbindungsaufbau fehlgeschlagen (RDCleanPath)",
+        5: "Verbindung zum Proxy fehlgeschlagen",
+        6: "Protokoll-Aushandlung fehlgeschlagen",
+      };
+      const TLS = {
+        40: "Handshake-Fehler", 42: "Ungültiges Zertifikat", 45: "Zertifikat abgelaufen",
+        48: "Unbekannte CA (selbstsigniert)", 112: "Servername nicht erkannt",
+      };
+      const WSA = {
+        10013: "Zugriff verweigert (WSAEACCES)", 10060: "Zeitüberschreitung (WSAETIMEDOUT)",
+        10061: "Verbindung abgelehnt (WSAECONNREFUSED)", 10051: "Netz nicht erreichbar (WSAENETUNREACH)",
+        10065: "Host nicht erreichbar (WSAEHOSTUNREACH)",
+      };
+      const out = {};
+      try { out.kind = e.kind(); out.kindLabel = KINDS[out.kind] || ("Kind " + out.kind); } catch {}
+      try { out.backtrace = e.backtrace(); } catch {}
+      try {
+        const d = typeof e.rdcleanpathDetails === "function" ? e.rdcleanpathDetails() : undefined;
+        if (d) {
+          if (d.httpStatusCode !== undefined) out.http = d.httpStatusCode;
+          if (d.tlsAlertCode !== undefined) { out.tlsAlert = d.tlsAlertCode; out.tlsAlertLabel = TLS[d.tlsAlertCode]; }
+          if (d.wsaErrorCode !== undefined) { out.wsa = d.wsaErrorCode; out.wsaLabel = WSA[d.wsaErrorCode]; }
+          try { d.free(); } catch {}
+        }
+      } catch {}
+      return out;
+    },
+
+    // Turn the WASM client's thrown value into a readable message. A structured
+    // IronError (iron) gives the concrete reason (kind + TLS/WSA/HTTP detail);
+    // otherwise fall back to message/toString. reached=false means connect()
+    // failed before the RDP session started. Never render "[object Object]".
+    rdpErrorMessage(e, reached, iron) {
+      if (iron && iron.kindLabel) {
+        const bits = [iron.kindLabel];
+        if (iron.tlsAlert !== undefined) bits.push("TLS-Alert " + iron.tlsAlert + (iron.tlsAlertLabel ? " (" + iron.tlsAlertLabel + ")" : ""));
+        if (iron.wsa !== undefined) bits.push("Socket-Fehler " + iron.wsa + (iron.wsaLabel ? " (" + iron.wsaLabel + ")" : ""));
+        if (iron.http !== undefined) bits.push("HTTP " + iron.http);
+        // For General (kind 0) with no coded detail, the backtrace is the only real
+        // signal — surface its first line so the user isn't left with a bare label.
+        if (iron.kind === 0 && iron.tlsAlert === undefined && iron.wsa === undefined && iron.http === undefined && iron.backtrace) {
+          const first = String(iron.backtrace).split("\n").map(s => s.trim()).filter(Boolean)[0];
+          if (first) bits.push(first);
+        }
+        return "Verbindung zum RDP-Server fehlgeschlagen: " + bits.join(" — ") + ".";
+      }
       let detail = "";
       if (e != null) {
         if (typeof e === "string") detail = e;
@@ -1048,7 +1128,7 @@ export default defineComponent({
       </div>
     </div>
     <!-- IronRDP credential dialog -->
-    <div v-if="rdpDialog" class="modal-overlay" @click.self="closeRdpDialog">
+    <div v-if="rdpDialog" class="modal-backdrop" @click.self="closeRdpDialog">
       <div class="modal" style="max-width: 400px">
         <div class="modal-header">
           <h3 style="margin:0; font-size: var(--text-md)">Im Browser öffnen</h3>
@@ -1062,20 +1142,40 @@ export default defineComponent({
           <form id="rdp-cred-form" @submit.prevent="connectRdpInBrowser">
             <div class="form-group">
               <label class="label" for="rdpUser">Benutzername</label>
-              <input id="rdpUser" class="input" v-model="rdpCreds.username"
+              <input id="rdpUser" name="username" class="input" v-model="rdpCreds.username"
                      type="text" autocomplete="username" placeholder="z.B. Administrator" />
             </div>
             <div class="form-group">
               <label class="label" for="rdpPass">Passwort</label>
-              <input id="rdpPass" class="input" v-model="rdpCreds.password"
-                     type="password" autocomplete="current-password" />
+              <div class="input-reveal">
+                <input id="rdpPass" name="password" class="input" v-model="rdpCreds.password"
+                       :type="rdpShowPassword ? 'text' : 'password'" autocomplete="current-password" />
+                <button type="button" class="input-reveal-btn" @click="rdpShowPassword = !rdpShowPassword"
+                        :aria-label="rdpShowPassword ? 'Passwort verbergen' : 'Passwort anzeigen'"
+                        :title="rdpShowPassword ? 'Passwort verbergen' : 'Passwort anzeigen'">
+                  <Icon :name="rdpShowPassword ? 'eye-off' : 'eye'" :size="16" />
+                </button>
+              </div>
             </div>
             <div class="form-group">
               <label class="label" for="rdpDomain">Domäne <span class="muted">(optional)</span></label>
-              <input id="rdpDomain" class="input" v-model="rdpCreds.domain"
+              <input id="rdpDomain" name="domain" class="input" v-model="rdpCreds.domain"
                      type="text" autocomplete="off" placeholder="z.B. FIRMA" />
             </div>
           </form>
+          <!-- Copyable per-resource URI for the user's password manager (KeePassXC /
+               Bitwarden). Autofill still keys on the islandr origin; this URI carries
+               the resource name so the right vault entry is easy to find/organise. -->
+          <div class="field" style="margin-top: var(--space-3)">
+            <label class="label muted" style="font-size: var(--text-xs)">URI für Passwort-Manager (KeePassXC / Bitwarden)</label>
+            <div style="display: flex; gap: var(--space-2); align-items: center">
+              <code class="mono" style="flex: 1; font-size: var(--text-xs); overflow-x: auto; white-space: nowrap">{{ rdpMatchUri(rdpDialog.resource) }}</code>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      @click="copyCmd(rdpMatchUri(rdpDialog.resource), 'rdpuri')">
+                {{ copiedCmd === 'rdpuri' ? 'Kopiert' : 'Kopieren' }}
+              </button>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-ghost" @click="closeRdpDialog">Abbrechen</button>

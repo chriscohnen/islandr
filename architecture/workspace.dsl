@@ -153,12 +153,17 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
             autoLayout lr
         }
 
-        deployment * native "NativeDeployment" "Deployment View — native binary on the Hub VM (systemd)" {
+        // Scope to the islandr system (not "*"): structurizr-site-generatr only
+        // attaches a deployment view to a software system's navigation/page when the
+        // view is scoped to that system. With "*" it renders the images but leaves an
+        // empty redirect stub and no nav entry. The view key is unchanged, so the
+        // C4-PlantUML PNG export for arc42 is unaffected.
+        deployment islandr native "NativeDeployment" "Deployment View — native binary on the Hub VM (systemd)" {
             include *
             autoLayout lr
         }
 
-        deployment * docker "DockerDeployment" "Deployment View — Docker container (evaluation, mock adapters)" {
+        deployment islandr docker "DockerDeployment" "Deployment View — Docker container (evaluation, mock adapters)" {
             include *
             autoLayout lr
         }
