@@ -41,7 +41,7 @@ it all lands on a host.
 
 ## Related documentation
 
-- **[Roadmap](../roadmap/)** — what's shipped, in progress, and planned.
+- **[Roadmap](roadmap/)** — what's shipped, in progress, and planned.
 - **Decisions** — the architecture decisions (ADRs) live in the repo under
   [`docs/adr/`](https://github.com/chriscohnen/islandr/tree/main/docs/adr).
 - **[README](https://github.com/chriscohnen/islandr#readme)** — install, run,
