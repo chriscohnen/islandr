@@ -31,6 +31,11 @@ public final class UserDto {
             @NotBlank @Email String email
     ) {}
 
+    public record UpdateRequest(
+            @NotBlank String name,
+            @NotBlank @Email String email
+    ) {}
+
     public record AdminFlagRequest(boolean isAdmin) {}
 
     /** Set (non-blank, min length enforced in the handler) or clear (blank) a local password. */

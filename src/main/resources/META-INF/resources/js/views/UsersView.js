@@ -24,6 +24,8 @@ export default defineComponent({
       lang: locale.current,
       editingNicknameId: null,
       nicknameInput: "",
+      editingEmailId: null,
+      emailInput: "",
       editingPasswordId: null,
       passwordInput: "",
       // Google Workspace import dialog
@@ -148,6 +150,34 @@ export default defineComponent({
         this.cancelNicknameEdit();
       } catch (e) {
         this.error = t("users.error_nickname", { error: e.message });
+      }
+    },
+
+    startEmailEdit(u) {
+      this.editingEmailId = u.id;
+      this.emailInput = u.email || "";
+    },
+    cancelEmailEdit() {
+      this.editingEmailId = null;
+      this.emailInput = "";
+    },
+    async saveEmail(userId) {
+      // The update endpoint takes the identity pair; keep the name unchanged.
+      const u = this.users.find((x) => x.id === userId);
+      try {
+        const res = await fetch("/api/v1/users/" + userId, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: u ? u.name : "", email: this.emailInput }),
+        });
+        if (!res.ok) {
+          const b = await res.text();
+          throw new Error("HTTP " + res.status + (b ? " — " + b.slice(0, 120) : ""));
+        }
+        await this.load();
+        this.cancelEmailEdit();
+      } catch (e) {
+        this.error = t("users.error_email", { error: e.message });
       }
     },
 
@@ -370,7 +400,23 @@ export default defineComponent({
               </span>
             </span>
           </td>
-          <td class="mono">{{ u.email }}</td>
+          <td class="mono">
+            <span v-if="editingEmailId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1)">
+              <span>{{ u.email }}</span>
+              <button @click="startEmailEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_email')">
+                <Icon name="edit" :size="12" />
+              </button>
+            </span>
+            <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
+              <input class="input" type="email" style="width: 190px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
+                     v-model="emailInput"
+                     @keyup.enter="saveEmail(u.id)"
+                     @keyup.escape="cancelEmailEdit"
+                     autofocus />
+              <button @click="saveEmail(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
+              <button @click="cancelEmailEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+            </span>
+          </td>
           <td>
             <span :class="['badge', u.isAdmin ? 'badge-info' : 'badge-neutral']">
               {{ u.isAdmin ? t('users.role_admin') : t('users.role_user') }}

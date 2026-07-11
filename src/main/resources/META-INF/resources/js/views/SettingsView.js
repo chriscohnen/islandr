@@ -46,6 +46,7 @@ export default defineComponent({
       configImportError: null,
       configImporting: false,
       configImportResult: null,
+      importFileName: "",
       versionCheck: null,
       versionChecking: false,
     };
@@ -207,6 +208,7 @@ export default defineComponent({
     onImportFile(e) {
       const file = e.target.files[0];
       if (!file) return;
+      this.importFileName = file.name;
       const reader = new FileReader();
       reader.onload = (ev) => {
         try {
@@ -524,7 +526,9 @@ export default defineComponent({
       <div style="font-size: var(--text-sm); font-weight: 500; color: var(--fg2); margin-bottom: var(--space-2)">{{ t('settings.config_import_title') }}</div>
       <div class="callout callout-warn" style="margin-bottom: var(--space-3)">{{ t('settings.config_import_warn') }}</div>
       <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2)">
-        <input type="file" accept=".json" @change="onImportFile" style="font-size: var(--text-sm); color: var(--fg2)" />
+        <input ref="importFile" type="file" accept=".json" @change="onImportFile" style="display: none" />
+        <button type="button" class="btn btn-secondary btn-sm" @click="$refs.importFile.click()">{{ t('settings.config_import_choose') }}</button>
+        <span class="muted mono" style="font-size: var(--text-sm)">{{ importFileName || t('settings.config_import_nofile') }}</span>
         <button v-if="configImportData" type="button" class="btn btn-danger btn-sm" @click="confirmImport" :disabled="configImporting">
           {{ configImporting ? t('settings.config_importing') : t('settings.config_import_btn') }}
         </button>
