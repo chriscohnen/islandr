@@ -141,6 +141,22 @@ class AclEndpointsTest {
     }
 
     @Test
+    void resource_update_toKvmAndRackserver_persists() {
+        // Regression: the 0.11.0 types kvm / rackserver were added to the request
+        // @Pattern but not to the DB CHECK constraint (last set in V13), so switching
+        // a resource's type to them failed with SQLITE_CONSTRAINT_CHECK → HTTP 500.
+        String siteId = createSite("DC-KVM", "10.60.0.0/16");
+        String rid = createResource(siteId, "console-01", "10.60.0.5");
+        for (String type : List.of("kvm", "rackserver")) {
+            String got = given().contentType("application/json")
+                    .body("{\"name\":\"console-01\",\"ip\":\"10.60.0.5\",\"type\":\"" + type + "\"}")
+                    .when().put("/api/v1/resources/" + rid)
+                    .then().statusCode(200).extract().path("type");
+            assertThat(got).isEqualTo(type);
+        }
+    }
+
+    @Test
     void resource_addPort_listsUnderResource() {
         String siteId = createSite("S", "10.25.0.0/16");
         String rid = createResource(siteId, "R", "10.25.0.5");

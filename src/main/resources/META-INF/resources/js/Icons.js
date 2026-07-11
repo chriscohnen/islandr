@@ -231,12 +231,13 @@ export const PATHS = {
     '<path d="M12 18h4"/>',
   ],
 
-  // square-terminal — NanoKVM / KVM-over-IP (Remote-Konsole). Out-of-Band,
-  // sicherheitskritisch wie management.
+  // monitor-smartphone — NanoKVM / KVM-over-IP (Remote-Konsole): Konsole am
+  // Gerät, wie ein Endgerät erreichbar. Out-of-Band, sicherheitskritisch.
   kvm: [
-    '<path d="m7 11 2-2-2-2"/>',
-    '<path d="M11 13h4"/>',
-    '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>',
+    '<path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
+    '<path d="M10 19v-3.96 3.36"/>',
+    '<path d="M7 19h5"/>',
+    '<rect width="6" height="10" x="16" y="12" rx="2"/>',
   ],
 
   // cpu — Out-of-Band-Management (IPMI, iDRAC, iLO). Sicherheitskritisch.
