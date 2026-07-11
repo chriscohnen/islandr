@@ -5,9 +5,9 @@ Two deployment paths:
 | Path | Best for |
 |---|---|
 | [Native binary + systemd](#native-binary--systemd) | Production — runs as an unprivileged user with scoped `sudo` for `nft` and `wg` ([ADR-0011](adr/0011-process-privilege-model.md)) |
-| [Docker Compose](#docker-compose) | **Demo / dev only** — uses mock adapters, no real WireGuard or firewall management |
+| [Docker Compose](#docker-compose) | Evaluate from a bare `docker run`; **enforce in production** by attaching the host socket proxy ([ADR-0012](adr/0012-docker-socket-proxy.md)) |
 
-> **Docker in production** is targeted for 0.11.0 (v1 line) via a Unix socket proxy that keeps the container unprivileged ([ADR-0012](adr/0012-docker-socket-proxy.md)).
+> **Docker in production** is available in 0.11.0 (v1 line): a Unix socket proxy on the host performs the privileged `wg`/`nft` work while the container stays unprivileged ([ADR-0012](adr/0012-docker-socket-proxy.md)). See [Enforce in production](#5-enforce-in-production-unix-socket-proxy).
 
 Both paths require a **Linux host (Ubuntu 22.04+ or Debian 12+)** with:
 - WireGuard kernel module loaded (`modprobe wireguard`)
@@ -222,7 +222,7 @@ echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
 
 ## Docker Compose
 
-> **Demo and dev use only.** The Docker image uses mock WireGuard and nftables adapters — it does not manage real peers or firewall rules. For production, use the [native binary + systemd](#native-binary--systemd) path. Production Docker support is targeted for 0.11.0 (v1 line) ([ADR-0012](adr/0012-docker-socket-proxy.md)).
+> A **bare** `docker run` / compose (below) boots the full GUI so you can evaluate islandr and build a complete configuration — but the container is unprivileged, so enforcement runs in a degraded *"enforcement unavailable"* state (changes are saved, not applied). To **enforce in production**, attach the host socket proxy in [step 5](#5-enforce-in-production-unix-socket-proxy) ([ADR-0012](adr/0012-docker-socket-proxy.md)). The [native binary + systemd](#native-binary--systemd) path remains the other production option.
 
 ### 1. Prerequisites
 
@@ -268,6 +268,43 @@ docker compose logs -f
 # Open the admin console
 curl http://localhost:8080
 ```
+
+### 5. Enforce in production (Unix socket proxy)
+
+The image above **boots and runs the full GUI**, but a container is unprivileged and cannot touch the host's WireGuard or nftables — so out of the box it runs in a degraded *"enforcement unavailable"* state: changes are saved but not applied. To enforce, add the **host-side socket proxy** ([ADR-0012](adr/0012-docker-socket-proxy.md)): a tiny systemd service that performs the privileged `wg`/`nft` operations while the container stays unprivileged and only talks to its socket.
+
+**a. Install the socket proxy on the host** (needs `wg` and `nft` present):
+
+```bash
+curl -fsSL https://github.com/chriscohnen/islandr/releases/latest/download/install-proxy.sh | sudo bash
+```
+
+It installs the `islandr-proxy` binary (checksum-verified), a socket-activated systemd unit listening on `/run/islandr/proxy.sock` (owned `islandr:islandr`, mode `0600`), and scoped sudoers rules. Pin a version with `ISLANDR_PROXY_VERSION=v0.11.0`, or download and read it first before piping to `sudo bash`.
+
+**b. Mount the socket and the shared state dir into the container.** Extend the compose:
+
+```yaml
+services:
+  islandr:
+    image: ghcr.io/chriscohnen/islandr:latest
+    ports:
+      - "8080:8080"
+    environment:
+      ISLANDR_ADMIN_USER: admin
+      ISLANDR_ADMIN_PASSWORD: "${ISLANDR_ADMIN_PASSWORD}"
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      # A container already defaults to socket mode; set it explicitly to be clear:
+      ISLANDR_WG_MODE: socket
+      ISLANDR_NFT_MODE: socket
+    volumes:
+      - /run/islandr/proxy.sock:/run/islandr/proxy.sock   # the privileged host helper
+      - /var/lib/islandr:/var/lib/islandr                 # shared ruleset + SQLite DB
+    restart: unless-stopped
+```
+
+The `/var/lib/islandr` bind mount is shared with the proxy: islandr writes the validated ruleset there and the proxy applies it (`nft -f /var/lib/islandr/ruleset.nft`). The managed WireGuard interface defaults to `wg0` — if you use another name, set `ISLANDR_WG_INTERFACE` on **both** the container and the `install-proxy.sh` step.
+
+**c. Verify.** In the admin console, **Settings → Enforcement** shows *Socket proxy — active* and the "enforcement unavailable" banner is gone. Any configuration built while degraded is reconciled and applied automatically once the proxy connects.
 
 ---
 

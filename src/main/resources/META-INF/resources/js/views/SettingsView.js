@@ -49,10 +49,12 @@ export default defineComponent({
       importFileName: "",
       versionCheck: null,
       versionChecking: false,
+      enforcement: null,
     };
   },
   async mounted() {
     await this.load();
+    this.loadEnforcement();
   },
   computed: { _lang() { return locale.current; } },
   methods: {
@@ -247,6 +249,21 @@ export default defineComponent({
         this.configImporting = false;
       }
     },
+    async loadEnforcement() {
+      try {
+        const r = await fetch("/api/v1/enforcement/status");
+        if (r.ok) this.enforcement = await r.json();
+      } catch { /* non-fatal — the panel just stays hidden */ }
+    },
+    enforcementModeLabel() {
+      const e = this.enforcement;
+      if (!e) return "";
+      if (!e.runtime.socketMode) return t("settings.enforcement_direct");
+      if (e.status === "active") return t("settings.enforcement_socket_active");
+      if (e.status === "reconciling") return t("settings.enforcement_socket_reconciling");
+      return t("settings.enforcement_socket_degraded");
+    },
+
     async checkVersion() {
       this.versionChecking = true;
       this.versionCheck = null;
@@ -505,6 +522,34 @@ export default defineComponent({
       </div>
 
     </form>
+
+    <!-- Deployment & enforcement mode -->
+    <div v-if="enforcement" style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
+      <h2 style="margin-bottom: var(--space-1); font-size: var(--text-md)">{{ t('settings.enforcement_title') }}</h2>
+      <p class="field-hint" style="margin-bottom: var(--space-4)">{{ t('settings.enforcement_hint') }}</p>
+
+      <div class="card card-pad" style="max-width: 640px; display: flex; flex-direction: column; gap: var(--space-3)">
+        <div style="display: flex; align-items: baseline; gap: var(--space-3)">
+          <span class="muted" style="min-width: 120px; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.enforcement_deployment') }}</span>
+          <span style="font-size: var(--text-sm); color: var(--fg1)">{{ enforcement.runtime.container ? t('settings.enforcement_docker') : t('settings.enforcement_native') }}</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap">
+          <span class="muted" style="min-width: 120px; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.enforcement_mode') }}</span>
+          <span style="font-size: var(--text-sm); font-weight: 600" :style="'color: ' + (!enforcement.runtime.socketMode || enforcement.status === 'active' ? 'var(--status-ok)' : 'var(--status-warn)')">{{ enforcementModeLabel() }}</span>
+          <span v-if="enforcement.lastProbeAt" class="muted mono" style="font-size: var(--text-xs)">· {{ t('settings.enforcement_last_probe') }} {{ formatDate(enforcement.lastProbeAt) }}</span>
+        </div>
+
+        <div v-if="enforcement.runtime.socketMode && enforcement.status !== 'active'" class="callout callout-warn" style="margin: 0">
+          {{ t('settings.enforcement_degraded_body') }}
+          <span v-if="enforcement.lastError" class="mono" style="display: block; margin-top: 4px; font-size: var(--text-xs)">{{ enforcement.lastError }}</span>
+          <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener" style="display: inline-block; margin-top: var(--space-2)">{{ t('settings.enforcement_setup_link') }}</a>
+        </div>
+        <p v-else-if="!enforcement.runtime.socketMode" class="field-hint" style="margin: 0">
+          {{ t('settings.enforcement_native_hint') }}
+          <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener" style="margin-left: var(--space-1)">{{ t('settings.enforcement_docker_link') }}</a>
+        </p>
+      </div>
+    </div>
 
     <!-- Config Export / Import -->
     <div style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
