@@ -314,7 +314,9 @@ export default defineComponent({
           method: "POST", headers: { "content-type": "application/json" },
         });
         if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
-        this.scanJobId = (await res.json()).jobId;
+        const jobId = (await res.json()).jobId;
+        if (!jobId) throw new Error("scan response contained no jobId");
+        this.scanJobId = jobId;
         this.pollScan();
       } catch (e) {
         this.scanState = "error";

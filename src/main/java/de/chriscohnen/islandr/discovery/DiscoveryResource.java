@@ -22,6 +22,7 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -50,7 +51,8 @@ public class DiscoveryResource {
 
     @POST
     @Path("/scan")
-    public Response startScan(@Context ContainerRequestContext ctx, @PathParam("siteId") String siteId) {
+    @ResponseStatus(202)
+    public DiscoveryDto.ScanStarted startScan(@Context ContainerRequestContext ctx, @PathParam("siteId") String siteId) {
         AuthContext a = Auth.requireAdmin(ctx);
         Site site = requireSite(siteId);
         requireScanReachable(site);
@@ -62,7 +64,11 @@ public class DiscoveryResource {
         }
         audit.logEvent(a.principal(), "discovery.scan_started", "Site:" + site.name + " (" + siteId + ")",
                 Map.of("cidr", site.cidr, "hosts", job.total()));
-        return Response.accepted(new DiscoveryDto.ScanStarted(job.id)).build();
+        // Return the DTO directly (not via Response.accepted(...)) so Quarkus's
+        // build-time analysis registers ScanStarted for native serialization — a
+        // Response-wrapped entity is opaque to that analysis, which left the native
+        // image emitting an empty body (no jobId) and the client polling /scan/undefined.
+        return new DiscoveryDto.ScanStarted(job.id);
     }
 
     @GET
