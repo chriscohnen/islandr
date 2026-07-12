@@ -270,6 +270,14 @@ islandr/
 
 Only the changes that matter if you actually use it — see the [GitHub releases](https://github.com/chriscohnen/islandr/releases) for the full list.
 
+**0.11.0**
+- **Docker without `NET_ADMIN`** — run the hub as an unprivileged container. A small host-side proxy (`islandr-proxy`) owns the WireGuard and nftables commands, and the container talks to it over a Unix socket, so it no longer needs broad host privileges. If the proxy is unreachable the hub stays up in a clearly-flagged degraded mode (peers and ACLs are managed, enforcement is paused) with a banner in the admin console instead of failing hard. The socket-proxy setup is documented in [docs/install.md](docs/install.md) ([ADR-0012](docs/adr/0012-docker-socket-proxy.md), [#13](https://github.com/chriscohnen/islandr/issues/13)).
+- **Enforcement mode in Settings** — Settings now shows whether the hub is enforcing rules directly, through the socket proxy, or running degraded, so you can tell at a glance what is actually applying your ACLs.
+- **A default "Everyone" role** — every user is automatically a member, so shared resources can be granted once to Everyone instead of per user or per group. Auto-managed; you cannot accidentally remove someone from it ([ADR-0013](docs/adr/0013-default-everyone-role.md)).
+- **More resource types** — rack server and KVM/virtualisation host join the resource catalogue (with fitting icons), and you can switch an existing resource to them. New resources also adopt their site's CIDR and sensible port defaults, so there is less to type.
+- **Configurable WireGuard interface** — set `ISLANDR_WG_INTERFACE` to run on a non-default interface name instead of the built-in one.
+- **Polish** — edit a local user's name *and* email; the config-import file picker and the "Everyone" role description now follow the selected UI language; the ACL page uses a master-detail site list so a large network count no longer forces horizontal scrolling.
+
 **0.10.0**
 - **Browser-based RDP** — open a granted RDP resource straight from the self-service portal, with no local client to install. An IronRDP WASM client runs in the browser and the hub proxies the connection over a WebSocket, gated by the resource ACL (the target is derived from the database, not the request). Per-port clipboard and file-transfer toggles; a `web-only` access mode blocks the direct WireGuard port so users are forced through the auditable browser proxy. Off by default — enable it globally in Settings.
 - **Local users with passwords** — you no longer need an external IdP to hand out logins. An admin sets a per-user password (PBKDF2-hashed, never stored or returned in plaintext) and that user signs in with email + password, alongside or instead of Microsoft/Google OIDC.
@@ -301,7 +309,6 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 - [Peer expiry / auto-disable](https://github.com/chriscohnen/islandr/issues/10)
 - [Multi-site map view](https://github.com/chriscohnen/islandr/issues/11) — sites and live tunnels on a map (Leaflet + OSM, no Google Maps)
 - [Google Workspace / Entra ID user import](https://github.com/chriscohnen/islandr/issues/12) — browse org users, import selected
-- [Docker production support](https://github.com/chriscohnen/islandr/issues/13) — unprivileged container via Unix socket proxy, no `NET_ADMIN` required ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
 
 **v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))
 - [`.deb` package](https://github.com/chriscohnen/islandr/issues/14) for `apt install islandr` on Ubuntu/Debian
