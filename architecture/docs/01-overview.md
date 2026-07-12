@@ -49,6 +49,8 @@ levels, each a tab on the **Islandr** page:
 
 ## Related documentation
 
+- **[PRD](product-requirements/)** — the product requirements: problem, goals, personas
+  (Felix, Lena, Tom), scope, domain model, and key flows.
 - **[Roadmap](roadmap/)** — what's shipped, in progress, and planned.
 - **[Decisions](islandr/decisions/)** — the architecture decision records (ADRs)
   behind the design, browsable per decision.
