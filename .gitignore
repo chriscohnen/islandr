@@ -65,3 +65,6 @@ architecture/assets/
 architecture/adr/
 architecture/build/
 architecture/docs/03-prd.md
+
+# Internal design/brainstorming docs — not for the public repo
+docs/superpowers/
