@@ -7,6 +7,7 @@ import de.chriscohnen.islandr.acl.SiteDto;
 import de.chriscohnen.islandr.audit.AuditDto;
 import de.chriscohnen.islandr.auth.AuthResource;
 import de.chriscohnen.islandr.dashboard.DashboardDto;
+import de.chriscohnen.islandr.discovery.DiscoveryDto;
 import de.chriscohnen.islandr.firewall.FirewallDto;
 import de.chriscohnen.islandr.identity.OidcProviderDto;
 import de.chriscohnen.islandr.peer.MyPeerResource;
@@ -101,6 +102,13 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         FirewallDto.Response.class,
 
         AuditDto.Response.class,
+
+        DiscoveryDto.ScanStarted.class,
+        DiscoveryDto.HostView.class,
+        DiscoveryDto.ScanStatus.class,
+        DiscoveryDto.ImportHost.class,
+        DiscoveryDto.ImportRequest.class,
+        DiscoveryDto.ImportResult.class,
 })
 public final class NativeReflectionConfig {
     private NativeReflectionConfig() {}
