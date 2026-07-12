@@ -78,6 +78,24 @@ class DiscoveryResourceTest {
     }
 
     @Test
+    void import_adoptsDiscoveredPortsWhenProvided() {
+        String siteId = createSite("disco-ports", "10.95.0.0/29");
+        String body = "{\"hosts\":[{\"ip\":\"10.95.0.5\",\"name\":\"prox\",\"type\":\"rackserver\","
+                + "\"ports\":[22,8006]}]}";
+
+        given().contentType("application/json").body(body)
+                .when().post("/api/v1/sites/" + siteId + "/discovery/import")
+                .then().statusCode(200).body("imported", equalTo(1));
+
+        JsonPath res = given().when().get("/api/v1/sites/" + siteId + "/resources")
+                .then().statusCode(200).extract().jsonPath();
+        assertThat(res.getList("find { it.ip == '10.95.0.5' }.ports.port", Integer.class))
+                .containsExactlyInAnyOrder(22, 8006);
+        assertThat(res.getList("find { it.ip == '10.95.0.5' }.ports.protocol", String.class))
+                .containsExactlyInAnyOrder("SSH", "HTTPS");
+    }
+
+    @Test
     void import_rejectsUnknownType_returns400() {
         String siteId = createSite("disco-badtype", "10.92.0.0/29");
         given().contentType("application/json")

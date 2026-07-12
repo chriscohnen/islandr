@@ -40,6 +40,8 @@ export default defineComponent({
       scanJobId: null,
       scanHosts: [],         // enriched with _selected / _name / _type for the review table
       scanProgress: { done: 0, total: 0 },
+      scanFound: 0,          // live count of hosts found so far
+      adoptPorts: true,      // adopt each host's discovered open ports on import
       scanError: null,
       scanPollTimer: null,
       importing: false,
@@ -294,6 +296,7 @@ export default defineComponent({
       this.scanHosts = [];
       this.scanJobId = null;
       this.scanError = null;
+      this.scanFound = 0;
     },
     closeScan() {
       if (this.scanPollTimer) { clearTimeout(this.scanPollTimer); this.scanPollTimer = null; }
@@ -329,6 +332,7 @@ export default defineComponent({
         if (!res.ok) throw new Error("HTTP " + res.status);
         const s = await res.json();
         this.scanProgress = { done: s.done, total: s.total };
+        this.scanFound = s.found || 0;
         if (s.state === "running") {
           this.scanPollTimer = setTimeout(() => this.pollScan(), 400);
           return;
@@ -358,6 +362,12 @@ export default defineComponent({
     scanSelectedCount() {
       return this.scanHosts.filter((h) => h._selected && !h.alreadyRegistered).length;
     },
+    scanNewCount() {
+      return this.scanHosts.filter((h) => !h.alreadyRegistered).length;
+    },
+    scanKnownCount() {
+      return this.scanHosts.filter((h) => h.alreadyRegistered).length;
+    },
     async importScan() {
       const chosen = this.scanHosts.filter((h) => h._selected && !h.alreadyRegistered);
       if (chosen.length === 0) return;
@@ -366,7 +376,10 @@ export default defineComponent({
       try {
         const res = await fetch("/api/v1/sites/" + this.siteId + "/discovery/import", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ hosts: chosen.map((h) => ({ ip: h.ip, name: h._name, type: h._type })) }),
+          body: JSON.stringify({ hosts: chosen.map((h) => ({
+            ip: h.ip, name: h._name, type: h._type,
+            ports: this.adoptPorts ? (h.openPorts || []) : [],
+          })) }),
         });
         if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
         await this.loadResources();
@@ -634,7 +647,7 @@ export default defineComponent({
           <template v-else-if="scanState === 'running'">
             <div style="display: flex; align-items: center; gap: var(--space-2)">
               <span style="width: 15px; height: 15px; flex: none; border-radius: 50%; border: 2px solid var(--fg2); border-top-color: transparent; animation: spin 0.7s linear infinite; display: inline-block"></span>
-              <p class="muted" style="margin: 0">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }}</p>
+              <p class="muted" style="margin: 0">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }} · {{ t('discovery.found', { n: scanFound }) }}</p>
             </div>
             <p class="field-hint" style="margin: var(--space-2) 0 0">{{ t('discovery.running_hint') }}</p>
           </template>
@@ -644,7 +657,15 @@ export default defineComponent({
           <template v-else-if="scanState === 'done'">
             <div v-if="scanError" class="error-banner" style="margin-bottom: var(--space-3)">{{ scanError }}</div>
             <div v-if="scanHosts.length === 0" class="muted">{{ t('discovery.none') }}</div>
-            <div v-else style="overflow-x: auto">
+            <template v-else>
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3)">
+                <p class="field-hint" style="margin: 0">{{ t('discovery.summary', { new: scanNewCount(), known: scanKnownCount() }) }}</p>
+                <label style="display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg1)">
+                  <input type="checkbox" v-model="adoptPorts" />
+                  {{ t('discovery.adopt_ports') }}
+                </label>
+              </div>
+            <div style="overflow-x: auto">
               <table class="table">
                 <thead>
                   <tr>
@@ -673,6 +694,7 @@ export default defineComponent({
                 </tbody>
               </table>
             </div>
+            </template>
           </template>
         </div>
         <div class="modal-footer">

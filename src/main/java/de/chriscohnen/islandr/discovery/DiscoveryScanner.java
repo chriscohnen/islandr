@@ -26,13 +26,25 @@ public class DiscoveryScanner {
     public record DiscoveredHost(String ip, List<Integer> openPorts, String typeGuess) {}
 
     public List<DiscoveredHost> scan(List<String> ips, Function<String, HostProbe.ProbeResult> probe) {
-        return scan(ips, probe, () -> {});
+        return scan(ips, probe, () -> {}, () -> {});
     }
 
     /** As {@link #scan(List, Function)}, calling {@code onHostDone} once per probed host (progress). */
     public List<DiscoveredHost> scan(List<String> ips,
                                      Function<String, HostProbe.ProbeResult> probe,
                                      Runnable onHostDone) {
+        return scan(ips, probe, onHostDone, () -> {});
+    }
+
+    /**
+     * As {@link #scan(List, Function, Runnable)}, additionally calling {@code onFound}
+     * once for each host that probes live — so a caller can surface a running
+     * "found" count while the scan is still going.
+     */
+    public List<DiscoveredHost> scan(List<String> ips,
+                                     Function<String, HostProbe.ProbeResult> probe,
+                                     Runnable onHostDone,
+                                     Runnable onFound) {
         if (ips.isEmpty()) return List.of();
         ExecutorService pool = Executors.newFixedThreadPool(Math.min(concurrency, ips.size()));
         try {
@@ -43,7 +55,9 @@ public class DiscoveryScanner {
             // out, even though later hosts already completed.
             for (String ip : ips) futures.add(pool.submit(() -> {
                 try {
-                    return probe.apply(ip);
+                    HostProbe.ProbeResult r = probe.apply(ip);
+                    if (r != null && r.live()) onFound.run();
+                    return r;
                 } finally {
                     onHostDone.run();
                 }

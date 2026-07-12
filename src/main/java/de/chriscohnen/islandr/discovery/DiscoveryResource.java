@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr.discovery;
 
 import de.chriscohnen.islandr.acl.Resource;
+import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
@@ -86,7 +87,7 @@ public class DiscoveryResource {
             hosts.add(new DiscoveryDto.HostView(h.ip(), h.openPorts(), h.typeGuess(), known));
         }
         return new DiscoveryDto.ScanStatus(
-                job.state().name().toLowerCase(), job.total(), job.done(), hosts, job.error());
+                job.state().name().toLowerCase(), job.total(), job.done(), job.found(), hosts, job.error());
     }
 
     @DELETE
@@ -121,6 +122,16 @@ public class DiscoveryResource {
             }
             Resource r = Resource.createNew(siteId, h.name().strip(), ip, null, h.type());
             r.persist();
+            // Optionally adopt the discovered open TCP ports as ResourcePorts, so the
+            // admin doesn't re-enter them by hand. Protocol is a best-effort label
+            // from the well-known port; everything is editable afterwards.
+            if (h.ports() != null) {
+                for (int port : h.ports()) {
+                    if (port < 1 || port > 65535) continue;
+                    ResourcePort.createNew(r.id, port, null, "tcp", protocolForPort(port),
+                            null, null, true, false, "native").persist();
+                }
+            }
             imported++;
             createdIps.add(ip);
         }
@@ -163,5 +174,21 @@ public class DiscoveryResource {
 
     private WebApplicationException conflict(String message) {
         return new WebApplicationException(Response.status(Response.Status.CONFLICT).entity(message).build());
+    }
+
+    /** Best-effort UI protocol label for a discovered open port; matches the probe set (ADR-0014 §1). */
+    private static String protocolForPort(int port) {
+        return switch (port) {
+            case 22 -> "SSH";
+            case 80, 8080, 8123 -> "HTTP";
+            case 443, 8006, 8443 -> "HTTPS";
+            case 445 -> "SMB";
+            case 554 -> "RTSP";
+            case 631 -> "IPP";
+            case 3389 -> "RDP";
+            case 5900 -> "VNC";
+            case 9100 -> "RAW";
+            default -> "CUSTOM";
+        };
     }
 }

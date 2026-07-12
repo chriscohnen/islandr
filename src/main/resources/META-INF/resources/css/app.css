@@ -367,7 +367,11 @@ body {
   width: 100%;
   max-width: 560px;
   max-height: calc(100vh - 96px);
-  overflow: auto;
+  /* Header and footer stay pinned; only the body scrolls when content is tall,
+     so action buttons in the footer are always reachable. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .modal-lg {
@@ -385,6 +389,7 @@ body {
   justify-content: space-between;
   padding: var(--space-5) var(--space-6);
   border-bottom: 1px solid var(--border);
+  flex: none;
 }
 
 .modal-header h2 {
@@ -395,6 +400,9 @@ body {
 
 .modal-body {
   padding: var(--space-6);
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .modal-footer {
@@ -403,6 +411,7 @@ body {
   gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border);
+  flex: none;
 }
 
 /* --- key-import mode (radio group inside peer-create modal) ------------- */

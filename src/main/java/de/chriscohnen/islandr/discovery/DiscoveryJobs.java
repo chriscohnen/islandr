@@ -74,6 +74,7 @@ public class DiscoveryJobs {
         public final String cidr;
         private final int total;
         private final AtomicInteger doneCount = new AtomicInteger();
+        private final AtomicInteger foundCount = new AtomicInteger();
         private volatile State state = State.RUNNING;
         private volatile List<DiscoveredHost> hosts = List.of();
         private volatile String error;
@@ -90,6 +91,7 @@ public class DiscoveryJobs {
         public State state() { return state; }
         public int total() { return total; }
         public int done() { return doneCount.get(); }
+        public int found() { return foundCount.get(); }
         public List<DiscoveredHost> hosts() { return hosts; }
         public String error() { return error; }
     }
@@ -120,8 +122,8 @@ public class DiscoveryJobs {
     private void run(Job job, List<String> hostIps) {
         try {
             List<DiscoveredHost> found = "real".equalsIgnoreCase(mode)
-                    ? realScan(hostIps, job.doneCount)
-                    : mockScan(hostIps, job.doneCount);
+                    ? realScan(hostIps, job.doneCount, job.foundCount)
+                    : mockScan(hostIps, job.doneCount, job.foundCount);
             job.hosts = found;
             if (job.state != State.CANCELLED) job.state = State.DONE;
         } catch (Exception e) {
@@ -130,13 +132,14 @@ public class DiscoveryJobs {
         }
     }
 
-    private List<DiscoveredHost> realScan(List<String> hostIps, AtomicInteger done) {
+    private List<DiscoveredHost> realScan(List<String> hostIps, AtomicInteger done, AtomicInteger found) {
         HostProbe probe = new HostProbe(HostProbe.DEFAULT_TCP_PORTS, HostProbe.DEFAULT_UDP_PROBE_PORT, hostTimeout);
-        return new DiscoveryScanner(concurrency).scan(hostIps, probe::probe, done::incrementAndGet);
+        return new DiscoveryScanner(concurrency)
+                .scan(hostIps, probe::probe, done::incrementAndGet, found::incrementAndGet);
     }
 
     /** Synthetic hosts so dev/CI never touch a real network (ADR-0014 §6). */
-    private List<DiscoveredHost> mockScan(List<String> hostIps, AtomicInteger done) {
+    private List<DiscoveredHost> mockScan(List<String> hostIps, AtomicInteger done, AtomicInteger found) {
         List<DiscoveredHost> out = new ArrayList<>();
         if (!hostIps.isEmpty()) {
             List<Integer> ports = List.of(3389, 445);
@@ -147,6 +150,7 @@ public class DiscoveryJobs {
             out.add(new DiscoveredHost(hostIps.get(hostIps.size() - 1), ports, TypeFingerprint.guess(ports))); // camera
         }
         done.set(hostIps.size());
+        found.set(out.size());
         return out;
     }
 
