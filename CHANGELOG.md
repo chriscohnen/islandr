@@ -8,6 +8,12 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 ---
 
+## 0.12.0
+
+- **Device discovery** — stop typing IP addresses. Point the hub at a site and it scans that site's own CIDR, lists the hosts that are actually live, guesses what each one is from its open ports, and hands you a checklist to create resources from in one go. (The trigger for this was an operator adding nine cameras by hand.) Names come from reverse DNS where available, hosts you already manage are marked as known, the suggested ports can be adopted per host, and a running scan shows live progress and can be aborted. The scan uses ordinary unprivileged sockets — no raw sockets, no new capabilities, no extra `sudoers` entry — and it stays clear of the enforcement path entirely ([ADR-0014](docs/adr/0014-device-discovery.md), [#20](https://github.com/chriscohnen/islandr/issues/20)).
+- **Resource list with bulk actions** — resources now have a list view with multi-select and bulk delete, so cleaning up after a discovery run is one action instead of many.
+- **Docker no longer pretends to enforce** — a plain `docker run` used to fall back to the in-memory mock adapter, which accepts peer and rule changes and even simulates online peers, so the console looked like it was enforcing while nothing reached the host kernel. The container now runs the real socket adapter and says plainly that enforcement is unavailable until the host proxy is attached. **If you evaluate Islandr in Docker, take this release** ([ADR-0012](docs/adr/0012-docker-socket-proxy.md)).
+
 ## 0.11.0
 
 - **Docker without `NET_ADMIN`** — run the hub as an unprivileged container. A small host-side proxy (`islandr-proxy`) owns the WireGuard and nftables commands, and the container talks to it over a Unix socket, so it no longer needs broad host privileges. If the proxy is unreachable the hub stays up in a clearly-flagged degraded mode (peers and ACLs are managed, enforcement is paused) with a banner in the admin console instead of failing hard. The socket-proxy setup is documented in [docs/install.md](docs/install.md) ([ADR-0012](docs/adr/0012-docker-socket-proxy.md), [#13](https://github.com/chriscohnen/islandr/issues/13)).
