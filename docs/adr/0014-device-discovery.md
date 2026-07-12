@@ -1,7 +1,7 @@
 # ADR-0014 — Device discovery by unprivileged TCP-connect scan of a site's own CIDR (0.12.0)
 
-**Status:** Proposed (targeted for 0.12.0)
-**Date:** 2026-07-10
+**Status:** Accepted (implemented in 0.12.0)
+**Date:** 2026-07-10 (accepted 2026-07-12)
 **Deciders:** Christian Cohnen
 **Relates to:** [ADR-0011](0011-process-privilege-model.md) (privilege model this must not widen), [ADR-0005](0005-hub-only-firewall.md) (hub is the only vantage point into a site), [ADR-0006](0006-resource-level-acl.md) (`Resource`/`Site` model this populates), [ADR-0012](0012-docker-socket-proxy.md) (enforcement path this is deliberately independent of), R-052 (the manual-maintenance gap this closes).
 
@@ -53,7 +53,7 @@ All four are **admin-only** (`isAdmin=true`, per T-005). `import` is transaction
 - **Bound to the site's own declared CIDR.** There is no free-text range input. You can only scan a network you already registered as a `Site` — the tightest honest consent story: *you can only scan what you declared you own.*
 - **Admin-only, on explicit click**, never a background poll.
 - **Gentle by construction** — bounded concurrency, short per-host timeout, host-count cap, single active scan. It cannot become a connect-flood against the remote LAN (R-142 / T-014).
-- **Audited.** Every scan start (`DISCOVERY_SCAN_STARTED`, actor + site + CIDR + host count) and every import (`DISCOVERY_IMPORT`, actor + site + created IPs) is written to the append-only audit log (§8.4).
+- **Audited.** Every scan start (`discovery.scan_started`, actor + site + CIDR + host count) and every import (`discovery.import`, actor + site + created IPs) is written to the append-only audit log (§8.4).
 - **Transparent copy** in the UI before the scan runs: *"Der Hub baut testweise TCP-Verbindungen zu jeder Adresse in `<cidr>` auf, um erreichbare Geräte zu finden."* No stealth — TCP `connect()` is a full handshake the target logs; that honesty is a feature.
 
 ### 5. Service fingerprint → type guess
@@ -78,7 +78,7 @@ Guesses are pre-filled in the import table and freely editable:
 | only liveness-only web ports     | `computer`   |
 | none (ICMP-only)                 | `unknown`    |
 
-This introduces a **new `camera` resource type** (RTSP/554), alongside `rackserver`/`kvm` added in 0.11.0-rc.2 — icon, `typeLabels`, DE/EN i18n, and the backend `@Pattern` allowlist. Without it, the fingerprint for the very use case that triggered this ADR would be useless.
+The `camera` type this leans on (RTSP/554) already exists in the resource-type set (added in `V13`, alongside `rackserver`/`kvm` from 0.11.0) — icon, `typeLabels`, DE/EN i18n, and the backend `@Pattern` allowlist are all in place. Discovery reuses it rather than adding a type; without a camera type the fingerprint for the very use case that triggered this ADR would be useless, so its prior existence is a precondition, not a side effect.
 
 ### 6. Mock-first, like `wg`/`nft`
 
@@ -135,12 +135,12 @@ A wins by staying inside the privilege model while still producing a fingerprint
 
 ## Follow-ups (traceability per the docs contract)
 
-These fire **when this ADR moves from Proposed to Accepted for implementation** — deferred deliberately so the live risk/threat registers don't carry entries for an unbuilt feature:
+These fired when the ADR moved from Proposed to Accepted (0.12.0) — deferred until then so the live risk/threat registers did not carry entries for an unbuilt feature. All are now in place:
 
-- Add **R-140, R-141, R-142** to [arc42 §11](../arc42/11-risks-and-technical-debt.md), and note that R-052's status changes (interactive discovery now exists, not only a scripting import).
-- Add **T-013** (recon / port-scan primitive) and **T-014** (connect-flood DoS on a remote network) to the [§8.1 STRIDE threat model](../arc42/08-crosscutting-concepts.md), each cross-referencing its mitigation.
-- Add a Business Rule + use-case for discovery to [docs/prd.md](../prd.md) (BR + F-ID) and a Gherkin scenario ("scan a site with a connected gateway → live hosts returned → import selection → resources created, re-import idempotent").
-- Update this file's Status to **Accepted** and the [ADR index](README.md).
+- ✅ **R-140, R-141, R-142** added to [arc42 §11](../arc42/11-risks-and-technical-debt.md); **R-052** updated to note interactive discovery now exists (not only a scripting import), with R-140 as its residual.
+- ✅ **T-013** (recon / port-scan primitive) and **T-014** (connect-flood DoS on a remote network) added to the [§8.1 STRIDE threat model](../arc42/08-crosscutting-concepts.md), each cross-referenced from its mitigation in §8.2 and from R-141 / R-142.
+- ✅ Discovery captured across the spec: **F-21** in [prd.md](../prd.md); **UC-05** (error paths) and Business Rules **BR-032…BR-037** with a Gherkin feature in [spec.md](../spec.md); a **§6.7 runtime scenario** and the `discovery` building block (§5.3) in arc42.
+- ✅ Status set to **Accepted** here and in the [ADR index](README.md) / [arc42 §9](../arc42/09-architecture-decisions.md).
 
 ## References
 

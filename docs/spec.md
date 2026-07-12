@@ -78,6 +78,17 @@ These rules govern the v2 Docker deployment, where enforcement runs through `isl
 | BR-030 | On proxy (re)connect, pending configuration is reconciled via a full recompute and applied before enforcement state becomes `active` | — | v2 — reconcile-on-connect (planned) |
 | BR-031 | Proxy availability is exposed via the API; while degraded the GUI shows an "enforcement unavailable" banner with install instructions | — | v2 — health endpoint + GUI banner (planned) |
 
+### 1.8 Device discovery (0.12.0 — ADR-0014)
+
+| ID | Rule | HTTP status on violation | Implemented in |
+|----|------|--------------------------|-----------------|
+| BR-032 | Host liveness is established with unprivileged sockets only — TCP `connect()` to a fixed probe-port set and a connected-`DatagramSocket` ICMP port-unreachable probe; no raw socket, no `CAP_NET_RAW`, no new `sudoers` entry | — | `HostProbe` (TCP `connect`, `DatagramSocket.connect` + `PortUnreachableException`) |
+| BR-033 | A scan targets only the site's own declared CIDR (no free-text range) and rejects a CIDR that resolves to more than 1024 hosts (larger than `/22`) | 409 | `DiscoveryResource.scan()`; `CidrHosts.hosts()` (cap + IPv4-only) |
+| BR-034 | A scan is rejected unless the site has a `gatewayPeerId`, that gateway peer has a recent handshake, and no scan is already running for the site | 409 (404 if the site does not exist) | `DiscoveryResource.scan()` precondition checks |
+| BR-035 | Each discovered live host carries its open ports and a pre-filled resource-type guess derived from those ports; the guess is editable before import and `unknown` is a review-only sentinel, never persisted as a resource type | — | `TypeFingerprint.guess()`; `DiscoveryDto.HostView` |
+| BR-036 | Import is transactional and idempotent on `(site, ip)` — importing a host already registered as a resource is a no-op counted as `skipped` | 200 | `DiscoveryResource.import()` (`@Transactional`, `Resource.count("siteId=?1 and ip=?2")`) |
+| BR-037 | Scan start and import are written to the append-only audit log (`discovery.scan_started`, `discovery.import`) with actor, site, and the CIDR / created IPs | — | `DiscoveryResource` → `AuditService.logEvent()` |
+
 ---
 
 ## 2. Peer State Machine
@@ -200,6 +211,34 @@ The happy paths for UC-01/02/03 are in `docs/prd.md` §8. This section adds the 
 
 ---
 
+### UC-05: Admin discovers devices in a site and bulk-imports them (0.12.0)
+
+**Primary Actor:** Admin (Felix)  
+**Trigger:** admin opens a site with a connected gateway and clicks "Geräte finden"  
+**ADR reference:** ADR-0014 — device discovery by unprivileged CIDR scan  
+**PRD happy path:** F-21 (this section covers the error paths).
+
+**Main Success Scenario (abbrev.):** preconditions pass → scan enumerates the site CIDR with unprivileged probes → admin reviews the live-host list with per-host type guesses → admin imports the selection → resources are created and the scan start + import are audited.
+
+**Extensions (error paths):**
+
+- **1a.** Site has no gateway peer, or its gateway has no recent handshake → `POST …/discovery/scan` returns **409** with German copy naming the cause; no probe is sent (BR-034).
+- **1b.** Site's CIDR is larger than `/22` (> 1024 hosts) → **409**; the scan is refused before enumeration (BR-033).
+- **1c.** A scan is already running for the site → **409**; the running job is not disturbed (BR-034).
+- **1d.** The site does not exist → **404** (BR-034).
+- **2a.** The scan completes but no host answers (all filtered / ICMP-dropped) → job state `done` with an empty host list; the UI states discovery is best-effort and offers manual add — not an error (R-140).
+- **3a.** Actor is not an admin → **403** on every discovery endpoint (T-005).
+- **4a.** Import includes a host already registered as a resource for the site → that host is a no-op, counted as `skipped`; a second scan+import never duplicates a resource (BR-036).
+- **4b.** Import carries a type outside the allowlist (e.g. the `unknown` sentinel) → **400**; nothing is created (BR-035).
+- **∗.** Hub restarts mid-scan → the in-memory job is lost; the admin re-runs the scan, which is cheap and whose import is idempotent (TD-005).
+
+**Postconditions:**
+
+- **Success:** the selected hosts exist as `Resource` rows in the site; scan start and import are in the audit log.
+- **Any rejection:** no resource is created and no probe traffic beyond what already completed is emitted.
+
+---
+
 ## 4. Acceptance Criteria (Gherkin — error paths not covered by existing tests)
 
 These scenarios are not currently covered by integration tests and represent known gaps.
@@ -277,4 +316,34 @@ Feature: Enforcement degraded mode (v2 — ADR-0012)
     Then islandr recomputes and applies the full ruleset
     And enforcement state becomes "active"
     And the "enforcement unavailable" banner clears
+
+
+Feature: Device discovery (0.12.0 — ADR-0014)
+
+  Scenario: Scan rejected when the site has no connected gateway (BR-034)
+    Given a site "disco-nogw" with a CIDR but no gateway peer
+    When an admin sends POST /api/v1/sites/{id}/discovery/scan
+    Then the server responds with 409
+
+  Scenario: Scan of a site's CIDR finds live hosts not yet registered (F-21, BR-035)
+    Given a site with a connected gateway peer and a recent handshake
+    And the discovery scanner runs in mock mode
+    When an admin starts a scan and polls until it is done
+    Then the job state is "done"
+    And the returned hosts each carry openPorts and an editable typeGuess
+    And every returned host has alreadyRegistered false
+
+  Scenario: Import is idempotent on (site, ip) (BR-036)
+    Given a site with no resources
+    When an admin imports a host "10.91.0.5" as type "camera"
+    Then the response reports imported 1 and skipped 0
+    And a resource with ip "10.91.0.5" exists in the site
+    When the admin imports the same host again
+    Then the response reports imported 0 and skipped 1
+
+  Scenario: Import rejects a type outside the allowlist (BR-035)
+    Given a site with a connected gateway
+    When an admin imports a host with type "unknown"
+    Then the server responds with 400
+    And no resource is created
 ```
