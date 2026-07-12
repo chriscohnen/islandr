@@ -11,6 +11,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @ApplicationScoped
@@ -332,8 +334,25 @@ public class ConfigService {
                 safe(p.roleResourceGrants()).size());
     }
 
+    /**
+     * The import writes its rows with native INSERTs, so this method — not Hibernate —
+     * decides the on-disk format of every {@code created_at}. It has to match what
+     * Hibernate writes for entity-managed rows, or the row is written but can never be
+     * read: reads go through {@code ResultSet.getTimestamp()}, and the SQLite driver
+     * parses exactly {@code yyyy-MM-dd HH:mm:ss.SSS}.
+     *
+     * <p>{@code Instant.toString()} would emit ISO-8601 ({@code 2026-07-05T21:05:26.847Z}).
+     * SQLite is dynamically typed and stores that happily, and the import reports success —
+     * but every later read of the row fails with "Error parsing time stamp" and the instance
+     * is bricked by its own import. Hibernate binds instants through
+     * {@code TimestampUtcAsJdbcTimestampJdbcType} with a UTC calendar, so this formatter is
+     * UTC too and both writers agree. See {@code ConfigImportRoundTripTest}.
+     */
+    private static final DateTimeFormatter DB_TIMESTAMP =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneOffset.UTC);
+
     private static String ts(Instant instant) {
-        return instant != null ? instant.toString() : Instant.now().toString();
+        return DB_TIMESTAMP.format(instant != null ? instant : Instant.now());
     }
 
     private static <T> List<T> safe(List<T> list) {
