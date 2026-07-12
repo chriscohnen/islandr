@@ -178,9 +178,14 @@ islandr/
 │       ├── 0009-license-eupl-1.2.md
 │       ├── 0010-font-and-icon-asset-self-hosting.md
 │       ├── 0011-process-privilege-model.md
-│       └── 0012-docker-socket-proxy.md
+│       ├── 0012-docker-socket-proxy.md
+│       ├── 0013-default-everyone-role.md
+│       └── 0014-device-discovery.md
 ├── architecture/
 │   ├── workspace.dsl                        # C4 model (Structurizr DSL) — source of diagrams
+│   ├── docs/                                # Markdown pages rendered into the interactive C4 site
+│   │   ├── 01-overview.md                   # home / entry point of the architecture portal
+│   │   └── 02-roadmap.md                    # roadmap page
 │   └── diagrams/                            # generated C4 PNGs + .puml, embedded in arc42
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
@@ -217,58 +222,42 @@ islandr/
 ### What works today
 
 **Authentication & identity**
-- Local admin login (ENV-bootstrapped, SHA-256 constant-time, 12h revocable sessions)
-- OIDC: Microsoft 365 / Entra ID and Google — full code-exchange + JWKS-cached RS256 verification, all config GUI-editable at runtime without restart
-- At most one OIDC provider active at a time; admin can swap via confirm dialog
-- Avatar pipeline: MS Graph photo → Google picture claim → Gravatar (opt-in) → deterministic initials fallback
+- Local admin (ENV-bootstrapped) *and* per-user local passwords (PBKDF2) — no external IdP required
+- OIDC: Microsoft 365 / Entra ID and Google, fully GUI-configurable at runtime without a restart; one provider active at a time
+- Avatars: MS Graph photo → Google picture → Gravatar (opt-in) → deterministic initials
 
-**User & peer management**
-- User CRUD with admin/end-user role assignment
-- Peer CRUD: client and site peer types, IP suggestion from WG subnet, CIDR-overlap validation
-- **IPv6 dual-stack peers** — optional `assignedIpv6` per peer; nftables rules emit `ip`/`ip6` per address family; custom `@ValidIpAddress`/`@ValidCidr` validators replace regex patterns
-- Per-peer MTU override (default 1420)
-- Reverse geocoding — approximate peer location derived from endpoint IP; hub location label editable in Settings with geocoding assist
-- Server-side keypair generation or admin-imported public key (validated via `wg pubkey`)
-- **Private key retention** — three modes: `never` (default), `plaintext`, `encrypted` (AES-256-GCM, server-side master key)
-- QR code + `.conf` download with one-time-secret pattern; re-show in `plaintext` / `encrypted` retention mode
-- **Import peers from live wg0** — reads `wg show wg0 dump`, compares by public key, lets admin select and name unmanaged peers in one step
+**Users, peers & devices**
+- Users with roles, plus a default **Everyone** role every user belongs to
+- Peers: client and site types, IPv4 with optional **IPv6 dual-stack**, IP suggestion, CIDR-overlap validation, per-peer MTU
+- Server-side keypairs or admin-imported public keys; **private-key retention** in three modes — `never` (default), `plaintext`, `encrypted` (AES-256-GCM)
+- QR code + `.conf` download as a one-time secret; **import existing peers** from a live `wg0`
+- Approximate peer location from the endpoint IP; hub location editable in Settings
 
 **Networks, resources & firewall**
-- Sites and resources with typed resource cards (computer, router, printer, NAS, camera, IoT, virt-host, management)
-- Port groups and resource-level ACL: roles → resource grants, per-port, port ranges (`8080-8090`), or all-ports mode
-- ACL matrix shows granted vs. total port count per cell (e.g. `1/2`)
-- nftables ruleset generation — atomic reload via RuleBuilder, cold-start-safe, mock adapter for dev/CI
-- Activity poller: last seen, last endpoint, bytes-counter delta (rx/tx)
-- Connectivity indicators: live handshake dot (●/○) in Peers and Networks views; dashboard topology colors gateway ring green/muted and shows gateway peer IP + handshake age on hover
+- Sites and typed resources (computer, router, printer, NAS, camera, IoT, rack server, KVM host, …)
+- Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
+- nftables ruleset generation with atomic, cold-start-safe reload
+- **Docker without `NET_ADMIN`** — unprivileged container plus a host-side socket proxy ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
+- Enforcement state is always visible — direct, via proxy, or degraded. Nothing is ever silently unenforced
+- Activity poller and live handshake indicators (last seen, endpoint, rx/tx)
 
 **Self-service portal**
-- End users add their own devices via a 3-step flow: platform → QR + `.conf` → wait for first handshake
-- Key rotation, device list, accessible resource overview with protocol icons
-- Admin toggle to disable self-service peer creation (stricter environments)
-- Protocol quicklaunch on granted resources:
-  - **HTTP/HTTPS** — opens directly in the browser; optional per-port path prefix (e.g. `/admin`) so multi-app hosts work without a dedicated port per app
-  - **RDP** — `.rdp` file download (Windows/macOS) + `rdp://` URI (Linux/Remmina) + **browser-based RDP** via IronRDP WASM (no client install); `web-only` access mode blocks direct WireGuard port access so users are forced through the browser proxy; per-port clipboard and file-transfer toggles; password-manager autofill + show/hide toggle on the credential dialog; global enable toggle in Settings
-  - **VNC** — `vnc://` URI link (RFC 7869; opens Remmina, GNOME Connections, RealVNC)
-  - **SSH** — `ssh://` URI (macOS Terminal, Linux terminal emulators)
-  - **SFTP** — `sftp://` URI (Nautilus, Dolphin file manager)
-  - **SMB** — `smb://` URI (Finder, Nautilus; Windows uses `\\host\share` natively)
-  - **IPP printer quick-install** — `ipp://` URI opens native OS print dialog (macOS, Windows, Linux/CUPS)
-- **WireGuard client setup guide** — platform-detected install links on first visit; Passepartout recommended for macOS/iOS; Linux commands include one-click copy
-- **Config export/import** — full DB snapshot as JSON (GET `/api/v1/admin/config/export`); FK-aware transactional import with preview and confirm step; optional private key inclusion
+- Users enrol their own devices: platform → QR + `.conf` → first handshake. Key rotation, device list, access overview. Admins can switch it off
+- **Quicklaunch** on granted resources: HTTP/HTTPS (with optional path prefix), RDP, VNC, SSH, SFTP, SMB, and IPP printer install via native URI handlers
+- **Browser-based RDP** (IronRDP WASM) — no client to install, ACL-gated, with per-port clipboard and file-transfer toggles and an optional `web-only` mode
+- Platform-detected WireGuard client setup guide on first visit
 
-**Google Workspace integration**
-- Import users from a GWS directory — browse org users, see who is already in Islandr, import selected; configurable via OAuth service account in Settings
-
-**Observability**
-- Audit log with cursor-based pagination, actor/action/target filters, meta-JSON expand
-- Update check — Settings shows the running version with an on-demand button to check GitHub for a newer release; you stay current without leaving the console. No background polling, no telemetry — the check only runs when you click it
-
-**Bilingual UI**
-- German (default) and English, switchable at runtime without reload
+**Operations**
+- Google Workspace user import (the service-account JSON is encrypted at rest)
+- Audit log with cursor pagination and actor/action/target filters
+- Config **export/import** as a JSON snapshot, with preview and confirm
+- On-demand update check — no telemetry, no background polling
+- Bilingual UI, German default and English, switchable at runtime
 
 ### Release notes
 
-Only the changes that matter if you actually use it — see the [GitHub releases](https://github.com/chriscohnen/islandr/releases) for the full list.
+Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
+binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
 **0.11.0**
 - **Docker without `NET_ADMIN`** — run the hub as an unprivileged container. A small host-side proxy (`islandr-proxy`) owns the WireGuard and nftables commands, and the container talks to it over a Unix socket, so it no longer needs broad host privileges. If the proxy is unreachable the hub stays up in a clearly-flagged degraded mode (peers and ACLs are managed, enforcement is paused) with a banner in the admin console instead of failing hard. The socket-proxy setup is documented in [docs/install.md](docs/install.md) ([ADR-0012](docs/adr/0012-docker-socket-proxy.md), [#13](https://github.com/chriscohnen/islandr/issues/13)).
@@ -277,32 +266,6 @@ Only the changes that matter if you actually use it — see the [GitHub releases
 - **More resource types** — rack server and KVM/virtualisation host join the resource catalogue (with fitting icons), and you can switch an existing resource to them. New resources also adopt their site's CIDR and sensible port defaults, so there is less to type.
 - **Configurable WireGuard interface** — set `ISLANDR_WG_INTERFACE` to run on a non-default interface name instead of the built-in one.
 - **Polish** — edit a local user's name *and* email; the config-import file picker and the "Everyone" role description now follow the selected UI language; the ACL page uses a master-detail site list so a large network count no longer forces horizontal scrolling.
-
-**0.10.0**
-- **Browser-based RDP** — open a granted RDP resource straight from the self-service portal, with no local client to install. An IronRDP WASM client runs in the browser and the hub proxies the connection over a WebSocket, gated by the resource ACL (the target is derived from the database, not the request). Per-port clipboard and file-transfer toggles; a `web-only` access mode blocks the direct WireGuard port so users are forced through the auditable browser proxy. Off by default — enable it globally in Settings.
-- **Password-manager-friendly credentials** — the local login form and the browser-RDP credential dialog use proper form and field semantics (`name` + `autocomplete` + `type`), so KeePassXC, Bitwarden and the browser's own manager detect and autofill them. The RDP dialog adds a copyable per-resource URI (keep one vault entry per host) and a show/hide toggle on the password field.
-- **Local users with passwords** — you no longer need an external IdP to hand out logins. An admin sets a per-user password (PBKDF2-hashed, never stored or returned in plaintext) and that user signs in with email + password, alongside or instead of Microsoft/Google OIDC.
-- **Usable bootstrap admin** — a fresh install seeds an `admin@local` user and binds the `ISLANDR_ADMIN_PASSWORD` login to it, so you can immediately own a peer and assign yourself roles instead of logging in as a rights-less admin.
-- **Onboarding polish** — the port form pre-fills the default port per protocol (RDP 3389, SSH 22, HTTPS 443, …); a peer can be created with no users yet as a site gateway (the client type is disabled with a hint to add a user first); networks hint when there is no gateway peer to pick; the ACL matrix lets you grant "all ports" on single-port resources too; and the dashboard shows your configured hub location name instead of a generic "Hub".
-- **No more stale UI after an update** — the front end is revalidated on each load, so a new release shows up without a manual hard-refresh.
-
-**0.9.2 – 0.9.4** — Fixes only, no new features: the Docker image and native binary now boot on a plain `docker run` and on CPU-restricted hosts (e.g. a Proxmox VM on the default CPU model). If you deploy with Docker, install **0.9.4 or later**.
-
-**0.9.1**
-- **Path prefix for HTTP/HTTPS resources** — a resource port can carry an optional URL path (e.g. `/admin`), so the portal's quicklaunch opens `https://host/admin` instead of just the host root.
-- **Hub coordinates** — set the gateway's own location (latitude/longitude + label) in Settings, by entering coordinates or geocoding an address, so the hub shows up where it really is instead of being guessed from its IP.
-- **Settings page restructured** into clearer sections.
-- **Google Workspace user import** — browse your org's users and import the ones you pick; the service-account JSON is encrypted at rest.
-- Update check moved into Settings with a corrected semver comparison.
-
-**0.9.0**
-- **Protocol quicklaunch in the self-service portal** — granted resources open directly: HTTP/HTTPS in the browser, plus RDP, VNC, SSH, SFTP, SMB and IPP printer install via native URI handlers.
-- **WireGuard client setup guide** — platform-detected install links for new users on first visit.
-- **IPv6 dual-stack peers** — optional IPv6 address per peer alongside IPv4.
-- **Encrypted private-key retention** — optionally keep keys server-side under AES-256-GCM so a config can be re-shown later, or stay key-less (the default).
-- **Config export/import** — full snapshot as JSON with a preview-and-confirm import.
-- **Per-peer MTU override** and **reverse geocoding** of a peer's approximate location from its endpoint IP.
-- **Update check** — Settings shows the running version and checks GitHub for a newer release on demand (no telemetry, no background polling).
 
 Planned features are tracked as GitHub issues — 👍 or comment to signal what matters to you.
 
