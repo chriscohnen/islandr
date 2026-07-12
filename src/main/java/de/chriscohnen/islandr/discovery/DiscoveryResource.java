@@ -84,7 +84,7 @@ public class DiscoveryResource {
         List<DiscoveryDto.HostView> hosts = new ArrayList<>();
         for (DiscoveryScanner.DiscoveredHost h : job.hosts()) {
             boolean known = Resource.count("siteId = ?1 and ip = ?2", siteId, h.ip()) > 0;
-            hosts.add(new DiscoveryDto.HostView(h.ip(), h.openPorts(), h.typeGuess(), known));
+            hosts.add(new DiscoveryDto.HostView(h.ip(), h.openPorts(), h.typeGuess(), h.hostname(), known));
         }
         return new DiscoveryDto.ScanStatus(
                 job.state().name().toLowerCase(), job.total(), job.done(), job.found(), hosts, job.error());

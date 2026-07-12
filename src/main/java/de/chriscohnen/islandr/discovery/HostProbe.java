@@ -11,6 +11,10 @@ import java.net.Socket;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Unprivileged host liveness + service probe (ADR-0014, §1).
@@ -38,6 +42,17 @@ public class HostProbe {
     /** A fixed, likely-closed high UDP port; a port-unreachable back from it proves liveness. */
     public static final int DEFAULT_UDP_PROBE_PORT = 40125;
 
+    /**
+     * Reverse-DNS lookups run on a shared daemon pool so a slow/unreachable resolver
+     * cannot stall a scan thread — each lookup is bounded by {@link #reverseLookup}.
+     * Only performed for hosts already found live, so the pool stays small.
+     */
+    private static final ExecutorService DNS_POOL = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "discovery-ptr");
+        t.setDaemon(true);
+        return t;
+    });
+
     private final List<Integer> tcpPorts;
     private final int udpProbePort;
     private final int timeoutMillis;
@@ -48,8 +63,14 @@ public class HostProbe {
         this.timeoutMillis = (int) Math.max(1, timeout.toMillis());
     }
 
-    /** Result for one host: whether it is up, and which probed TCP ports are open. */
-    public record ProbeResult(String ip, boolean live, List<Integer> openPorts) {}
+    /**
+     * Result for one host: whether it is up, which probed TCP ports are open, and its
+     * reverse-DNS name if one could be resolved (null otherwise). The hostname is a
+     * best-effort convenience for pre-filling the resource name — it depends on the
+     * hub being able to reverse-resolve the address (typical on a LAN with a local
+     * resolver; often absent for a remote site reached over the tunnel).
+     */
+    public record ProbeResult(String ip, boolean live, List<Integer> openPorts, String hostname) {}
 
     public ProbeResult probe(String ip) {
         List<Integer> open = new ArrayList<>();
@@ -66,7 +87,25 @@ public class HostProbe {
         if (!live && probeUdpUnreachable(ip)) {
             live = true;
         }
-        return new ProbeResult(ip, live, List.copyOf(open));
+        // Name only live hosts (bounded count), so a slow resolver never taxes a dead sweep.
+        String hostname = live ? reverseLookup(ip) : null;
+        return new ProbeResult(ip, live, List.copyOf(open), hostname);
+    }
+
+    /** Bounded reverse-DNS (PTR) lookup; returns the name, or null if none / on timeout. */
+    private String reverseLookup(String ip) {
+        Future<String> f = DNS_POOL.submit(() -> {
+            InetAddress a = InetAddress.getByName(ip);
+            String h = a.getCanonicalHostName();
+            // No PTR record → getCanonicalHostName echoes the literal address back.
+            return (h == null || h.isBlank() || h.equals(a.getHostAddress())) ? null : h;
+        });
+        try {
+            return f.get(Math.min(timeoutMillis, 1500), TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            f.cancel(true);
+            return null;
+        }
     }
 
     private enum Tcp { OPEN, CLOSED, NO_ANSWER }

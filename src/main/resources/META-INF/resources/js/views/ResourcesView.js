@@ -396,6 +396,11 @@ export default defineComponent({
       }
     },
     suggestName(h) {
+      // Prefer the reverse-DNS name (first label) when the hub could resolve it.
+      if (h.hostname) {
+        const label = h.hostname.split(".")[0].trim();
+        if (label) return label;
+      }
       const last = h.ip.split(".").pop();
       const base = (h.typeGuess && h.typeGuess !== "unknown") ? h.typeGuess : "host";
       return base + "-" + last;
@@ -764,6 +769,7 @@ export default defineComponent({
                     <td class="mono">
                       {{ h.ip }}
                       <span v-if="h.alreadyRegistered" class="muted" style="font-size: var(--text-xs)"> · {{ t('discovery.registered') }}</span>
+                      <div v-if="h.hostname" class="muted" style="font-size: var(--text-xs)">{{ h.hostname }}</div>
                     </td>
                     <td class="mono" style="font-size: var(--text-xs)">{{ h.openPorts.length ? h.openPorts.join(', ') : '—' }}</td>
                     <td>

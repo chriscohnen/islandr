@@ -143,11 +143,11 @@ public class DiscoveryJobs {
         List<DiscoveredHost> out = new ArrayList<>();
         if (!hostIps.isEmpty()) {
             List<Integer> ports = List.of(3389, 445);
-            out.add(new DiscoveredHost(hostIps.get(0), ports, TypeFingerprint.guess(ports)));            // computer
+            out.add(new DiscoveredHost(hostIps.get(0), ports, TypeFingerprint.guess(ports), "mock-pc"));       // computer
         }
         if (hostIps.size() > 1) {
             List<Integer> ports = List.of(554);
-            out.add(new DiscoveredHost(hostIps.get(hostIps.size() - 1), ports, TypeFingerprint.guess(ports))); // camera
+            out.add(new DiscoveredHost(hostIps.get(hostIps.size() - 1), ports, TypeFingerprint.guess(ports), "mock-cam")); // camera
         }
         done.set(hostIps.size());
         found.set(out.size());

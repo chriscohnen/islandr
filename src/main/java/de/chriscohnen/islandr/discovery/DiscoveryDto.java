@@ -12,7 +12,8 @@ public final class DiscoveryDto {
 
     public record ScanStarted(String jobId) {}
 
-    public record HostView(String ip, List<Integer> openPorts, String typeGuess, boolean alreadyRegistered) {}
+    public record HostView(String ip, List<Integer> openPorts, String typeGuess,
+                           String hostname, boolean alreadyRegistered) {}
 
     public record ScanStatus(String state, int total, int done, int found, List<HostView> hosts, String error) {}
 

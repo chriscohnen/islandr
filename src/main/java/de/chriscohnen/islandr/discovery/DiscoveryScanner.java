@@ -23,7 +23,7 @@ public class DiscoveryScanner {
         this.concurrency = Math.max(1, concurrency);
     }
 
-    public record DiscoveredHost(String ip, List<Integer> openPorts, String typeGuess) {}
+    public record DiscoveredHost(String ip, List<Integer> openPorts, String typeGuess, String hostname) {}
 
     public List<DiscoveredHost> scan(List<String> ips, Function<String, HostProbe.ProbeResult> probe) {
         return scan(ips, probe, () -> {}, () -> {});
@@ -68,7 +68,8 @@ public class DiscoveryScanner {
                 try {
                     HostProbe.ProbeResult r = f.get();
                     if (r != null && r.live()) {
-                        live.add(new DiscoveredHost(r.ip(), r.openPorts(), TypeFingerprint.guess(r.openPorts())));
+                        live.add(new DiscoveredHost(r.ip(), r.openPorts(),
+                                TypeFingerprint.guess(r.openPorts()), r.hostname()));
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
