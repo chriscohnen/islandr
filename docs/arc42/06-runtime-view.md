@@ -215,7 +215,7 @@ sequenceDiagram
 ```
 
 **Error/recovery characteristics:**
-- **Fail fast, before any packet** — a real scan whose declared tunnel gateway is stale, a CIDR larger than `/22`, or a scan already running are all rejected with `409` and specific German copy (BR-034); no probe is sent (T-014). A site with no gateway peer is treated as hub-local and allowed (best-effort); mock mode skips the route check entirely so discovery is testable without WireGuard.
+- **Fail fast, before any packet** — a real scan whose declared tunnel gateway is stale, or a CIDR larger than `/22` are rejected with `409` and specific German copy (BR-034); no probe is sent (T-014). A scan still running for the same site is superseded (cancelled and replaced), so "scan again" never dead-ends. A site with no gateway peer is treated as hub-local and allowed (best-effort); mock mode skips the route check entirely so discovery is testable without WireGuard.
 - **A scan that finds nothing is a result, not an error** — the job ends `done` with an empty list and the UI says so; discovery is best-effort and a fully-filtered host is invisible (R-140, §8.5).
 - **Idempotent import** — re-importing a host already present as a `Resource` is a no-op (`skipped`), so a second scan+import never duplicates rows (BR-036).
 - **Ephemeral jobs** — a hub restart mid-scan drops the in-memory job (TD-005); the operator simply re-runs it, which is cheap.

@@ -95,16 +95,19 @@ public class DiscoveryJobs {
     }
 
     /**
-     * Start a scan of {@code cidr} for {@code siteId}.
+     * Start a scan of {@code cidr} for {@code siteId}. A scan still running for the
+     * same site is superseded — cancelled, then replaced — so "scan again" always
+     * yields a fresh scan and never dead-ends on a stale job (e.g. one orphaned by
+     * a client that navigated away). The one-active-scan-per-site invariant, and
+     * with it the connect-rate bound (ADR-0014 §4, R-142), still holds.
      *
      * @throws IllegalArgumentException the CIDR is not an enumerable IPv4 range or exceeds the cap
-     * @throws IllegalStateException    a scan is already running for this site
      */
     public Job start(String siteId, String cidr) {
         sweep();
         for (Job j : jobs.values()) {
             if (j.siteId.equals(siteId) && j.state == State.RUNNING) {
-                throw new IllegalStateException("a scan is already running for this site");
+                cancel(j.id);
             }
         }
         List<String> hostIps = CidrHosts.hosts(cidr);   // may throw IllegalArgumentException

@@ -49,7 +49,7 @@ All four are **admin-only** (`isAdmin=true`, per T-005). `import` is transaction
   - A site with **no gateway peer** is treated as **directly reachable from the hub** (e.g. the hub's own LAN, or a network on the hub's routing table). The scan is allowed and best-effort: if no route exists it simply finds nothing (R-140), which is a far better default than refusing to let the operator try. *(This corrects the original draft, which 409'd any site without a gateway peer — too strict for a hub-local network.)*
   - In **mock mode** (`islandr.discovery.mode != real`) nothing is actually probed, so the route precondition is skipped entirely. This keeps the feature testable in Docker/dev without WireGuard.
 - The site's `cidr` resolves to **≤ 1024 hosts (`/22` or smaller)**. Larger CIDRs are rejected — a `/16` would spawn 65k probe fan-outs (R-142).
-- **One active scan per site.** A second `POST` while a job runs returns 409.
+- **One active scan per site.** A second `POST` while a job runs **supersedes** it: the running scan is cancelled and replaced, so "scan again" always starts fresh and never dead-ends on a stale job (e.g. one orphaned by a client that navigated away). The one-active-scan invariant — and with it the connect-rate bound — is preserved.
 
 ### 4. Guardrails and consent
 

@@ -44,4 +44,16 @@ class DiscoveryScannerTest {
     void emptyInput_returnsEmpty() {
         assertThat(new DiscoveryScanner(4).scan(List.of(), ip -> null)).isEmpty();
     }
+
+    @Test
+    void reportsProgressOncePerHost_includingDeadOnes() {
+        List<String> ips = List.of("10.0.0.1", "10.0.0.2", "10.0.0.3");
+        // All dead: progress must still tick once per host, so the UI never freezes.
+        Function<String, HostProbe.ProbeResult> fake = ip -> new HostProbe.ProbeResult(ip, false, List.of());
+        java.util.concurrent.atomic.AtomicInteger progress = new java.util.concurrent.atomic.AtomicInteger();
+
+        new DiscoveryScanner(2).scan(ips, fake, progress::incrementAndGet);
+
+        assertThat(progress.get()).isEqualTo(3);
+    }
 }

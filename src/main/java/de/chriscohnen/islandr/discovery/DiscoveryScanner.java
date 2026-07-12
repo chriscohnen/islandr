@@ -37,7 +37,17 @@ public class DiscoveryScanner {
         ExecutorService pool = Executors.newFixedThreadPool(Math.min(concurrency, ips.size()));
         try {
             List<Future<HostProbe.ProbeResult>> futures = new ArrayList<>(ips.size());
-            for (String ip : ips) futures.add(pool.submit(() -> probe.apply(ip)));
+            // Count progress as each host's probe actually finishes — not in the
+            // submission-ordered collection loop below, where one slow dead host
+            // near the front would freeze the counter (and the UI) until it times
+            // out, even though later hosts already completed.
+            for (String ip : ips) futures.add(pool.submit(() -> {
+                try {
+                    return probe.apply(ip);
+                } finally {
+                    onHostDone.run();
+                }
+            }));
 
             List<DiscoveredHost> live = new ArrayList<>();
             for (Future<HostProbe.ProbeResult> f : futures) {
@@ -51,8 +61,6 @@ public class DiscoveryScanner {
                     break;
                 } catch (ExecutionException e) {
                     // one host's probe blew up — skip it, keep scanning
-                } finally {
-                    onHostDone.run();
                 }
             }
             live.sort(Comparator.comparingLong(h -> CidrHosts.ipv4ToLong(h.ip())));

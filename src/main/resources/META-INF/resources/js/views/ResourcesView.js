@@ -48,6 +48,11 @@ export default defineComponent({
   async mounted() {
     await Promise.all([this.loadSite(), this.loadResources(), this.loadPortGroups()]);
   },
+  unmounted() {
+    // Navigating away mid-scan must not leave a poll loop running or a scan
+    // orphaned on the hub — closeScan clears the timer and cancels the job.
+    if (this.scanOpen) this.closeScan();
+  },
   watch: {
     siteId: {
       async handler() {
@@ -625,7 +630,11 @@ export default defineComponent({
           </template>
 
           <template v-else-if="scanState === 'running'">
-            <p class="muted">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }}</p>
+            <div style="display: flex; align-items: center; gap: var(--space-2)">
+              <span style="width: 15px; height: 15px; flex: none; border-radius: 50%; border: 2px solid var(--fg2); border-top-color: transparent; animation: spin 0.7s linear infinite; display: inline-block"></span>
+              <p class="muted" style="margin: 0">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }}</p>
+            </div>
+            <p class="field-hint" style="margin: var(--space-2) 0 0">{{ t('discovery.running_hint') }}</p>
           </template>
 
           <div v-else-if="scanState === 'error'" class="error-banner">{{ scanError }}</div>
@@ -665,7 +674,8 @@ export default defineComponent({
           </template>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-ghost" @click="closeScan">{{ t('common.cancel') }}</button>
+          <button v-if="scanState !== 'running'" type="button" class="btn btn-ghost" @click="closeScan">{{ t('common.cancel') }}</button>
+          <button v-else type="button" class="btn btn-secondary" @click="closeScan">{{ t('discovery.abort_btn') }}</button>
           <button v-if="scanState === 'consent'" type="button" class="btn btn-primary" @click="startScan">{{ t('discovery.start_btn') }}</button>
           <button v-else-if="scanState === 'done' && scanHosts.length > 0" type="button" class="btn btn-primary"
                   :disabled="importing || scanSelectedCount() === 0" @click="importScan">
