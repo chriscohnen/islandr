@@ -7,8 +7,17 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
     model {
 
         // ── Actors ────────────────────────────────────────────────────────
-        admin   = person "Admin"    "Manages peers, users, roles, resources, and ACLs (Felix)."   "Admin"
-        endUser = person "End User" "Manages own devices and views access list in plain language (Lena)." "User"
+        // Each actor links to its persona in the PRD, so clicking the person in a
+        // diagram lands on who that is. The Structurizr DSL validates `url` as a real
+        // URL and rejects relative paths, so this has to be absolute — which means the
+        // model carries the site's published address. Consequence: in a local file://
+        // preview these links jump to the deployed site, not to the local copy.
+        admin   = person "Admin"    "Manages peers, users, roles, resources, and ACLs (Felix)."   "Admin" {
+            url "https://islandr-gateway.net/architecture/master/product-requirements/#persona-felix"
+        }
+        endUser = person "End User" "Manages own devices and views access list in plain language (Lena)." "User" {
+            url "https://islandr-gateway.net/architecture/master/product-requirements/#persona-lena"
+        }
 
         // ── External systems ──────────────────────────────────────────────
         oidcProvider = softwareSystem "OIDC Provider"  "Authenticates users. Microsoft 365 or Google Workspace." "External"
