@@ -1699,7 +1699,11 @@ body {
   flex: 1;
   width: 100%;
   display: block;
-  cursor: none;
+  /* Baseline cursor. IronRDP delivers the remote pointer via the WASM
+     setCursorStyleCallback (which sets an inline cursor on this element), not by
+     compositing it into the framebuffer. `default` here means an invalid/empty
+     callback value still leaves a visible cursor instead of hiding it. */
+  cursor: default;
   outline: none;
 }
 
