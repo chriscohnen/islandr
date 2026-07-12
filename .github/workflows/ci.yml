@@ -262,9 +262,30 @@ jobs:
             chmod +x dist/islandr-runner-linux-$arch
           done
 
+      # The curated, operator-facing notes live in CHANGELOG.md — write them once
+      # there and ship them as the release body. generate_release_notes still
+      # appends the raw commit/PR list underneath. An RC tag (v0.12.0-rc.1) uses
+      # the section of its target version (## 0.12.0); if no section exists yet,
+      # the body stays empty and only the generated notes are published.
+      - name: Extract release notes from CHANGELOG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"     # v0.12.0-rc.1 → 0.12.0-rc.1
+          VERSION="${VERSION%%-*}"           #              → 0.12.0
+          awk -v ver="## $VERSION" '
+            $0 == ver { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ -s release-notes.md ]; then
+            echo "::notice::Release body taken from CHANGELOG.md section '$VERSION'"
+          else
+            echo "::warning::No '## $VERSION' section in CHANGELOG.md — publishing generated notes only"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') }}
           files: |
