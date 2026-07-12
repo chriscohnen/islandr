@@ -364,19 +364,19 @@ const App = defineComponent({
 
                 <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_binary') }}</label>
                 <div style="display:flex; gap: var(--space-2); align-items:center; margin-bottom: var(--space-3)">
-                  <code class="mono" style="flex:1; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdRemote }}</code>
+                  <code class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdRemote }}</code>
                   <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdRemote, 'remote')">{{ installCopied === 'remote' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
                 </div>
 
                 <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_source') }}</label>
                 <div style="display:flex; gap: var(--space-2); align-items:center; margin-bottom: var(--space-3)">
-                  <code class="mono" style="flex:1; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdSource }}</code>
+                  <code class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdSource }}</code>
                   <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdSource, 'source')">{{ installCopied === 'source' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
                 </div>
 
                 <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_mount') }}</label>
                 <div style="display:flex; gap: var(--space-2); align-items:center">
-                  <code class="mono" style="flex:1; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdMount }}</code>
+                  <code class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdMount }}</code>
                   <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdMount, 'mount')">{{ installCopied === 'mount' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
                 </div>
               </div>
