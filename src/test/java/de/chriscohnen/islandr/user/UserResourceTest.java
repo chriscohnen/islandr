@@ -81,4 +81,65 @@ class UserResourceTest {
         given().when().get("/api/v1/users/does-not-exist")
                 .then().statusCode(404);
     }
+
+    @Test
+    void update_nameAndEmail_persists() {
+        // Regression: no endpoint existed to edit a user's email/name, so an
+        // admin could not fix the email of a locally-created user (its login id).
+        String id = given().contentType("application/json")
+                .body("""
+                        { "name": "Old Name", "email": "old-edit@example.com" }
+                        """)
+                .when().post("/api/v1/users").then().statusCode(201).extract().path("id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "name": "New Name", "email": "new-edit@example.com" }
+                        """)
+                .when().put("/api/v1/users/" + id)
+                .then().statusCode(200)
+                .body("name", equalTo("New Name"))
+                .body("email", equalTo("new-edit@example.com"));
+
+        given().when().get("/api/v1/users/" + id)
+                .then().statusCode(200)
+                .body("name", equalTo("New Name"))
+                .body("email", equalTo("new-edit@example.com"));
+    }
+
+    @Test
+    void update_toDuplicateEmail_returns409() {
+        given().contentType("application/json")
+                .body("""
+                        { "name": "First", "email": "dup-a@example.com" }
+                        """)
+                .when().post("/api/v1/users").then().statusCode(201);
+        String id2 = given().contentType("application/json")
+                .body("""
+                        { "name": "Second", "email": "dup-b@example.com" }
+                        """)
+                .when().post("/api/v1/users").then().statusCode(201).extract().path("id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "name": "Second", "email": "dup-a@example.com" }
+                        """)
+                .when().put("/api/v1/users/" + id2)
+                .then().statusCode(409);
+    }
+
+    @Test
+    void update_rejectsInvalidEmail_returns400() {
+        String id = given().contentType("application/json")
+                .body("""
+                        { "name": "Val", "email": "val-edit@example.com" }
+                        """)
+                .when().post("/api/v1/users").then().statusCode(201).extract().path("id");
+        given().contentType("application/json")
+                .body("""
+                        { "name": "Val", "email": "not-an-email" }
+                        """)
+                .when().put("/api/v1/users/" + id)
+                .then().statusCode(400);
+    }
 }

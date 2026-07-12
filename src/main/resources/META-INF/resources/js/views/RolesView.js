@@ -174,10 +174,14 @@ export default defineComponent({
       </thead>
       <tbody>
         <tr v-for="r in roles" :key="r.id">
-          <td>{{ r.name }}</td>
-          <td class="muted">{{ r.description || "—" }}</td>
           <td>
-            <button class="btn btn-ghost btn-sm" @click="openMembers(r)">
+            {{ r.name }}
+            <span v-if="r.autoAll" class="tag" style="margin-left: var(--space-2)">{{ t('roles.auto_all_badge') }}</span>
+          </td>
+          <td class="muted">{{ r.autoAll ? t('roles.everyone_description') : (r.description || "—") }}</td>
+          <td>
+            <span v-if="r.autoAll" class="muted">{{ t('roles.all_members') }}</span>
+            <button v-else class="btn btn-ghost btn-sm" @click="openMembers(r)">
               <Icon name="users" :size="13" />{{ r.memberCount }}
             </button>
           </td>
@@ -185,8 +189,12 @@ export default defineComponent({
             <router-link to="/acl" class="btn btn-ghost btn-sm"><Icon name="acl" :size="13" />{{ r.grantCount }}</router-link>
           </td>
           <td style="text-align: right">
-            <button class="btn btn-ghost btn-sm" @click="openEdit(r)"><Icon name="edit" :size="13" />{{ t('roles.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteRole(r)"><Icon name="trash" :size="13" />{{ t('roles.btn_delete') }}</button>
+            <!-- The Everyone (auto_all) role is protected (ADR-0013) — no edit/delete. -->
+            <span v-if="r.autoAll" class="muted" style="font-size: var(--text-xs)">{{ t('roles.protected') }}</span>
+            <template v-else>
+              <button class="btn btn-ghost btn-sm" @click="openEdit(r)"><Icon name="edit" :size="13" />{{ t('roles.btn_edit') }}</button>
+              <button class="btn btn-ghost btn-sm" @click="deleteRole(r)"><Icon name="trash" :size="13" />{{ t('roles.btn_delete') }}</button>
+            </template>
           </td>
         </tr>
       </tbody>

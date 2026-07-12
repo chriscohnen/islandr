@@ -1,6 +1,9 @@
-# Demo/dev only — uses mock WireGuard and nftables adapters.
-# Production deployments require the native binary under systemd (see docs/adr/0011-process-privilege-model.md).
-# Full Docker production support (Unix socket proxy) is planned for v2 (ADR-0012).
+# One image, two runtime modes (no rebuild):
+#   • bare `docker run` — unprivileged container; enforcement runs degraded
+#     ("enforcement unavailable"): the GUI + config work, wg/nft are not touched.
+#   • + host socket proxy — mount /run/islandr/proxy.sock and set ISLANDR_WG_MODE=socket
+#     to enforce from the unprivileged container (ADR-0012). See docs/install.md.
+# The native binary under systemd remains the other production path (ADR-0011).
 #
 # NOT `FROM scratch`: the Mandrel native binary is dynamically linked against
 # glibc (interpreter /lib*/ld-linux-*.so) and needs libz — scratch has neither,

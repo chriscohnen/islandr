@@ -17,6 +17,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
@@ -101,6 +102,37 @@ public class UserResource {
                 .created(UriBuilder.fromResource(UserResource.class).path(u.id).build())
                 .entity(UserDto.Response.from(u))
                 .build();
+    }
+
+    /**
+     * Update a user's identity fields: name and email. Email is the local-login
+     * username (F-01a) and is globally unique — a collision with another user
+     * returns 409. OIDC users are matched by subject, so an email change here is
+     * safe (the IdP re-asserts its own email on the next login).
+     */
+    @PUT
+    @Path("/{id}")
+    @Transactional
+    public UserDto.Response update(@Context ContainerRequestContext ctx,
+                                   @PathParam("id") String id,
+                                   @Valid UserDto.UpdateRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        User u = User.findById(id);
+        if (u == null) throw new NotFoundException("user not found: " + id);
+        String name = body.name().strip();
+        String email = body.email().strip();
+        if (User.count("email = ?1 and id <> ?2", email, id) > 0) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("email already in use: " + email)
+                            .build());
+        }
+        Map<String, Object> before = Map.of("name", u.name, "email", u.email);
+        u.name = name;
+        u.email = email;
+        audit.logUpdate(a.principal(), "user.update", "User:" + u.name + " (" + u.id + ")",
+                before, Map.of("name", u.name, "email", u.email));
+        return UserDto.Response.from(u);
     }
 
     @PUT

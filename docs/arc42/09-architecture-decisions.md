@@ -15,7 +15,7 @@ All ADRs live in [`docs/adr/`](../adr/). Each includes a Pugh Matrix (–1/0/+1)
 | [ADR-0009](../adr/0009-license-eupl-1.2.md) | EUPL-1.2 license | Accepted | EU-governed copyleft, AGPL-compatible, permits commercial use |
 | [ADR-0010](../adr/0010-font-and-icon-asset-self-hosting.md) | Font and icon asset self-hosting | Accepted | No CDN calls at runtime; full offline capability |
 | [ADR-0011](../adr/0011-process-privilege-model.md) | Unprivileged process user + scoped sudo | Accepted | Least-privilege: `CAP_NET_ADMIN` scoped to nft/wg only; `--cap-add NET_ADMIN` + `--network host` in Docker explicitly rejected (see T-011) |
-| [ADR-0012](../adr/0012-docker-socket-proxy.md) | Unix socket proxy for production Docker (v2) | **Proposed** | v1 Docker uses mock adapters only. v2 introduces `islandr-proxy` on the host — a small allowlisted daemon that executes exactly five wg/nft operations on behalf of the container; container runs with zero capabilities |
+| [ADR-0012](../adr/0012-docker-socket-proxy.md) | Unix socket proxy for production Docker (v1 line, 0.11.0) | **Accepted** | Demo Docker uses mock adapters only. 0.11.0 introduces `islandr-proxy` on the host — a small allowlisted daemon that executes exactly five wg/nft operations on behalf of the container; container runs with zero capabilities |
 
 ## Cross-cutting ADR consequences
 

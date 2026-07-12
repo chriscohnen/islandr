@@ -1,0 +1,15 @@
+[Unit]
+Description=islandr-proxy socket — privileged wg/nft helper for the containerised app
+Documentation=https://github.com/chriscohnen/islandr/blob/main/docs/adr/0012-docker-socket-proxy.md
+
+[Socket]
+# The container mounts exactly this path. Ownership + mode are set here by
+# systemd, not by the daemon — that is how R-120 (0600, islandr:islandr) is met
+# without custom code. /run/islandr is created earlier by the tmpfiles.d entry.
+ListenStream=/run/islandr/proxy.sock
+SocketMode=0600
+SocketUser=islandr
+SocketGroup=islandr
+
+[Install]
+WantedBy=sockets.target

@@ -1,5 +1,9 @@
 workspace "Islandr" "WireGuard VPN management platform — C4 architecture model" {
 
+    // Home page + roadmap for the published interactive site. Path is relative
+    // to this DSL file and inside the site-generatr Docker mount (architecture/).
+    !docs docs
+
     model {
 
         // ── Actors ────────────────────────────────────────────────────────
@@ -15,6 +19,12 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
 
         // ── Islandr ───────────────────────────────────────────────────────
         islandr = softwareSystem "Islandr" "Self-hosted WireGuard management platform. Peer lifecycle, RBAC access control, nftables enforcement." {
+
+            // Architecture Decision Records, rendered as this system's "Decisions"
+            // section. Path is relative to this DSL file; gen-architecture.sh copies
+            // docs/adr/ here transiently and rewrites the title lines to adr-tools
+            // form (# N. Title) so the site-generatr importer accepts them.
+            !decisions adr
 
             adminConsole = container "Admin Console" "Data-dense SPA for admins: peers, ACL matrix, users, roles, audit log, dashboard, settings." "Vue.js (ESM, no npm)" "SPA"
 

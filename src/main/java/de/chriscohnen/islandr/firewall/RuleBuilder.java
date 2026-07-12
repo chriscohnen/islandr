@@ -85,6 +85,9 @@ public class RuleBuilder {
 
         Map<String, Role> roleById = new HashMap<>();
         for (Role r : Role.<Role>listAll()) roleById.put(r.id, r);
+        // Auto-membership roles (Everyone) apply to every user-linked peer (ADR-0013).
+        List<String> autoAllRoleIds = roleById.values().stream()
+                .filter(r -> r.autoAll).map(r -> r.id).toList();
         Map<String, List<RoleResourceGrant>> grantsByRole = new HashMap<>();
         for (RoleResourceGrant g : RoleResourceGrant.<RoleResourceGrant>listAll()) {
             grantsByRole.computeIfAbsent(g.roleId, k -> new ArrayList<>()).add(g);
@@ -111,7 +114,10 @@ public class RuleBuilder {
         Set<String> icmpPairs = new HashSet<>();
 
         for (Peer peer : peers) {
-            List<String> userRoles = rolesByUser.getOrDefault(peer.userId, List.of());
+            List<String> userRoles = new ArrayList<>(rolesByUser.getOrDefault(peer.userId, List.of()));
+            // Everyone (auto_all) reaches every user-linked peer, present or future.
+            // Site/gateway peers (userId=null) are routing, not users — excluded.
+            if (peer.userId != null) userRoles.addAll(autoAllRoleIds);
             if (userRoles.isEmpty()) continue;
 
             // Collect all assigned IPs for this peer (IPv4 always present; IPv6 optional)

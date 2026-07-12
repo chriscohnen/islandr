@@ -13,10 +13,11 @@ public final class RoleDto {
             String description,
             int memberCount,
             int grantCount,
+            boolean autoAll,
             Instant createdAt
     ) {
         public static Response from(Role r, int memberCount, int grantCount) {
-            return new Response(r.id, r.name, r.description, memberCount, grantCount, r.createdAt);
+            return new Response(r.id, r.name, r.description, memberCount, grantCount, r.autoAll, r.createdAt);
         }
     }
 

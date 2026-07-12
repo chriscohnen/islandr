@@ -32,13 +32,16 @@ public class SettingsResource {
     @Inject WgAdapter wg;
     @Inject EncryptionService encSvc;
 
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
+    String wgInterface;
+
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "quarkus.application.version", defaultValue = "dev")
     String appVersion;
 
     @GET
     public SettingsDto.Response get(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
-        return SettingsDto.Response.from(settings.get(), appVersion, encSvc.isConfigured());
+        return SettingsDto.Response.from(settings.get(), appVersion, encSvc.isConfigured(), wgInterface);
     }
 
     @PUT
@@ -49,7 +52,7 @@ public class SettingsResource {
         Settings after = settings.update(body, actor.principal());
         audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
                 before, settingsSnapshot(after));
-        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured());
+        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured(), wgInterface);
     }
 
     @GET
@@ -57,7 +60,7 @@ public class SettingsResource {
     public Response wgProbe(@Context ContainerRequestContext ctx,
                             @QueryParam("iface") String iface) {
         Auth.requireAdmin(ctx);
-        String effectiveIface = (iface != null && !iface.isBlank()) ? iface : "wg0";
+        String effectiveIface = (iface != null && !iface.isBlank()) ? iface : wgInterface;
         WgAdapter.ServerInfo info = wg.probeServer(effectiveIface);
         if (info == null) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
@@ -97,7 +100,7 @@ public class SettingsResource {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(Map.of("error", "no MTU configured in settings")).build();
         }
-        String effectiveIface = (iface != null && !iface.isBlank()) ? iface : "wg0";
+        String effectiveIface = (iface != null && !iface.isBlank()) ? iface : wgInterface;
         try {
             wg.setIfMtu(effectiveIface, s.wgMtu);
             audit.logEvent(a.principal(), "settings.set_mtu", "Firewall:ruleset",
@@ -118,7 +121,7 @@ public class SettingsResource {
                 ? new SettingsDto.GoogleWorkspaceRequest(null, null) : body, actor.principal());
         audit.logUpdate(actor.principal(), "settings.google_ws_update", "Settings:singleton",
                 null, java.util.Map.of("googleWsConfigured", after.googleWsServiceAccountJson != null));
-        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured());
+        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured(), wgInterface);
     }
 
     private static Map<String, Object> settingsSnapshot(Settings s) {

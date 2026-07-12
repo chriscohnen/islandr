@@ -37,6 +37,15 @@ public class Role extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
+    /**
+     * Auto-membership: when true, every user is an implicit member — present and
+     * future — with no user_roles rows. Set on exactly one seeded role (Everyone);
+     * there is no UI to toggle it. Protected against delete/rename/clear. See
+     * ADR-0013.
+     */
+    @Column(name = "auto_all", columnDefinition = "INTEGER")
+    public boolean autoAll = false;
+
     public static Role createNew(String name, String description) {
         Role r = new Role();
         r.id = UUID.randomUUID().toString();

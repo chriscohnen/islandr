@@ -54,8 +54,8 @@ public final class ResourceDto {
             // The CHECK constraint in the DB rejects anything outside the
             // allowed set, surfacing as HTTP 500 — the UI must restrict the
             // input to the documented set (see V13 migration).
-            @Pattern(regexp = "^(computer|router|printer|nas|camera|iot|virt-host|management|other)?$",
-                    message = "type must be one of: computer, router, printer, nas, camera, iot, virt-host, management, other")
+            @Pattern(regexp = "^(computer|router|printer|nas|camera|iot|virt-host|rackserver|kvm|management|other)?$",
+                    message = "type must be one of: computer, router, printer, nas, camera, iot, virt-host, rackserver, kvm, management, other")
             String type
     ) {}
 

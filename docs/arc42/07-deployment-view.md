@@ -73,7 +73,7 @@ There is no safe way to call host-privileged tools from inside a container witho
 
 Production deployment of Docker with real adapters is a v2 feature. See below.
 
-## 7.2a Docker — v2 Planned: Unix Socket Proxy (Production-Capable)
+## 7.2a Docker — 0.11.0: Unix Socket Proxy (Production-Capable)
 
 In v2, a lightweight **`islandr-proxy`** daemon runs as a systemd service on the host alongside the container. The container mounts only a Unix domain socket — no capabilities, no host network namespace, no Docker socket.
 

@@ -19,7 +19,8 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0009](0009-license-eupl-1.2.md) | License: EUPL-1.2 | Accepted | 2026-06-01 |
 | [0010](0010-font-and-icon-asset-self-hosting.md) | Font and icon asset self-hosting | Accepted | 2026-06-04 |
 | [0011](0011-process-privilege-model.md) | Process privilege model: unprivileged user + scoped sudo for nft and wg | Accepted | 2026-06-06 |
-| [0012](0012-docker-socket-proxy.md) | Docker deployment via Unix socket proxy (v2) | Accepted | 2026-06-28 |
+| [0012](0012-docker-socket-proxy.md) | Docker deployment via Unix socket proxy (v1 line, 0.11.0) | Accepted | 2026-06-28 |
+| [0013](0013-default-everyone-role.md) | Default "Everyone" role with auto-membership (0.11.0) | Accepted | 2026-07-10 |
 
 ## Status legend
 

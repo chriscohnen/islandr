@@ -17,6 +17,7 @@ export default defineComponent({
       info: null,
       savedRetention: "never",
       encryptionKeyConfigured: false,
+      wgInterface: "wg0", // read-only; set via ISLANDR_WG_INTERFACE at deploy time
       form: {
         wgSubnet: "",
         wgSubnet6: "",
@@ -45,12 +46,15 @@ export default defineComponent({
       configImportError: null,
       configImporting: false,
       configImportResult: null,
+      importFileName: "",
       versionCheck: null,
       versionChecking: false,
+      enforcement: null,
     };
   },
   async mounted() {
     await this.load();
+    this.loadEnforcement();
   },
   computed: { _lang() { return locale.current; } },
   methods: {
@@ -64,9 +68,11 @@ export default defineComponent({
         const s = await res.json();
         this.savedRetention = s.privateKeyRetention || "never";
         this.encryptionKeyConfigured = !!s.encryptionKeyConfigured;
+        this.wgInterface = s.wgInterface || "wg0";
         this.form = {
           wgSubnet: s.wgSubnet || "",
           wgSubnet6: s.wgSubnet6 || "",
+          // (wgInterface handled below — read-only, not part of the editable form)
           wgServerPublicKey: s.wgServerPublicKey || "",
           wgServerEndpoint: s.wgServerEndpoint || "",
           wgClientAllowedIps: s.wgClientAllowedIps || "",
@@ -204,6 +210,7 @@ export default defineComponent({
     onImportFile(e) {
       const file = e.target.files[0];
       if (!file) return;
+      this.importFileName = file.name;
       const reader = new FileReader();
       reader.onload = (ev) => {
         try {
@@ -242,6 +249,21 @@ export default defineComponent({
         this.configImporting = false;
       }
     },
+    async loadEnforcement() {
+      try {
+        const r = await fetch("/api/v1/enforcement/status");
+        if (r.ok) this.enforcement = await r.json();
+      } catch { /* non-fatal — the panel just stays hidden */ }
+    },
+    enforcementModeLabel() {
+      const e = this.enforcement;
+      if (!e) return "";
+      if (!e.runtime.socketMode) return t("settings.enforcement_direct");
+      if (e.status === "active") return t("settings.enforcement_socket_active");
+      if (e.status === "reconciling") return t("settings.enforcement_socket_reconciling");
+      return t("settings.enforcement_socket_degraded");
+    },
+
     async checkVersion() {
       this.versionChecking = true;
       this.versionCheck = null;
@@ -280,6 +302,12 @@ export default defineComponent({
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">WireGuard</h2>
         <div class="form-grid">
+          <div class="field">
+            <label>{{ t('settings.field_interface') }}</label>
+            <input class="input mono" :value="wgInterface" disabled readonly />
+            <div class="field-hint">{{ t('settings.field_interface_hint') }}</div>
+          </div>
+
           <div class="field">
             <label for="wgSubnet">{{ t('settings.field_subnet') }}</label>
             <input id="wgSubnet" class="input mono" v-model="form.wgSubnet" required placeholder="10.8.0.0/24" />
@@ -495,6 +523,34 @@ export default defineComponent({
 
     </form>
 
+    <!-- Deployment & enforcement mode -->
+    <div v-if="enforcement" style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
+      <h2 style="margin-bottom: var(--space-1); font-size: var(--text-md)">{{ t('settings.enforcement_title') }}</h2>
+      <p class="field-hint" style="margin-bottom: var(--space-4)">{{ t('settings.enforcement_hint') }}</p>
+
+      <div class="card card-pad" style="max-width: 640px; display: flex; flex-direction: column; gap: var(--space-3)">
+        <div style="display: flex; align-items: baseline; gap: var(--space-3)">
+          <span class="muted" style="min-width: 120px; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.enforcement_deployment') }}</span>
+          <span style="font-size: var(--text-sm); color: var(--fg1)">{{ enforcement.runtime.container ? t('settings.enforcement_docker') : t('settings.enforcement_native') }}</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap">
+          <span class="muted" style="min-width: 120px; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.enforcement_mode') }}</span>
+          <span style="font-size: var(--text-sm); font-weight: 600" :style="'color: ' + (!enforcement.runtime.socketMode || enforcement.status === 'active' ? 'var(--status-ok)' : 'var(--status-warn)')">{{ enforcementModeLabel() }}</span>
+          <span v-if="enforcement.lastProbeAt" class="muted mono" style="font-size: var(--text-xs)">· {{ t('settings.enforcement_last_probe') }} {{ formatDate(enforcement.lastProbeAt) }}</span>
+        </div>
+
+        <div v-if="enforcement.runtime.socketMode && enforcement.status !== 'active'" class="callout callout-warn" style="margin: 0">
+          {{ t('settings.enforcement_degraded_body') }}
+          <span v-if="enforcement.lastError" class="mono" style="display: block; margin-top: 4px; font-size: var(--text-xs)">{{ enforcement.lastError }}</span>
+          <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener" style="display: inline-block; margin-top: var(--space-2)">{{ t('settings.enforcement_setup_link') }}</a>
+        </div>
+        <p v-else-if="!enforcement.runtime.socketMode" class="field-hint" style="margin: 0">
+          {{ t('settings.enforcement_native_hint') }}
+          <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener" style="margin-left: var(--space-1)">{{ t('settings.enforcement_docker_link') }}</a>
+        </p>
+      </div>
+    </div>
+
     <!-- Config Export / Import -->
     <div style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
       <h2 style="margin-bottom: var(--space-1); font-size: var(--text-md)">{{ t('settings.section_config') }}</h2>
@@ -515,7 +571,9 @@ export default defineComponent({
       <div style="font-size: var(--text-sm); font-weight: 500; color: var(--fg2); margin-bottom: var(--space-2)">{{ t('settings.config_import_title') }}</div>
       <div class="callout callout-warn" style="margin-bottom: var(--space-3)">{{ t('settings.config_import_warn') }}</div>
       <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2)">
-        <input type="file" accept=".json" @change="onImportFile" style="font-size: var(--text-sm); color: var(--fg2)" />
+        <input ref="importFile" type="file" accept=".json" @change="onImportFile" style="display: none" />
+        <button type="button" class="btn btn-secondary btn-sm" @click="$refs.importFile.click()">{{ t('settings.config_import_choose') }}</button>
+        <span class="muted mono" style="font-size: var(--text-sm)">{{ importFileName || t('settings.config_import_nofile') }}</span>
         <button v-if="configImportData" type="button" class="btn btn-danger btn-sm" @click="confirmImport" :disabled="configImporting">
           {{ configImporting ? t('settings.config_importing') : t('settings.config_import_btn') }}
         </button>

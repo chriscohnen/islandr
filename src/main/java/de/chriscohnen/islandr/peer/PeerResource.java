@@ -127,7 +127,7 @@ public class PeerResource {
         var results = peers.wgImport(body.peers());
         long imported = results.stream().filter(r -> "imported".equals(r.status())).count();
         if (imported > 0) {
-            audit.logCreate(a.principal(), "peer.wg-import", "wg0",
+            audit.logCreate(a.principal(), "peer.wg-import", wgInterface,
                     Map.of("imported", imported, "skipped", results.size() - imported));
             rulesets.recomputeFromHook();
         }

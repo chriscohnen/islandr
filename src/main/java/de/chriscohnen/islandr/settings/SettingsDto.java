@@ -33,9 +33,10 @@ public final class SettingsDto {
             String version,
             boolean encryptionKeyConfigured,
             boolean googleWsConfigured,
-            String googleWsImpersonationEmail
+            String googleWsImpersonationEmail,
+            String wgInterface
     ) {
-        public static Response from(Settings s, String version, boolean encryptionKeyConfigured) {
+        public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
@@ -50,7 +51,8 @@ public final class SettingsDto {
                     version,
                     encryptionKeyConfigured,
                     s.googleWsServiceAccountJson != null && !s.googleWsServiceAccountJson.isBlank(),
-                    s.googleWsImpersonationEmail);
+                    s.googleWsImpersonationEmail,
+                    wgInterface);
         }
     }
 

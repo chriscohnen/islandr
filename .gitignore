@@ -58,3 +58,9 @@ EUPL-1.2
 
 .agents/*
 PLAN/ipv6.md
+
+# Transient dirs populated by islandr-site/scripts/gen-architecture.sh during
+# C4 site generation (brand assets + adr-tools-formatted ADR copies). Never committed.
+architecture/assets/
+architecture/adr/
+architecture/build/

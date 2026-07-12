@@ -25,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(AdminSessionExtension.class)
 class AclEndpointsTest {
 
+    @jakarta.inject.Inject RoleBootstrap roleBootstrap;
+
     @BeforeEach
     @Transactional
     void wipe() {
@@ -39,6 +41,25 @@ class AclEndpointsTest {
         Resource.deleteAll();
         Site.deleteAll();
         Role.deleteAll();
+    }
+
+    // -- Everyone role protection (ADR-0013) ---------------------------------
+
+    @Test
+    void everyoneRole_isProtectedFromRenameAndDelete() {
+        String id = roleBootstrap.seedEveryoneRole().id;
+
+        // Rename / edit → 409
+        given().contentType("application/json")
+                .body("{\"name\":\"Renamed\",\"description\":null}")
+                .when().put("/api/v1/roles/" + id).then().statusCode(409);
+
+        // Delete → 409
+        given().when().delete("/api/v1/roles/" + id).then().statusCode(409);
+
+        // Still present and unchanged
+        given().when().get("/api/v1/roles/" + id).then().statusCode(200)
+                .body("name", org.hamcrest.Matchers.equalTo(RoleBootstrap.EVERYONE_ROLE_NAME));
     }
 
     // -- Sites ----------------------------------------------------------------
@@ -117,6 +138,22 @@ class AclEndpointsTest {
         given().contentType("application/json")
                 .body("{\"name\":\"R-also\",\"ip\":\"192.168.1.10\"}")
                 .when().post("/api/v1/sites/" + s2 + "/resources").then().statusCode(201);
+    }
+
+    @Test
+    void resource_update_toKvmAndRackserver_persists() {
+        // Regression: the 0.11.0 types kvm / rackserver were added to the request
+        // @Pattern but not to the DB CHECK constraint (last set in V13), so switching
+        // a resource's type to them failed with SQLITE_CONSTRAINT_CHECK → HTTP 500.
+        String siteId = createSite("DC-KVM", "10.60.0.0/16");
+        String rid = createResource(siteId, "console-01", "10.60.0.5");
+        for (String type : List.of("kvm", "rackserver")) {
+            String got = given().contentType("application/json")
+                    .body("{\"name\":\"console-01\",\"ip\":\"10.60.0.5\",\"type\":\"" + type + "\"}")
+                    .when().put("/api/v1/resources/" + rid)
+                    .then().statusCode(200).extract().path("type");
+            assertThat(got).isEqualTo(type);
+        }
     }
 
     @Test
