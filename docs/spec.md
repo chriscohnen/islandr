@@ -84,7 +84,7 @@ These rules govern the v2 Docker deployment, where enforcement runs through `isl
 |----|------|--------------------------|-----------------|
 | BR-032 | Host liveness is established with unprivileged sockets only — TCP `connect()` to a fixed probe-port set and a connected-`DatagramSocket` ICMP port-unreachable probe; no raw socket, no `CAP_NET_RAW`, no new `sudoers` entry | — | `HostProbe` (TCP `connect`, `DatagramSocket.connect` + `PortUnreachableException`) |
 | BR-033 | A scan targets only the site's own declared CIDR (no free-text range) and rejects a CIDR that resolves to more than 1024 hosts (larger than `/22`) | 409 | `DiscoveryResource.scan()`; `CidrHosts.hosts()` (cap + IPv4-only) |
-| BR-034 | A scan is rejected unless the site has a `gatewayPeerId`, that gateway peer has a recent handshake, and no scan is already running for the site | 409 (404 if the site does not exist) | `DiscoveryResource.scan()` precondition checks |
+| BR-034 | A **real** scan of a site that declares a gateway peer requires that peer to have a recent handshake (within 3 min); a site with no gateway peer is treated as directly reachable and allowed; in mock mode the route check is skipped. A scan is always rejected if one is already running for the site | 409 (404 if the site does not exist) | `DiscoveryResource.requireScanReachable()`; `DiscoveryJobs.isRealScan()` |
 | BR-035 | Each discovered live host carries its open ports and a pre-filled resource-type guess derived from those ports; the guess is editable before import and `unknown` is a review-only sentinel, never persisted as a resource type | — | `TypeFingerprint.guess()`; `DiscoveryDto.HostView` |
 | BR-036 | Import is transactional and idempotent on `(site, ip)` — importing a host already registered as a resource is a no-op counted as `skipped` | 200 | `DiscoveryResource.import()` (`@Transactional`, `Resource.count("siteId=?1 and ip=?2")`) |
 | BR-037 | Scan start and import are written to the append-only audit log (`discovery.scan_started`, `discovery.import`) with actor, site, and the CIDR / created IPs | — | `DiscoveryResource` → `AuditService.logEvent()` |
@@ -222,7 +222,7 @@ The happy paths for UC-01/02/03 are in `docs/prd.md` §8. This section adds the 
 
 **Extensions (error paths):**
 
-- **1a.** Site has no gateway peer, or its gateway has no recent handshake → `POST …/discovery/scan` returns **409** with German copy naming the cause; no probe is sent (BR-034).
+- **1a.** Real scan of a site that declares a gateway peer whose handshake is stale → `POST …/discovery/scan` returns **409** with German copy naming the cause; no probe is sent (BR-034). *(A site with no gateway peer is allowed — treated as hub-local, best-effort; mock mode skips the check.)*
 - **1b.** Site's CIDR is larger than `/22` (> 1024 hosts) → **409**; the scan is refused before enumeration (BR-033).
 - **1c.** A scan is already running for the site → **409**; the running job is not disturbed (BR-034).
 - **1d.** The site does not exist → **404** (BR-034).
@@ -320,8 +320,15 @@ Feature: Enforcement degraded mode (v2 — ADR-0012)
 
 Feature: Device discovery (0.12.0 — ADR-0014)
 
-  Scenario: Scan rejected when the site has no connected gateway (BR-034)
+  Scenario: Hub-local site with no gateway peer is scannable in mock mode (BR-034)
     Given a site "disco-nogw" with a CIDR but no gateway peer
+    And the discovery scanner runs in mock mode
+    When an admin sends POST /api/v1/sites/{id}/discovery/scan
+    Then the server responds with 202
+
+  Scenario: Real scan rejected when a declared tunnel gateway is stale (BR-034)
+    Given the discovery scanner runs in real mode
+    And a site declares a gateway peer whose last handshake is older than 3 minutes
     When an admin sends POST /api/v1/sites/{id}/discovery/scan
     Then the server responds with 409
 

@@ -313,7 +313,7 @@ export default defineComponent({
         this.pollScan();
       } catch (e) {
         this.scanState = "error";
-        this.scanError = e.message;
+        this.scanError = t("discovery.scan_error", { error: e.message });
       }
     },
     async pollScan() {
@@ -340,7 +340,7 @@ export default defineComponent({
         }
       } catch (e) {
         this.scanState = "error";
-        this.scanError = e.message;
+        this.scanError = t("discovery.scan_error", { error: e.message });
       }
     },
     suggestName(h) {
@@ -365,7 +365,7 @@ export default defineComponent({
         await this.loadResources();
         this.closeScan();
       } catch (e) {
-        this.scanError = e.message;
+        this.scanError = t("discovery.import_error", { error: e.message });
       } finally {
         this.importing = false;
       }
@@ -387,7 +387,7 @@ export default defineComponent({
         </div>
       </div>
       <div style="display: flex; gap: var(--space-2)">
-        <button v-if="site && site.gatewayPeerId" class="btn btn-secondary btn-sm" @click="openScan">
+        <button v-if="site" class="btn btn-secondary btn-sm" @click="openScan">
           <Icon name="networks" :size="13" />{{ t('discovery.scan_btn') }}
         </button>
         <button class="btn btn-primary btn-sm" @click="openCreate">{{ t('resources.create_btn') }}</button>

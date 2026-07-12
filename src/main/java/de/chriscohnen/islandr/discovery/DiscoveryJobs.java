@@ -57,6 +57,15 @@ public class DiscoveryJobs {
         if (pool != null) pool.shutdownNow();
     }
 
+    /**
+     * Whether scans hit the real network. In mock mode nothing is actually probed,
+     * so route preconditions (a connected site gateway) do not apply — this keeps
+     * discovery testable in Docker/dev without WireGuard (ADR-0014 §3, §6).
+     */
+    public boolean isRealScan() {
+        return "real".equalsIgnoreCase(mode);
+    }
+
     public enum State { RUNNING, DONE, FAILED, CANCELLED }
 
     public static final class Job {

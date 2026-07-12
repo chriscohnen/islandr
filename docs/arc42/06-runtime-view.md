@@ -188,9 +188,9 @@ sequenceDiagram
     GUI->>Fx: consent copy ("Hub baut TCP-Verbindungen zu <cidr> auf …")
     Fx->>GUI: Start scan
     GUI->>API: POST /sites/{id}/discovery/scan
-    API->>DB: check preconditions (gateway peer? recent handshake? CIDR ≤ /22? no active scan?)
+    API->>DB: check preconditions (real scan + declared tunnel gateway → recent handshake? CIDR ≤ /22? no active scan?)
     alt precondition fails
-        API-->>GUI: 409 + reason (e.g. "keine verbundene Gateway-Peer")
+        API-->>GUI: 409 + reason (e.g. "Gateway-Peer nicht verbunden")
         GUI->>Fx: inline error, no scan runs
     else preconditions met
         API->>AUD: discovery.scan_started (actor, site, cidr, host count)
@@ -215,7 +215,7 @@ sequenceDiagram
 ```
 
 **Error/recovery characteristics:**
-- **Fail fast, before any packet** — missing gateway peer, stale handshake, a CIDR larger than `/22`, or a scan already running are all rejected with `409` and specific German copy (BR-034); no probe is sent (T-014).
+- **Fail fast, before any packet** — a real scan whose declared tunnel gateway is stale, a CIDR larger than `/22`, or a scan already running are all rejected with `409` and specific German copy (BR-034); no probe is sent (T-014). A site with no gateway peer is treated as hub-local and allowed (best-effort); mock mode skips the route check entirely so discovery is testable without WireGuard.
 - **A scan that finds nothing is a result, not an error** — the job ends `done` with an empty list and the UI says so; discovery is best-effort and a fully-filtered host is invisible (R-140, §8.5).
 - **Idempotent import** — re-importing a host already present as a `Resource` is a no-op (`skipped`), so a second scan+import never duplicates rows (BR-036).
 - **Ephemeral jobs** — a hub restart mid-scan drops the in-memory job (TD-005); the operator simply re-runs it, which is cheap.

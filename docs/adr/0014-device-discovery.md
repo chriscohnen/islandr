@@ -44,7 +44,10 @@ All four are **admin-only** (`isAdmin=true`, per T-005). `import` is transaction
 
 ### 3. Preconditions (HTTP 409, clear German copy)
 
-- The site has a `gatewayPeerId` **and** that gateway peer has a recent handshake. No route means the scan reaches nothing; failing fast with *"Diese Site hat keinen verbundenen Gateway-Peer — ohne Route kann der Hub das Subnetz nicht erreichen"* beats a scan that silently finds zero hosts.
+- **Route to the CIDR.** A scan needs the hub to be able to reach the site's subnet, but a WireGuard tunnel is not the only way that happens. The rule is therefore scoped to what actually needs guarding:
+  - A site that **declares a `gatewayPeerId`** (a tunnel route) must have a **recent handshake** on that peer. A promised tunnel that is down is failed fast — *"Der Gateway-Peer dieser Site ist nicht verbunden (kein aktueller Handshake)"* — because the scan would otherwise silently find zero hosts.
+  - A site with **no gateway peer** is treated as **directly reachable from the hub** (e.g. the hub's own LAN, or a network on the hub's routing table). The scan is allowed and best-effort: if no route exists it simply finds nothing (R-140), which is a far better default than refusing to let the operator try. *(This corrects the original draft, which 409'd any site without a gateway peer — too strict for a hub-local network.)*
+  - In **mock mode** (`islandr.discovery.mode != real`) nothing is actually probed, so the route precondition is skipped entirely. This keeps the feature testable in Docker/dev without WireGuard.
 - The site's `cidr` resolves to **≤ 1024 hosts (`/22` or smaller)**. Larger CIDRs are rejected — a `/16` would spawn 65k probe fan-outs (R-142).
 - **One active scan per site.** A second `POST` while a job runs returns 409.
 

@@ -50,11 +50,13 @@ class DiscoveryResourceTest {
     }
 
     @Test
-    void scan_siteWithoutGateway_returns409() {
+    void scan_siteWithoutGateway_isAllowedInMockMode() {
+        // A hub-local site has no gateway peer; in mock mode (the test default) no
+        // route is required, so the scan starts instead of 409ing (ADR-0014 §3).
         String siteId = createSite("disco-nogw", "10.90.0.0/29");
         given().contentType("application/json")
                 .when().post("/api/v1/sites/" + siteId + "/discovery/scan")
-                .then().statusCode(409);
+                .then().statusCode(202);
     }
 
     @Test

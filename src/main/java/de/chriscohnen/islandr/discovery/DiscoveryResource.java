@@ -31,9 +31,11 @@ import java.util.Map;
 
 /**
  * Device-discovery endpoints for a site (ADR-0014). Admin-only. The scan is bound
- * to the site's own declared CIDR — there is no free-text range input — and needs
- * a connected gateway peer for a route. Independent of the enforcement path
- * (ADR-0014 §7): it works even in the degraded "enforcement unavailable" mode.
+ * to the site's own declared CIDR — there is no free-text range input. A real scan
+ * of a site that declares a WireGuard tunnel gateway needs that gateway connected;
+ * a hub-local site (no gateway peer) is scanned directly, and mock mode needs no
+ * route at all (see {@link #requireScanReachable}). Independent of the enforcement
+ * path (ADR-0014 §7): it works even in the degraded "enforcement unavailable" mode.
  */
 @Path("/api/v1/sites/{siteId}/discovery")
 @Produces(MediaType.APPLICATION_JSON)
@@ -51,7 +53,7 @@ public class DiscoveryResource {
     public Response startScan(@Context ContainerRequestContext ctx, @PathParam("siteId") String siteId) {
         AuthContext a = Auth.requireAdmin(ctx);
         Site site = requireSite(siteId);
-        requireConnectedGateway(site);
+        requireScanReachable(site);
         DiscoveryJobs.Job job;
         try {
             job = jobs.start(siteId, site.cidr);
@@ -131,10 +133,23 @@ public class DiscoveryResource {
         return s;
     }
 
-    private void requireConnectedGateway(Site site) {
-        if (site.gatewayPeerId == null) {
-            throw conflict("this site has no gateway peer — the hub has no route into the subnet");
-        }
+    /**
+     * A scan needs a route into the site's CIDR (ADR-0014 §3). This only bites for a
+     * real scan of a site that declares a WireGuard tunnel gateway:
+     * <ul>
+     *   <li>Mock mode probes nothing, so no route is required — discovery stays
+     *       testable in Docker/dev without WireGuard.</li>
+     *   <li>A site with no gateway peer is treated as directly reachable from the
+     *       hub (e.g. the hub's own LAN): the scan is allowed and best-effort — if
+     *       there is no route it simply finds nothing (R-140).</li>
+     *   <li>A site that <em>declares</em> a gateway peer must have a recent handshake:
+     *       a promised tunnel that is down is failed fast, because the scan would
+     *       otherwise silently return zero hosts.</li>
+     * </ul>
+     */
+    private void requireScanReachable(Site site) {
+        if (!jobs.isRealScan()) return;
+        if (site.gatewayPeerId == null) return;
         Peer gw = Peer.findById(site.gatewayPeerId);
         Instant threshold = Instant.now().minus(GATEWAY_WINDOW);
         if (gw == null || gw.lastSeenAt == null || !gw.lastSeenAt.isAfter(threshold)) {
