@@ -121,7 +121,7 @@ docker run -d -p 7080:8080 -e ISLANDR_ADMIN_PASSWORD=change-me \
 # → http://localhost:7080
 ```
 
-The image runs the full configuration plane; enforcing rules on the host kernel from an unprivileged container needs the socket proxy (planned, [ADR-0012](docs/adr/0012-docker-socket-proxy.md)). A Compose file with both modes is at [docs/install/docker-compose.yml](docs/install/docker-compose.yml).
+The image runs the full configuration plane; enforcing rules on the host kernel from an unprivileged container uses the `islandr-proxy` socket proxy ([ADR-0012](docs/adr/0012-docker-socket-proxy.md), setup in [docs/install.md](docs/install.md)). A Compose file with both modes is at [docs/install/docker-compose.yml](docs/install/docker-compose.yml).
 
 Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/install.md).
 
