@@ -29,6 +29,39 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Stage ADRs for the "!decisions adr" import
+        # workspace.dsl references the ADRs via `!decisions adr` (a directory next
+        # to the DSL). The ADRs live single-source in docs/adr in Nygard form
+        # ("# ADR-NNNN — Title" + inline "**Status:** …"); the Structurizr importer
+        # needs adr-tools form ("# N. Title" + a "## Status" section) or the parse
+        # aborts. islandr-site/scripts/gen-architecture.sh does the same transient
+        # copy+rewrite for the browsable site — kept in sync here so the always-on
+        # PNG render doesn't break. architecture/adr is gitignored and never committed.
+        run: |
+          python3 - docs/adr architecture/adr <<'PY'
+          import re, sys, glob, os
+          src, dst = sys.argv[1], sys.argv[2]
+          os.makedirs(dst, exist_ok=True)
+          for f in sorted(glob.glob(os.path.join(src, "0*.md"))):
+              n = int(re.match(r"0*(\d+)", os.path.basename(f)).group(1))
+              text = open(f, encoding="utf-8").read()
+              mt = re.search(r"^#\s+(?:ADR[-\s]0*\d+\s*[—:–-]\s*)?(.+)$", text, re.M)
+              title = mt.group(1).strip() if mt else os.path.basename(f)
+              ms = re.search(r"^\*\*Status:\*\*\s*(.+?)\s*$", text, re.M)
+              status = ms.group(1).strip() if ms else "Proposed"
+              md = re.search(r"^\*\*Date:\*\*\s*(.+?)\s*$", text, re.M)
+              date = md.group(1).strip() if md else ""
+              mb = re.search(r"^##\s+\S.*$", text, re.M)  # body from the first "## …" section
+              body = text[mb.start():] if mb else ""
+              out = f"# {n}. {title}\n\n"
+              if date:
+                  out += f"Date: {date}\n\n"
+              out += f"## Status\n\n{status}\n\n{body}"
+              open(os.path.join(dst, os.path.basename(f)), "w", encoding="utf-8").write(out)
+          PY
+          echo "--- staged ADRs ---"
+          ls architecture/adr
+
       - name: Export Structurizr DSL → PlantUML (C4)
         run: |
           mkdir -p architecture/diagrams
