@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr.admin;
 
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
@@ -56,7 +57,15 @@ public class ImportedTimestampRepair {
     @ConfigProperty(name = "quarkus.datasource.jdbc.url", defaultValue = "")
     String jdbcUrl;
 
-    void onStart(@Observes StartupEvent event) {
+    /**
+     * Runs before every other {@code StartupEvent} observer. CDI gives observers of the same
+     * event no defined order, and the other bootstraps ({@code FirewallBootstrap},
+     * {@code RoleBootstrap}, {@code AdminUserBootstrap}, {@code ProxyReconciler}) all read the
+     * very rows this repairs. Without an explicit priority the repair loses that race: the
+     * firewall boot-apply reads a corrupted peer first, startup fails, and the repair never
+     * runs at all — the instance crash-loops and cannot heal itself.
+     */
+    void onStart(@Observes @Priority(1) StartupEvent event) {
         if (!jdbcUrl.startsWith("jdbc:sqlite")) {
             return;
         }
