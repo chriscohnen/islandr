@@ -44,7 +44,7 @@ public class ConfigService {
 
         List<ConfigExportDto.RoleSnapshot> roles = Role.<Role>listAll()
                 .stream().map(r -> new ConfigExportDto.RoleSnapshot(
-                        r.id, r.name, r.description, r.createdAt))
+                        r.id, r.name, r.description, r.autoAll, r.createdAt))
                 .toList();
 
         @SuppressWarnings("unchecked")
@@ -149,12 +149,13 @@ public class ConfigService {
         // --- Roles -----------------------------------------------------------
         for (var r : safe(p.roles())) {
             em.createNativeQuery(
-                            "INSERT INTO roles (id, name, description, created_at)" +
-                            " VALUES (?1,?2,?3,?4)")
+                            "INSERT INTO roles (id, name, description, auto_all, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5)")
                     .setParameter(1, r.id())
                     .setParameter(2, r.name())
                     .setParameter(3, r.description())
-                    .setParameter(4, ts(r.createdAt()))
+                    .setParameter(4, r.autoAll() ? 1 : 0)
+                    .setParameter(5, ts(r.createdAt()))
                     .executeUpdate();
         }
 
