@@ -102,5 +102,10 @@ public final class ResourceDto {
             String rdpAccessMode
     ) {}
 
+    /** Bulk-delete request: the resource ids to remove (missing ids are skipped). */
+    public record BulkDeleteRequest(List<String> ids) {}
+
+    public record BulkDeleteResult(int deleted) {}
+
     private ResourceDto() {}
 }

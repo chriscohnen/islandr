@@ -18,6 +18,10 @@ export default defineComponent({
       resources: [],
       loading: true,
       error: null,
+      // Card grid vs. compact list with multi-select + bulk delete
+      viewMode: "cards",     // 'cards' | 'list'
+      selectedIds: [],
+      bulkDeleting: false,
       // Create/edit resource modal
       modal: null,
       form: { name: "", ip: "", description: "", type: "computer" },
@@ -220,6 +224,43 @@ export default defineComponent({
         this.error = t("resources.error_delete", { error: e.message });
       }
     },
+    setView(mode) {
+      this.viewMode = mode;
+      if (mode === "cards") this.selectedIds = [];
+    },
+    isSelected(id) {
+      return this.selectedIds.includes(id);
+    },
+    toggleSelect(id) {
+      this.selectedIds = this.isSelected(id)
+        ? this.selectedIds.filter((x) => x !== id)
+        : [...this.selectedIds, id];
+    },
+    allSelected() {
+      return this.resources.length > 0 && this.selectedIds.length === this.resources.length;
+    },
+    toggleSelectAll() {
+      this.selectedIds = this.allSelected() ? [] : this.resources.map((r) => r.id);
+    },
+    async bulkDelete() {
+      const n = this.selectedIds.length;
+      if (n === 0) return;
+      if (!confirm(t("resources.confirm_bulk_delete", { n }))) return;
+      this.bulkDeleting = true;
+      try {
+        const res = await fetch("/api/v1/resources/bulk-delete", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ids: this.selectedIds }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.selectedIds = [];
+        await this.loadResources();
+      } catch (e) {
+        this.error = t("resources.error_delete", { error: e.message });
+      } finally {
+        this.bulkDeleting = false;
+      }
+    },
     openPortForm(resourceId) {
       this.portFormFor = resourceId;
       this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "" };
@@ -407,6 +448,12 @@ export default defineComponent({
         </div>
       </div>
       <div style="display: flex; gap: var(--space-2)">
+        <div style="display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden">
+          <button class="btn btn-sm" :class="viewMode === 'cards' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="setView('cards')">{{ t('resources.view_cards') }}</button>
+          <button class="btn btn-sm" :class="viewMode === 'list' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="setView('list')">{{ t('resources.view_list') }}</button>
+        </div>
         <button v-if="site" class="btn btn-secondary btn-sm" @click="openScan">
           <Icon name="networks" :size="13" />{{ t('discovery.scan_btn') }}
         </button>
@@ -420,6 +467,41 @@ export default defineComponent({
     <div v-else-if="resources.length === 0" class="empty-state">
       <h2>{{ t('resources.empty_title') }}</h2>
       <p>{{ t('resources.empty_desc') }}</p>
+    </div>
+
+    <!-- List view: multi-select + bulk delete -->
+    <div v-else-if="viewMode === 'list'">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3)">
+        <span class="muted" style="font-size: var(--text-sm)">
+          {{ selectedIds.length > 0 ? t('resources.n_selected', { n: selectedIds.length }) : t('resources.select_hint') }}
+        </span>
+        <button class="btn btn-danger btn-sm" :disabled="selectedIds.length === 0 || bulkDeleting" @click="bulkDelete">
+          <Icon name="trash" :size="13" />{{ bulkDeleting ? t('common.loading') : t('resources.btn_delete_selected', { n: selectedIds.length }) }}
+        </button>
+      </div>
+      <div style="overflow-x: auto">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 32px"><input type="checkbox" :checked="allSelected()" @change="toggleSelectAll" /></th>
+              <th>{{ t('resources.th_name') }}</th>
+              <th>{{ t('discovery.th_ip') }}</th>
+              <th>{{ t('discovery.th_type') }}</th>
+              <th>Ports</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in resources" :key="r.id" @click="toggleSelect(r.id)" style="cursor: pointer"
+                :style="isSelected(r.id) ? 'background: var(--surface-2)' : ''">
+              <td><input type="checkbox" :checked="isSelected(r.id)" @click.stop="toggleSelect(r.id)" /></td>
+              <td>{{ r.name }}</td>
+              <td class="mono" style="font-size: var(--text-xs)">{{ r.ip }}</td>
+              <td>{{ typeLabels[r.type] || r.type || '—' }}</td>
+              <td class="mono" style="font-size: var(--text-xs)">{{ (r.ports || []).length }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div v-else class="res-grid">

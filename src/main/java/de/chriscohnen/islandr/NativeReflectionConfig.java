@@ -71,6 +71,8 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         ResourceDto.PortResponse.class,
         ResourceDto.UpsertRequest.class,
         ResourceDto.PortRequest.class,
+        ResourceDto.BulkDeleteRequest.class,
+        ResourceDto.BulkDeleteResult.class,
 
         PortGroupDto.Response.class,
         PortGroupDto.UpsertRequest.class,

@@ -338,6 +338,31 @@ class AclEndpointsTest {
 
     // -- helpers --------------------------------------------------------------
 
+    @Test
+    void resources_bulkDelete_removesSelected_isIdempotent() {
+        String siteId = createSite("BulkSite", "10.70.0.0/16");
+        String r1 = createResource(siteId, "R1", "10.70.0.5");
+        String r2 = createResource(siteId, "R2", "10.70.0.6");
+        createResource(siteId, "R3", "10.70.0.7");
+
+        // Delete r1 + r2 (plus a non-existent id, which is skipped) → 2 deleted.
+        given().contentType("application/json")
+                .body("{\"ids\":[\"" + r1 + "\",\"" + r2 + "\",\"does-not-exist\"]}")
+                .when().post("/api/v1/resources/bulk-delete")
+                .then().statusCode(200).body("deleted", org.hamcrest.Matchers.equalTo(2));
+
+        // Only R3 remains.
+        given().when().get("/api/v1/sites/" + siteId + "/resources")
+                .then().statusCode(200)
+                .body("name", org.hamcrest.Matchers.contains("R3"));
+
+        // Re-deleting the same ids is a no-op (idempotent).
+        given().contentType("application/json")
+                .body("{\"ids\":[\"" + r1 + "\",\"" + r2 + "\"]}")
+                .when().post("/api/v1/resources/bulk-delete")
+                .then().statusCode(200).body("deleted", org.hamcrest.Matchers.equalTo(0));
+    }
+
     private String createSite(String name, String cidr) {
         return given().contentType("application/json")
                 .body("{\"name\":\"" + name + "\",\"cidr\":\"" + cidr + "\"}")
