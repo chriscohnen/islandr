@@ -39,10 +39,17 @@ See [Chapter 3](03-system-scope-and-context.md). The C4 Level 1 diagram is there
 | `audit` | Immutable append-only audit log. Written by every package on every mutating action. Read via `GET /api/v1/audit`. | `AuditService`, `AuditResource`, `AuditLog` |
 | `settings` | Runtime instance settings table (WG interface config, subnet, server public key, endpoint, private-key retention mode, OIDC providers). Edited via Admin Console without restart. | `SettingsService`, `SettingsResource`, `Settings` |
 | `dashboard` | Aggregation endpoint: online peer count, firewall last-reload timestamp, audit summary. | `DashboardResource`, `DashboardDto` |
+| `proxy` | Host-side socket-proxy channel for `wg`/`nft` when the backend runs unprivileged in a container. Adapter-mode resolution (explicit > container-detected > mock), degraded "enforcement unavailable" state and its status endpoint ([ADR-0012](../adr/0012-docker-socket-proxy.md)). | `ProxyClient`, `ProxyReconciler`, `AdapterMode`, `ContainerDetector`, `EnforcementResource`, `EnforcementStatus` |
+| `discovery` | Admin-triggered device discovery: enumerate a site's own CIDR, probe host liveness with unprivileged sockets only, fingerprint a resource type from open ports, and bulk-import the reviewed selection as `Resource` rows. Scan jobs are in-memory and ephemeral ([ADR-0014](../adr/0014-device-discovery.md)). | `DiscoveryResource`, `DiscoveryJobs`, `DiscoveryScanner`, `HostProbe`, `CidrHosts`, `TypeFingerprint`, `DiscoveryDto` |
 
 ### Interface contracts
 
-Each package exposes its public surface via JAX-RS resource classes. No cross-package service-to-service REST call exists — all cross-package communication is direct CDI injection. The only packages that communicate with external systems are `wg` (WireGuard CLI), `firewall` (nftables CLI), and `identity` (OIDC provider HTTPS).
+Each package exposes its public surface via JAX-RS resource classes. No cross-package service-to-service REST call exists — all cross-package communication is direct CDI injection. The only packages that communicate with external systems are `wg` (WireGuard CLI), `firewall` (nftables CLI), `identity` (OIDC provider HTTPS), `proxy` (host socket proxy over a Unix socket), and `discovery` (outbound TCP/UDP sockets into a site subnet over the existing WireGuard route).
+
+| Package | Public interface | Source location |
+|---|---|---|
+| `proxy` | `GET /api/v1/enforcement/status`; internally `ProxyClient` speaks a line-based JSON protocol over `/run/islandr/proxy.sock` | `src/main/java/de/chriscohnen/islandr/proxy/` |
+| `discovery` | `POST /api/v1/sites/{siteId}/discovery/scan` → `202 {jobId}`; `GET …/scan/{jobId}` → job state + hosts; `DELETE …/scan/{jobId}` → cancel; `POST …/discovery/import` → created/skipped counts. All admin-only (T-005). | `src/main/java/de/chriscohnen/islandr/discovery/` |
 
 ### Firewall trigger points
 

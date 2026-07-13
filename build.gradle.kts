@@ -80,7 +80,7 @@ configurations.all {
 }
 
 group = "de.chriscohnen.islandr"
-version = "0.11.0"
+version = "0.12.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

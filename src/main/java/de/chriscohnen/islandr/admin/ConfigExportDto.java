@@ -61,10 +61,17 @@ public class ConfigExportDto {
         Instant createdAt
     ) {}
 
+    /**
+     * {@code autoAll} marks the auto-membership "Everyone" role (ADR-0013). It has to travel
+     * with the snapshot: without it the import re-creates the role with the flag cleared, and
+     * the next boot finds no auto-membership role, tries to seed a fresh "Everyone", and dies
+     * on the unique index over {@code roles.name} — the instance never starts again.
+     */
     public record RoleSnapshot(
         String id,
         String name,
         String description,
+        boolean autoAll,
         Instant createdAt
     ) {}
 

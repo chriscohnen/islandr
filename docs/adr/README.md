@@ -21,6 +21,7 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0011](0011-process-privilege-model.md) | Process privilege model: unprivileged user + scoped sudo for nft and wg | Accepted | 2026-06-06 |
 | [0012](0012-docker-socket-proxy.md) | Docker deployment via Unix socket proxy (v1 line, 0.11.0) | Accepted | 2026-06-28 |
 | [0013](0013-default-everyone-role.md) | Default "Everyone" role with auto-membership (0.11.0) | Accepted | 2026-07-10 |
+| [0014](0014-device-discovery.md) | Device discovery by unprivileged TCP-connect scan of a site's own CIDR (0.12.0) | Accepted | 2026-07-10 |
 
 ## Status legend
 

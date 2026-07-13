@@ -96,6 +96,33 @@ public class ResourceResource {
         return Response.noContent().build();
     }
 
+    /**
+     * Delete several resources in one call. Missing ids are skipped (idempotent),
+     * each removal is audited individually, and the firewall ruleset is recomputed
+     * once for the whole batch rather than once per resource.
+     */
+    @POST
+    @Path("/bulk-delete")
+    public ResourceDto.BulkDeleteResult bulkDelete(@Context ContainerRequestContext ctx,
+                                                   ResourceDto.BulkDeleteRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        int deleted = 0;
+        if (body != null && body.ids() != null) {
+            for (String id : body.ids()) {
+                Resource before = Resource.findById(id);
+                if (before == null) continue;
+                Map<String, Object> beforeMap = Map.of(
+                        "siteId", before.siteId, "name", before.name, "ip", before.ip);
+                resources.delete(id);
+                audit.logDelete(a.principal(), "resource.delete",
+                        "Resource:" + before.name + " (" + id + ")", beforeMap);
+                deleted++;
+            }
+        }
+        if (deleted > 0) rulesets.recomputeFromHook();
+        return new ResourceDto.BulkDeleteResult(deleted);
+    }
+
     @POST
     @Path("/{id}/ports")
     public ResourceDto.PortResponse addPort(@Context ContainerRequestContext ctx,

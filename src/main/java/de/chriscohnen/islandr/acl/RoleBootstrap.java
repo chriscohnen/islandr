@@ -33,6 +33,13 @@ public class RoleBootstrap {
     /**
      * Create the auto-membership {@code Everyone} role if none exists yet. Returns
      * the existing or newly created row. Visible for tests.
+     *
+     * <p>The flag is the identity of this role, but the name carries a unique index — so a row
+     * can exist that holds the name without the flag, and then seeding a second one is not
+     * merely redundant, it violates the index and aborts startup. That is not hypothetical: a
+     * config export written before 0.12.0 dropped {@code autoAll}, so importing it produced
+     * exactly such a row and the instance never booted again. Adopt the existing row instead of
+     * inserting beside it, which also heals a database an older import already damaged.
      */
     @Transactional
     public Role seedEveryoneRole() {
@@ -40,6 +47,16 @@ public class RoleBootstrap {
         if (existing != null) {
             return existing;
         }
+
+        Role byName = Role.find("name", EVERYONE_ROLE_NAME).firstResult();
+        if (byName != null) {
+            byName.autoAll = true;
+            LOG.infof("adopted existing role '%s' as the auto-membership role — it had lost its "
+                    + "autoAll flag, most likely through a config import written before 0.12.0",
+                    EVERYONE_ROLE_NAME);
+            return byName;
+        }
+
         Role r = Role.createNew(EVERYONE_ROLE_NAME, EVERYONE_DESCRIPTION);
         r.autoAll = true;
         r.persist();
