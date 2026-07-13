@@ -303,6 +303,7 @@ const messages = {
 
     // ── Networks / Sites ─────────────────────────────────────────────────────
     "sites.title":        "Networks",
+    "sites.hint_cidr":           "The network behind the site. Informational only — not enforced.",
     "sites.create_btn":   "+ Create site",
     "sites.empty_title":  "No sites yet",
     "sites.empty_desc":   "A site is a logical network (e.g. \"Hamburg HQ\" with 10.20.0.0/16). You can then define resources within it.",
@@ -340,7 +341,14 @@ const messages = {
 
     // ── Resources ────────────────────────────────────────────────────────────
     "resources.title":          "Resources",
+    "resources.group_needed":    "Create a port group first",
+    "resources.group_empty":     "This group contains no ports",
+    "resources.port_group":      "Port group",
+    "resources.add_btn":         "Add",
+    "resources.label_path_prefix": "Path prefix (optional)",
     "resources.create_btn":     "+ Create resource",
+    "resources.back_sites":     "Sites",
+    "resources.from_group":     "From group",
     "resources.empty_title":    "No resources yet",
     "resources.empty_desc":     "Create the first resource in this site.",
     "resources.error_load":     "Could not load resources: {error}",
@@ -555,6 +563,14 @@ const messages = {
 
     // ── My Access ────────────────────────────────────────────────────────────
     "myaccess.title":            "My access",
+    "myaccess.label_domain":    "Domain",
+    "myaccess.label_pwmgr_uri":  "URI for password managers (KeePassXC / Bitwarden)",
+    "myaccess.label_username":   "Username",
+    "myaccess.open_in_browser":  "Open in browser",
+    "myaccess.hint_own_key":     "If you generated the key pair on the device itself, paste only the public half here. The private key never leaves your device.",
+    "myaccess.hint_device_name": "Your choice. Shown in the audit log.",
+    "myaccess.label_device_name": "Device name",
+    "myaccess.modal_new_device": "New device",
     "myaccess.title_admin":      "Access for {name}",
     "myaccess.add_btn":          "+ New device",
     "myaccess.back_btn":         "← Back to user list",
@@ -605,6 +621,23 @@ const messages = {
 
     // ── Settings ─────────────────────────────────────────────────────────────
     "settings.title":          "Settings",
+    "settings.ph_mtu":          "e.g. 1420",
+    "settings.ph_location":     "e.g. Frankfurt am Main, data centre 1",
+    "settings.last_changed":    "Last changed: {when}",
+    "settings.by_whom":         "by {who}",
+    "settings.label_lon":        "Longitude",
+    "settings.label_lat":        "Latitude",
+    "settings.hint_location_label": "Free text — shown as the pin label on the map.",
+    "settings.label_location":   "Label",
+    "settings.hint_hub_location": "Physical location of this hub — used for the upcoming map view of the topology.",
+    "settings.section_hub_location": "Hub location",
+    "settings.hint_include_mtu": "Detected automatically after \"Test connection\". Only put it in the .conf if you hit connection problems (fragmentation).",
+    "settings.label_include_mtu": "Include MTU in the client .conf",
+    "settings.hint_dns":         "Leave empty if the .conf should carry no DNS entry.",
+    "settings.hint_allowed_ips": "Comma-separated. Which networks are routed through the tunnel.",
+    "settings.hint_endpoint":    "Host:port — goes into every .conf as the [Peer] endpoint.",
+    "settings.hint_subnet6":     "IPv6 ULA CIDR for dual-stack peers (optional). Leave empty for IPv4-only.",
+    "settings.hint_subnet":      "IPv4 CIDR. Peer IPs are validated against this subnet.",
     "settings.setup_warn":     "Setup incomplete.",
     "settings.field_interface":      "WireGuard interface",
     "settings.field_interface_hint": "Read-only. Set at deploy time via ISLANDR_WG_INTERFACE; the socket proxy and firewall rules use this interface.",
@@ -1024,6 +1057,7 @@ const messages = {
 
     // ── Networks / Sites ─────────────────────────────────────────────────────
     "sites.title":        "Netzwerke",
+    "sites.hint_cidr":           "Das Netz hinter dem Standort. Nur informativ — wird nicht enforced.",
     "sites.create_btn":   "+ Standort anlegen",
     "sites.empty_title":  "Noch keine Standorte",
     "sites.empty_desc":   "Ein Standort ist ein logisches Netzwerk (z.B. \"Hamburg HQ\" mit 10.20.0.0/16). Anschließend kannst Du Ressourcen darin definieren.",
@@ -1061,7 +1095,14 @@ const messages = {
 
     // ── Resources ────────────────────────────────────────────────────────────
     "resources.title":          "Ressourcen",
+    "resources.group_needed":    "Lege zuerst eine Port-Gruppe an",
+    "resources.group_empty":     "Gruppe enthält keine Ports",
+    "resources.port_group":      "Port-Gruppe",
+    "resources.add_btn":         "Hinzufügen",
+    "resources.label_path_prefix": "Pfad-Präfix (optional)",
     "resources.create_btn":     "+ Ressource anlegen",
+    "resources.back_sites":     "Standorte",
+    "resources.from_group":     "Aus Gruppe",
     "resources.empty_title":    "Noch keine Ressourcen",
     "resources.empty_desc":     "Lege die erste Ressource in diesem Standort an.",
     "resources.error_load":     "Konnte Ressourcen nicht laden: {error}",
@@ -1276,6 +1317,14 @@ const messages = {
 
     // ── My Access ────────────────────────────────────────────────────────────
     "myaccess.title":            "Mein Zugang",
+    "myaccess.label_domain":    "Domäne",
+    "myaccess.label_pwmgr_uri":  "URI für Passwort-Manager (KeePassXC / Bitwarden)",
+    "myaccess.label_username":   "Benutzername",
+    "myaccess.open_in_browser":  "Im Browser öffnen",
+    "myaccess.hint_own_key":     "Wenn du den Keypair lokal auf dem Gerät erzeugt hast, gib hier nur den öffentlichen Teil ein. Der private Schlüssel verlässt dein Gerät nie.",
+    "myaccess.hint_device_name": "Frei wählbar. Wird im Audit-Log angezeigt.",
+    "myaccess.label_device_name": "Gerätename",
+    "myaccess.modal_new_device": "Neues Gerät",
     "myaccess.title_admin":      "Zugang von {name}",
     "myaccess.add_btn":          "+ Neues Gerät",
     "myaccess.back_btn":         "← Zurück zur Benutzerliste",
@@ -1326,6 +1375,23 @@ const messages = {
 
     // ── Settings ─────────────────────────────────────────────────────────────
     "settings.title":          "Einstellungen",
+    "settings.ph_mtu":          "z. B. 1420",
+    "settings.ph_location":     "z. B. Frankfurt am Main, Rechenzentrum 1",
+    "settings.last_changed":    "Zuletzt geändert: {when}",
+    "settings.by_whom":         "von {who}",
+    "settings.label_lon":        "Längengrad (Longitude)",
+    "settings.label_lat":        "Breitengrad (Latitude)",
+    "settings.hint_location_label": "Freitext — wird als Pin-Label auf der Karte angezeigt.",
+    "settings.label_location":   "Bezeichnung",
+    "settings.hint_hub_location": "Physischer Standort dieses Hubs — wird für die spätere Kartendarstellung der Topologie verwendet.",
+    "settings.section_hub_location": "Hub-Standort",
+    "settings.hint_include_mtu": "Wird nach „Verbindung testen\" automatisch ermittelt. Nur bei Verbindungsproblemen (Fragmentierung) in die .conf aufnehmen.",
+    "settings.label_include_mtu": "MTU in Client-.conf einschließen",
+    "settings.hint_dns":         "Leer lassen, wenn kein DNS-Eintrag in die .conf soll.",
+    "settings.hint_allowed_ips": "Komma-separiert. Welche Netze fließen durch den Tunnel.",
+    "settings.hint_endpoint":    "Host:Port — wandert in jede .conf als [Peer] Endpoint.",
+    "settings.hint_subnet6":     "IPv6-ULA-CIDR für Dual-Stack-Peers (optional). Leer lassen für IPv4-only.",
+    "settings.hint_subnet":      "IPv4-CIDR. Peer-IPs werden gegen dieses Subnetz validiert.",
     "settings.setup_warn":     "Setup unvollständig.",
     "settings.field_interface":      "WireGuard-Interface",
     "settings.field_interface_hint": "Nur lesbar. Wird beim Deploy über ISLANDR_WG_INTERFACE gesetzt; Socket-Proxy und Firewall-Regeln nutzen dieses Interface.",

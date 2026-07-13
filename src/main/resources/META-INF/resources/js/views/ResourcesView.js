@@ -440,7 +440,7 @@ export default defineComponent({
   template: `
     <div class="page-header">
       <div style="display: flex; align-items: center; gap: var(--space-3)">
-        <button class="btn btn-ghost btn-sm" @click="backToSites">← Standorte</button>
+        <button class="btn btn-ghost btn-sm" @click="backToSites">← {{ t('resources.back_sites') }}</button>
         <div style="display: flex; flex-direction: column; gap: 2px">
           <h1 style="margin: 0; font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.02em">{{ t('resources.title') }}</h1>
           <div v-if="site" style="display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--fg3)">
@@ -540,9 +540,9 @@ export default defineComponent({
               </button>
               <button class="btn btn-ghost btn-sm"
                       :disabled="portGroups.length === 0"
-                      :title="portGroups.length === 0 ? 'Lege zuerst eine Port-Gruppe an' : ''"
+                      ::title="portGroups.length === 0 ? t('resources.group_needed') : ''"
                       @click="groupFormFor === r.id ? closeGroupForm() : openGroupForm(r.id)">
-                {{ groupFormFor === r.id ? '✕ ' + t('common.cancel') : '+ Aus Gruppe' }}
+                {{ groupFormFor === r.id ? '✕ ' + t('common.cancel') : '+ ' + t('resources.from_group') }}
               </button>
             </div>
           </div>
@@ -613,11 +613,11 @@ export default defineComponent({
                   <input class="input" v-model="portForm.label" placeholder="z.B. Admin RDP" />
                 </div>
                 <div v-if="portForm.protocol === 'HTTP' || portForm.protocol === 'HTTPS'" class="field" style="margin: 0; flex: 1">
-                  <label>Pfad-Präfix (optional)</label>
+                  <label>{{ t('resources.label_path_prefix') }}</label>
                   <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
                 </div>
                 <div style="display: flex; gap: var(--space-2); align-self: flex-end">
-                  <button type="submit" class="btn btn-primary btn-sm">Hinzufügen</button>
+                  <button type="submit" class="btn btn-primary btn-sm">{{ t('resources.add_btn') }}</button>
                 </div>
               </div>
               <div v-if="portError" class="error-banner" style="margin-top: var(--space-3)">{{ portError }}</div>
@@ -629,13 +629,13 @@ export default defineComponent({
             <form @submit.prevent="applyGroup">
               <div class="res-form-row">
                 <div class="field" style="margin: 0; min-width: 220px">
-                  <label>Port-Gruppe</label>
+                  <label>{{ t('resources.port_group') }}</label>
                   <select class="select" v-model="selectedGroupId" required>
                     <option v-for="g in portGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
                   </select>
                 </div>
                 <div style="flex: 1; align-self: flex-end; font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); padding-bottom: 8px">
-                  <span v-if="selectedGroupMembers().length === 0">Gruppe enthält keine Ports</span>
+                  <span v-if="selectedGroupMembers().length === 0">{{ t('resources.group_empty') }}</span>
                   <span v-else>
                     Fügt hinzu:
                     <span v-for="(m, i) in selectedGroupMembers()" :key="m.id">

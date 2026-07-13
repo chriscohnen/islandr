@@ -311,19 +311,19 @@ export default defineComponent({
           <div class="field">
             <label for="wgSubnet">{{ t('settings.field_subnet') }}</label>
             <input id="wgSubnet" class="input mono" v-model="form.wgSubnet" required placeholder="10.8.0.0/24" />
-            <div class="field-hint">IPv4-CIDR. Peer-IPs werden gegen dieses Subnetz validiert.</div>
+            <div class="field-hint">{{ t('settings.hint_subnet') }}</div>
           </div>
 
           <div class="field">
             <label for="wgSubnet6">{{ t('settings.field_subnet6') }}</label>
             <input id="wgSubnet6" class="input mono" v-model="form.wgSubnet6" placeholder="fd11::/64" />
-            <div class="field-hint">IPv6-ULA-CIDR für Dual-Stack-Peers (optional). Leer lassen für IPv4-only.</div>
+            <div class="field-hint">{{ t('settings.hint_subnet6') }}</div>
           </div>
 
           <div class="field">
             <label for="wgServerEndpoint">{{ t('settings.field_endpoint') }}</label>
             <input id="wgServerEndpoint" class="input mono" v-model="form.wgServerEndpoint" required placeholder="vpn.example.com:51820" />
-            <div class="field-hint">Host:Port — wandert in jede .conf als [Peer] Endpoint.</div>
+            <div class="field-hint">{{ t('settings.hint_endpoint') }}</div>
           </div>
 
           <div class="field field-full">
@@ -357,20 +357,20 @@ export default defineComponent({
           <div class="field field-full">
             <label for="wgClientAllowedIps">{{ t('settings.field_allowed') }}</label>
             <input id="wgClientAllowedIps" class="input mono" v-model="form.wgClientAllowedIps" required placeholder="10.8.0.0/24, 192.168.50.0/24" />
-            <div class="field-hint">Komma-separiert. Welche Netze fließen durch den Tunnel.</div>
+            <div class="field-hint">{{ t('settings.hint_allowed_ips') }}</div>
           </div>
 
           <div class="field">
             <label for="wgClientDns">{{ t('settings.field_dns') }}</label>
             <input id="wgClientDns" class="input mono" v-model="form.wgClientDns" placeholder="10.8.0.1 (optional)" />
-            <div class="field-hint">Leer lassen, wenn kein DNS-Eintrag in die .conf soll.</div>
+            <div class="field-hint">{{ t('settings.hint_dns') }}</div>
           </div>
 
           <div class="field">
             <label>MTU</label>
             <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
               <input type="number" class="input mono" v-model.number="form.wgMtu"
-                     min="576" max="65535" placeholder="z. B. 1420" style="width: 120px" />
+                     min="576" max="65535" :placeholder="t('settings.ph_mtu')" style="width: 120px" />
               <span v-if="probedIfMtu && probedIfMtu !== form.wgMtu"
                     style="font-size:var(--text-sm); color:var(--fg3)">
                 Gemessen: <span class="mono" style="color:var(--fg2)">{{ probedIfMtu }}</span>
@@ -381,30 +381,30 @@ export default defineComponent({
             </div>
             <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0; margin-top:var(--space-2)">
               <input type="checkbox" v-model="form.wgIncludeMtuInConf" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
-              <span>MTU in Client-.conf einschließen</span>
+              <span>{{ t('settings.label_include_mtu') }}</span>
             </label>
-            <div class="field-hint">Wird nach "Verbindung testen" automatisch ermittelt. Nur bei Verbindungsproblemen (Fragmentierung) in die .conf aufnehmen.</div>
+            <div class="field-hint">{{ t('settings.hint_include_mtu') }}</div>
           </div>
         </div>
       </div>
 
       <!-- Hub-Standort -->
       <div class="card card-pad">
-        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">Hub-Standort</h2>
-        <p class="field-hint" style="margin: 0 0 var(--space-4)">Physischer Standort dieses Hubs — wird für die spätere Kartendarstellung der Topologie verwendet.</p>
+        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_hub_location') }}</h2>
+        <p class="field-hint" style="margin: 0 0 var(--space-4)">{{ t('settings.hint_hub_location') }}</p>
         <div class="form-grid">
           <div class="field field-full">
-            <label for="hubLocationLabel">Bezeichnung</label>
-            <input id="hubLocationLabel" class="input" v-model="form.hubLocationLabel" placeholder="z. B. Frankfurt am Main, Rechenzentrum 1" />
-            <div class="field-hint">Freitext — wird als Pin-Label auf der Karte angezeigt.</div>
+            <label for="hubLocationLabel">{{ t('settings.label_location') }}</label>
+            <input id="hubLocationLabel" class="input" v-model="form.hubLocationLabel" :placeholder="t('settings.ph_location')" />
+            <div class="field-hint">{{ t('settings.hint_location_label') }}</div>
           </div>
           <div class="field">
-            <label for="hubLat">Breitengrad (Latitude)</label>
+            <label for="hubLat">{{ t('settings.label_lat') }}</label>
             <input id="hubLat" class="input mono" type="number" step="any" min="-90" max="90"
                    v-model="form.hubLat" placeholder="50.1109" />
           </div>
           <div class="field">
-            <label for="hubLon">Längengrad (Longitude)</label>
+            <label for="hubLon">{{ t('settings.label_lon') }}</label>
             <input id="hubLon" class="input mono" type="number" step="any" min="-180" max="180"
                    v-model="form.hubLon" placeholder="8.6821" />
           </div>
@@ -501,7 +501,7 @@ export default defineComponent({
           {{ saving ? t('settings.btn_saving') : t('settings.btn_save') }}
         </button>
         <div class="muted">
-          Zuletzt geändert: {{ formatDate(meta.updatedAt) }}<span v-if="meta.updatedBy"> · von {{ meta.updatedBy }}</span>
+          {{ t('settings.last_changed', { when: formatDate(meta.updatedAt) }) }}<span v-if="meta.updatedBy"> · {{ t('settings.by_whom', { who: meta.updatedBy }) }}</span>
         </div>
       </div>
 

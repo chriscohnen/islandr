@@ -229,7 +229,7 @@ export default defineComponent({
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteCidr">{{ t('sites.field_cidr') }}</label>
               <input id="siteCidr" class="input mono" v-model="form.cidr" required placeholder="10.20.0.0/16" />
-              <div class="field-hint">Das Netz hinter dem Standort. Nur informativ — wird nicht enforced.</div>
+              <div class="field-hint">{{ t('sites.hint_cidr') }}</div>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteGateway">{{ t('sites.field_gateway') }}</label>

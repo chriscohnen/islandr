@@ -1009,7 +1009,7 @@ export default defineComponent({
 
       <div v-if="modalMode === 'create'" class="modal">
         <div class="modal-header">
-          <h2>Neues Gerät</h2>
+          <h2>{{ t('myaccess.modal_new_device') }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeModal">✕</button>
         </div>
         <form @submit.prevent="submitCreate">
@@ -1017,9 +1017,9 @@ export default defineComponent({
             <div v-if="formError" class="error-banner">{{ formError }}</div>
 
             <div class="field" style="margin-bottom: var(--space-4)">
-              <label for="devName">Gerätename</label>
+              <label for="devName">{{ t('myaccess.label_device_name') }}</label>
               <input id="devName" class="input" v-model="newDevice.name" required placeholder="z.B. iPhone, MacBook" />
-              <div class="field-hint">Frei wählbar. Wird im Audit-Log angezeigt.</div>
+              <div class="field-hint">{{ t('myaccess.hint_device_name') }}</div>
             </div>
 
             <fieldset class="key-mode">
@@ -1035,7 +1035,7 @@ export default defineComponent({
                 <input type="radio" :checked="importPublicKey" @change="importPublicKey = true" />
                 <div>
                   <div class="key-mode-title">{{ t('peer.key_import') }}</div>
-                  <div class="key-mode-hint">Wenn du den Keypair lokal auf dem Gerät erzeugt hast, gib hier nur den öffentlichen Teil ein. Der private Schlüssel verlässt dein Gerät nie.</div>
+                  <div class="key-mode-hint">{{ t('myaccess.hint_own_key') }}</div>
                 </div>
               </label>
             </fieldset>
@@ -1131,7 +1131,7 @@ export default defineComponent({
     <div v-if="rdpDialog" class="modal-backdrop" @click.self="closeRdpDialog">
       <div class="modal" style="max-width: 400px">
         <div class="modal-header">
-          <h3 style="margin:0; font-size: var(--text-md)">Im Browser öffnen</h3>
+          <h3 style="margin:0; font-size: var(--text-md)">{{ t('myaccess.open_in_browser') }}</h3>
         </div>
         <div class="modal-body">
           <div class="muted" style="margin-bottom: var(--space-4); font-size: var(--text-sm)">
@@ -1141,7 +1141,7 @@ export default defineComponent({
           </div>
           <form id="rdp-cred-form" @submit.prevent="connectRdpInBrowser">
             <div class="form-group">
-              <label class="label" for="rdpUser">Benutzername</label>
+              <label class="label" for="rdpUser">{{ t('myaccess.label_username') }}</label>
               <input id="rdpUser" name="username" class="input" v-model="rdpCreds.username"
                      type="text" autocomplete="username" placeholder="z.B. Administrator" />
             </div>
@@ -1158,7 +1158,7 @@ export default defineComponent({
               </div>
             </div>
             <div class="form-group">
-              <label class="label" for="rdpDomain">Domäne <span class="muted">(optional)</span></label>
+              <label class="label" for="rdpDomain">{{ t('myaccess.label_domain') }} <span class="muted">(optional)</span></label>
               <input id="rdpDomain" name="domain" class="input" v-model="rdpCreds.domain"
                      type="text" autocomplete="off" placeholder="z.B. FIRMA" />
             </div>
@@ -1167,7 +1167,7 @@ export default defineComponent({
                Bitwarden). Autofill still keys on the islandr origin; this URI carries
                the resource name so the right vault entry is easy to find/organise. -->
           <div class="field" style="margin-top: var(--space-3)">
-            <label class="label muted" style="font-size: var(--text-xs)">URI für Passwort-Manager (KeePassXC / Bitwarden)</label>
+            <label class="label muted" style="font-size: var(--text-xs)">{{ t('myaccess.label_pwmgr_uri') }}</label>
             <div style="display: flex; gap: var(--space-2); align-items: center">
               <code class="mono" style="flex: 1; font-size: var(--text-xs); overflow-x: auto; white-space: nowrap">{{ rdpMatchUri(rdpDialog.resource) }}</code>
               <button type="button" class="btn btn-ghost btn-sm"
@@ -1178,7 +1178,7 @@ export default defineComponent({
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-ghost" @click="closeRdpDialog">Abbrechen</button>
+          <button class="btn btn-ghost" @click="closeRdpDialog">{{ t('common.cancel') }}</button>
           <button class="btn btn-primary" form="rdp-cred-form" type="submit">Verbinden</button>
         </div>
       </div>
