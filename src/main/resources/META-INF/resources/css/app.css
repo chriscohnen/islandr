@@ -213,6 +213,10 @@ body {
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
+  /* Grid items default to min-width:auto and won't shrink below their content's
+     min-content width, so any wide/unbreakable content could stretch the track
+     past the viewport. Let the track win; inner scroll boxes handle the rest. */
+  min-width: 0;
 }
 
 @media (max-width: 720px) {
@@ -325,6 +329,15 @@ body {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
+}
+
+/* Flex children default to min-width:auto and so won't shrink below their
+   content's min-content width. Without this, a long unbreakable line inside a
+   callout (e.g. the install commands in the enforcement banner) stretches the
+   whole banner and overflows the page instead of scrolling inside its own
+   overflow-x:auto box. */
+.callout > * {
+  min-width: 0;
 }
 
 .callout-warning {

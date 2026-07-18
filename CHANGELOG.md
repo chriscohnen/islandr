@@ -12,6 +12,7 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 - **The UI is now fully bilingual.** The language toggle already existed, but several screens still had German baked into the view code — the peer and device dialogs, the browser-RDP connect flow and its error messages (including the TLS/socket failure labels), the topology view, the "setup incomplete" banner, and a number of form hints and placeholders — so switching the interface to English left German text behind. Relative times ("vor 3 h") and absolute dates were hardcoded to German too. Every user-visible string now resolves through the DE/EN catalogue, relative times and dates render in the active language, and the two language sets are kept at parity. Route URIs stay English in both languages, so links and bookmarks are stable across the toggle.
 - **Error messages no longer show a raw key.** Saving a site, loading or saving settings, and applying a port group could fail with the literal text `sites.error_save` (and similar) shown to the user instead of a message, because those keys were referenced in the code but never defined in the catalogue. They now read as proper sentences in both languages.
+- **The enforcement banner no longer overflows.** In degraded mode the long "from source" install command ran off the right edge of the banner (pushing its copy button out of view) instead of scrolling within its own line; it — and any wide content in a callout — now stays inside the box.
 
 ## 0.12.0
 
