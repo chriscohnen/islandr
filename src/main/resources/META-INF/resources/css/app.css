@@ -118,6 +118,14 @@ body {
   flex-direction: column;
   padding: var(--space-5) 0 var(--space-4) 0;
   gap: var(--space-2);
+  /* Stay in view on long pages: pin to the viewport and keep the full height so
+     the footer (Settings) is always reachable without scrolling to the bottom
+     of the page. The nav scrolls inside the rail if it ever exceeds the height. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .sidebar .wordmark {
@@ -234,6 +242,10 @@ body {
     padding: var(--space-2);
     border-right: 0;
     border-bottom: 1px solid var(--border);
+    /* Horizontal bar on mobile — undo the desktop sticky full-height rail. */
+    position: static;
+    height: auto;
+    overflow-y: visible;
   }
   .sidebar .wordmark,
   .sidebar .section-label,
