@@ -122,7 +122,7 @@ Format: EARS (Easy Approach to Requirements Syntax) where it fits cleanly; plain
 | N-05 | API is RESTful JSON, suitable for scripting and the future pull-mode agent. |
 | N-06 | Peer private keys are shown exactly once and not stored in plaintext. If retained at all (for re-display before first handshake), they are encrypted at rest with an admin-provided key. |
 | N-07 | Audit log is append-only and accessible in the UI. |
-| N-08 | UI is bilingual DE/EN with a runtime language toggle. German default, informal `Du`. No emoji. Status is icon + label, never color alone. |
+| N-08 | UI is bilingual DE/EN with a runtime language toggle. The initial language follows the user's saved choice, then the browser language, falling back to English when neither resolves to DE or EN. German copy uses the informal `Du`. No emoji. Status is icon + label, never color alone. |
 | N-08a | Every user-visible string — labels, buttons, hints, placeholders, error and status messages, `title`/`aria-label` text — is served from the i18n catalog in both DE and EN. No display text is hardcoded in a single language in the view code; the DE and EN key sets stay at parity. |
 | N-09 | Light and dark theme are equal-weight and ship together in v1. |
 | N-10 | Both themes meet WCAG AA: text contrast ≥4.5:1, large text ≥3:1, visible `:focus-visible` ring. |
