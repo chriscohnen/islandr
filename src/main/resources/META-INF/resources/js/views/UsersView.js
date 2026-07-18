@@ -2,7 +2,7 @@ import { defineComponent } from "vue";
 import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, formatDate } from "/js/i18n.js";
 
 // User management. Each row gets a "+ Peer" button that opens the shared
 // peer-create modal. The full peer list across all users lives in PeersView.
@@ -207,10 +207,7 @@ export default defineComponent({
       }
     },
 
-    formatDate(iso) {
-      if (!iso) return "";
-      return new Date(iso).toLocaleString("de-DE");
-    },
+    formatDate(iso) { return formatDate(iso); },
 
     async openGwsDialog() {
       this.gwsOpen = true;

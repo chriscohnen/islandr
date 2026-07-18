@@ -8,6 +8,11 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 ---
 
+## 0.12.1
+
+- **The UI is now fully bilingual.** The language toggle already existed, but several screens still had German baked into the view code — the peer and device dialogs, the browser-RDP connect flow and its error messages (including the TLS/socket failure labels), the topology view, the "setup incomplete" banner, and a number of form hints and placeholders — so switching the interface to English left German text behind. Relative times ("vor 3 h") and absolute dates were hardcoded to German too. Every user-visible string now resolves through the DE/EN catalogue, relative times and dates render in the active language, and the two language sets are kept at parity. Route URIs stay English in both languages, so links and bookmarks are stable across the toggle.
+- **Error messages no longer show a raw key.** Saving a site, loading or saving settings, and applying a port group could fail with the literal text `sites.error_save` (and similar) shown to the user instead of a message, because those keys were referenced in the code but never defined in the catalogue. They now read as proper sentences in both languages.
+
 ## 0.12.0
 
 - **Device discovery** — stop typing IP addresses. Point the hub at a site and it scans that site's own CIDR, lists the hosts that are actually live, guesses what each one is from its open ports, and hands you a checklist to create resources from in one go. (The trigger for this was an operator adding nine cameras by hand.) Names come from reverse DNS where available, hosts you already manage are marked as known, the suggested ports can be adopted per host, and a running scan shows live progress and can be aborted. The scan uses ordinary unprivileged sockets — no raw sockets, no new capabilities, no extra `sudoers` entry — and it stays clear of the enforcement path entirely ([ADR-0014](docs/adr/0014-device-discovery.md), [#20](https://github.com/chriscohnen/islandr/issues/20)).

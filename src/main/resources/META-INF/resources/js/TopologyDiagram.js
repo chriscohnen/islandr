@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import { PATHS as ICON_PATHS } from "/js/Icons.js";
+import { t, relativeTime } from "/js/i18n.js";
 
 // Two-ring radial topology with collapse/expand per site.
 // Collapsed: site nodes show a resource-count number inside the circle.
@@ -20,15 +21,15 @@ const LIVE_DOT_R = 4;
 const LIVE_DOT_ORBIT = 56;
 
 const ALL_TYPES = [
-  { key: "computer",   label: "Computer" },
-  { key: "nas",        label: "NAS" },
-  { key: "printer",    label: "Drucker" },
-  { key: "router",     label: "Router" },
-  { key: "camera",     label: "Kamera" },
-  { key: "iot",        label: "IoT" },
-  { key: "virt-host",  label: "VM-Host" },
-  { key: "management", label: "Management" },
-  { key: "other",      label: "Sonstige" },
+  { key: "computer",   labelKey: "resources.type_computer" },
+  { key: "nas",        labelKey: "resources.type_nas" },
+  { key: "printer",    labelKey: "resources.type_printer" },
+  { key: "router",     labelKey: "resources.type_router" },
+  { key: "camera",     labelKey: "resources.type_camera" },
+  { key: "iot",        labelKey: "resources.type_iot" },
+  { key: "virt-host",  labelKey: "resources.type_virt" },
+  { key: "management", labelKey: "resources.type_mgmt" },
+  { key: "other",      labelKey: "resources.type_other" },
 ];
 
 function angleAt(index, total, startDeg = -90) {
@@ -82,7 +83,7 @@ export default defineComponent({
   computed: {
     presentTypes() {
       const seen = new Set(this.resources.map((r) => r.type || "computer"));
-      return ALL_TYPES.filter((t) => seen.has(t.key));
+      return ALL_TYPES.filter((ty) => seen.has(ty.key));
     },
     filteredResources() {
       if (this.activeTypes.size === 0) return this.resources;
@@ -113,6 +114,7 @@ export default defineComponent({
     },
   },
   methods: {
+    t(key, vars) { return t(key, vars); },
     networkIconMarkup() {
       return (ICON_PATHS.networks || []).join("");
     },
@@ -192,15 +194,9 @@ export default defineComponent({
         ? "stroke: var(--status-ok); stroke-width: 2.5"
         : "stroke: var(--fg3); stroke-width: 2";
     },
-    relativeTime(iso) {
-      if (!iso) return "—";
-      const diff = Date.now() - new Date(iso).getTime();
-      const s = Math.round(diff / 1000);
-      if (s < 60) return "vor " + s + "s";
-      return "vor " + Math.round(s / 60) + " min";
-    },
+    relativeTime(iso) { return relativeTime(iso); },
     resourceTitle(r) {
-      const ports = r.portLabels?.length > 0 ? r.portLabels.join(", ") : "keine Ports";
+      const ports = r.portLabels?.length > 0 ? r.portLabels.join(", ") : t("topology.no_ports");
       return `${r.name} · ${r.ip} · ${ports}`;
     },
   },
@@ -212,19 +208,19 @@ export default defineComponent({
         <button @click="clearTypes"
           :class="['btn','btn-sm', activeTypes.size === 0 ? 'btn-secondary' : 'btn-ghost']"
           style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
-          Alle
+          {{ t('topology.filter_all') }}
         </button>
         <button v-for="tp in presentTypes" :key="tp.key"
           @click="toggleType(tp.key)"
           :class="['btn','btn-sm', activeTypes.has(tp.key) ? 'btn-secondary' : 'btn-ghost']"
           style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
-          {{ tp.label }}
+          {{ t(tp.labelKey) }}
         </button>
       </div>
 
       <div v-if="sites.length === 0" class="topo-empty"
            style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1">
-        <span style="pointer-events: auto">Noch keine Standorte angelegt. Lege unter&#32;<router-link to="/networks" style="font-weight: 600; color: var(--fg1); text-decoration: underline">Netzwerke</router-link>&#32;einen Standort mit Ressourcen an.</span>
+        <span style="pointer-events: auto">{{ t('topology.empty_a') }}<router-link to="/networks" style="font-weight: 600; color: var(--fg1); text-decoration: underline">{{ t('nav.networks') }}</router-link>{{ t('topology.empty_b') }}</span>
       </div>
 
       <svg class="topo" :viewBox="viewBox"
@@ -311,7 +307,7 @@ export default defineComponent({
         <!-- Hint -->
         <text v-if="!expandedSiteId" :x="W + vbX - 12" :y="H + vbY - 12"
               style="font-family:var(--font-sans);font-size:11px;fill:var(--fg3);text-anchor:end;pointer-events:none">
-          Standort anklicken zum Aufklappen
+          {{ t('topology.expand_hint') }}
         </text>
       </svg>
 
@@ -342,7 +338,7 @@ export default defineComponent({
             {{ siteTooltip.site.gatewayPeerName }}
             <span style="font-family: var(--font-mono); color: var(--fg2)">{{ siteTooltip.site.gatewayIp }}</span>
           </div>
-          <div>{{ siteTooltip.site.gatewayLastSeenAt ? 'Handshake ' + relativeTime(siteTooltip.site.gatewayLastSeenAt) : 'Noch kein Handshake' }}</div>
+          <div>{{ siteTooltip.site.gatewayLastSeenAt ? 'Handshake ' + relativeTime(siteTooltip.site.gatewayLastSeenAt) : t('topology.no_handshake') }}</div>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { defineComponent } from "vue";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, formatDate } from "/js/i18n.js";
 
 // Settings form. GET + PUT against /api/v1/settings (the singleton row).
 // All WireGuard topology that ends up in client .conf files lives here —
@@ -180,10 +180,7 @@ export default defineComponent({
       }
     },
 
-    formatDate(iso) {
-      if (!iso) return "—";
-      return new Date(iso).toLocaleString("de-DE");
-    },
+    formatDate(iso) { return formatDate(iso); },
 
     async exportConfig() {
       this.configExporting = true;

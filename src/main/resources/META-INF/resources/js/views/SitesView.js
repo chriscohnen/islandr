@@ -1,6 +1,6 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, formatDate } from "/js/i18n.js";
 
 // Sites = organisational grouping for resources. The CIDR is informational,
 // rendered next to the name; it does NOT participate in nftables rules.
@@ -129,9 +129,7 @@ export default defineComponent({
     goToResources(site) {
       this.$router.push({ name: "resources", params: { siteId: site.id } });
     },
-    formatDate(iso) {
-      return iso ? new Date(iso).toLocaleString("de-DE") : "—";
-    },
+    formatDate(iso) { return formatDate(iso); },
 
     pasteCoordinates(event) {
       const text = (event.clipboardData || window.clipboardData).getData("text").trim();
@@ -216,14 +214,7 @@ export default defineComponent({
               <input id="siteName" class="input" v-model="form.name" required
                 :placeholder="t('sites.field_name_ph')" list="siteNameSuggestions" autocomplete="off" />
               <datalist id="siteNameSuggestions">
-                <option value="Büro Hamburg"></option>
-                <option value="Büro Berlin"></option>
-                <option value="Büro München"></option>
-                <option value="Niederlassung Wien"></option>
-                <option value="Niederlassung Zürich"></option>
-                <option value="Labor Süd"></option>
-                <option value="Rechenzentrum Frankfurt"></option>
-                <option value="Home Office"></option>
+                <option v-for="s in t('sites.name_suggestions').split('|')" :key="s" :value="s"></option>
               </datalist>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
@@ -259,10 +250,10 @@ export default defineComponent({
               <label>{{ t('sites.field_geo') }}</label>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3)">
                 <input class="input mono" v-model="form.lat" type="number" step="any" min="-90" max="90"
-                  :placeholder="t('sites.field_lat') + ' (z.B. 53.5753)'"
+                  :placeholder="t('sites.field_lat_ph')"
                   @paste.prevent="pasteCoordinates($event)" />
                 <input class="input mono" v-model="form.lng" type="number" step="any" min="-180" max="180"
-                  :placeholder="t('sites.field_lng') + ' (z.B. 10.0153)'" />
+                  :placeholder="t('sites.field_lng_ph')" />
               </div>
               <div class="field-hint">{{ t('sites.field_geo_hint') }}</div>
             </div>

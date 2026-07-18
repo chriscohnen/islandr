@@ -113,20 +113,20 @@ export const peerModalMixin = {
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
-          this.peerError = "Bei Site-Peer muss mindestens ein CIDR angegeben werden.";
+          this.peerError = t("peer.err_site_cidr");
           return;
         }
         payload.siteAllowedCidrs = this.siteAllowedCidrs.trim();
       }
       if (this.importMode === "public-only") {
         if (!this.importPublicKey.trim()) {
-          this.peerError = "Public Key fehlt.";
+          this.peerError = t("peer.err_pubkey_missing");
           return;
         }
         payload.publicKey = this.importPublicKey.trim();
       } else if (this.importMode === "both") {
         if (!this.importPublicKey.trim() || !this.importPrivateKey.trim()) {
-          this.peerError = "Public Key und Private Key müssen beide angegeben werden.";
+          this.peerError = t("peer.err_both_keys");
           return;
         }
         payload.publicKey = this.importPublicKey.trim();
@@ -198,7 +198,7 @@ export const peerModalMixin = {
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
-          this.peerError = "Bei Site-Peer muss mindestens ein CIDR angegeben werden.";
+          this.peerError = t("peer.err_site_cidr");
           return;
         }
         payload.siteAllowedCidrs = this.siteAllowedCidrs.trim();
@@ -333,7 +333,7 @@ export const peerModalTemplate = `
         <div class="modal-body">
           <div v-if="peerError" class="error-banner">{{ peerError }}</div>
           <div v-if="modalUserName && peerType !== 'site'" class="muted" style="margin-bottom: var(--space-3)">
-            Für: <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
+            {{ t('peer.for') }} <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
           </div>
 
           <fieldset class="key-mode" style="margin-bottom: var(--space-4)">
@@ -342,7 +342,7 @@ export const peerModalTemplate = `
               <input type="radio" v-model="peerType" value="client" :disabled="users.length === 0" />
               <div>
                 <div class="key-mode-title">Client</div>
-                <div class="key-mode-hint">Einzelnes Gerät eines Benutzers (Laptop, Smartphone). Routet nur Traffic für sich selbst.</div>
+                <div class="key-mode-hint">{{ t('peer.type_client_hint') }}</div>
                 <div v-if="users.length === 0" class="key-mode-hint" style="color: var(--accent)">{{ t('peer.no_users_hint') }}</div>
               </div>
             </label>
@@ -350,7 +350,7 @@ export const peerModalTemplate = `
               <input type="radio" v-model="peerType" value="site" />
               <div>
                 <div class="key-mode-title">Site</div>
-                <div class="key-mode-hint">Gateway in ein dahinter liegendes Netz (Filiale, Heim-Lab). Macht weitere CIDRs hinter sich erreichbar.</div>
+                <div class="key-mode-hint">{{ t('peer.type_site_hint') }}</div>
               </div>
             </label>
           </fieldset>
@@ -364,7 +364,7 @@ export const peerModalTemplate = `
                 {v:'mobile',  l:'Smartphone'},
                 {v:'tablet',  l:'Tablet'},
                 {v:'server',  l:'Server'},
-                {v:'other',   l:'Sonstiges'},
+                {v:'other',   l:t('peer.device_other')},
               ]" :key="opt.v" class="peer-device-type-option" :class="{ active: deviceType === opt.v }">
                 <input type="radio" :value="opt.v" v-model="deviceType" style="position:absolute;opacity:0;pointer-events:none" />
                 <Icon :name="opt.v === 'other' ? 'peers' : opt.v" :size="18" />
@@ -374,28 +374,28 @@ export const peerModalTemplate = `
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">
-            <label for="peerName">{{ peerType === 'site' ? 'Standort-/Gateway-Name' : t('peer.field_name') }}</label>
-            <input id="peerName" class="input" v-model="newPeer.name" required :placeholder="peerType === 'site' ? 'z.B. hamburg-office' : 'z.B. macbook'" />
-            <div class="field-hint">Frei wählbar. Wird im Audit-Log angezeigt.</div>
+            <label for="peerName">{{ peerType === 'site' ? t('peer.field_name_site') : t('peer.field_name') }}</label>
+            <input id="peerName" class="input" v-model="newPeer.name" required :placeholder="peerType === 'site' ? t('peer.field_name_ph_site') : t('peer.field_name_ph')" />
+            <div class="field-hint">{{ t('peer.field_name_hint') }}</div>
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">
             <label for="peerIp">{{ t('peer.field_ip') }}</label>
             <input id="peerIp" class="input mono" v-model="newPeer.assignedIp" required placeholder="10.8.0.20" />
-            <div class="field-hint">Muss im konfigurierten WireGuard-Subnetz liegen.</div>
+            <div class="field-hint">{{ t('peer.field_ip_hint') }}</div>
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">
             <label for="peerIpv6">{{ t('peer.field_ipv6') }}</label>
             <input id="peerIpv6" class="input mono" v-model="newPeer.assignedIpv6" placeholder="fd11::3" />
-            <div class="field-hint">IPv6-Adresse für Dual-Stack (optional). Nur wenn wgSubnet6 konfiguriert ist.</div>
+            <div class="field-hint">{{ t('peer.field_ipv6_hint') }}</div>
           </div>
 
           <div v-if="peerType === 'site'" class="field" style="margin-bottom: var(--space-5)">
             <label for="siteCidrs">{{ t('peer.field_cidrs') }}</label>
             <textarea id="siteCidrs" class="textarea mono" rows="2" v-model="siteAllowedCidrs"
                       placeholder="192.168.50.0/24, 10.20.0.0/16" required></textarea>
-            <div class="field-hint">Komma-getrennte IPv4-CIDRs. Dürfen sich nicht mit dem WG-Subnetz oder mit anderen Site-Peers überschneiden.</div>
+            <div class="field-hint">{{ t('peer.field_cidrs_hint') }}</div>
           </div>
 
           <fieldset class="key-mode">
@@ -404,21 +404,21 @@ export const peerModalTemplate = `
               <input type="radio" v-model="importMode" value="generate" />
               <div>
                 <div class="key-mode-title">{{ t('peer.key_generate') }}</div>
-                <div class="key-mode-hint">Standard. Schnellste Variante. Der private Schlüssel verlässt den Server beim Anlegen.</div>
+                <div class="key-mode-hint">{{ t('peer.key_generate_hint') }}</div>
               </div>
             </label>
             <label class="key-mode-option">
               <input type="radio" v-model="importMode" value="public-only" />
               <div>
-                <div class="key-mode-title">{{ t('peer.key_import') }} <span class="badge badge-success" style="margin-left: 6px">sicherste Variante</span></div>
-                <div class="key-mode-hint">Der Client erzeugt den Keypair lokal — der private Schlüssel erreicht den Server nie. Der User trägt seinen privaten Schlüssel selbst in die .conf ein.</div>
+                <div class="key-mode-title">{{ t('peer.key_import') }} <span class="badge badge-success" style="margin-left: 6px">{{ t('peer.key_import_badge') }}</span></div>
+                <div class="key-mode-hint">{{ t('peer.key_import_hint') }}</div>
               </div>
             </label>
             <label class="key-mode-option">
               <input type="radio" v-model="importMode" value="both" />
               <div>
-                <div class="key-mode-title">Public + Private Key importieren</div>
-                <div class="key-mode-hint">Für die Migration von PiVPN o.ä. Der Server validiert das Schlüsselpaar via <code>wg pubkey</code>.</div>
+                <div class="key-mode-title">{{ t('peer.key_both') }}</div>
+                <div class="key-mode-hint">{{ t('peer.key_both_hint') }} <code>wg pubkey</code>.</div>
               </div>
             </label>
           </fieldset>
@@ -430,14 +430,14 @@ export const peerModalTemplate = `
           <div v-if="importMode === 'both'" class="field" style="margin-top: var(--space-3)">
             <label for="importPriv">Private Key</label>
             <input id="importPriv" class="input mono" v-model="importPrivateKey" required :placeholder="t('peer.field_pubkey_ph')" />
-            <div class="field-hint">Wird je nach Retention-Modus gespeichert oder nur zur QR-/.conf-Generierung verwendet.</div>
+            <div class="field-hint">{{ t('peer.field_privkey_hint') }}</div>
           </div>
 
           <label class="key-mode-option" style="margin-top: var(--space-4); cursor: pointer">
             <input type="checkbox" v-model="generatePresharedKey" style="flex-shrink:0" />
             <div>
-              <div class="key-mode-title">Preshared Key aktivieren <span class="badge" style="margin-left: 6px; background: var(--surface-2); color: var(--fg2); font-size: var(--text-xs)">optional</span></div>
-              <div class="key-mode-hint">Server generiert einen symmetrischen Schlüssel (Post-Quantum-Schutz). Wird in der .conf eingebettet — beide Seiten müssen ihn kennen.</div>
+              <div class="key-mode-title">{{ t('peer.psk_enable') }} <span class="badge" style="margin-left: 6px; background: var(--surface-2); color: var(--fg2); font-size: var(--text-xs)">optional</span></div>
+              <div class="key-mode-hint">{{ t('peer.psk_enable_hint') }}</div>
             </div>
           </label>
         </div>
@@ -460,7 +460,7 @@ export const peerModalTemplate = `
           <div v-if="peerError" class="error-banner">{{ peerError }}</div>
 
           <div v-if="modalUserName && peerType !== 'site'" class="muted" style="margin-bottom: var(--space-3)">
-            Für: <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
+            {{ t('peer.for') }} <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
             <span class="tag" style="margin-left: var(--space-2)">Client</span>
           </div>
 
@@ -473,7 +473,7 @@ export const peerModalTemplate = `
                 {v:'mobile',  l:'Smartphone'},
                 {v:'tablet',  l:'Tablet'},
                 {v:'server',  l:'Server'},
-                {v:'other',   l:'Sonstiges'},
+                {v:'other',   l:t('peer.device_other')},
               ]" :key="opt.v" class="peer-device-type-option" :class="{ active: deviceType === opt.v }">
                 <input type="radio" :value="opt.v" v-model="deviceType" style="position:absolute;opacity:0;pointer-events:none" />
                 <Icon :name="opt.v === 'other' ? 'peers' : opt.v" :size="18" />
@@ -483,68 +483,68 @@ export const peerModalTemplate = `
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">
-            <label for="editName">{{ peerType === 'site' ? 'Standort-/Gateway-Name' : t('peer.field_name') }}</label>
+            <label for="editName">{{ peerType === 'site' ? t('peer.field_name_site') : t('peer.field_name') }}</label>
             <input id="editName" class="input" v-model="newPeer.name" required />
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">
             <label for="editIp">{{ t('peer.field_ip') }}</label>
             <input id="editIp" class="input mono" v-model="newPeer.assignedIp" required />
-            <div class="field-hint">Bei Änderung muss der Client die .conf neu importieren.</div>
+            <div class="field-hint">{{ t('peer.field_ip_hint_edit') }}</div>
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">
             <label for="editIpv6">{{ t('peer.field_ipv6') }}</label>
             <input id="editIpv6" class="input mono" v-model="newPeer.assignedIpv6" placeholder="fd11::3" />
-            <div class="field-hint">IPv6-Adresse für Dual-Stack (optional). Leer lassen zum Entfernen.</div>
+            <div class="field-hint">{{ t('peer.field_ipv6_hint_edit') }}</div>
           </div>
 
           <div v-if="peerType === 'site'" class="field" style="margin-bottom: var(--space-4)">
             <label for="editCidrs">{{ t('peer.field_cidrs') }}</label>
             <textarea id="editCidrs" class="textarea mono" rows="2" v-model="siteAllowedCidrs" required></textarea>
-            <div class="field-hint">Komma-getrennte IPv4-CIDRs. Dürfen sich nicht mit dem WG-Subnetz oder mit anderen Site-Peers überschneiden.</div>
+            <div class="field-hint">{{ t('peer.field_cidrs_hint') }}</div>
           </div>
 
           <div class="field">
-            <label>{{ t('peer.field_pubkey') }} <span class="muted" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0">(nicht editierbar)</span></label>
+            <label>{{ t('peer.field_pubkey') }} <span class="muted" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0">{{ t('peer.field_pubkey_ro') }}</span></label>
             <input class="input mono" :value="editPeerPublicKey" readonly />
-            <div class="field-hint">Schlüssel-Rotation: alten Peer löschen und neu anlegen.</div>
+            <div class="field-hint">{{ t('peer.field_pubkey_hint') }}</div>
           </div>
 
           <div class="field" style="margin-top: var(--space-4)">
             <label>Preshared Key</label>
             <div v-if="editHasPsk" style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
-              <span class="badge badge-success" style="flex-shrink:0">aktiv</span>
+              <span class="badge badge-success" style="flex-shrink:0">{{ t('peer.psk_active') }}</span>
               <button type="button" class="btn btn-ghost btn-sm"
                       :class="{ 'btn-secondary': pskAction === 'rotate' }"
-                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">Neu generieren</button>
+                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">{{ t('peer.psk_regenerate') }}</button>
               <button type="button" class="btn btn-ghost btn-sm"
                       :class="{ 'btn-danger': pskAction === 'remove' }"
-                      @click="pskAction = pskAction === 'remove' ? null : 'remove'">Entfernen</button>
+                      @click="pskAction = pskAction === 'remove' ? null : 'remove'">{{ t('peer.psk_remove') }}</button>
             </div>
             <div v-else style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
-              <span class="muted" style="font-size: var(--text-sm)">nicht gesetzt</span>
+              <span class="muted" style="font-size: var(--text-sm)">{{ t('peer.psk_not_set') }}</span>
               <button type="button" class="btn btn-ghost btn-sm"
                       :class="{ 'btn-secondary': pskAction === 'rotate' }"
-                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">Neu generieren</button>
+                      @click="pskAction = pskAction === 'rotate' ? null : 'rotate'">{{ t('peer.psk_regenerate') }}</button>
               <button type="button" class="btn btn-ghost btn-sm"
                       :disabled="pskSyncing"
-                      @click="syncPskFromWg">{{ pskSyncing ? '…' : 'Aus wg lesen' }}</button>
-              <span v-if="pskSyncResult === 'found'" class="badge badge-success">importiert</span>
-              <span v-if="pskSyncResult === 'not_found'" class="muted" style="font-size:var(--text-sm)">kein PSK in wg gefunden</span>
-              <span v-if="pskSyncResult === 'error'" class="badge badge-danger">Fehler</span>
+                      @click="syncPskFromWg">{{ pskSyncing ? '…' : t('peer.psk_read_wg') }}</button>
+              <span v-if="pskSyncResult === 'found'" class="badge badge-success">{{ t('peer.psk_imported') }}</span>
+              <span v-if="pskSyncResult === 'not_found'" class="muted" style="font-size:var(--text-sm)">{{ t('peer.psk_none_in_wg') }}</span>
+              <span v-if="pskSyncResult === 'error'" class="badge badge-danger">{{ t('peer.psk_error') }}</span>
             </div>
             <div v-if="pskAction" class="callout callout-warning" style="margin-top: var(--space-2)">
-              <div v-if="pskAction === 'rotate'">Neuer Preshared Key wird generiert. Der Client muss danach die .conf neu importieren.</div>
-              <div v-else>Preshared Key wird entfernt. Der Client muss danach die .conf neu importieren.</div>
+              <div v-if="pskAction === 'rotate'">{{ t('peer.psk_rotate_warn') }}</div>
+              <div v-else>{{ t('peer.psk_remove_warn') }}</div>
             </div>
-            <div class="field-hint">Symmetrischer Schlüssel für Post-Quantum-Schutz. Beide Seiten des Tunnels müssen denselben Schlüssel kennen.</div>
+            <div class="field-hint">{{ t('peer.psk_hint') }}</div>
           </div>
 
           <div class="field" style="margin-top: var(--space-4)">
             <label>{{ t('peer.field_mtu') }}</label>
             <input type="number" class="input mono" v-model.number="editMtu"
-                   min="576" max="65535" placeholder="leer = globale Einstellung"
+                   min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
                    style="width: 200px" />
             <div class="field-hint">{{ t('peer.field_mtu_hint') }}</div>
           </div>
@@ -582,7 +582,7 @@ export const peerModalTemplate = `
         </div>
         <div v-else-if="!secretIsReshow && !secret.privateKey" class="callout callout-info">
           <div>
-            Peer angelegt mit importiertem Public Key. Der private Schlüssel ist nur dem Client bekannt — die .conf unten enthält keine <code>PrivateKey</code>-Zeile.
+            {{ t('peer.secret_imported_a') }}<code>PrivateKey</code>{{ t('peer.secret_imported_b') }}
           </div>
         </div>
         <div v-else-if="secretIsReshow && secret.privateKey" class="callout callout-info">
@@ -593,13 +593,13 @@ export const peerModalTemplate = `
         <div v-else class="callout callout-warning">
           <div>
             <strong>{{ t('peer.warn_no_key') }}</strong>
-            Beim Anlegen war Retention-Modus <strong>never</strong> aktiv (oder es wurde nur der Public Key importiert). Die .conf enthält alle Server-Parameter, aber keinen <code>PrivateKey</code> — entweder manuell ergänzen oder neuen Peer anlegen.
+            {{ t('peer.secret_no_key_a') }}<strong>never</strong>{{ t('peer.secret_no_key_b') }}<code>PrivateKey</code>{{ t('peer.secret_no_key_c') }}
           </div>
         </div>
 
         <div class="secret-block" :class="{ 'secret-block-no-qr': !secret.qrPngBase64 }">
           <div v-if="secret.qrPngBase64" class="qr">
-            <img :src="secret.qrPngBase64" alt="WireGuard QR-Code" />
+            <img :src="secret.qrPngBase64" :alt="t('peer.qr_alt')" />
           </div>
           <div>
             <div class="field" style="margin-bottom: var(--space-3)">

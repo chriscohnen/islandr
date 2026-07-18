@@ -148,11 +148,11 @@ export default defineComponent({
         const result = await res.json();
         await this.loadResources();
         if (result.added === 0 && result.skippedExisting > 0) {
-          this.groupApplyInfo = "Alle Ports der Gruppe sind bereits auf dieser Ressource. Nichts zu tun.";
+          this.groupApplyInfo = t("resources.group_all_present");
         } else {
-          this.groupApplyInfo = result.added + " Port(s) hinzugefügt"
+          this.groupApplyInfo = t("resources.group_added", { n: result.added })
               + (result.skippedExisting > 0
-                  ? ", " + result.skippedExisting + " war(en) schon vorhanden."
+                  ? t("resources.group_skipped", { n: result.skippedExisting })
                   : ".");
         }
       } catch (e) {
@@ -282,12 +282,12 @@ export default defineComponent({
         } else {
           portNum = parseInt(this.portForm.port, 10);
           if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-            this.portError = "Port muss zwischen 1 und 65535 liegen.";
+            this.portError = t("resources.port_range_invalid");
             return;
           }
           portEnd = this.portForm.portEnd ? parseInt(this.portForm.portEnd, 10) : null;
           if (portEnd !== null && (isNaN(portEnd) || portEnd <= portNum || portEnd > 65535)) {
-            this.portError = "Bereichsende muss größer als Startport und ≤ 65535 sein.";
+            this.portError = t("resources.port_end_invalid");
             return;
           }
         }
@@ -610,7 +610,7 @@ export default defineComponent({
                 </div>
                 <div class="field" style="margin: 0; flex: 1">
                   <label>Label (optional)</label>
-                  <input class="input" v-model="portForm.label" placeholder="z.B. Admin RDP" />
+                  <input class="input" v-model="portForm.label" :placeholder="t('resources.port_label_ph')" />
                 </div>
                 <div v-if="portForm.protocol === 'HTTP' || portForm.protocol === 'HTTPS'" class="field" style="margin: 0; flex: 1">
                   <label>{{ t('resources.label_path_prefix') }}</label>
@@ -637,14 +637,14 @@ export default defineComponent({
                 <div style="flex: 1; align-self: flex-end; font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); padding-bottom: 8px">
                   <span v-if="selectedGroupMembers().length === 0">{{ t('resources.group_empty') }}</span>
                   <span v-else>
-                    Fügt hinzu:
+                    {{ t('resources.group_adds') }}
                     <span v-for="(m, i) in selectedGroupMembers()" :key="m.id">
-                      <span class="mono">{{ m.port === 0 ? 'alle' : (m.portEnd ? m.port + '–' + m.portEnd : m.port) }}/{{ m.transport }}</span>{{ i < selectedGroupMembers().length - 1 ? ', ' : '' }}
+                      <span class="mono">{{ m.port === 0 ? t('resources.port_all') : (m.portEnd ? m.port + '–' + m.portEnd : m.port) }}/{{ m.transport }}</span>{{ i < selectedGroupMembers().length - 1 ? ', ' : '' }}
                     </span>
                   </span>
                 </div>
                 <div style="align-self: flex-end">
-                  <button type="submit" class="btn btn-primary btn-sm" :disabled="!selectedGroupId || selectedGroupMembers().length === 0">Anwenden</button>
+                  <button type="submit" class="btn btn-primary btn-sm" :disabled="!selectedGroupId || selectedGroupMembers().length === 0">{{ t('resources.btn_apply') }}</button>
                 </div>
               </div>
               <div v-if="groupApplyInfo" class="callout callout-info" style="margin-top: var(--space-3)"><div>{{ groupApplyInfo }}</div></div>
