@@ -1,5 +1,5 @@
 import { defineComponent } from "vue";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, formatDate } from "/js/i18n.js";
 
 // Reverse-chronological audit log. Backend paginates via ?before=<iso>
 // — we keep a stack of cursors so "Zurück" can pop back to the previous page.
@@ -131,10 +131,7 @@ export default defineComponent({
     toggleExpand(id) {
       this.expanded = { ...this.expanded, [id]: !this.expanded[id] };
     },
-    formatDate(iso) {
-      if (!iso) return "—";
-      return new Date(iso).toLocaleString("de-DE");
-    },
+    formatDate(iso) { return formatDate(iso); },
     prettyMeta(meta) {
       if (!meta) return "";
       try {

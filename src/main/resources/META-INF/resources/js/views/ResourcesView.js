@@ -148,11 +148,11 @@ export default defineComponent({
         const result = await res.json();
         await this.loadResources();
         if (result.added === 0 && result.skippedExisting > 0) {
-          this.groupApplyInfo = "Alle Ports der Gruppe sind bereits auf dieser Ressource. Nichts zu tun.";
+          this.groupApplyInfo = t("resources.group_all_present");
         } else {
-          this.groupApplyInfo = result.added + " Port(s) hinzugefügt"
+          this.groupApplyInfo = t("resources.group_added", { n: result.added })
               + (result.skippedExisting > 0
-                  ? ", " + result.skippedExisting + " war(en) schon vorhanden."
+                  ? t("resources.group_skipped", { n: result.skippedExisting })
                   : ".");
         }
       } catch (e) {
@@ -282,12 +282,12 @@ export default defineComponent({
         } else {
           portNum = parseInt(this.portForm.port, 10);
           if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-            this.portError = "Port muss zwischen 1 und 65535 liegen.";
+            this.portError = t("resources.port_range_invalid");
             return;
           }
           portEnd = this.portForm.portEnd ? parseInt(this.portForm.portEnd, 10) : null;
           if (portEnd !== null && (isNaN(portEnd) || portEnd <= portNum || portEnd > 65535)) {
-            this.portError = "Bereichsende muss größer als Startport und ≤ 65535 sein.";
+            this.portError = t("resources.port_end_invalid");
             return;
           }
         }
@@ -440,7 +440,7 @@ export default defineComponent({
   template: `
     <div class="page-header">
       <div style="display: flex; align-items: center; gap: var(--space-3)">
-        <button class="btn btn-ghost btn-sm" @click="backToSites">← Standorte</button>
+        <button class="btn btn-ghost btn-sm" @click="backToSites">← {{ t('resources.back_sites') }}</button>
         <div style="display: flex; flex-direction: column; gap: 2px">
           <h1 style="margin: 0; font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.02em">{{ t('resources.title') }}</h1>
           <div v-if="site" style="display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--fg3)">
@@ -540,9 +540,9 @@ export default defineComponent({
               </button>
               <button class="btn btn-ghost btn-sm"
                       :disabled="portGroups.length === 0"
-                      :title="portGroups.length === 0 ? 'Lege zuerst eine Port-Gruppe an' : ''"
+                      ::title="portGroups.length === 0 ? t('resources.group_needed') : ''"
                       @click="groupFormFor === r.id ? closeGroupForm() : openGroupForm(r.id)">
-                {{ groupFormFor === r.id ? '✕ ' + t('common.cancel') : '+ Aus Gruppe' }}
+                {{ groupFormFor === r.id ? '✕ ' + t('common.cancel') : '+ ' + t('resources.from_group') }}
               </button>
             </div>
           </div>
@@ -610,14 +610,14 @@ export default defineComponent({
                 </div>
                 <div class="field" style="margin: 0; flex: 1">
                   <label>Label (optional)</label>
-                  <input class="input" v-model="portForm.label" placeholder="z.B. Admin RDP" />
+                  <input class="input" v-model="portForm.label" :placeholder="t('resources.port_label_ph')" />
                 </div>
                 <div v-if="portForm.protocol === 'HTTP' || portForm.protocol === 'HTTPS'" class="field" style="margin: 0; flex: 1">
-                  <label>Pfad-Präfix (optional)</label>
+                  <label>{{ t('resources.label_path_prefix') }}</label>
                   <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
                 </div>
                 <div style="display: flex; gap: var(--space-2); align-self: flex-end">
-                  <button type="submit" class="btn btn-primary btn-sm">Hinzufügen</button>
+                  <button type="submit" class="btn btn-primary btn-sm">{{ t('resources.add_btn') }}</button>
                 </div>
               </div>
               <div v-if="portError" class="error-banner" style="margin-top: var(--space-3)">{{ portError }}</div>
@@ -629,22 +629,22 @@ export default defineComponent({
             <form @submit.prevent="applyGroup">
               <div class="res-form-row">
                 <div class="field" style="margin: 0; min-width: 220px">
-                  <label>Port-Gruppe</label>
+                  <label>{{ t('resources.port_group') }}</label>
                   <select class="select" v-model="selectedGroupId" required>
                     <option v-for="g in portGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
                   </select>
                 </div>
                 <div style="flex: 1; align-self: flex-end; font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); padding-bottom: 8px">
-                  <span v-if="selectedGroupMembers().length === 0">Gruppe enthält keine Ports</span>
+                  <span v-if="selectedGroupMembers().length === 0">{{ t('resources.group_empty') }}</span>
                   <span v-else>
-                    Fügt hinzu:
+                    {{ t('resources.group_adds') }}
                     <span v-for="(m, i) in selectedGroupMembers()" :key="m.id">
-                      <span class="mono">{{ m.port === 0 ? 'alle' : (m.portEnd ? m.port + '–' + m.portEnd : m.port) }}/{{ m.transport }}</span>{{ i < selectedGroupMembers().length - 1 ? ', ' : '' }}
+                      <span class="mono">{{ m.port === 0 ? t('resources.port_all') : (m.portEnd ? m.port + '–' + m.portEnd : m.port) }}/{{ m.transport }}</span>{{ i < selectedGroupMembers().length - 1 ? ', ' : '' }}
                     </span>
                   </span>
                 </div>
                 <div style="align-self: flex-end">
-                  <button type="submit" class="btn btn-primary btn-sm" :disabled="!selectedGroupId || selectedGroupMembers().length === 0">Anwenden</button>
+                  <button type="submit" class="btn btn-primary btn-sm" :disabled="!selectedGroupId || selectedGroupMembers().length === 0">{{ t('resources.btn_apply') }}</button>
                 </div>
               </div>
               <div v-if="groupApplyInfo" class="callout callout-info" style="margin-top: var(--space-3)"><div>{{ groupApplyInfo }}</div></div>

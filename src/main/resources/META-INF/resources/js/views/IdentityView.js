@@ -320,10 +320,7 @@ export default defineComponent({
             <div class="eyebrow">{{ t('identity.config') }}</div>
             <h2>{{ providerLabel(editing) }}</h2>
             <div class="muted" style="font-size: var(--text-sm)">
-              Trage die OAuth-Anwendungsdaten ein, die im
-              <template v-if="editing === 'microsoft'">Azure-Portal (App-Registrierung)</template>
-              <template v-else>Google Cloud Console (OAuth-Client)</template>
-              erzeugt wurden.
+              {{ t('identity.setup_intro_a') }}<template v-if="editing === 'microsoft'">{{ t('identity.setup_intro_ms') }}</template><template v-else>{{ t('identity.setup_intro_google') }}</template>{{ t('identity.setup_intro_b') }}
             </div>
           </div>
         </div>
@@ -349,7 +346,7 @@ export default defineComponent({
           <div class="field">
             <label>{{ t('identity.secret') }}</label>
             <input class="input mono" type="password" v-model="draft.clientSecret"
-                   :placeholder="editingProvider && editingProvider.clientSecretSet ? 'gesetzt – neu eingeben zum Rotieren' : 'noch nicht gesetzt'" />
+                   :placeholder="editingProvider && editingProvider.clientSecretSet ? t('identity.secret_ph_set') : t('identity.secret_ph_unset')" />
             <div class="field-hint">{{ t('identity.secret_hint') }}</div>
           </div>
 

@@ -1,7 +1,7 @@
 import { defineComponent } from "vue";
 import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import { Icon } from "/js/Icons.js";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, formatDate } from "/js/i18n.js";
 
 // Flat list of every peer across every user. This is the main working surface
 // for sysadmins ("show me everything connected"). User-scoped peer creation
@@ -206,10 +206,7 @@ export default defineComponent({
       if (this.sortKey !== key) return "↕";
       return this.sortDir === 1 ? "↑" : "↓";
     },
-    formatDate(iso) {
-      if (!iso) return "—";
-      return new Date(iso).toLocaleString("de-DE");
-    },
+    formatDate(iso) { return formatDate(iso); },
     isOnline(p) {
       if (!p.enabled || !p.lastSeenAt) return false;
       return (Date.now() - new Date(p.lastSeenAt).getTime()) < 5 * 60 * 1000;

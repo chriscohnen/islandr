@@ -1,5 +1,5 @@
 import { defineComponent } from "vue";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 
 // /firewall — admin reads the authoritative nftables ruleset Islandr last
 // applied + can force a resync. The display is read-only by design; rules
@@ -53,20 +53,8 @@ export default defineComponent({
         this.resyncing = false;
       }
     },
-    relativeTime(iso) {
-      if (!iso) return "—";
-      const diff = Date.now() - new Date(iso).getTime();
-      const s = Math.round(diff / 1000);
-      if (s < 60) return "vor " + s + "s";
-      const m = Math.round(s / 60);
-      if (m < 60) return "vor " + m + " min";
-      const h = Math.round(m / 60);
-      if (h < 24) return "vor " + h + " h";
-      return "vor " + Math.round(h / 24) + " Tagen";
-    },
-    formatDate(iso) {
-      return iso ? new Date(iso).toLocaleString("de-DE") : "—";
-    },
+    relativeTime(iso) { return relativeTime(iso); },
+    formatDate(iso) { return formatDate(iso); },
     statusLabel(s) {
       if (s === "ok") return t("firewall.status_ok");
       if (s === "failed") return t("firewall.status_fail");

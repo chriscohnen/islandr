@@ -70,11 +70,11 @@ export default defineComponent({
           body: JSON.stringify({ username: this.username, password: this.password }),
         });
         if (res.status === 401) {
-          this.error = "Benutzername oder Passwort falsch.";
+          this.error = t("login.err_credentials");
           return;
         }
         if (res.status === 503) {
-          this.error = "Lokaler Admin ist nicht konfiguriert. ISLANDR_ADMIN_PASSWORD im Server setzen.";
+          this.error = t("login.err_no_local");
           return;
         }
         if (!res.ok) {
@@ -171,8 +171,8 @@ export default defineComponent({
                 <input id="password" name="password" class="input" :type="showPassword ? 'text' : 'password'"
                        v-model="password" autocomplete="current-password" required />
                 <button type="button" class="input-reveal-btn" @click="showPassword = !showPassword"
-                        :aria-label="showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'"
-                        :title="showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'">
+                        :aria-label="showPassword ? t('common.pw_hide') : t('common.pw_show')"
+                        :title="showPassword ? t('common.pw_hide') : t('common.pw_show')">
                   <Icon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
                 </button>
               </div>

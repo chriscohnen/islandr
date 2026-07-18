@@ -45,20 +45,21 @@ class PortGroupEndpointsTest {
 
     @Test
     void list_includesSeededDefaults() {
-        // V10 seeded five templates — Drucker / Web / RDP / SSH / SMB. They
-        // should all show up in the list without any extra setup.
+        // V10 seeded five templates — Printer / Web / RDP / SSH / SMB (V40
+        // localised the names to English). They should all show up in the list
+        // without any extra setup.
         List<String> names = given().when().get("/api/v1/port-groups")
                 .then().statusCode(200).extract().jsonPath().getList("name");
-        assertThat(names).contains("Drucker_Standard_Ports", "Web_Standard", "RDP", "SSH", "SMB");
+        assertThat(names).contains("Printer_Standard_Ports", "Web_Standard", "RDP", "SSH", "SMB");
     }
 
     @Test
-    void druckerGroup_hasTwoExpectedPorts() {
+    void printerGroup_hasTwoExpectedPorts() {
         // Spot-check the seed payload — the printer group is the example
         // the user asked for; if it ever loses 9100 or 631 we want to know.
         JsonPath body = given().when().get("/api/v1/port-groups")
                 .then().statusCode(200).extract().jsonPath();
-        int idx = body.getList("name").indexOf("Drucker_Standard_Ports");
+        int idx = body.getList("name").indexOf("Printer_Standard_Ports");
         assertThat(idx).isGreaterThanOrEqualTo(0);
         List<Integer> ports = body.getList("members[" + idx + "].port", Integer.class);
         assertThat(ports).containsExactlyInAnyOrder(9100, 631);

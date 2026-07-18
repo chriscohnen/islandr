@@ -70,7 +70,7 @@ export default defineComponent({
       this.error = null;
       try {
         const sitesRes = await fetch("/api/v1/sites");
-        if (!sitesRes.ok) throw new Error("Sites konnten nicht geladen werden");
+        if (!sitesRes.ok) throw new Error(t("allres.err_load_sites"));
         this.sites = await sitesRes.json();
 
         // Resourcen werden je Site geliefert — hier zusammenflicken.

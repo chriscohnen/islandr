@@ -83,7 +83,7 @@ export default defineComponent({
           fetch("/api/v1/acl/matrix"),
         ]);
         if (!sitesRes.ok || !resRes.ok || !rolesRes.ok || !gRes.ok) {
-          throw new Error("HTTP fehler beim Laden der Matrix");
+          throw new Error(t("acl.err_load_matrix"));
         }
         this.sites = await sitesRes.json();
         this.resources = await resRes.json();

@@ -1,7 +1,7 @@
 import { defineComponent } from "vue";
 import TopologyDiagram from "/js/TopologyDiagram.js";
 import { Icon } from "/js/Icons.js";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 
 // Walking-skeleton dashboard. One backend round-trip (/api/v1/dashboard)
 // feeds four KPI cards, a setup-status card, and two latest-activity strips.
@@ -87,22 +87,8 @@ export default defineComponent({
         this.loading = false;
       }
     },
-    relativeTime(iso) {
-      if (!iso) return "—";
-      const then = new Date(iso).getTime();
-      const diff = Date.now() - then;
-      const s = Math.round(diff / 1000);
-      if (s < 60) return "vor " + s + "s";
-      const m = Math.round(s / 60);
-      if (m < 60) return "vor " + m + " min";
-      const h = Math.round(m / 60);
-      if (h < 24) return "vor " + h + " h";
-      const d = Math.round(h / 24);
-      return "vor " + d + " Tagen";
-    },
-    formatDate(iso) {
-      return iso ? new Date(iso).toLocaleString("de-DE") : "—";
-    },
+    relativeTime(iso) { return relativeTime(iso); },
+    formatDate(iso) { return formatDate(iso); },
     actionBadgeClass(action) {
       if (!action) return "badge-info";
       if (action.includes("delete") || action.includes("disable") || action.includes("revoke")) return "badge-neutral";
@@ -372,7 +358,7 @@ export default defineComponent({
             </tbody>
           </table>
           <div v-if="data.recentPeers.length > 0 && data.peers.lastSeen24h === 0" class="muted" style="margin-top: var(--space-3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
-            "Zuletzt gesehen" füllt sich, sobald der Activity-Poller läuft (kommt mit der nftables-Integration).
+            {{ t('dashboard.last_seen_hint') }}
           </div>
         </div>
       </div>

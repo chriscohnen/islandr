@@ -1,6 +1,6 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
-import { t, locale } from "/js/i18n.js";
+import { t, locale, formatDate } from "/js/i18n.js";
 
 // Self-service view: an org user manages their own devices. No site peers,
 // no IP picker (the server chooses), no other user's data.
@@ -404,10 +404,7 @@ export default defineComponent({
       return this.retention === "plaintext";
     },
 
-    formatDate(iso) {
-      if (!iso) return "—";
-      return new Date(iso).toLocaleString("de-DE");
-    },
+    formatDate(iso) { return formatDate(iso); },
 
     // ── IronRDP browser-RDP ──────────────────────────────────────────────────
 
@@ -507,22 +504,22 @@ export default defineComponent({
     decodeIronError(e) {
       if (!e || typeof e.kind !== "function") return null;
       const KINDS = {
-        0: "Allgemeiner Fehler",
-        1: "Falsches Passwort",
-        2: "Anmeldung am Host fehlgeschlagen",
-        3: "Zugriff verweigert (Server)",
-        4: "Verbindungsaufbau fehlgeschlagen (RDCleanPath)",
-        5: "Verbindung zum Proxy fehlgeschlagen",
-        6: "Protokoll-Aushandlung fehlgeschlagen",
+        0: t("myaccess.rdp_kind_0"),
+        1: t("myaccess.rdp_kind_1"),
+        2: t("myaccess.rdp_kind_2"),
+        3: t("myaccess.rdp_kind_3"),
+        4: t("myaccess.rdp_kind_4"),
+        5: t("myaccess.rdp_kind_5"),
+        6: t("myaccess.rdp_kind_6"),
       };
       const TLS = {
-        40: "Handshake-Fehler", 42: "Ungültiges Zertifikat", 45: "Zertifikat abgelaufen",
-        48: "Unbekannte CA (selbstsigniert)", 112: "Servername nicht erkannt",
+        40: t("myaccess.rdp_tls_40"), 42: t("myaccess.rdp_tls_42"), 45: t("myaccess.rdp_tls_45"),
+        48: t("myaccess.rdp_tls_48"), 112: t("myaccess.rdp_tls_112"),
       };
       const WSA = {
-        10013: "Zugriff verweigert (WSAEACCES)", 10060: "Zeitüberschreitung (WSAETIMEDOUT)",
-        10061: "Verbindung abgelehnt (WSAECONNREFUSED)", 10051: "Netz nicht erreichbar (WSAENETUNREACH)",
-        10065: "Host nicht erreichbar (WSAEHOSTUNREACH)",
+        10013: t("myaccess.rdp_wsa_10013"), 10060: t("myaccess.rdp_wsa_10060"),
+        10061: t("myaccess.rdp_wsa_10061"), 10051: t("myaccess.rdp_wsa_10051"),
+        10065: t("myaccess.rdp_wsa_10065"),
       };
       const out = {};
       try { out.kind = e.kind(); out.kindLabel = KINDS[out.kind] || ("Kind " + out.kind); } catch {}
@@ -546,8 +543,8 @@ export default defineComponent({
     rdpErrorMessage(e, reached, iron) {
       if (iron && iron.kindLabel) {
         const bits = [iron.kindLabel];
-        if (iron.tlsAlert !== undefined) bits.push("TLS-Alert " + iron.tlsAlert + (iron.tlsAlertLabel ? " (" + iron.tlsAlertLabel + ")" : ""));
-        if (iron.wsa !== undefined) bits.push("Socket-Fehler " + iron.wsa + (iron.wsaLabel ? " (" + iron.wsaLabel + ")" : ""));
+        if (iron.tlsAlert !== undefined) bits.push(t("myaccess.rdp_tls_alert") + " " + iron.tlsAlert + (iron.tlsAlertLabel ? " (" + iron.tlsAlertLabel + ")" : ""));
+        if (iron.wsa !== undefined) bits.push(t("myaccess.rdp_socket_err") + " " + iron.wsa + (iron.wsaLabel ? " (" + iron.wsaLabel + ")" : ""));
         if (iron.http !== undefined) bits.push("HTTP " + iron.http);
         // For General (kind 0) with no coded detail, the backtrace is the only real
         // signal — surface its first line so the user isn't left with a bare label.
@@ -555,7 +552,7 @@ export default defineComponent({
           const first = String(iron.backtrace).split("\n").map(s => s.trim()).filter(Boolean)[0];
           if (first) bits.push(first);
         }
-        return "Verbindung zum RDP-Server fehlgeschlagen: " + bits.join(" — ") + ".";
+        return t("myaccess.rdp_fail") + ": " + bits.join(" — ") + ".";
       }
       let detail = "";
       if (e != null) {
@@ -568,9 +565,9 @@ export default defineComponent({
         }
       }
       if (reached) {
-        return detail ? ("RDP-Sitzung fehlgeschlagen: " + detail) : "RDP-Sitzung unerwartet beendet.";
+        return detail ? (t("myaccess.rdp_session_fail") + ": " + detail) : t("myaccess.rdp_session_ended");
       }
-      return "Verbindung zum RDP-Server fehlgeschlagen. Erreicht der Hub den Host, und läuft dort RDP mit TLS? Details stehen im Server-Log."
+      return t("myaccess.rdp_fail_hint")
         + (detail ? " (" + detail + ")" : "");
     },
 
@@ -851,7 +848,7 @@ export default defineComponent({
                    target="_blank"
                    rel="noopener noreferrer"
                    class="myaccess-port-link"
-                   :title="httpUrl(r, p) + ' — im Browser öffnen'">
+                   :title="httpUrl(r, p) + ' — ' + t('myaccess.open_in_browser')">
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
                   <span>{{ p.protocol }}</span>
                   <span v-if="p.label" style="color:var(--fg3)">{{ p.label }}</span>
@@ -892,7 +889,7 @@ export default defineComponent({
                   <button v-if="ironRdpEnabled" @click="openRdpDialog(r, p)"
                      :class="['myaccess-port-link', 'myaccess-port-rdp',
                               p.rdpAccessMode === 'web-only' ? '' : 'myaccess-port-rdp-browser-adj']"
-                     title="Im Browser öffnen">
+                     :title="t('myaccess.open_in_browser')">
                     <!-- Monitor + globe badge -->
                     <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
                          stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
@@ -1009,7 +1006,7 @@ export default defineComponent({
 
       <div v-if="modalMode === 'create'" class="modal">
         <div class="modal-header">
-          <h2>Neues Gerät</h2>
+          <h2>{{ t('myaccess.modal_new_device') }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeModal">✕</button>
         </div>
         <form @submit.prevent="submitCreate">
@@ -1017,9 +1014,9 @@ export default defineComponent({
             <div v-if="formError" class="error-banner">{{ formError }}</div>
 
             <div class="field" style="margin-bottom: var(--space-4)">
-              <label for="devName">Gerätename</label>
-              <input id="devName" class="input" v-model="newDevice.name" required placeholder="z.B. iPhone, MacBook" />
-              <div class="field-hint">Frei wählbar. Wird im Audit-Log angezeigt.</div>
+              <label for="devName">{{ t('myaccess.label_device_name') }}</label>
+              <input id="devName" class="input" v-model="newDevice.name" required :placeholder="t('myaccess.ph_device_name')" />
+              <div class="field-hint">{{ t('myaccess.hint_device_name') }}</div>
             </div>
 
             <fieldset class="key-mode">
@@ -1028,14 +1025,14 @@ export default defineComponent({
                 <input type="radio" :checked="!importPublicKey" @change="importPublicKey = false" />
                 <div>
                   <div class="key-mode-title">{{ t('peer.key_generate') }}</div>
-                  <div class="key-mode-hint">Einfachster Weg. Du bekommst danach einen QR-Code zum Einscannen in der WireGuard-App.</div>
+                  <div class="key-mode-hint">{{ t('myaccess.hint_generate') }}</div>
                 </div>
               </label>
               <label class="key-mode-option">
                 <input type="radio" :checked="importPublicKey" @change="importPublicKey = true" />
                 <div>
                   <div class="key-mode-title">{{ t('peer.key_import') }}</div>
-                  <div class="key-mode-hint">Wenn du den Keypair lokal auf dem Gerät erzeugt hast, gib hier nur den öffentlichen Teil ein. Der private Schlüssel verlässt dein Gerät nie.</div>
+                  <div class="key-mode-hint">{{ t('myaccess.hint_own_key') }}</div>
                 </div>
               </label>
             </fieldset>
@@ -1063,10 +1060,10 @@ export default defineComponent({
           <div class="modal-body">
             <div v-if="formError" class="error-banner">{{ formError }}</div>
             <div class="callout callout-info" style="margin-bottom: var(--space-4)">
-              Erzeuge auf dem Gerät einen neuen Keypair (z.B. <code>wg genkey | tee priv | wg pubkey</code>) und füge den öffentlichen Teil hier ein. Der bisherige Schlüssel funktioniert anschließend nicht mehr.
+              {{ t('myaccess.rotate_hint_a') }}<code>wg genkey | tee priv | wg pubkey</code>{{ t('myaccess.rotate_hint_b') }}
             </div>
             <div class="field">
-              <label for="rotKey">Neuer Public Key</label>
+              <label for="rotKey">{{ t('myaccess.label_new_pubkey') }}</label>
               <input id="rotKey" class="input mono" v-model="rotateKey" required :placeholder="t('peer.field_pubkey_ph')" />
             </div>
           </div>
@@ -1093,7 +1090,7 @@ export default defineComponent({
           </div>
           <div v-else-if="!secretIsReshow && !secret.privateKey" class="callout callout-info">
             <div>
-              Gerät hinzugefügt mit deinem importierten Public Key. Die .conf unten enthält keine <code>PrivateKey</code>-Zeile — den trägst du auf dem Gerät selbst ein.
+              {{ t('myaccess.secret_imported_a') }}<code>PrivateKey</code>{{ t('myaccess.secret_imported_b') }}
             </div>
           </div>
           <div v-else-if="secretIsReshow && secret.privateKey" class="callout callout-info">
@@ -1104,7 +1101,7 @@ export default defineComponent({
 
           <div class="secret-block" :class="{ 'secret-block-no-qr': !secret.qrPngBase64 }">
             <div v-if="secret.qrPngBase64" class="qr">
-              <img :src="secret.qrPngBase64" alt="WireGuard QR-Code" />
+              <img :src="secret.qrPngBase64" :alt="t('peer.qr_alt')" />
             </div>
             <div>
               <div class="field" style="margin-bottom: var(--space-3)">
@@ -1131,7 +1128,7 @@ export default defineComponent({
     <div v-if="rdpDialog" class="modal-backdrop" @click.self="closeRdpDialog">
       <div class="modal" style="max-width: 400px">
         <div class="modal-header">
-          <h3 style="margin:0; font-size: var(--text-md)">Im Browser öffnen</h3>
+          <h3 style="margin:0; font-size: var(--text-md)">{{ t('myaccess.open_in_browser') }}</h3>
         </div>
         <div class="modal-body">
           <div class="muted" style="margin-bottom: var(--space-4); font-size: var(--text-sm)">
@@ -1141,45 +1138,45 @@ export default defineComponent({
           </div>
           <form id="rdp-cred-form" @submit.prevent="connectRdpInBrowser">
             <div class="form-group">
-              <label class="label" for="rdpUser">Benutzername</label>
+              <label class="label" for="rdpUser">{{ t('myaccess.label_username') }}</label>
               <input id="rdpUser" name="username" class="input" v-model="rdpCreds.username"
-                     type="text" autocomplete="username" placeholder="z.B. Administrator" />
+                     type="text" autocomplete="username" :placeholder="t('myaccess.ph_username')" />
             </div>
             <div class="form-group">
-              <label class="label" for="rdpPass">Passwort</label>
+              <label class="label" for="rdpPass">{{ t('login.password') }}</label>
               <div class="input-reveal">
                 <input id="rdpPass" name="password" class="input" v-model="rdpCreds.password"
                        :type="rdpShowPassword ? 'text' : 'password'" autocomplete="current-password" />
                 <button type="button" class="input-reveal-btn" @click="rdpShowPassword = !rdpShowPassword"
-                        :aria-label="rdpShowPassword ? 'Passwort verbergen' : 'Passwort anzeigen'"
-                        :title="rdpShowPassword ? 'Passwort verbergen' : 'Passwort anzeigen'">
+                        :aria-label="rdpShowPassword ? t('common.pw_hide') : t('common.pw_show')"
+                        :title="rdpShowPassword ? t('common.pw_hide') : t('common.pw_show')">
                   <Icon :name="rdpShowPassword ? 'eye-off' : 'eye'" :size="16" />
                 </button>
               </div>
             </div>
             <div class="form-group">
-              <label class="label" for="rdpDomain">Domäne <span class="muted">(optional)</span></label>
+              <label class="label" for="rdpDomain">{{ t('myaccess.label_domain') }} <span class="muted">(optional)</span></label>
               <input id="rdpDomain" name="domain" class="input" v-model="rdpCreds.domain"
-                     type="text" autocomplete="off" placeholder="z.B. FIRMA" />
+                     type="text" autocomplete="off" :placeholder="t('myaccess.ph_domain')" />
             </div>
           </form>
           <!-- Copyable per-resource URI for the user's password manager (KeePassXC /
                Bitwarden). Autofill still keys on the islandr origin; this URI carries
                the resource name so the right vault entry is easy to find/organise. -->
           <div class="field" style="margin-top: var(--space-3)">
-            <label class="label muted" style="font-size: var(--text-xs)">URI für Passwort-Manager (KeePassXC / Bitwarden)</label>
+            <label class="label muted" style="font-size: var(--text-xs)">{{ t('myaccess.label_pwmgr_uri') }}</label>
             <div style="display: flex; gap: var(--space-2); align-items: center">
               <code class="mono" style="flex: 1; font-size: var(--text-xs); overflow-x: auto; white-space: nowrap">{{ rdpMatchUri(rdpDialog.resource) }}</code>
               <button type="button" class="btn btn-ghost btn-sm"
                       @click="copyCmd(rdpMatchUri(rdpDialog.resource), 'rdpuri')">
-                {{ copiedCmd === 'rdpuri' ? 'Kopiert' : 'Kopieren' }}
+                {{ copiedCmd === 'rdpuri' ? t('common.copied') : t('common.copy') }}
               </button>
             </div>
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-ghost" @click="closeRdpDialog">Abbrechen</button>
-          <button class="btn btn-primary" form="rdp-cred-form" type="submit">Verbinden</button>
+          <button class="btn btn-ghost" @click="closeRdpDialog">{{ t('common.cancel') }}</button>
+          <button class="btn btn-primary" form="rdp-cred-form" type="submit">{{ t('myaccess.btn_connect') }}</button>
         </div>
       </div>
     </div>
@@ -1191,10 +1188,10 @@ export default defineComponent({
           {{ rdpOverlay.resource.name }} &mdash; {{ rdpOverlay.port.label || rdpOverlay.port.protocol }}
           <span class="mono muted" style="font-size: var(--text-xs)">({{ rdpOverlay.resource.ip }}:{{ rdpOverlay.port.port }})</span>
         </span>
-        <span v-if="rdpStatus === 'connecting'" class="muted" style="font-size: var(--text-xs)">Verbinde...</span>
-        <span v-else-if="rdpStatus === 'disconnected'" class="muted" style="font-size: var(--text-xs)">Verbindung beendet</span>
+        <span v-if="rdpStatus === 'connecting'" class="muted" style="font-size: var(--text-xs)">{{ t('myaccess.rdp_connecting') }}</span>
+        <span v-else-if="rdpStatus === 'disconnected'" class="muted" style="font-size: var(--text-xs)">{{ t('myaccess.rdp_disconnected') }}</span>
         <span v-else-if="rdpStatus === 'error'" style="color: var(--danger); font-size: var(--text-xs)">{{ rdpError }}</span>
-        <button class="btn btn-ghost btn-sm rdp-close-btn" @click="closeRdpOverlay">Trennen</button>
+        <button class="btn btn-ghost btn-sm rdp-close-btn" @click="closeRdpOverlay">{{ t('myaccess.btn_disconnect') }}</button>
       </div>
       <canvas ref="rdpCanvas" class="rdp-canvas" tabindex="0"></canvas>
     </div>

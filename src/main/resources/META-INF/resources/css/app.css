@@ -118,6 +118,14 @@ body {
   flex-direction: column;
   padding: var(--space-5) 0 var(--space-4) 0;
   gap: var(--space-2);
+  /* Stay in view on long pages: pin to the viewport and keep the full height so
+     the footer (Settings) is always reachable without scrolling to the bottom
+     of the page. The nav scrolls inside the rail if it ever exceeds the height. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .sidebar .wordmark {
@@ -213,6 +221,10 @@ body {
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
+  /* Grid items default to min-width:auto and won't shrink below their content's
+     min-content width, so any wide/unbreakable content could stretch the track
+     past the viewport. Let the track win; inner scroll boxes handle the rest. */
+  min-width: 0;
 }
 
 @media (max-width: 720px) {
@@ -230,6 +242,10 @@ body {
     padding: var(--space-2);
     border-right: 0;
     border-bottom: 1px solid var(--border);
+    /* Horizontal bar on mobile — undo the desktop sticky full-height rail. */
+    position: static;
+    height: auto;
+    overflow-y: visible;
   }
   .sidebar .wordmark,
   .sidebar .section-label,
@@ -325,6 +341,15 @@ body {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
+}
+
+/* Flex children default to min-width:auto and so won't shrink below their
+   content's min-content width. Without this, a long unbreakable line inside a
+   callout (e.g. the install commands in the enforcement banner) stretches the
+   whole banner and overflows the page instead of scrolling inside its own
+   overflow-x:auto box. */
+.callout > * {
+  min-width: 0;
 }
 
 .callout-warning {

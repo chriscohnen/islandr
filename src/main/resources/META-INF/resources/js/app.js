@@ -341,9 +341,9 @@ const App = defineComponent({
       <main class="main">
         <div v-if="isAdmin && !setupComplete && $route.name !== 'settings'" class="callout callout-warning">
           <div>
-            <strong>Setup unvollständig.</strong>
-            Der WireGuard-Server-Public-Key trägt noch den Platzhalter.
-            <router-link to="/settings">Jetzt in den Einstellungen ergänzen.</router-link>
+            <strong>{{ t('app.setup_incomplete') }}</strong>
+            {{ t('app.setup_desc') }}
+            <router-link to="/settings">{{ t('app.setup_link') }}</router-link>
           </div>
         </div>
         <div v-if="isAdmin && enforcement.status !== 'active'" class="callout callout-warning">
