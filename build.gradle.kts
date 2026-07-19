@@ -120,3 +120,22 @@ tasks.withType<JavaCompile> {
 // trips on Reflection/JNI/Resource access, the fix lives in
 // src/main/resources/META-INF/native-image/ (config JSONs Quarkus generates
 // most of automatically). Tracked as R-034 in ADR-0004.
+
+// Native integration tests (src/native-test/java, run via `./gradlew testNative`):
+// exercise the actual packaged native binary, not the JVM test suite. Guards the
+// class of regression that JVM @QuarkusTest cannot see — e.g. a DTO missing from
+// native-image reflection config, or a Response-wrapped entity that native's
+// build-time serialization analysis can't see through (see NativeReflectionConfig
+// and DiscoveryResource#startScan for the concrete incident this class of test
+// closes — ADR-0014 slice 4 / rc.3–rc.6 / issue #25).
+dependencies {
+    "nativeTestImplementation"("io.quarkus:quarkus-junit5")
+    "nativeTestImplementation"("io.rest-assured:rest-assured")
+}
+
+// The native binary boots under the prod profile (as shipped) and has no default
+// admin password there — set one so the IT can log in, mirroring how ci.yml's
+// bash-based native smoke test authenticates against the same binary.
+tasks.named<Test>("testNative") {
+    environment("ISLANDR_ADMIN_PASSWORD", "native-it-pw")
+}
