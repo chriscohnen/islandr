@@ -131,7 +131,7 @@ public class PeerService {
             throw new WebApplicationException("peer registered with wg but nftables recompute failed: " + e.getMessage(), 500);
         }
 
-        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, null);
+        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, null, null);
         String qrPng = privateKeyForResponse != null ? qr.toDataUrl(conf) : null;
 
         return new PeerDto.CreateResponse(
@@ -150,7 +150,7 @@ public class PeerService {
             String rawKey = encSvc.isEncrypted(peer.privateKeyPem)
                     ? encSvc.decrypt(peer.privateKeyPem)
                     : peer.privateKeyPem;
-            String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu);
+            String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive);
             String qrPng = qr.toDataUrl(conf);
             return new PeerDto.CreateResponse(
                     PeerDto.Response.from(peer),
@@ -159,7 +159,7 @@ public class PeerService {
                     qrPng,
                     peer.presharedKey);
         }
-        String confNoKey = renderConf(null, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu);
+        String confNoKey = renderConf(null, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive);
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
                 null,
@@ -278,6 +278,9 @@ public class PeerService {
             peer.deviceType = null;
         }
         peer.mtu = (req.mtu() != null && req.mtu() > 0) ? req.mtu() : null;
+        // Assigned directly (not `> 0 ? x : null` like mtu): 0 is a meaningful
+        // "keepalive off for this peer" override, distinct from null = defer to global.
+        peer.persistentKeepalive = req.persistentKeepalive();
         peer.persist();
 
         if ((ipChanged || ip6Changed || cidrsChanged || pskChanged) && peer.enabled) {
@@ -297,7 +300,7 @@ public class PeerService {
         String rawKey = (peer.privateKeyPem != null && encSvc.isEncrypted(peer.privateKeyPem))
                 ? encSvc.decrypt(peer.privateKeyPem)
                 : peer.privateKeyPem;
-        String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu);
+        String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive);
         String qrPng = rawKey != null ? qr.toDataUrl(conf) : null;
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
@@ -524,7 +527,8 @@ public class PeerService {
     }
 
     private String renderConf(String privateKey, String assignedIp, String assignedIpv6,
-                               String presharedKey, Settings settings, Integer peerMtu) {
+                               String presharedKey, Settings settings, Integer peerMtu,
+                               Integer peerKeepalive) {
         StringBuilder sb = new StringBuilder();
         sb.append("[Interface]\n");
         if (privateKey != null) {
@@ -564,7 +568,12 @@ public class PeerService {
         }
         sb.append("AllowedIPs = ").append(allowedIps).append("\n");
         sb.append("Endpoint = ").append(settings.wgServerEndpoint).append("\n");
-        sb.append("PersistentKeepalive = 25\n");
+        // Effective keepalive: per-peer override wins, else the global default.
+        // The value is the switch — omit the line entirely when it resolves to 0.
+        int effectiveKeepalive = peerKeepalive != null ? peerKeepalive : settings.wgPersistentKeepalive;
+        if (effectiveKeepalive > 0) {
+            sb.append("PersistentKeepalive = ").append(effectiveKeepalive).append("\n");
+        }
 
         return sb.toString();
     }

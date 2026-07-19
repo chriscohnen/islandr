@@ -523,6 +523,87 @@ class PeerResourceTest {
                 .body("conf", containsString("10.8.0.52/32"));
     }
 
+    // ---- PersistentKeepalive (issue #28) -----------------------------------
+    //
+    // Effective value = per-peer override (Peer.persistentKeepalive) else the
+    // global default (Settings.wgPersistentKeepalive, seeded to 25). The value
+    // is the switch: 0 = omit the line, N = "PersistentKeepalive = N".
+
+    @Test
+    void create_confCarriesGlobalKeepaliveDefault() {   // AC1: global 25, no override → "= 25"
+        String userId = createUser();
+        given().contentType("application/json")
+                .body("""
+                        { "name": "ka-default", "assignedIp": "10.8.0.60" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .body("conf", containsString("PersistentKeepalive = 25"))
+                .body("peer.persistentKeepalive", nullValue());
+    }
+
+    @Test
+    void update_perPeerKeepaliveOverridesGlobal() {     // AC3: override 15 → "= 15"
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "ka-override", "assignedIp": "10.8.0.61" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "name": "ka-override", "assignedIp": "10.8.0.61", "persistentKeepalive": 15 }
+                        """)
+                .when().put("/api/v1/peers/" + peerId)
+                .then().statusCode(200)
+                .body("peer.persistentKeepalive", equalTo(15))
+                .body("conf", containsString("PersistentKeepalive = 15"))
+                .body("conf", not(containsString("PersistentKeepalive = 25")));
+    }
+
+    @Test
+    void update_perPeerKeepaliveZeroOmitsLine() {       // AC2 path: effective 0 → no line
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "ka-off", "assignedIp": "10.8.0.62" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "name": "ka-off", "assignedIp": "10.8.0.62", "persistentKeepalive": 0 }
+                        """)
+                .when().put("/api/v1/peers/" + peerId)
+                .then().statusCode(200)
+                .body("peer.persistentKeepalive", equalTo(0))
+                .body("conf", not(containsString("PersistentKeepalive")));
+    }
+
+    @Test
+    void update_rejectsNegativeKeepalive() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "ka-bad", "assignedIp": "10.8.0.63" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "name": "ka-bad", "assignedIp": "10.8.0.63", "persistentKeepalive": -1 }
+                        """)
+                .when().put("/api/v1/peers/" + peerId)
+                .then().statusCode(400);
+    }
+
     @Test
     void update_rejectsDuplicateIp() {
         String userId = createUser();

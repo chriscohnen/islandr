@@ -107,6 +107,12 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "mtu")
     public Integer mtu;
 
+    /** Per-peer PersistentKeepalive (seconds) for the client .conf [Peer] section.
+     *  null = defer to global setting (Settings.wgPersistentKeepalive);
+     *  0 = keepalive explicitly off for this peer; N = explicit interval. */
+    @Column(name = "persistent_keepalive")
+    public Integer persistentKeepalive;
+
     public boolean isSite() {
         return "site".equals(type);
     }

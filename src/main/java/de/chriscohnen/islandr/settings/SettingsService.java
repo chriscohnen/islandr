@@ -49,6 +49,8 @@ public class SettingsService {
         s.selfServicePeerCreation = req.selfServicePeerCreation();
         s.wgMtu = (req.wgMtu() != null && req.wgMtu() > 0) ? req.wgMtu() : null;
         s.wgIncludeMtuInConf = req.wgIncludeMtuInConf();
+        // null (field omitted) keeps the 25 default; 0 is a valid "keepalive off globally".
+        s.wgPersistentKeepalive = req.wgPersistentKeepalive() != null ? req.wgPersistentKeepalive() : 25;
         s.nominatimUrl = (req.nominatimUrl() == null || req.nominatimUrl().isBlank())
                 ? null : req.nominatimUrl().strip();
         s.hubLat = req.hubLat();

@@ -31,6 +31,7 @@ class SettingsResourceTest {
                 .body("wgSubnet", equalTo("10.8.0.0/24"))
                 .body("wgServerPublicKey", startsWith("PLACEHOLDER"))
                 .body("privateKeyRetention", equalTo("never"))
+                .body("wgPersistentKeepalive", equalTo(25))   // issue #28: seeded default
                 .body("setupComplete", is(false));
     }
 
@@ -44,14 +45,16 @@ class SettingsResourceTest {
                   "wgServerEndpoint": "vpn.example.com:51820",
                   "wgClientAllowedIps": "10.9.0.0/24,10.20.0.0/16",
                   "wgClientDns": "10.9.0.1",
-                  "privateKeyRetention": "never"
+                  "privateKeyRetention": "never",
+                  "wgPersistentKeepalive": 30
                 }
                 """)
                 .when().put("/api/v1/settings")
                 .then().statusCode(200)
                 .body("wgSubnet", equalTo("10.9.0.0/24"))
                 .body("setupComplete", is(true))
-                .body("wgClientDns", equalTo("10.9.0.1"));
+                .body("wgClientDns", equalTo("10.9.0.1"))
+                .body("wgPersistentKeepalive", equalTo(30));   // issue #28: global default round-trips
     }
 
     @Test

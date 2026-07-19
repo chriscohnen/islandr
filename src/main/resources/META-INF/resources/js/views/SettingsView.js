@@ -33,6 +33,7 @@ export default defineComponent({
         ironRdpEnabled: false,
         wgMtu: null,
         wgIncludeMtuInConf: false,
+        wgPersistentKeepalive: 25,
         hubLat: null,
         hubLon: null,
         hubLocationLabel: "",
@@ -85,6 +86,7 @@ export default defineComponent({
           ironRdpEnabled: !!s.ironRdpEnabled,
           wgMtu: s.wgMtu || null,
           wgIncludeMtuInConf: !!s.wgIncludeMtuInConf,
+          wgPersistentKeepalive: s.wgPersistentKeepalive ?? 25,
           hubLat: s.hubLat ?? null,
           hubLon: s.hubLon ?? null,
           hubLocationLabel: s.hubLocationLabel || "",
@@ -111,6 +113,9 @@ export default defineComponent({
           ...this.form,
           wgClientDns: this.form.wgClientDns.trim() === "" ? null : this.form.wgClientDns.trim(),
           wgMtu: this.form.wgMtu || null,
+          // Preserve an explicit 0 (= keepalive off globally); empty field → 25 default.
+          wgPersistentKeepalive: (this.form.wgPersistentKeepalive === "" || this.form.wgPersistentKeepalive == null
+            || Number.isNaN(this.form.wgPersistentKeepalive)) ? 25 : this.form.wgPersistentKeepalive,
           hubLat: this.form.hubLat !== "" && this.form.hubLat !== null ? Number(this.form.hubLat) : null,
           hubLon: this.form.hubLon !== "" && this.form.hubLon !== null ? Number(this.form.hubLon) : null,
           hubLocationLabel: this.form.hubLocationLabel.trim() || null,
@@ -381,6 +386,13 @@ export default defineComponent({
               <span>{{ t('settings.label_include_mtu') }}</span>
             </label>
             <div class="field-hint">{{ t('settings.hint_include_mtu') }}</div>
+          </div>
+
+          <div class="field">
+            <label>{{ t('settings.field_keepalive') }}</label>
+            <input type="number" class="input mono" v-model.number="form.wgPersistentKeepalive"
+                   min="0" max="65535" :placeholder="t('settings.ph_keepalive')" style="width: 120px" />
+            <div class="field-hint">{{ t('settings.hint_keepalive') }}</div>
           </div>
         </div>
       </div>

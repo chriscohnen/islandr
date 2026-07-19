@@ -28,6 +28,7 @@ export const peerModalMixin = {
       editOriginalCidrs: null,
       editPeerPublicKey: null,
       editMtu: null,
+      editKeepalive: null,
 
       newPeer: { name: "", assignedIp: "", assignedIpv6: "" },
       // Peer kind: "client" (single device) or "site" (gateway exposing a
@@ -177,6 +178,8 @@ export const peerModalMixin = {
       this.siteAllowedCidrs = peer.siteAllowedCidrs || "";
       this.editHasPsk = !!peer.hasPresharedKey;
       this.editMtu = peer.mtu || null;
+      // `?? null` (not `|| null`): 0 is a valid "keepalive off for this peer" value.
+      this.editKeepalive = peer.persistentKeepalive ?? null;
       this.pskAction = null;
       this.pskSyncing = false;
       this.pskSyncResult = null;
@@ -195,6 +198,10 @@ export const peerModalMixin = {
         deviceType: this.peerType === "client" ? (this.deviceType || null) : null,
         presharedKeyAction: this.pskAction || null,
         mtu: this.editMtu || null,
+        // Keep an explicit 0 (= keepalive off); only an empty field means "defer to global".
+        persistentKeepalive: (this.editKeepalive === "" || this.editKeepalive === null
+          || this.editKeepalive === undefined || Number.isNaN(this.editKeepalive))
+          ? null : this.editKeepalive,
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
@@ -547,6 +554,14 @@ export const peerModalTemplate = `
                    min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
                    style="width: 200px" />
             <div class="field-hint">{{ t('peer.field_mtu_hint') }}</div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label>{{ t('peer.field_keepalive') }}</label>
+            <input type="number" class="input mono" v-model.number="editKeepalive"
+                   min="0" max="65535" :placeholder="t('peer.field_keepalive_ph')"
+                   style="width: 200px" />
+            <div class="field-hint">{{ t('peer.field_keepalive_hint') }}</div>
           </div>
         </div>
         <div class="modal-footer">

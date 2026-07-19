@@ -73,6 +73,13 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "wg_include_mtu_in_conf", columnDefinition = "INTEGER")
     public boolean wgIncludeMtuInConf = false;
 
+    // Global default PersistentKeepalive for client .conf files, in seconds.
+    // The value is the switch: 0 = no keepalive line, 1..65535 = interval.
+    // Default 25 preserves the value hardcoded before issue #28. A per-peer
+    // override lives on Peer.persistentKeepalive.
+    @Column(name = "wg_persistent_keepalive", nullable = false)
+    public int wgPersistentKeepalive = 25;
+
     // Optional Nominatim base URL for address geocoding in the Sites view.
     // Empty / null = geocoding disabled. No external calls are made without
     // an explicit admin-configured URL.
