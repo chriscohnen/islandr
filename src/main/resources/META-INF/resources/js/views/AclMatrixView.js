@@ -127,12 +127,15 @@ export default defineComponent({
      * resources too. The old single-port shortcut only ever granted the one
      * specific port, so "all ports" could not be selected on a one-port resource
      * and a later-added port would silently be excluded (bug).
+     *
+     * Resources with zero ports defined yet still open the picker: "no access"
+     * and "all ports (incl. future)" are both meaningful even before a first
+     * port exists — "all ports" is exactly what you want to pre-grant a role
+     * before adding ports later, so it shouldn't be blocked on port count.
+     * Only "limited" needs concrete ports to choose from, and the picker
+     * hides that option itself when the list is empty.
      */
     onCellClick(roleId, resource) {
-      if (resource.ports.length === 0) {
-        // No ports defined yet — can't grant anything. No-op.
-        return;
-      }
       this.picker = {
         roleId,
         resourceId: resource.id,
@@ -296,8 +299,6 @@ export default defineComponent({
               <button class="btn btn-ghost btn-sm"
                       style="min-width: 60px; font-family: var(--font-mono); font-size: var(--text-md); text-transform: none; letter-spacing: 0"
                       :style="isCellDirty(role.id, r.id) ? 'box-shadow: 0 0 0 2px #FBBF24 inset' : ''"
-                      :disabled="r.ports.length === 0"
-                      :title="r.ports.length === 0 ? t('acl.no_ports_tip') : ''"
                       @click="onCellClick(role.id, r)">
                 {{ cellLabel(role.id, r) }}
               </button>
@@ -367,10 +368,13 @@ export default defineComponent({
               <input type="radio" value="all" v-model="mode" style="width: 16px; height: 16px; accent-color: var(--accent)" />
               {{ t('acl.picker_all') }}
             </label>
-            <label style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500">
+            <label v-if="ports.length > 0" style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500">
               <input type="radio" value="limited" v-model="mode" style="width: 16px; height: 16px; accent-color: var(--accent)" />
               {{ t('acl.picker_limited') }}
             </label>
+            <p v-else class="muted" style="margin: 0; font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-xs)">
+              {{ t('acl.picker_no_ports_yet') }}
+            </p>
             <div v-if="mode === 'limited'" style="margin-left: var(--space-6); display: flex; flex-direction: column; gap: var(--space-2)">
               <label v-for="p in ports" :key="p.id"
                      style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 400">

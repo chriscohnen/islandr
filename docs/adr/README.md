@@ -23,6 +23,8 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0013](0013-default-everyone-role.md) | Default "Everyone" role with auto-membership (0.11.0) | Accepted | 2026-07-10 |
 | [0014](0014-device-discovery.md) | Device discovery by unprivileged TCP-connect scan of a site's own CIDR (0.12.0) | Accepted | 2026-07-10 |
 | [0015](0015-builtin-tls-termination.md) | Built-in TLS termination (no mandatory reverse proxy) | Accepted | 2026-07-19 |
+| [0016](0016-peer-activity-heatmap-storage.md) | Daily-aggregated storage for the peer activity heatmap, not raw time series | Proposed | 2026-07-19 |
+| [0017](0017-split-tunnel-network-scope.md) | Split tunnel lists all known networks, not just the peer's current grants | Proposed | 2026-07-19 |
 
 ## Status legend
 
