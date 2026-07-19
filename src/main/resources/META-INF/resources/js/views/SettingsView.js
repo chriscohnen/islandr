@@ -440,6 +440,10 @@ export default defineComponent({
             <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
               <input type="number" class="input mono" v-model.number="form.wgMtu"
                      min="576" max="65535" :placeholder="t('settings.ph_mtu')" style="width: 120px" />
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('mtu.preset_label') }}</span>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': form.wgMtu === 1420 }" @click="form.wgMtu = 1420">1420</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': form.wgMtu === 1392 }" @click="form.wgMtu = 1392">1392</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': form.wgMtu === 1280 }" @click="form.wgMtu = 1280">1280</button>
               <span v-if="probedIfMtu && probedIfMtu !== form.wgMtu"
                     style="font-size:var(--text-sm); color:var(--fg3)">
                 {{ t('settings.mtu_probed_label') }} <span class="mono" style="color:var(--fg2)">{{ probedIfMtu }}</span>
@@ -452,6 +456,12 @@ export default defineComponent({
               <input type="checkbox" v-model="form.wgIncludeMtuInConf" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
               <span>{{ t('settings.label_include_mtu') }}</span>
             </label>
+            <div class="field-hint" style="line-height:1.5">
+              <div>{{ t('mtu.hint_intro') }}</div>
+              <div><strong class="mono">1420</strong> — {{ t('mtu.v1420') }}</div>
+              <div><strong class="mono">1392</strong> — {{ t('mtu.v1392') }}</div>
+              <div><strong class="mono">1280</strong> — {{ t('mtu.v1280') }}</div>
+            </div>
             <div class="field-hint">{{ t('settings.hint_include_mtu') }}</div>
           </div>
 

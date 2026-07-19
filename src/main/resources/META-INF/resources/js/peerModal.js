@@ -622,10 +622,21 @@ export const peerModalTemplate = `
 
           <div class="field" style="margin-top: var(--space-4)">
             <label>{{ t('peer.field_mtu') }}</label>
-            <input type="number" class="input mono" v-model.number="editMtu"
-                   min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
-                   style="width: 200px" />
-            <div class="field-hint">{{ t('peer.field_mtu_hint') }}</div>
+            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
+              <input type="number" class="input mono" v-model.number="editMtu"
+                     min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
+                     style="width: 160px" />
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('mtu.preset_label') }}</span>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': editMtu === 1420 }" @click="editMtu = 1420">1420</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': editMtu === 1392 }" @click="editMtu = 1392">1392</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': editMtu === 1280 }" @click="editMtu = 1280">1280</button>
+            </div>
+            <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+              <div>{{ t('mtu.hint_intro') }}</div>
+              <div><strong class="mono">1420</strong> — {{ t('mtu.v1420') }}</div>
+              <div><strong class="mono">1392</strong> — {{ t('mtu.v1392') }}</div>
+              <div><strong class="mono">1280</strong> — {{ t('mtu.v1280') }}</div>
+            </div>
           </div>
 
           <div class="field" style="margin-top: var(--space-4)">
@@ -710,9 +721,14 @@ export const peerModalTemplate = `
               <div style="display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-end">
                 <div class="field" style="margin: 0">
                   <label>{{ t('peer.field_mtu') }}</label>
-                  <input type="number" class="input mono" v-model.number="secretEditMtu"
-                         min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
-                         style="width: 160px" />
+                  <div style="display:flex; align-items:center; gap: var(--space-2); flex-wrap:wrap">
+                    <input type="number" class="input mono" v-model.number="secretEditMtu"
+                           min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
+                           style="width: 140px" />
+                    <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': secretEditMtu === 1420 }" @click="secretEditMtu = 1420">1420</button>
+                    <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': secretEditMtu === 1392 }" @click="secretEditMtu = 1392">1392</button>
+                    <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': secretEditMtu === 1280 }" @click="secretEditMtu = 1280">1280</button>
+                  </div>
                 </div>
                 <div class="field" style="margin: 0">
                   <label>{{ t('peer.field_keepalive') }}</label>
@@ -727,6 +743,12 @@ export const peerModalTemplate = `
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="secretApplying" @click="applySecretOptions">
                   {{ secretApplying ? t('peer.secret_applying') : t('peer.secret_apply_btn') }}
                 </button>
+              </div>
+              <div class="field-hint" style="line-height:1.5; margin-top: var(--space-2)">
+                <div>{{ t('mtu.hint_intro') }}</div>
+                <div><strong class="mono">1420</strong> — {{ t('mtu.v1420') }}</div>
+                <div><strong class="mono">1392</strong> — {{ t('mtu.v1392') }}</div>
+                <div><strong class="mono">1280</strong> — {{ t('mtu.v1280') }}</div>
               </div>
               <div class="field-hint" style="margin-top: var(--space-2)">{{ t('peer.secret_options_hint') }}</div>
               <div v-if="secretApplyError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ secretApplyError }}</div>
