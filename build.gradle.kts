@@ -133,9 +133,14 @@ dependencies {
     "nativeTestImplementation"("io.rest-assured:rest-assured")
 }
 
-// The native binary boots under the prod profile (as shipped) and has no default
-// admin password there — set one so the IT can log in, mirroring how ci.yml's
-// bash-based native smoke test authenticates against the same binary.
+// The native binary boots under the prod profile (as shipped): no default admin
+// password there (set one so the IT can log in — same as ci.yml's bash-based
+// native smoke test), and its default datasource is a *relative* jdbc:sqlite:data/
+// path that requires a pre-existing writable data/ directory. Unlike the Docker
+// image smoke test (which deliberately keeps that default to catch a bad base
+// image), this IT's only job is exercising native serialization — it needs a DB
+// that just works, so point it at a scratch file like the bash smoke test does.
 tasks.named<Test>("testNative") {
     environment("ISLANDR_ADMIN_PASSWORD", "native-it-pw")
+    environment("QUARKUS_DATASOURCE_JDBC_URL", "jdbc:sqlite:${layout.buildDirectory.get()}/native-it.db")
 }
