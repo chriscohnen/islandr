@@ -80,6 +80,11 @@ export default defineComponent({
       tooltip: null,         // { resource, x, y }
       networkTooltip: null,  // { site, x, y }
       gatewayTooltip: null,  // { gateway, x, y }
+      // Uncapped resource lists fetched on demand when a drilled-into site's
+      // resources didn't make the diagram-wide TOPOLOGY_RESOURCE_CAP in the
+      // main payload. siteId -> TopologyResource[].
+      siteResourceCache: {},
+      siteResourceLoading: null,
     };
   },
   computed: {
@@ -169,7 +174,10 @@ export default defineComponent({
       if (!this.expandedSiteId) return [];
       const net = this.visibleNetworks.find((n) => n.site.id === this.expandedSiteId);
       if (!net) return [];
-      const list = this.filteredResources.filter((r) => r.siteId === this.expandedSiteId);
+      const cached = this.siteResourceCache[this.expandedSiteId];
+      let list = cached
+        ? (this.activeTypes.size === 0 ? cached : cached.filter((r) => this.activeTypes.has(r.type || "computer")))
+        : this.filteredResources.filter((r) => r.siteId === this.expandedSiteId);
       if (list.length === 0) return [];
       const angles = fanAngles(net.angle, list.length);
       const dist = net.dist + RESOURCE_OFFSET;
@@ -245,6 +253,28 @@ export default defineComponent({
       this.expandedSiteId = site.id;
       const item = this.visibleNetworks.find((n) => n.site.id === site.id);
       if (item) this.focusOn(item.x, item.y);
+      this.maybeLoadSiteResources(site);
+    },
+    // The diagram-wide payload caps resources at TOPOLOGY_RESOURCE_CAP; a
+    // network whose resources didn't make that cap would otherwise fan out
+    // into nothing when drilled into. Fetch its real, uncapped list once.
+    async maybeLoadSiteResources(site) {
+      if (this.siteResourceCache[site.id]) return;
+      const cappedCount = this.resources.filter((r) => r.siteId === site.id).length;
+      if (cappedCount >= site.resourceCount) return;
+      this.siteResourceLoading = site.id;
+      try {
+        const res = await fetch(`/api/v1/dashboard/topology/site-resources/${site.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          this.siteResourceCache = { ...this.siteResourceCache, [site.id]: data };
+        }
+      } catch (e) {
+        // Silent — the "hidden due to display limit" fallback in the template
+        // still covers this site if the fetch fails.
+      } finally {
+        if (this.siteResourceLoading === site.id) this.siteResourceLoading = null;
+      }
     },
     onResourceClick(siteId, resourceId) {
       this.$emit("resource", { siteId, resourceId });
@@ -421,6 +451,16 @@ export default defineComponent({
                          user-select: none"
                   y="6">{{ item.count }}</text>
           </g>
+          <g v-else-if="item.site.id === expandedSiteId && siteResourceLoading !== item.site.id && resourceLayout.length === 0 && item.count > 0">
+            <g class="node-icon" transform="translate(-6,-11) scale(0.45)"
+               fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round"
+               v-html="networkIconMarkup()" />
+            <text style="font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+                         fill: var(--fg3); text-anchor: middle; dominant-baseline: central;
+                         user-select: none"
+                  y="6">{{ item.count }}</text>
+          </g>
           <g v-else class="node-icon"
              transform="translate(-8.8,-8.8) scale(0.73)"
              fill="none" stroke="currentColor" stroke-width="2"
@@ -428,6 +468,9 @@ export default defineComponent({
              v-html="networkIconMarkup()" />
 
           <text class="node-label" :y="NODE_HALF_H + 15">{{ item.site.name }}</text>
+          <text v-if="item.site.id === expandedSiteId && siteResourceLoading !== item.site.id && resourceLayout.length === 0 && item.count > 0"
+                class="node-label" :y="NODE_HALF_H + 29"
+                style="fill: var(--fg3); font-size: 10px">{{ t('topology.resources_hidden_cap') }}</text>
         </g>
 
         <!-- Hint -->
