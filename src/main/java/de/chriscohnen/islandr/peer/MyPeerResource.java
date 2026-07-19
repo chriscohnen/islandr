@@ -43,6 +43,14 @@ public class MyPeerResource {
     @Inject RulesetService rulesets;
     @Inject de.chriscohnen.islandr.settings.SettingsService settings;
 
+    // Device categories the portal offers at creation time. "mobile"/"tablet"
+    // ("on the go") default to MTU 1280 — the compatibility floor that always
+    // works on LTE/5G roaming or a restrictive hotel Wi-Fi — so end users
+    // never have to know what MTU even means (#31 phase 2). Stationary
+    // categories get no override; the hub/global default applies.
+    private static final java.util.Set<String> MOBILE_DEVICE_TYPES = java.util.Set.of("mobile", "tablet");
+    private static final int MOBILE_DEFAULT_MTU = 1280;
+
     @RegisterForReflection
     public record CreateMineRequest(
             @NotBlank String name,
@@ -53,7 +61,13 @@ public class MyPeerResource {
             // sees it (mirrors the "publicKey only" admin import mode).
             @Pattern(regexp = "^$|^[A-Za-z0-9+/]{43}=$",
                     message = "must be a 44-char Base64 WireGuard key")
-            String publicKey
+            String publicKey,
+
+            // Optional device category picked in the portal's "what kind of
+            // device is this?" step. Same enum as the admin peer modal.
+            @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
+                    message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
+            String deviceType
     ) {}
 
     @RegisterForReflection
@@ -82,6 +96,8 @@ public class MyPeerResource {
         }
         // IP is server-chosen for self-service; user never picks a CIDR slot.
         // Type is forced to "client" — site peers are an admin operation.
+        Integer autoMtu = body.deviceType() != null && MOBILE_DEVICE_TYPES.contains(body.deviceType())
+                ? MOBILE_DEFAULT_MTU : null;
         PeerDto.CreateRequest req = new PeerDto.CreateRequest(
                 body.name(),
                 peers.suggestNextIp(),
@@ -90,7 +106,8 @@ public class MyPeerResource {
                 null,
                 "client",
                 null,
-                null,   // deviceType — self-service users can't set this; admin can edit later
+                body.deviceType(),
+                autoMtu,
                 false); // generatePresharedKey — PSK is an admin-only option
         PeerDto.CreateResponse out = peers.createForUser(userId, req);
         // nftables recompute happens inside createForUser (saga step 2).

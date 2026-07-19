@@ -89,6 +89,9 @@ public final class PeerDto {
                     message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
             String deviceType,
 
+            // Optional per-peer MTU override (576–65535). null = use global setting.
+            @Min(576) @Max(65535) Integer mtu,
+
             // When true, the server generates and stores a preshared key for this peer.
             boolean generatePresharedKey
     ) {

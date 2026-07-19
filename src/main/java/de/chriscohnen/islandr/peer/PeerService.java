@@ -100,6 +100,7 @@ public class PeerService {
         if (req.deviceType() != null && !req.deviceType().isBlank()) {
             peer.deviceType = req.deviceType();
         }
+        peer.mtu = (req.mtu() != null && req.mtu() > 0) ? req.mtu() : null;
         String presharedKey = null;
         if (req.generatePresharedKey()) {
             presharedKey = wg.genPsk();
@@ -131,7 +132,7 @@ public class PeerService {
             throw new WebApplicationException("peer registered with wg but nftables recompute failed: " + e.getMessage(), 500);
         }
 
-        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, null, null, peer.includeDns);
+        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, peer.mtu, null, peer.includeDns);
         String qrPng = privateKeyForResponse != null ? qr.toDataUrl(conf) : null;
 
         return new PeerDto.CreateResponse(

@@ -15,6 +15,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,16 +53,7 @@ class FirewallTest {
     @BeforeEach
     @Transactional
     void seed() {
-        // Wipe everything ACL-related so each test starts from a known state.
-        em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
-        RoleResourceGrant.deleteAll();
-        em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
-        ResourcePort.deleteAll();
-        Resource.deleteAll();
-        Site.deleteAll();
-        Role.deleteAll();
-        Peer.deleteAll();
-        AuditLog.deleteAll();
+        wipeAclRows();
         // Reset FirewallState back to 'never' so apply assertions are clean.
         FirewallState s = FirewallState.get();
         s.lastStatus = FirewallState.NEVER;
@@ -72,6 +64,29 @@ class FirewallTest {
         s.stderrText = null;
         // Reset the mock so apply-count comparisons start at 0.
         mock().resetForTests();
+    }
+
+    // Without this, the last test method's rows (e.g. a Peer hardcoded at
+    // "10.8.0.5") stay in the DB after this class finishes and can collide
+    // with an unrelated test elsewhere in the suite — the shared %test
+    // datasource has no automatic per-class isolation.
+    @AfterEach
+    @Transactional
+    void teardown() {
+        wipeAclRows();
+    }
+
+    private void wipeAclRows() {
+        // Wipe everything ACL-related so each test starts from a known state.
+        em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
+        RoleResourceGrant.deleteAll();
+        em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
+        ResourcePort.deleteAll();
+        Resource.deleteAll();
+        Site.deleteAll();
+        Role.deleteAll();
+        Peer.deleteAll();
+        AuditLog.deleteAll();
     }
 
     // -- RuleBuilder ---------------------------------------------------------
