@@ -17,26 +17,23 @@ the work:
 
 ## Shipped
 
-- **0.10.0** — current stable release. Peer lifecycle, group-based ACL matrix,
-  self-service portal, OIDC login, audit log, nftables enforcement.
-
-## In progress — 0.11.0
-
-Currently in release-candidate builds.
-
-- **Production Docker via a Unix socket proxy**
-  ([#13](https://github.com/chriscohnen/islandr/issues/13), must) — a host-side
+- **0.12.1** — current stable release. Fully bilingual UI (EN/DE parity across
+  every screen, relative times included).
+- **0.12.0** — device discovery: unprivileged CIDR scan that lists live hosts
+  on a site and turns them into resources in one go
+  ([#20](https://github.com/chriscohnen/islandr/issues/20), EPIC). See ADR-0014.
+- **0.11.0** — production Docker via a Unix socket proxy: a host-side
   `islandr-proxy` holds the `wg`/`nft` privilege so the container needs no
-  capabilities, no host PID namespace, no Docker socket. See ADR-0012.
-- **Default "Everyone" role with auto-membership**
-  ([#21](https://github.com/chriscohnen/islandr/issues/21), should) — see ADR-0013.
+  capabilities, no host PID namespace, no Docker socket
+  ([#13](https://github.com/chriscohnen/islandr/issues/13)). See ADR-0012.
+  Also: a default "Everyone" role with auto-membership
+  ([#21](https://github.com/chriscohnen/islandr/issues/21)). See ADR-0013.
+- **0.10.0** — peer lifecycle, group-based ACL matrix, self-service portal,
+  OIDC login, audit log, nftables enforcement, browser-based RDP.
 
 ## Next
 
-- **0.12.0 — Device discovery**
-  ([#20](https://github.com/chriscohnen/islandr/issues/20), EPIC, must) — an
-  unprivileged CIDR scan to bulk-import resources behind the VPN. See ADR-0014.
-- **0.13.0 — HTTPS without a reverse proxy**
+- **HTTPS without a reverse proxy**
   ([#22](https://github.com/chriscohnen/islandr/issues/22), should) — built-in
   TLS termination plus a Cloudflare edge, so a reverse proxy becomes optional
   rather than required.
