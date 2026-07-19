@@ -94,7 +94,7 @@ Both share the same design tokens. UI is bilingual DE/EN, switchable at runtime.
 | QR codes | zxing-core / zxing-javase (PNG in-memory, no AWT display) |
 | Firewall | nftables via `nft` CLI — RuleBuilder + atomic reload + mock adapter for dev/CI |
 | Deployment | systemd + Quarkus native binary (GraalVM), optional Docker Compose |
-| TLS | Caddy or Let's Encrypt at the edge |
+| TLS | Built-in termination (dummy cert until you upload your own, hot-swapped at runtime) — Caddy/Let's Encrypt at the edge remains an option |
 
 Quarkus was chosen for fast iteration (live coding, dev services, native build). Rust was considered and dropped — the iteration cycle in Quarkus is faster for a team that already knows the JVM. See [docs/adr/0001-quarkus-backend.md](docs/adr/0001-quarkus-backend.md).
 
@@ -249,6 +249,7 @@ islandr/
 - Platform-detected WireGuard client setup guide on first visit
 
 **Operations**
+- **Built-in TLS termination** — starts on a placeholder certificate, hot-swaps to your uploaded one at runtime, no reverse proxy required ([ADR-0015](docs/adr/0015-builtin-tls-termination.md))
 - Google Workspace user import (the service-account JSON is encrypted at rest)
 - Audit log with cursor pagination and actor/action/target filters
 - Config **export/import** as a JSON snapshot, with preview and confirm
@@ -259,6 +260,15 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.13.0**
+- **HTTPS without a reverse proxy** — islandr can terminate TLS itself now. It starts with a placeholder self-signed certificate so HTTPS is always reachable, and swaps in your real certificate the moment you upload it in Settings — no restart, no dropped connections. The plain HTTP port keeps working alongside it ([ADR-0015](docs/adr/0015-builtin-tls-termination.md), [#22](https://github.com/chriscohnen/islandr/issues/22)).
+- **MTU guidance, not just a number field** — the MTU override (peer modal, the .conf/QR reveal dialog, and the global Settings default) now shows three concrete presets — 1420 (default), 1392 (DSL/PPPoE), 1280 (mobile/roaming compatibility floor) — with an explanation of which one fixes which symptom, instead of a bare number input and a generic hint ([#31](https://github.com/chriscohnen/islandr/issues/31)).
+- **The self-service portal picks MTU for you** — end users adding a device now choose "stationary" or "on the go" instead of ever seeing the word MTU; "on the go" applies the 1280 compatibility floor automatically.
+- **Edit MTU, keepalive, and DNS without recreating the peer** — the .conf/QR reveal dialog can now override or clear these per peer and re-render the config on the spot, instead of requiring an edit-then-reshow round trip.
+- **Discovery can scan past a stale handshake** — "the gateway peer is not connected" used to hard-block a scan outright; a "scan anyway" option now lets you pre-configure resources ahead of rolling out the gateway peer itself.
+- **Topology diagram fixes** — a network whose resources didn't make the diagram's display cap used to undercount, or show nothing at all when drilled into; both are fixed, fetching the real list on demand. Busy sites now fan out across a wider arc and, past a size limit, the diagram pans by drag instead of shrinking into unreadable specks. Offline gateways get a dashed connecting line, not just a grey ring.
+- **ACL matrix: pre-grant "all ports" before any port exists** — a resource with no ports defined yet used to block every grant on it outright, but "all ports (incl. future)" is exactly the useful case there; it's no longer blocked.
 
 **0.12.1**
 - **The UI is now fully bilingual.** The language toggle already existed, but several screens still had German baked in — the peer and device dialogs, the browser-RDP connect flow and its error messages, the topology view, the setup banner, and a number of form hints and placeholders — so switching to English left German behind. Relative times ("vor 3 h") and dates followed the same pattern. Every user-visible string now resolves through the DE/EN catalogue, relative times and dates render in the active language, and the two language sets are at parity. Route URIs stay English in both languages, so links and bookmarks don't change with the toggle.

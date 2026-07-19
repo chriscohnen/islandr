@@ -17,8 +17,19 @@ the work:
 
 ## Shipped
 
-- **0.12.1** — current stable release. Fully bilingual UI (EN/DE parity across
-  every screen, relative times included).
+- **0.13.0** — current stable release. **HTTPS without a reverse proxy**:
+  built-in TLS termination, starting on a placeholder certificate and
+  hot-swapping to an uploaded one at runtime, no restart
+  ([#22](https://github.com/chriscohnen/islandr/issues/22)). See ADR-0015.
+  Also: the dashboard topology's gateway-grouping polished off — busy sites
+  fan out and pan instead of overlapping, offline gateways get a dashed
+  link, the resource-overflow count is finally shown
+  ([#24](https://github.com/chriscohnen/islandr/issues/24), EPIC); concrete
+  MTU value presets and guidance copy wherever MTU is set, including an
+  automatic choice in the self-service portal
+  ([#31](https://github.com/chriscohnen/islandr/issues/31)).
+- **0.12.1** — fully bilingual UI (EN/DE parity across every screen, relative
+  times included).
 - **0.12.0** — device discovery: unprivileged CIDR scan that lists live hosts
   on a site and turns them into resources in one go
   ([#20](https://github.com/chriscohnen/islandr/issues/20), EPIC). See ADR-0014.
@@ -33,22 +44,29 @@ the work:
 
 ## Next
 
-- **HTTPS without a reverse proxy**
-  ([#22](https://github.com/chriscohnen/islandr/issues/22), should) — built-in
-  TLS termination plus a Cloudflare edge, so a reverse proxy becomes optional
-  rather than required.
+Targeted for 0.14.0:
+
+- **Connection activity heatmap** ([#32](https://github.com/chriscohnen/islandr/issues/32)) —
+  peers × days, daily-aggregated so it stays cheap to store and query. See ADR-0016.
+- **Full/split tunnel as an explicit setting**
+  ([#33](https://github.com/chriscohnen/islandr/issues/33)) — the split-tunnel
+  network list is independent of a peer's current ACL grants, so changing a
+  grant never forces a re-import of the `.conf`. See ADR-0017.
 
 ## Under consideration
 
 Not yet scheduled — priority is driven by interest on the tracking issues.
 
-- **Dashboard topology** ([#24](https://github.com/chriscohnen/islandr/issues/24), EPIC) — group networks under their shared gateway peer.
+- **Native integration test for discovery endpoints**
+  ([#25](https://github.com/chriscohnen/islandr/issues/25)) — catch
+  native-image serialization regressions in CI, not in a user's deployment.
 - **Peer expiry / auto-disable** ([#10](https://github.com/chriscohnen/islandr/issues/10)).
 - **Multi-site map view** (Leaflet + OSM, [#11](https://github.com/chriscohnen/islandr/issues/11)).
 - **Google Workspace / Entra ID user import** ([#12](https://github.com/chriscohnen/islandr/issues/12)).
 - **`.deb` package for `apt install`** ([#14](https://github.com/chriscohnen/islandr/issues/14)).
 - **API key management for automation** ([#15](https://github.com/chriscohnen/islandr/issues/15)).
 - **TLS/HTTPS setup guide** ([#23](https://github.com/chriscohnen/islandr/issues/23), docs).
+- **ACME (Let's Encrypt) auto-provisioning** ([#30](https://github.com/chriscohnen/islandr/issues/30)) — follow-up to the built-in TLS termination shipped in 0.13.0.
 
 ---
 
