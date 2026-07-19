@@ -1,7 +1,11 @@
 package de.chriscohnen.islandr.peer;
 
 import de.chriscohnen.islandr.auth.AdminSessionExtension;
+import de.chriscohnen.islandr.settings.SettingsDto;
+import de.chriscohnen.islandr.settings.SettingsService;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -22,6 +26,23 @@ import static org.hamcrest.Matchers.startsWith;
 @QuarkusTest
 @ExtendWith(AdminSessionExtension.class)
 class PeerResourceTest {
+
+    @Inject SettingsService settings;
+
+    /** Mutates the shared settings singleton — callers must restore it (see the
+     *  includeDns tests' try/finally) since the row is shared across the suite. */
+    @Transactional
+    void setGlobalDns(String dns) {
+        var cur = settings.get();
+        settings.update(new SettingsDto.UpdateRequest(
+                cur.wgSubnet, cur.wgSubnet6, cur.wgServerPublicKey, cur.wgServerEndpoint,
+                cur.wgClientAllowedIps, dns, cur.privateKeyRetention,
+                cur.gravatarEnabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
+                cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
+                cur.hubLat, cur.hubLon, cur.hubLocationLabel,
+                cur.ironRdpEnabled
+        ), "test");
+    }
 
     private String createUser() {
         return given().contentType("application/json")
@@ -602,6 +623,98 @@ class PeerResourceTest {
                         """)
                 .when().put("/api/v1/peers/" + peerId)
                 .then().statusCode(400);
+    }
+
+    // ---- Per-peer DNS opt-out (issue #29) ----------------------------------
+    //
+    // Effective: the DNS line is written iff a global DNS is configured AND the
+    // peer's includeDns flag (default true) doesn't suppress it. These tests
+    // mutate the shared settings singleton, so each restores it (null) in a
+    // finally block to avoid leaking into other test classes sharing the DB.
+
+    @Test
+    void create_confIncludesDnsWhenGloballyConfigured() {   // AC1: default true → DNS line present
+        setGlobalDns("10.9.0.1");
+        try {
+            String userId = createUser();
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-default", "assignedIp": "10.8.0.70" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .body("conf", containsString("DNS = 10.9.0.1"))
+                    .body("peer.includeDns", equalTo(true));
+        } finally {
+            setGlobalDns(null);
+        }
+    }
+
+    @Test
+    void update_perPeerIncludeDnsFalseOmitsDnsLine() {      // AC2: false → no DNS line, even though global is set
+        setGlobalDns("10.9.0.1");
+        try {
+            String userId = createUser();
+            String peerId = given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-off", "assignedIp": "10.8.0.71" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .extract().path("peer.id");
+
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-off", "assignedIp": "10.8.0.71", "includeDns": false }
+                            """)
+                    .when().put("/api/v1/peers/" + peerId)
+                    .then().statusCode(200)
+                    .body("peer.includeDns", equalTo(false))
+                    .body("conf", not(containsString("DNS =")));
+        } finally {
+            setGlobalDns(null);
+        }
+    }
+
+    @Test
+    void create_noDnsLineWhenNoGlobalDnsConfigured() {      // AC3: flag has no effect without a global DNS
+        setGlobalDns(null);
+        String userId = createUser();
+        given().contentType("application/json")
+                .body("""
+                        { "name": "dns-no-global", "assignedIp": "10.8.0.72" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .body("conf", not(containsString("DNS =")));
+    }
+
+    @Test
+    void update_omittedIncludeDnsKeepsCurrentValue() {
+        // A request that omits includeDns must not silently flip it to false
+        // (Boolean, not boolean, in PeerDto.UpdateRequest — see PeerService#update).
+        setGlobalDns("10.9.0.1");
+        try {
+            String userId = createUser();
+            String peerId = given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-omit", "assignedIp": "10.8.0.73" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .extract().path("peer.id");
+
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-omit-renamed", "assignedIp": "10.8.0.73" }
+                            """)
+                    .when().put("/api/v1/peers/" + peerId)
+                    .then().statusCode(200)
+                    .body("peer.includeDns", equalTo(true))
+                    .body("conf", containsString("DNS = 10.9.0.1"));
+        } finally {
+            setGlobalDns(null);
+        }
     }
 
     @Test

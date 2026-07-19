@@ -131,7 +131,7 @@ public class PeerService {
             throw new WebApplicationException("peer registered with wg but nftables recompute failed: " + e.getMessage(), 500);
         }
 
-        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, null, null);
+        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, null, null, peer.includeDns);
         String qrPng = privateKeyForResponse != null ? qr.toDataUrl(conf) : null;
 
         return new PeerDto.CreateResponse(
@@ -150,7 +150,7 @@ public class PeerService {
             String rawKey = encSvc.isEncrypted(peer.privateKeyPem)
                     ? encSvc.decrypt(peer.privateKeyPem)
                     : peer.privateKeyPem;
-            String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive);
+            String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
             String qrPng = qr.toDataUrl(conf);
             return new PeerDto.CreateResponse(
                     PeerDto.Response.from(peer),
@@ -159,7 +159,7 @@ public class PeerService {
                     qrPng,
                     peer.presharedKey);
         }
-        String confNoKey = renderConf(null, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive);
+        String confNoKey = renderConf(null, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
                 null,
@@ -281,6 +281,9 @@ public class PeerService {
         // Assigned directly (not `> 0 ? x : null` like mtu): 0 is a meaningful
         // "keepalive off for this peer" override, distinct from null = defer to global.
         peer.persistentKeepalive = req.persistentKeepalive();
+        // null (field omitted) keeps the current/default true; only an explicit
+        // false turns off the DNS line for this peer.
+        peer.includeDns = req.includeDns() == null || req.includeDns();
         peer.persist();
 
         if ((ipChanged || ip6Changed || cidrsChanged || pskChanged) && peer.enabled) {
@@ -300,7 +303,7 @@ public class PeerService {
         String rawKey = (peer.privateKeyPem != null && encSvc.isEncrypted(peer.privateKeyPem))
                 ? encSvc.decrypt(peer.privateKeyPem)
                 : peer.privateKeyPem;
-        String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive);
+        String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
         String qrPng = rawKey != null ? qr.toDataUrl(conf) : null;
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
@@ -528,7 +531,7 @@ public class PeerService {
 
     private String renderConf(String privateKey, String assignedIp, String assignedIpv6,
                                String presharedKey, Settings settings, Integer peerMtu,
-                               Integer peerKeepalive) {
+                               Integer peerKeepalive, boolean peerIncludeDns) {
         StringBuilder sb = new StringBuilder();
         sb.append("[Interface]\n");
         if (privateKey != null) {
@@ -539,7 +542,7 @@ public class PeerService {
         } else {
             sb.append("Address = ").append(assignedIp).append("/32\n");
         }
-        if (settings.wgClientDns != null && !settings.wgClientDns.isBlank()) {
+        if (peerIncludeDns && settings.wgClientDns != null && !settings.wgClientDns.isBlank()) {
             sb.append("DNS = ").append(settings.wgClientDns).append("\n");
         }
         Integer effectiveMtu = peerMtu != null

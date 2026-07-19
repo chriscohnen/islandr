@@ -29,6 +29,7 @@ export const peerModalMixin = {
       editPeerPublicKey: null,
       editMtu: null,
       editKeepalive: null,
+      editIncludeDns: true,
 
       newPeer: { name: "", assignedIp: "", assignedIpv6: "" },
       // Peer kind: "client" (single device) or "site" (gateway exposing a
@@ -180,6 +181,7 @@ export const peerModalMixin = {
       this.editMtu = peer.mtu || null;
       // `?? null` (not `|| null`): 0 is a valid "keepalive off for this peer" value.
       this.editKeepalive = peer.persistentKeepalive ?? null;
+      this.editIncludeDns = peer.includeDns !== false;
       this.pskAction = null;
       this.pskSyncing = false;
       this.pskSyncResult = null;
@@ -202,6 +204,7 @@ export const peerModalMixin = {
         persistentKeepalive: (this.editKeepalive === "" || this.editKeepalive === null
           || this.editKeepalive === undefined || Number.isNaN(this.editKeepalive))
           ? null : this.editKeepalive,
+        includeDns: this.editIncludeDns,
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
@@ -562,6 +565,14 @@ export const peerModalTemplate = `
                    min="0" max="65535" :placeholder="t('peer.field_keepalive_ph')"
                    style="width: 200px" />
             <div class="field-hint">{{ t('peer.field_keepalive_hint') }}</div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0">
+              <input type="checkbox" v-model="editIncludeDns" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
+              <span>{{ t('peer.field_include_dns') }}</span>
+            </label>
+            <div class="field-hint">{{ t('peer.field_include_dns_hint') }}</div>
           </div>
         </div>
         <div class="modal-footer">
