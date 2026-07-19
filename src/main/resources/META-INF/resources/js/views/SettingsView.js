@@ -242,13 +242,13 @@ export default defineComponent({
       try {
         const res = await fetch("/api/v1/settings/wg-set-mtu", { method: "POST" });
         if (res.ok) {
-          this.info = `MTU ${this.form.wgMtu} am Interface gesetzt.`;
+          this.info = t("settings.mtu_set_success", { mtu: this.form.wgMtu });
         } else {
           const body = await res.json().catch(() => ({}));
-          this.error = "MTU setzen fehlgeschlagen: " + (body.error || res.status);
+          this.error = t("settings.mtu_set_error", { error: body.error || res.status });
         }
       } catch (e) {
-        this.error = "MTU setzen fehlgeschlagen: " + e.message;
+        this.error = t("settings.mtu_set_error", { error: e.message });
       }
     },
 
@@ -442,10 +442,10 @@ export default defineComponent({
                      min="576" max="65535" :placeholder="t('settings.ph_mtu')" style="width: 120px" />
               <span v-if="probedIfMtu && probedIfMtu !== form.wgMtu"
                     style="font-size:var(--text-sm); color:var(--fg3)">
-                Gemessen: <span class="mono" style="color:var(--fg2)">{{ probedIfMtu }}</span>
+                {{ t('settings.mtu_probed_label') }} <span class="mono" style="color:var(--fg2)">{{ probedIfMtu }}</span>
               </span>
               <button v-if="form.wgMtu" type="button" class="btn btn-ghost btn-sm" @click="setIfMtu">
-                Am WG-Interface setzen
+                {{ t('settings.mtu_set_btn') }}
               </button>
             </div>
             <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0; margin-top:var(--space-2)">

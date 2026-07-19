@@ -47,6 +47,7 @@ export default defineComponent({
       scanFound: 0,          // live count of hosts found so far
       adoptPorts: true,      // adopt each host's discovered open ports on import
       scanError: null,
+      scanCanForce: false,
       scanPollTimer: null,
       importing: false,
     };
@@ -337,6 +338,7 @@ export default defineComponent({
       this.scanHosts = [];
       this.scanJobId = null;
       this.scanError = null;
+      this.scanCanForce = false;
       this.scanFound = 0;
     },
     closeScan() {
@@ -349,15 +351,25 @@ export default defineComponent({
       this.scanState = null;
       this.scanJobId = null;
     },
-    async startScan() {
+    async startScan(force) {
       this.scanState = "running";
       this.scanError = null;
+      this.scanCanForce = false;
       this.scanProgress = { done: 0, total: 0 };
       try {
-        const res = await fetch("/api/v1/sites/" + this.siteId + "/discovery/scan", {
-          method: "POST", headers: { "content-type": "application/json" },
-        });
-        if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
+        const url = "/api/v1/sites/" + this.siteId + "/discovery/scan" + (force ? "?force=true" : "");
+        const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" } });
+        if (!res.ok) {
+          const body = await res.text();
+          // The gateway-handshake precondition is the one 409 an admin can deliberately
+          // override — e.g. pre-configuring a site while enforcement is degraded (Docker
+          // socket proxy not yet wired up), ahead of a native-instance rollout, where the
+          // handshake timestamp is meaningless and they want to check reachability directly.
+          if (res.status === 409 && !force && body.includes("not connected")) {
+            this.scanCanForce = true;
+          }
+          throw new Error(body || "HTTP " + res.status);
+        }
         const jobId = (await res.json()).jobId;
         if (!jobId) throw new Error("scan response contained no jobId");
         this.scanJobId = jobId;
@@ -739,7 +751,10 @@ export default defineComponent({
             <p class="field-hint" style="margin: var(--space-2) 0 0">{{ t('discovery.running_hint') }}</p>
           </template>
 
-          <div v-else-if="scanState === 'error'" class="error-banner">{{ scanError }}</div>
+          <template v-else-if="scanState === 'error'">
+            <div class="error-banner">{{ scanError }}</div>
+            <p v-if="scanCanForce" class="field-hint" style="margin: var(--space-2) 0 0">{{ t('discovery.force_hint') }}</p>
+          </template>
 
           <template v-else-if="scanState === 'done'">
             <div v-if="scanError" class="error-banner" style="margin-bottom: var(--space-3)">{{ scanError }}</div>
@@ -788,7 +803,10 @@ export default defineComponent({
         <div class="modal-footer">
           <button v-if="scanState !== 'running'" type="button" class="btn btn-ghost" @click="closeScan">{{ t('common.cancel') }}</button>
           <button v-else type="button" class="btn btn-secondary" @click="closeScan">{{ t('discovery.abort_btn') }}</button>
-          <button v-if="scanState === 'consent'" type="button" class="btn btn-primary" @click="startScan">{{ t('discovery.start_btn') }}</button>
+          <button v-if="scanState === 'consent'" type="button" class="btn btn-primary" @click="startScan()">{{ t('discovery.start_btn') }}</button>
+          <button v-if="scanState === 'error' && scanCanForce" type="button" class="btn btn-primary" @click="startScan(true)">
+            {{ t('discovery.force_btn') }}
+          </button>
           <button v-else-if="scanState === 'done' && scanHosts.length > 0" type="button" class="btn btn-primary"
                   :disabled="importing || scanSelectedCount() === 0" @click="importScan">
             {{ importing ? t('discovery.importing') : t('discovery.import_btn', { n: scanSelectedCount() }) }}

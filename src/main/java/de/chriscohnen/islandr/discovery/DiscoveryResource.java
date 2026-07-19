@@ -18,6 +18,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
@@ -53,10 +54,11 @@ public class DiscoveryResource {
     @POST
     @Path("/scan")
     @ResponseStatus(202)
-    public DiscoveryDto.ScanStarted startScan(@Context ContainerRequestContext ctx, @PathParam("siteId") String siteId) {
+    public DiscoveryDto.ScanStarted startScan(@Context ContainerRequestContext ctx, @PathParam("siteId") String siteId,
+                                              @QueryParam("force") boolean force) {
         AuthContext a = Auth.requireAdmin(ctx);
         Site site = requireSite(siteId);
-        requireScanReachable(site);
+        requireScanReachable(site, force);
         DiscoveryJobs.Job job;
         try {
             job = jobs.start(siteId, site.cidr);   // supersedes any scan still running for this site
@@ -64,7 +66,7 @@ public class DiscoveryResource {
             throw conflict(e.getMessage());
         }
         audit.logEvent(a.principal(), "discovery.scan_started", "Site:" + site.name + " (" + siteId + ")",
-                Map.of("cidr", site.cidr, "hosts", job.total()));
+                Map.of("cidr", site.cidr, "hosts", job.total(), "forced", force));
         // Return the DTO directly (not via Response.accepted(...)) so Quarkus's
         // build-time analysis registers ScanStarted for native serialization — a
         // Response-wrapped entity is opaque to that analysis, which left the native
@@ -161,8 +163,15 @@ public class DiscoveryResource {
      *       a promised tunnel that is down is failed fast, because the scan would
      *       otherwise silently return zero hosts.</li>
      * </ul>
+     * {@code force=true} skips this check entirely — e.g. an admin pre-configuring a
+     * site while the enforcement plane is degraded (Docker socket proxy not yet
+     * wired up, ahead of a planned native-instance rollout) and wants to confirm
+     * network reachability directly rather than trust the (currently meaningless)
+     * handshake timestamp. The scan itself is unaffected by the override — a route
+     * that genuinely isn't there still just finds nothing (R-140).
      */
-    private void requireScanReachable(Site site) {
+    private void requireScanReachable(Site site, boolean force) {
+        if (force) return;
         if (!jobs.isRealScan()) return;
         if (site.gatewayPeerId == null) return;
         Peer gw = Peer.findById(site.gatewayPeerId);
