@@ -80,6 +80,28 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "wg_persistent_keepalive", nullable = false)
     public int wgPersistentKeepalive = 25;
 
+    // Built-in TLS termination (ADR-0015). "none" (default) = serve HTTPS with the
+    // baked-in dummy placeholder cert (src/main/resources/tls-dummy) until an admin
+    // uploads real material. "managed" = tlsCertPem/tlsKeyPem hold the admin-supplied
+    // certificate; the key is encrypted at rest when EncryptionService is configured
+    // (same guarantee as the Google Workspace service-account secret). "referenced" =
+    // tlsCertPath/tlsKeyPath point at a file pair islandr does not own or copy (an
+    // operator's own ACME client, a CDN's origin-cert tooling).
+    @Column(name = "tls_mode", nullable = false, length = 20)
+    public String tlsMode = "none";
+
+    @Column(name = "tls_cert_pem", columnDefinition = "TEXT")
+    public String tlsCertPem;
+
+    @Column(name = "tls_key_pem", columnDefinition = "TEXT")
+    public String tlsKeyPem;
+
+    @Column(name = "tls_cert_path", length = 512)
+    public String tlsCertPath;
+
+    @Column(name = "tls_key_path", length = 512)
+    public String tlsKeyPath;
+
     // Optional Nominatim base URL for address geocoding in the Sites view.
     // Empty / null = geocoding disabled. No external calls are made without
     // an explicit admin-configured URL.

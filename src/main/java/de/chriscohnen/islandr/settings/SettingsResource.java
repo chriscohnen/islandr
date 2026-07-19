@@ -4,10 +4,12 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.crypto.EncryptionService;
+import de.chriscohnen.islandr.tls.TlsService;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
@@ -19,6 +21,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -31,6 +34,7 @@ public class SettingsResource {
     @Inject AuditService audit;
     @Inject WgAdapter wg;
     @Inject EncryptionService encSvc;
+    @Inject TlsService tlsSvc;
 
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
     String wgInterface;
@@ -41,7 +45,7 @@ public class SettingsResource {
     @GET
     public SettingsDto.Response get(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
-        return SettingsDto.Response.from(settings.get(), appVersion, encSvc.isConfigured(), wgInterface);
+        return toResponse(settings.get());
     }
 
     @PUT
@@ -52,7 +56,33 @@ public class SettingsResource {
         Settings after = settings.update(body, actor.principal());
         audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
                 before, settingsSnapshot(after));
-        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured(), wgInterface);
+        return toResponse(after);
+    }
+
+    @PUT
+    @Path("/tls")
+    public SettingsDto.Response updateTls(@Context ContainerRequestContext ctx,
+                                          @Valid SettingsDto.TlsRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        Settings after = tlsSvc.updateManagedCertificate(body.certPem(), body.keyPem(), actor.principal());
+        audit.logUpdate(actor.principal(), "settings.tls_update", "Settings:singleton",
+                null, Map.of("tlsMode", after.tlsMode));
+        return toResponse(after);
+    }
+
+    @DELETE
+    @Path("/tls")
+    public SettingsDto.Response resetTls(@Context ContainerRequestContext ctx) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        Settings after = tlsSvc.resetToDummy(actor.principal());
+        audit.logUpdate(actor.principal(), "settings.tls_reset", "Settings:singleton",
+                null, Map.of("tlsMode", after.tlsMode));
+        return toResponse(after);
+    }
+
+    private SettingsDto.Response toResponse(Settings s) {
+        Instant expiresAt = "managed".equals(s.tlsMode) ? tlsSvc.certificateExpiresAt(s.tlsCertPem) : null;
+        return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt);
     }
 
     @GET
@@ -121,7 +151,7 @@ public class SettingsResource {
                 ? new SettingsDto.GoogleWorkspaceRequest(null, null) : body, actor.principal());
         audit.logUpdate(actor.principal(), "settings.google_ws_update", "Settings:singleton",
                 null, java.util.Map.of("googleWsConfigured", after.googleWsServiceAccountJson != null));
-        return SettingsDto.Response.from(after, appVersion, encSvc.isConfigured(), wgInterface);
+        return toResponse(after);
     }
 
     private static Map<String, Object> settingsSnapshot(Settings s) {

@@ -27,6 +27,12 @@ dependencies {
     implementation("io.quarkus:quarkus-rest-jackson")
     implementation("io.quarkus:quarkus-websockets-next")
 
+    // TLS registry — built-in HTTPS termination with runtime cert reload (ADR-0015).
+    // Already pulled in transitively by the web layer above, but declared explicitly
+    // so io.quarkus.tls.* (KeyStoreProvider, CertificateUpdatedEvent) resolves at
+    // compile time, not just on the runtime classpath.
+    implementation("io.quarkus:quarkus-tls-registry")
+
     // Persistence — Panache active record + JDBC
     implementation("io.quarkus:quarkus-hibernate-orm-panache")
     if (!sqliteOnly) {

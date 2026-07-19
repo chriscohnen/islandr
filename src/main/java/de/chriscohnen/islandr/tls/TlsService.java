@@ -1,0 +1,193 @@
+package de.chriscohnen.islandr.tls;
+
+import de.chriscohnen.islandr.crypto.EncryptionService;
+import de.chriscohnen.islandr.settings.Settings;
+import de.chriscohnen.islandr.settings.SettingsService;
+import io.quarkus.runtime.StartupEvent;
+import io.quarkus.tls.CertificateUpdatedEvent;
+import io.quarkus.tls.TlsConfigurationRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.core.net.PemKeyCertOptions;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.event.Observes;
+import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
+import jakarta.ws.rs.WebApplicationException;
+import org.jboss.logging.Logger;
+
+import java.io.ByteArrayInputStream;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+
+/**
+ * Validates and persists the managed-mode TLS certificate (ADR-0015), and triggers
+ * the same reload + {@link CertificateUpdatedEvent} sequence {@link TlsKeyStoreProvider}
+ * needs to actually pick up new material — a save that doesn't reload would silently
+ * keep serving the previous certificate until the next unrelated reload.
+ */
+@ApplicationScoped
+public class TlsService {
+
+    private static final Logger LOG = Logger.getLogger(TlsService.class);
+
+    @Inject SettingsService settingsSvc;
+    @Inject EncryptionService encSvc;
+    @Inject TlsKeyStoreProvider provider;
+    @Inject TlsConfigurationRegistry registry;
+    @Inject Event<CertificateUpdatedEvent> certificateUpdatedEvent;
+    @Inject Vertx vertx;
+
+    /** {@link TlsKeyStoreProvider#getKeyStore} is invoked once during STATIC_INIT to
+     *  validate the TLS config — before the datasource is up, so it always falls back
+     *  to the dummy certificate at that point (see the comment there). Nothing else
+     *  re-invokes the provider automatically afterwards, so without this, a boot with
+     *  a real managed/referenced certificate already configured would keep serving the
+     *  dummy for the server's entire lifetime. StartupEvent fires after RUNTIME_INIT,
+     *  once the datasource is genuinely available — reload once here so real
+     *  configuration actually takes effect. */
+    void onStartup(@Observes StartupEvent ev) {
+        triggerReload();
+    }
+
+    @Transactional
+    public Settings updateManagedCertificate(String certPem, String keyPem, String actor) {
+        X509Certificate cert = requireCurrentlyValid(certPem);
+        requireMatchingPair(cert, keyPem);
+        requireLoadable(certPem, keyPem);
+
+        Settings s = settingsSvc.get();
+        s.tlsMode = "managed";
+        s.tlsCertPem = certPem;
+        s.tlsKeyPem = encSvc.isConfigured() ? encSvc.encrypt(keyPem) : keyPem;
+        s.tlsCertPath = null;
+        s.tlsKeyPath = null;
+        s.updatedAt = Instant.now();
+        s.updatedBy = actor;
+        triggerReload();
+        return s;
+    }
+
+    @Transactional
+    public Settings resetToDummy(String actor) {
+        Settings s = settingsSvc.get();
+        s.tlsMode = "none";
+        s.tlsCertPem = null;
+        s.tlsKeyPem = null;
+        s.tlsCertPath = null;
+        s.tlsKeyPath = null;
+        s.updatedAt = Instant.now();
+        s.updatedBy = actor;
+        triggerReload();
+        return s;
+    }
+
+    /** Powers the Settings expiry-date banner (ADR-0015 R-153) — null when the cert
+     *  can't be parsed for any reason, so a display problem never becomes a 500. */
+    public Instant certificateExpiresAt(String certPem) {
+        if (certPem == null || certPem.isBlank()) return null;
+        try {
+            return parseCertificate(certPem).getNotAfter().toInstant();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Basic X.509 sanity (ADR-0015 R-152) — reject an already-expired or not-yet-valid
+     *  certificate before it ever reaches storage or the keystore-loading step. */
+    private X509Certificate requireCurrentlyValid(String certPem) {
+        X509Certificate cert;
+        try {
+            cert = parseCertificate(certPem);
+        } catch (Exception e) {
+            throw new WebApplicationException("could not parse certificate — expected PEM-encoded X.509: " + e.getMessage(), 400);
+        }
+        try {
+            cert.checkValidity();
+        } catch (java.security.cert.CertificateExpiredException | java.security.cert.CertificateNotYetValidException e) {
+            throw new WebApplicationException("certificate is not currently valid: " + e.getMessage(), 400);
+        }
+        return cert;
+    }
+
+    private static X509Certificate parseCertificate(String certPem) throws CertificateException, java.io.IOException {
+        try (var in = new ByteArrayInputStream(certPem.getBytes(StandardCharsets.UTF_8))) {
+            return (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(in);
+        }
+    }
+
+    /** A keystore does not cryptographically verify that a private key matches
+     *  a certificate's public key at load time — it just stores the pairing as given
+     *  ({@link #requireLoadable} alone would accept a mismatched pair). Proves the pairing
+     *  the same way a real TLS handshake would: sign a nonce with the private key, verify
+     *  it with the certificate's public key. Only PKCS8 ("BEGIN PRIVATE KEY") is supported;
+     *  legacy PKCS1 ("BEGIN RSA PRIVATE KEY") is rejected with a clear message rather than
+     *  silently mis-parsed. */
+    private void requireMatchingPair(X509Certificate cert, String keyPem) {
+        PrivateKey key;
+        try {
+            key = parsePkcs8PrivateKey(keyPem, cert.getPublicKey().getAlgorithm());
+        } catch (Exception e) {
+            throw new WebApplicationException(
+                    "could not parse private key — expected PKCS8 PEM ('BEGIN PRIVATE KEY'): " + e.getMessage(), 400);
+        }
+        try {
+            byte[] nonce = "islandr-tls-pairing-check".getBytes(StandardCharsets.UTF_8);
+            String sigAlg = "EC".equals(cert.getPublicKey().getAlgorithm()) ? "SHA256withECDSA" : "SHA256withRSA";
+            Signature signer = Signature.getInstance(sigAlg);
+            signer.initSign(key);
+            signer.update(nonce);
+            byte[] signature = signer.sign();
+
+            Signature verifier = Signature.getInstance(sigAlg);
+            verifier.initVerify(cert.getPublicKey());
+            verifier.update(nonce);
+            if (!verifier.verify(signature)) {
+                throw new WebApplicationException("the private key does not match the certificate's public key", 400);
+            }
+        } catch (GeneralSecurityException e) {
+            throw new WebApplicationException("could not verify certificate/key pairing: " + e.getMessage(), 400);
+        }
+    }
+
+    private static PrivateKey parsePkcs8PrivateKey(String keyPem, String algorithm) throws GeneralSecurityException {
+        String base64 = keyPem
+                .replace("-----BEGIN PRIVATE KEY-----", "")
+                .replace("-----END PRIVATE KEY-----", "")
+                .replaceAll("\\s", "");
+        byte[] der = Base64.getDecoder().decode(base64);
+        return KeyFactory.getInstance(algorithm).generatePrivate(new PKCS8EncodedKeySpec(der));
+    }
+
+    /** Reuses {@link TlsKeyStoreProvider}'s own loading path — the exact same code that
+     *  will run on every future reload — so malformed PEM is rejected here, synchronously,
+     *  with a clear error, instead of surfacing only later as a silent fallback to the
+     *  dummy certificate. Pairing itself is already proven by {@link #requireMatchingPair}. */
+    private void requireLoadable(String certPem, String keyPem) {
+        try {
+            PemKeyCertOptions options = provider.managedOptions(certPem, keyPem);
+            options.loadKeyStore(vertx);
+        } catch (Exception e) {
+            throw new WebApplicationException(
+                    "certificate/key could not be loaded — check they are valid PEM and match each other: "
+                            + e.getMessage(), 400);
+        }
+    }
+
+    private void triggerReload() {
+        registry.getDefault().ifPresent(config -> {
+            if (config.reload()) {
+                certificateUpdatedEvent.fire(new CertificateUpdatedEvent("<default>", config));
+            }
+        });
+    }
+}

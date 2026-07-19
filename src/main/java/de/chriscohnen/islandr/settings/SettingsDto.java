@@ -37,9 +37,15 @@ public final class SettingsDto {
             boolean encryptionKeyConfigured,
             boolean googleWsConfigured,
             String googleWsImpersonationEmail,
-            String wgInterface
+            String wgInterface,
+            // "none" (dummy placeholder cert in effect) | "managed" | "referenced" — ADR-0015
+            String tlsMode,
+            // Parsed from the current certificate's notAfter; null when the dummy
+            // placeholder is in effect (it has a 20-year validity, not a rotation concern).
+            Instant tlsCertExpiresAt
     ) {
-        public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface) {
+        public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
+                                     Instant tlsCertExpiresAt) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
@@ -56,9 +62,17 @@ public final class SettingsDto {
                     encryptionKeyConfigured,
                     s.googleWsServiceAccountJson != null && !s.googleWsServiceAccountJson.isBlank(),
                     s.googleWsImpersonationEmail,
-                    wgInterface);
+                    wgInterface,
+                    s.tlsMode,
+                    tlsCertExpiresAt);
         }
     }
+
+    /** Managed-mode certificate upload — PEM-encoded X.509 cert + private key. */
+    public record TlsRequest(
+            @NotBlank String certPem,
+            @NotBlank String keyPem
+    ) {}
 
     public record GoogleWorkspaceRequest(
             String serviceAccountJson,

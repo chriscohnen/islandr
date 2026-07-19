@@ -51,13 +51,31 @@ export default defineComponent({
       versionCheck: null,
       versionChecking: false,
       enforcement: null,
+      // TLS (ADR-0015) — separate mini-form with its own PUT/DELETE endpoints,
+      // not bundled into the main settings save.
+      tlsMode: "none",
+      tlsCertExpiresAt: null,
+      tlsCertPemInput: "",
+      tlsKeyPemInput: "",
+      tlsUploading: false,
+      tlsError: null,
+      tlsInfo: null,
     };
   },
   async mounted() {
     await this.load();
     this.loadEnforcement();
   },
-  computed: { _lang() { return locale.current; } },
+  computed: {
+    _lang() { return locale.current; },
+    // R-153: a managed cert with no ACME auto-renewal can silently expire.
+    // Warn inside a 30-day window; null outside it (including dummy/no-cert state).
+    tlsDaysUntilExpiry() {
+      if (this.tlsMode !== "managed" || !this.tlsCertExpiresAt) return null;
+      const ms = new Date(this.tlsCertExpiresAt).getTime() - Date.now();
+      return Math.ceil(ms / (1000 * 60 * 60 * 24));
+    },
+  },
   methods: {
     t(key, vars) { return t(key, vars); },
     async load() {
@@ -97,6 +115,8 @@ export default defineComponent({
           setupComplete: s.setupComplete,
           version: s.version || null,
         };
+        this.tlsMode = s.tlsMode || "none";
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
       } finally {
@@ -143,6 +163,53 @@ export default defineComponent({
         this.error = t("settings.error_save", { error: e.message });
       } finally {
         this.saving = false;
+      }
+    },
+
+    async uploadTls() {
+      if (!this.tlsCertPemInput.trim() || !this.tlsKeyPemInput.trim()) return;
+      this.tlsUploading = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/tls", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ certPem: this.tlsCertPemInput, keyPem: this.tlsKeyPemInput }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertPemInput = "";
+        this.tlsKeyPemInput = "";
+        this.tlsInfo = t("settings.tls_upload_success");
+      } catch (e) {
+        this.tlsError = t("settings.tls_upload_error", { error: e.message });
+      } finally {
+        this.tlsUploading = false;
+      }
+    },
+
+    async resetTls() {
+      if (!confirm(t("settings.tls_reset_confirm"))) return;
+      this.tlsUploading = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/tls", { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsInfo = t("settings.tls_reset_success");
+      } catch (e) {
+        this.tlsError = t("settings.tls_upload_error", { error: e.message });
+      } finally {
+        this.tlsUploading = false;
       }
     },
 
@@ -448,6 +515,51 @@ export default defineComponent({
         </div>
         <div v-if="form.privateKeyRetention === 'encrypted'" class="callout callout-info" style="margin-top:var(--space-3)">
           {{ t('settings.ret_encrypted_hint') }}
+        </div>
+      </div>
+
+      <!-- TLS / HTTPS (ADR-0015) -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_tls') }}</h2>
+        <div class="field-hint" style="margin-top: 0">{{ t('settings.tls_intro') }}</div>
+
+        <div v-if="tlsMode === 'none'" class="callout callout-warn" style="margin-top: var(--space-3)">
+          {{ t('settings.tls_dummy_active') }}
+        </div>
+        <div v-else-if="tlsMode === 'managed'" style="margin-top: var(--space-3)">
+          <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
+            {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
+          </div>
+          <div class="callout callout-warn" v-else>
+            {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+          </div>
+        </div>
+
+        <div style="margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3)">
+          <div class="field">
+            <label for="tls-cert">{{ t('settings.tls_field_cert') }}</label>
+            <textarea id="tls-cert" class="textarea mono" v-model="tlsCertPemInput" rows="6"
+                      :placeholder="t('settings.tls_cert_ph')" style="resize: vertical; width: 100%"></textarea>
+          </div>
+          <div class="field">
+            <label for="tls-key">{{ t('settings.tls_field_key') }}</label>
+            <textarea id="tls-key" class="textarea mono" v-model="tlsKeyPemInput" rows="6"
+                      :placeholder="t('settings.tls_key_ph')" style="resize: vertical; width: 100%"></textarea>
+            <div class="field-hint">{{ t('settings.tls_key_hint') }}</div>
+          </div>
+
+          <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
+          <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
+
+          <div style="display: flex; gap: var(--space-3)">
+            <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsCertPemInput.trim() || !tlsKeyPemInput.trim()"
+                    @click="uploadTls">
+              {{ tlsUploading ? t('settings.tls_uploading') : t('settings.tls_upload_btn') }}
+            </button>
+            <button type="button" class="btn btn-ghost" v-if="tlsMode === 'managed'" :disabled="tlsUploading" @click="resetTls">
+              {{ t('settings.tls_reset_btn') }}
+            </button>
+          </div>
         </div>
       </div>
 
