@@ -2,10 +2,15 @@ import { defineComponent } from "vue";
 import { PATHS as ICON_PATHS } from "/js/Icons.js";
 import { t, relativeTime } from "/js/i18n.js";
 
-// Two-ring radial topology with collapse/expand per site.
-// Collapsed: site nodes show a resource-count number inside the circle.
-// Click site → expands resources into outer ring, viewBox shifts to center
-//   on that site. Click again → collapse.
+// Three-tier radial topology with nested collapse/expand (issue #24):
+//   Hub (circle) → gateway peers (router-shaped box) + direct networks (box)
+//                → networks grouped under an expanded gateway (box)
+//                → resources of an expanded network (circle, leaf)
+// A gateway node groups every site that shares its gatewayPeerId — e.g. five
+// networks routed through the same site router render as one hub spoke that
+// fans out into five network boxes on click, instead of five independent
+// spokes. Sites with no gateway stay direct hub spokes, rendered the same box
+// shape so "network" always looks the same regardless of how it's reached.
 // Type-filter chips narrow which resources count / appear.
 
 const W = 720;
@@ -13,9 +18,12 @@ const H = 480;
 const CX = W / 2;   // hub center X
 const CY = H / 2;   // hub center Y
 const HUB_R = 30;
-const SITE_RING = 150;
-const RESOURCE_RING = 260;
-const SITE_R = 28;
+const FIRST_RING = 150;          // hub → gateway peers + direct networks
+const NETWORK_RING_OFFSET = 90;  // gateway → its grouped networks
+const RESOURCE_OFFSET = 110;     // network → its resources (added to the network's own hub distance)
+const NODE_HALF_W = 24;          // gateway/network box half-width
+const NODE_HALF_H = 14;          // gateway/network box half-height
+const NODE_RX = 8;
 const RESOURCE_R = 18;
 const LIVE_DOT_R = 4;
 const LIVE_DOT_ORBIT = 56;
@@ -37,26 +45,18 @@ function angleAt(index, total, startDeg = -90) {
   return start + (2 * Math.PI * index) / Math.max(total, 1);
 }
 
-function buildResourceLayout(sites, resources, expandedSiteId) {
-  if (!expandedSiteId) return [];
-  const siteIndex = sites.findIndex((s) => s.id === expandedSiteId);
-  if (siteIndex === -1) return [];
-  const list = resources.filter((r) => r.siteId === expandedSiteId);
-  if (list.length === 0) return [];
-  const siteAngle = angleAt(siteIndex, sites.length);
-  const arcSpan = Math.min((2 * Math.PI) / 3, (list.length - 1) * 0.35 + 0.3);
-  const arcStart = list.length === 1 ? siteAngle : siteAngle - arcSpan / 2;
-  const step = list.length === 1 ? 0 : arcSpan / (list.length - 1);
-  return list.map((r, i) => {
-    const angle = arcStart + i * step;
-    return {
-      resource: r,
-      siteIndex,
-      angle,
-      x: CX + RESOURCE_RING * Math.cos(angle),
-      y: CY + RESOURCE_RING * Math.sin(angle),
-    };
-  });
+/** Fan `count` children around `baseAngle`, same spread rule for every tier. */
+function fanAngles(baseAngle, count) {
+  if (count === 0) return [];
+  if (count === 1) return [baseAngle];
+  const arcSpan = Math.min((2 * Math.PI) / 3, (count - 1) * 0.35 + 0.3);
+  const arcStart = baseAngle - arcSpan / 2;
+  const step = arcSpan / (count - 1);
+  return Array.from({ length: count }, (_, i) => arcStart + i * step);
+}
+
+function polar(angle, dist) {
+  return { x: CX + dist * Math.cos(angle), y: CY + dist * Math.sin(angle) };
 }
 
 export default defineComponent({
@@ -72,12 +72,14 @@ export default defineComponent({
   emits: ["site", "resource"],
   data() {
     return {
+      expandedGatewayId: null,
       expandedSiteId: null,
       activeTypes: new Set(),
       vbX: 0,
       vbY: 0,
-      tooltip: null,       // { resource, x, y }
-      siteTooltip: null,   // { site, x, y }
+      tooltip: null,         // { resource, x, y }
+      networkTooltip: null,  // { site, x, y }
+      gatewayTooltip: null,  // { gateway, x, y }
     };
   },
   computed: {
@@ -89,21 +91,90 @@ export default defineComponent({
       if (this.activeTypes.size === 0) return this.resources;
       return this.resources.filter((r) => this.activeTypes.has(r.type || "computer"));
     },
-    siteLayout() {
-      return this.sites.map((s, i) => {
-        const angle = angleAt(i, this.sites.length);
-        const x = CX + SITE_RING * Math.cos(angle);
-        const y = CY + SITE_RING * Math.sin(angle);
-        const count = this.filteredResources.filter((r) => r.siteId === s.id).length;
-        return { site: s, angle, x, y, count, expanded: s.id === this.expandedSiteId };
+    resourceCount() {
+      const counts = new Map();
+      for (const r of this.filteredResources) {
+        counts.set(r.siteId, (counts.get(r.siteId) || 0) + 1);
+      }
+      return counts;
+    },
+    // Sites sharing a gatewayPeerId collapse into one hub spoke (a router-shaped
+    // node) that fans into its member networks on click.
+    gatewayGroups() {
+      const map = new Map();
+      for (const s of this.sites) {
+        if (!s.gatewayPeerId) continue;
+        if (!map.has(s.gatewayPeerId)) {
+          map.set(s.gatewayPeerId, {
+            gatewayPeerId: s.gatewayPeerId,
+            gatewayPeerName: s.gatewayPeerName,
+            gatewayOnline: s.gatewayOnline,
+            gatewayIp: s.gatewayIp,
+            gatewayLastSeenAt: s.gatewayLastSeenAt,
+            sites: [],
+          });
+        }
+        map.get(s.gatewayPeerId).sites.push(s);
+      }
+      return Array.from(map.values());
+    },
+    directSites() {
+      return this.sites.filter((s) => !s.gatewayPeerId);
+    },
+    // First-ring hub spokes: one per gateway group, one per direct (ungated) network.
+    gatewayLayout() {
+      const total = this.gatewayGroups.length + this.directSites.length;
+      return this.gatewayGroups.map((gw, i) => {
+        const angle = angleAt(i, total);
+        const { x, y } = polar(angle, FIRST_RING);
+        return { gateway: gw, angle, x, y, expanded: gw.gatewayPeerId === this.expandedGatewayId };
       });
     },
+    directNetworkLayout() {
+      const total = this.gatewayGroups.length + this.directSites.length;
+      return this.directSites.map((s, i) => {
+        const angle = angleAt(this.gatewayGroups.length + i, total);
+        const { x, y } = polar(angle, FIRST_RING);
+        const count = this.resourceCount.get(s.id) || 0;
+        return { site: s, angle, x, y, dist: FIRST_RING, count, expanded: s.id === this.expandedSiteId };
+      });
+    },
+    // Networks belonging to the currently expanded gateway, fanned around it.
+    expandedGatewayNetworkLayout() {
+      if (!this.expandedGatewayId) return [];
+      const gwItem = this.gatewayLayout.find((g) => g.gateway.gatewayPeerId === this.expandedGatewayId);
+      if (!gwItem) return [];
+      const memberSites = gwItem.gateway.sites;
+      const angles = fanAngles(gwItem.angle, memberSites.length);
+      const dist = FIRST_RING + NETWORK_RING_OFFSET;
+      return memberSites.map((s, i) => {
+        const { x, y } = polar(angles[i], dist);
+        const count = this.resourceCount.get(s.id) || 0;
+        return { site: s, angle: angles[i], x, y, dist, count, expanded: s.id === this.expandedSiteId,
+                 parentX: gwItem.x, parentY: gwItem.y };
+      });
+    },
+    // Every network box currently on screen — direct spokes plus whichever
+    // gateway's group is expanded. Resource fan-out anchors into this list.
+    visibleNetworks() {
+      return [...this.directNetworkLayout, ...this.expandedGatewayNetworkLayout];
+    },
     resourceLayout() {
-      return buildResourceLayout(this.sites, this.filteredResources, this.expandedSiteId);
+      if (!this.expandedSiteId) return [];
+      const net = this.visibleNetworks.find((n) => n.site.id === this.expandedSiteId);
+      if (!net) return [];
+      const list = this.filteredResources.filter((r) => r.siteId === this.expandedSiteId);
+      if (list.length === 0) return [];
+      const angles = fanAngles(net.angle, list.length);
+      const dist = net.dist + RESOURCE_OFFSET;
+      return list.map((r, i) => {
+        const { x, y } = polar(angles[i], dist);
+        return { resource: r, netX: net.x, netY: net.y, x, y };
+      });
     },
     livePeerLayout() {
-      // Site-type peers are already represented by their site node (ring color shows
-      // gateway status) — exclude them here to avoid confusing duplicate dots.
+      // Site-type peers are already represented by their gateway node (ring color
+      // shows status) — exclude them here to avoid confusing duplicate dots.
       return this.livePeers.filter(p => p.type !== "site").slice(0, 8).map((p, i) => {
         const angle = angleAt(i, 8, -135);
         return { peer: p, x: CX + LIVE_DOT_ORBIT * Math.cos(angle), y: CY + LIVE_DOT_ORBIT * Math.sin(angle) };
@@ -118,28 +189,47 @@ export default defineComponent({
     networkIconMarkup() {
       return (ICON_PATHS.networks || []).join("");
     },
+    routerIconMarkup() {
+      return (ICON_PATHS.router || []).join("");
+    },
     resourceIconMarkup(type) {
       const paths = ICON_PATHS[type || "computer"] || ICON_PATHS.computer;
       return paths.join("");
     },
-    onSiteClick(site) {
-      if (this.expandedSiteId === site.id) {
-        // Collapse → reset viewBox to center
-        this.expandedSiteId = null;
-        this.vbX = 0;
-        this.vbY = 0;
-      } else {
-        // Expand → shift viewBox so the site+its resources are centered
-        this.expandedSiteId = site.id;
-        const item = this.siteLayout.find((s) => s.site.id === site.id);
-        if (item) {
-          // Center the viewBox on the midpoint between hub and expanded site
-          const focusX = (CX + item.x) / 2;
-          const focusY = (CY + item.y) / 2;
-          this.vbX = focusX - W / 2;
-          this.vbY = focusY - H / 2;
-        }
+    focusOn(x, y) {
+      this.vbX = (CX + x) / 2 - W / 2;
+      this.vbY = (CY + y) / 2 - H / 2;
+    },
+    resetFocus() {
+      this.vbX = 0;
+      this.vbY = 0;
+    },
+    onGatewayClick(gatewayPeerId) {
+      // Switching gateways (or collapsing one) always invalidates whichever
+      // network was expanded — its box may no longer be on screen.
+      this.expandedSiteId = null;
+      if (this.expandedGatewayId === gatewayPeerId) {
+        this.expandedGatewayId = null;
+        this.resetFocus();
+        return;
       }
+      this.expandedGatewayId = gatewayPeerId;
+      const item = this.gatewayLayout.find((g) => g.gateway.gatewayPeerId === gatewayPeerId);
+      if (item) this.focusOn(item.x, item.y);
+    },
+    onNetworkClick(site) {
+      if (this.expandedSiteId === site.id) {
+        this.expandedSiteId = null;
+        // Re-focus one level up: the expanded gateway if there is one, else the hub.
+        const gw = this.expandedGatewayId
+          ? this.gatewayLayout.find((g) => g.gateway.gatewayPeerId === this.expandedGatewayId)
+          : null;
+        if (gw) this.focusOn(gw.x, gw.y); else this.resetFocus();
+        return;
+      }
+      this.expandedSiteId = site.id;
+      const item = this.visibleNetworks.find((n) => n.site.id === site.id);
+      if (item) this.focusOn(item.x, item.y);
     },
     onResourceClick(siteId, resourceId) {
       this.$emit("resource", { siteId, resourceId });
@@ -152,47 +242,42 @@ export default defineComponent({
     clearTypes() { this.activeTypes = new Set(); },
     showTooltip(event, resource) {
       const rect = this.$el.getBoundingClientRect();
-      this.tooltip = {
-        resource,
-        x: event.clientX - rect.left + 14,
-        y: event.clientY - rect.top - 10,
-      };
+      this.tooltip = { resource, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
     },
     moveTooltip(event) {
       if (!this.tooltip) return;
       const rect = this.$el.getBoundingClientRect();
-      this.tooltip = {
-        ...this.tooltip,
-        x: event.clientX - rect.left + 14,
-        y: event.clientY - rect.top - 10,
-      };
+      this.tooltip = { ...this.tooltip, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
     },
-    hideTooltip() {
-      this.tooltip = null;
-    },
-    showSiteTooltip(event, site) {
-      if (!site.gatewayPeerId) return;
+    hideTooltip() { this.tooltip = null; },
+    showNetworkTooltip(event, site) {
       const rect = this.$el.getBoundingClientRect();
-      this.siteTooltip = {
-        site,
-        x: event.clientX - rect.left + 14,
-        y: event.clientY - rect.top - 10,
-      };
+      this.networkTooltip = { site, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
     },
-    moveSiteTooltip(event) {
-      if (!this.siteTooltip) return;
+    moveNetworkTooltip(event) {
+      if (!this.networkTooltip) return;
       const rect = this.$el.getBoundingClientRect();
-      this.siteTooltip = { ...this.siteTooltip, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
+      this.networkTooltip = { ...this.networkTooltip, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
     },
-    hideSiteTooltip() {
-      this.siteTooltip = null;
+    hideNetworkTooltip() { this.networkTooltip = null; },
+    showGatewayTooltip(event, gateway) {
+      const rect = this.$el.getBoundingClientRect();
+      this.gatewayTooltip = { gateway, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
     },
-    siteRingStyle(item) {
+    moveGatewayTooltip(event) {
+      if (!this.gatewayTooltip) return;
+      const rect = this.$el.getBoundingClientRect();
+      this.gatewayTooltip = { ...this.gatewayTooltip, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
+    },
+    hideGatewayTooltip() { this.gatewayTooltip = null; },
+    gatewayRingStyle(item) {
       if (item.expanded) return "stroke: var(--accent); stroke-width: 3";
-      if (item.site.gatewayPeerId == null) return "";
-      return item.site.gatewayOnline
+      return item.gateway.gatewayOnline
         ? "stroke: var(--status-ok); stroke-width: 2.5"
         : "stroke: var(--fg3); stroke-width: 2";
+    },
+    networkRingStyle(item) {
+      return item.expanded ? "stroke: var(--accent); stroke-width: 3" : "";
     },
     relativeTime(iso) { return relativeTime(iso); },
     resourceTitle(r) {
@@ -227,15 +312,21 @@ export default defineComponent({
            style="transition: viewBox 0.3s ease"
            role="img" aria-label="Netzwerk-Topologie">
 
-        <!-- Hub-to-Site links -->
-        <line v-for="item in siteLayout" :key="'sl-'+item.site.id"
+        <!-- Hub-to-gateway / hub-to-direct-network links -->
+        <line v-for="item in gatewayLayout" :key="'gl-'+item.gateway.gatewayPeerId"
+              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y" />
+        <line v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
               class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y" />
 
-        <!-- Site-to-Resource links -->
+        <!-- Gateway-to-network links (expanded gateway only) -->
+        <line v-for="item in expandedGatewayNetworkLayout" :key="'gnl-'+item.site.id"
+              class="link" style="opacity:0.45"
+              :x1="item.parentX" :y1="item.parentY" :x2="item.x" :y2="item.y" />
+
+        <!-- Network-to-resource links (expanded network only) -->
         <line v-for="item in resourceLayout" :key="'rl-'+item.resource.id"
               class="link" style="opacity:0.45"
-              :x1="siteLayout[item.siteIndex].x" :y1="siteLayout[item.siteIndex].y"
-              :x2="item.x" :y2="item.y" />
+              :x1="item.netX" :y1="item.netY" :x2="item.x" :y2="item.y" />
 
         <!-- Hub -->
         <circle class="hub-pulse" :cx="CX" :cy="CY" :r="HUB_R" />
@@ -249,7 +340,7 @@ export default defineComponent({
           <title>{{ d.peer.name }} · {{ d.peer.assignedIp }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
         </circle>
 
-        <!-- Resource nodes (expanded site only) -->
+        <!-- Resource nodes (expanded network only) -->
         <g v-for="item in resourceLayout" :key="item.resource.id"
            class="node live"
            @click="onResourceClick(item.resource.siteId, item.resource.id)"
@@ -266,56 +357,76 @@ export default defineComponent({
           <text class="node-label" :y="RESOURCE_R + 13">{{ item.resource.name }}</text>
         </g>
 
-        <!-- Site nodes -->
-        <g v-for="item in siteLayout" :key="item.site.id"
+        <!-- Gateway-peer nodes — router silhouette (box, not circle): a shared
+             site router groups every network routed through it into one spoke. -->
+        <g v-for="item in gatewayLayout" :key="item.gateway.gatewayPeerId"
            class="node live"
-           @click="onSiteClick(item.site)"
-           @mouseenter="showSiteTooltip($event, item.site)"
-           @mousemove="moveSiteTooltip($event)"
-           @mouseleave="hideSiteTooltip"
+           @click="onGatewayClick(item.gateway.gatewayPeerId)"
+           @mouseenter="showGatewayTooltip($event, item.gateway)"
+           @mousemove="moveGatewayTooltip($event)"
+           @mouseleave="hideGatewayTooltip"
            :transform="'translate('+item.x+','+item.y+')'">
+          <rect class="node-ring" :x="-NODE_HALF_W" :y="-NODE_HALF_H"
+                :width="NODE_HALF_W*2" :height="NODE_HALF_H*2" :rx="NODE_RX"
+                :style="gatewayRingStyle(item)" />
+          <rect class="node-bg" :x="-NODE_HALF_W+2" :y="-NODE_HALF_H+2"
+                :width="NODE_HALF_W*2-4" :height="NODE_HALF_H*2-4" :rx="NODE_RX-2" />
+          <g class="node-icon" transform="translate(-9.6,-9.6) scale(0.8)"
+             fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"
+             v-html="routerIconMarkup()" />
+          <text class="node-label" :y="NODE_HALF_H + 15">{{ item.gateway.gatewayPeerName }}</text>
+          <text v-if="item.gateway.sites.length > 1"
+                style="font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+                       fill: var(--accent); text-anchor: middle; pointer-events: none"
+                :y="NODE_HALF_H + 27">{{ item.gateway.sites.length }} {{ t('topology.networks_short') }}</text>
+        </g>
 
-          <!-- Outer ring — accent when expanded, gateway status color otherwise -->
-          <circle class="node-ring" :r="SITE_R" :style="siteRingStyle(item)" />
-          <circle class="node-bg" :r="SITE_R - 2" />
+        <!-- Network boxes — direct hub spokes, plus whichever gateway's group is expanded -->
+        <g v-for="item in visibleNetworks" :key="item.site.id"
+           class="node live"
+           @click="onNetworkClick(item.site)"
+           @mouseenter="showNetworkTooltip($event, item.site)"
+           @mousemove="moveNetworkTooltip($event)"
+           @mouseleave="hideNetworkTooltip"
+           :transform="'translate('+item.x+','+item.y+')'">
+          <rect class="node-ring" :x="-NODE_HALF_W" :y="-NODE_HALF_H"
+                :width="NODE_HALF_W*2" :height="NODE_HALF_H*2" :rx="NODE_RX"
+                :style="networkRingStyle(item)" />
+          <rect class="node-bg" :x="-NODE_HALF_W+2" :y="-NODE_HALF_H+2"
+                :width="NODE_HALF_W*2-4" :height="NODE_HALF_H*2-4" :rx="NODE_RX-2" />
 
-          <!-- Building glyph (top half of circle) OR count number (bottom) -->
-          <!-- Show icon small at top, count large centered when collapsed -->
           <g v-if="!item.expanded">
-            <!-- Networks icon, shifted upward to make room for number -->
-            <g class="node-icon" transform="translate(-6,-14) scale(0.5)"
+            <g class="node-icon" transform="translate(-6,-11) scale(0.45)"
                fill="none" stroke="currentColor" stroke-width="2.5"
                stroke-linecap="round" stroke-linejoin="round"
                v-html="networkIconMarkup()" />
-            <!-- Count number, centered vertically in lower portion -->
-            <text style="font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+            <text style="font-family: var(--font-mono); font-size: 12px; font-weight: 700;
                          fill: var(--accent); text-anchor: middle; dominant-baseline: central;
                          user-select: none"
-                  y="8">{{ item.count }}</text>
+                  y="6">{{ item.count }}</text>
           </g>
-
-          <!-- When expanded: networks icon centered -->
           <g v-else class="node-icon"
-             transform="translate(-9.6,-9.6) scale(0.8)"
+             transform="translate(-8.8,-8.8) scale(0.73)"
              fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round"
              v-html="networkIconMarkup()" />
 
-          <text class="node-label" :y="SITE_R + 15">{{ item.site.name }}</text>
+          <text class="node-label" :y="NODE_HALF_H + 15">{{ item.site.name }}</text>
         </g>
 
         <!-- Hint -->
-        <text v-if="!expandedSiteId" :x="W + vbX - 12" :y="H + vbY - 12"
+        <text v-if="!expandedGatewayId && !expandedSiteId" :x="W + vbX - 12" :y="H + vbY - 12"
               style="font-family:var(--font-sans);font-size:11px;fill:var(--fg3);text-anchor:end;pointer-events:none">
           {{ t('topology.expand_hint') }}
         </text>
       </svg>
 
-      <!-- Site gateway hover tooltip -->
-      <div v-if="siteTooltip" :style="{
+      <!-- Gateway hover tooltip -->
+      <div v-if="gatewayTooltip" :style="{
              position: 'absolute',
-             left: siteTooltip.x + 'px',
-             top: siteTooltip.y + 'px',
+             left: gatewayTooltip.x + 'px',
+             top: gatewayTooltip.y + 'px',
              pointerEvents: 'none',
              zIndex: 10,
              background: 'var(--surface-2)',
@@ -326,19 +437,38 @@ export default defineComponent({
              maxWidth: '220px',
            }">
         <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
-          {{ siteTooltip.site.name }}
+          {{ gatewayTooltip.gateway.gatewayPeerName }}
         </div>
-        <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); margin-bottom: 4px">
-          {{ siteTooltip.site.cidr }}
-        </div>
-        <div style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px">
+        <div style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
           <div style="margin-bottom: 2px">
-            <span :style="siteTooltip.site.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
-                  style="font-size:9px">{{ siteTooltip.site.gatewayOnline ? '●' : '○' }}</span>
-            {{ siteTooltip.site.gatewayPeerName }}
-            <span style="font-family: var(--font-mono); color: var(--fg2)">{{ siteTooltip.site.gatewayIp }}</span>
+            <span :style="gatewayTooltip.gateway.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                  style="font-size:9px">{{ gatewayTooltip.gateway.gatewayOnline ? '●' : '○' }}</span>
+            <span style="font-family: var(--font-mono); color: var(--fg2)">{{ gatewayTooltip.gateway.gatewayIp }}</span>
           </div>
-          <div>{{ siteTooltip.site.gatewayLastSeenAt ? 'Handshake ' + relativeTime(siteTooltip.site.gatewayLastSeenAt) : t('topology.no_handshake') }}</div>
+          <div>{{ gatewayTooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(gatewayTooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
+          <div style="margin-top: 2px">{{ gatewayTooltip.gateway.sites.length }} {{ t('topology.networks_short') }}</div>
+        </div>
+      </div>
+
+      <!-- Network hover tooltip -->
+      <div v-if="networkTooltip" :style="{
+             position: 'absolute',
+             left: networkTooltip.x + 'px',
+             top: networkTooltip.y + 'px',
+             pointerEvents: 'none',
+             zIndex: 10,
+             background: 'var(--surface-2)',
+             border: '1px solid var(--border)',
+             borderRadius: 'var(--radius-sm)',
+             padding: '6px 10px',
+             boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.3))',
+             maxWidth: '220px',
+           }">
+        <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
+          {{ networkTooltip.site.name }}
+        </div>
+        <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
+          {{ networkTooltip.site.cidr }}
         </div>
       </div>
 
@@ -367,7 +497,7 @@ export default defineComponent({
           <div v-for="p in tooltip.resource.portLabels" :key="p">{{ p }}</div>
         </div>
         <div v-else style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
-          Keine Ports definiert
+          {{ t('topology.no_ports') }}
         </div>
       </div>
     </div>
@@ -375,7 +505,8 @@ export default defineComponent({
   // Expose constants to template via data so Vue can see them.
   created() {
     this.CX = CX; this.CY = CY;
-    this.HUB_R = HUB_R; this.SITE_R = SITE_R;
+    this.HUB_R = HUB_R;
+    this.NODE_HALF_W = NODE_HALF_W; this.NODE_HALF_H = NODE_HALF_H; this.NODE_RX = NODE_RX;
     this.RESOURCE_R = RESOURCE_R; this.LIVE_DOT_R = LIVE_DOT_R;
   },
 });
