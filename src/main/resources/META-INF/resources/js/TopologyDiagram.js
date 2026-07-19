@@ -28,6 +28,14 @@ const RESOURCE_R = 18;
 const LIVE_DOT_R = 4;
 const LIVE_DOT_ORBIT = 56;
 
+// The viewBox fits tightly around whatever's on screen (see contentBBox) but
+// is capped here so a big topology doesn't shrink nodes/labels into
+// unreadable specks — past this size the viewBox stops growing and the user
+// drags to pan across the (larger) content instead.
+const MAX_VIEW_W = 900;
+const MAX_VIEW_H = 620;
+const PAN_SLACK = 40; // a little overscroll room at the content's own edges
+
 const ALL_TYPES = [
   { key: "computer",   labelKey: "resources.type_computer" },
   { key: "nas",        labelKey: "resources.type_nas" },
@@ -45,11 +53,15 @@ function angleAt(index, total, startDeg = -90) {
   return start + (2 * Math.PI * index) / Math.max(total, 1);
 }
 
-/** Fan `count` children around `baseAngle`, same spread rule for every tier. */
+/** Fan `count` children around `baseAngle`, same spread rule for every tier.
+ * The span grows with `count` up to just short of a full circle — a fixed
+ * 120° cap crushed busy sites (20+ resources) into an unreadable, heavily
+ * overlapping stack instead of actually fanning out. */
 function fanAngles(baseAngle, count) {
   if (count === 0) return [];
   if (count === 1) return [baseAngle];
-  const arcSpan = Math.min((2 * Math.PI) / 3, (count - 1) * 0.35 + 0.3);
+  const MAX_SPAN = 2 * Math.PI * 0.92; // leave a gap back toward the parent link
+  const arcSpan = Math.min(MAX_SPAN, (count - 1) * 0.35 + 0.3);
   const arcStart = baseAngle - arcSpan / 2;
   const step = arcSpan / (count - 1);
   return Array.from({ length: count }, (_, i) => arcStart + i * step);
@@ -75,8 +87,11 @@ export default defineComponent({
       expandedGatewayId: null,
       expandedSiteId: null,
       activeTypes: new Set(),
-      vbX: 0,
-      vbY: 0,
+      panX: 0,
+      panY: 0,
+      dragging: false,
+      dragStartPointer: null,
+      dragStartPan: null,
       tooltip: null,         // { resource, x, y }
       networkTooltip: null,  // { site, x, y }
       gatewayTooltip: null,  // { gateway, x, y }
@@ -180,7 +195,10 @@ export default defineComponent({
         : this.filteredResources.filter((r) => r.siteId === this.expandedSiteId);
       if (list.length === 0) return [];
       const angles = fanAngles(net.angle, list.length);
-      const dist = net.dist + RESOURCE_OFFSET;
+      // Push the ring outward for busy sites so the wider fan (see fanAngles)
+      // still leaves breathing room between adjacent resource nodes instead
+      // of just spreading a fixed-radius circle thinner.
+      const dist = net.dist + RESOURCE_OFFSET + Math.max(0, list.length - 10) * 4;
       return list.map((r, i) => {
         const { x, y } = polar(angles[i], dist);
         return { resource: r, netX: net.x, netY: net.y, x, y };
@@ -194,12 +212,106 @@ export default defineComponent({
         return { peer: p, x: CX + LIVE_DOT_ORBIT * Math.cos(angle), y: CY + LIVE_DOT_ORBIT * Math.sin(angle) };
       });
     },
+    // Bounding box of everything actually on screen right now (hub, gateway
+    // nodes, network boxes, and — if a network is drilled into — its resource
+    // fan), padded, with a floor so a near-empty topology doesn't zoom in
+    // absurdly. Replaces a fixed-size pan window that assumed a roughly
+    // symmetric spread around the focused node: that assumption broke for
+    // off-center sites and for networks with many resources, clipping nodes
+    // at the top/edge while leaving the opposite side empty.
+    contentBBox() {
+      const pts = [
+        { x: CX - HUB_R, y: CY - HUB_R },
+        { x: CX + HUB_R, y: CY + HUB_R + 30 }, // hub label + endpoint line
+      ];
+      const addBox = (x, y, labelLines) => {
+        pts.push({ x: x - NODE_HALF_W, y: y - NODE_HALF_H });
+        pts.push({ x: x + NODE_HALF_W, y: y + NODE_HALF_H + 14 * labelLines });
+      };
+      const addResource = (x, y) => {
+        pts.push({ x: x - RESOURCE_R, y: y - RESOURCE_R });
+        pts.push({ x: x + RESOURCE_R, y: y + RESOURCE_R + 14 });
+      };
+      for (const item of this.gatewayLayout) addBox(item.x, item.y, item.gateway.sites.length > 1 ? 2 : 1);
+      for (const item of this.visibleNetworks) addBox(item.x, item.y, item.expanded ? 2 : 1);
+      for (const item of this.resourceLayout) addResource(item.x, item.y);
+      for (const d of this.livePeerLayout) {
+        pts.push({ x: d.x - LIVE_DOT_R, y: d.y - LIVE_DOT_R });
+        pts.push({ x: d.x + LIVE_DOT_R, y: d.y + LIVE_DOT_R });
+      }
+
+      const PAD = 24;
+      let minX = Math.min(...pts.map((p) => p.x)) - PAD;
+      let maxX = Math.max(...pts.map((p) => p.x)) + PAD;
+      let minY = Math.min(...pts.map((p) => p.y)) - PAD;
+      let maxY = Math.max(...pts.map((p) => p.y)) + PAD;
+
+      const MIN_W = 480, MIN_H = 320;
+      let w = maxX - minX, h = maxY - minY;
+      if (w < MIN_W) { const d = (MIN_W - w) / 2; minX -= d; maxX += d; w = MIN_W; }
+      if (h < MIN_H) { const d = (MIN_H - h) / 2; minY -= d; maxY += d; h = MIN_H; }
+
+      return { x: minX, y: minY, w, h };
+    },
+    // Content larger than the cap needs manual panning — everything past
+    // MAX_VIEW_W/H no longer fits by shrinking, only by dragging.
+    needsPan() {
+      const b = this.contentBBox;
+      return b.w > MAX_VIEW_W + 1 || b.h > MAX_VIEW_H + 1;
+    },
+    // Visible window: content bbox, capped at MAX_VIEW_W/H, recentered by
+    // the current pan offset and clamped so dragging can't wander into empty
+    // space far past the content's own edges (PAN_SLACK allows a little).
+    viewBoxRect() {
+      const b = this.contentBBox;
+      const w = Math.min(b.w, MAX_VIEW_W);
+      const h = Math.min(b.h, MAX_VIEW_H);
+      const rangeX = (b.w - w) / 2 + PAN_SLACK;
+      const rangeY = (b.h - h) / 2 + PAN_SLACK;
+      const panX = Math.min(Math.max(this.panX, -rangeX), rangeX);
+      const panY = Math.min(Math.max(this.panY, -rangeY), rangeY);
+      const x = b.x + b.w / 2 - w / 2 + panX;
+      const y = b.y + b.h / 2 - h / 2 + panY;
+      return { x, y, w, h };
+    },
     viewBox() {
-      return `${this.vbX} ${this.vbY} ${W} ${H}`;
+      const b = this.viewBoxRect;
+      return `${b.x} ${b.y} ${b.w} ${b.h}`;
     },
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+    // Drag-to-pan, mouse and touch alike via Pointer Events. Only does
+    // anything once the content no longer fits the capped viewBox
+    // (needsPan) — otherwise everything's already visible and there's
+    // nothing to pan to.
+    onPointerDown(e) {
+      if (!this.needsPan) return;
+      this.dragging = true;
+      this.dragStartPointer = { x: e.clientX, y: e.clientY };
+      this.dragStartPan = { x: this.panX, y: this.panY };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    onPointerMove(e) {
+      if (!this.dragging) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const b = this.viewBoxRect;
+      const scale = Math.min(rect.width / b.w, rect.height / b.h);
+      if (!scale) return;
+      // Content follows the cursor: dragging right reveals what was to the
+      // left, so the viewBox itself moves the opposite way.
+      const dxUser = (e.clientX - this.dragStartPointer.x) / scale;
+      const dyUser = (e.clientY - this.dragStartPointer.y) / scale;
+      this.panX = this.dragStartPan.x - dxUser;
+      this.panY = this.dragStartPan.y - dyUser;
+    },
+    onPointerUp(e) {
+      this.dragging = false;
+      this.dragStartPointer = null;
+      this.dragStartPan = null;
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    },
+    resetPan() { this.panX = 0; this.panY = 0; },
     // No active type filter → the backend's per-site count (site.resourceCount)
     // is the true, uncapped total (a plain GROUP BY over every resource) and is
     // what the Networks table shows too. A type filter narrows what should be
@@ -219,40 +331,23 @@ export default defineComponent({
       const paths = ICON_PATHS[type || "computer"] || ICON_PATHS.computer;
       return paths.join("");
     },
-    focusOn(x, y) {
-      this.vbX = (CX + x) / 2 - W / 2;
-      this.vbY = (CY + y) / 2 - H / 2;
-    },
-    resetFocus() {
-      this.vbX = 0;
-      this.vbY = 0;
-    },
     onGatewayClick(gatewayPeerId) {
       // Switching gateways (or collapsing one) always invalidates whichever
-      // network was expanded — its box may no longer be on screen.
+      // network was expanded — its box may no longer be on screen. The
+      // viewBox itself re-fits reactively (contentBBox); only the manual
+      // pan offset needs clearing so a drag from the old view doesn't leak
+      // into the new one.
       this.expandedSiteId = null;
-      if (this.expandedGatewayId === gatewayPeerId) {
-        this.expandedGatewayId = null;
-        this.resetFocus();
-        return;
-      }
-      this.expandedGatewayId = gatewayPeerId;
-      const item = this.gatewayLayout.find((g) => g.gateway.gatewayPeerId === gatewayPeerId);
-      if (item) this.focusOn(item.x, item.y);
+      this.resetPan();
+      this.expandedGatewayId = this.expandedGatewayId === gatewayPeerId ? null : gatewayPeerId;
     },
     onNetworkClick(site) {
+      this.resetPan();
       if (this.expandedSiteId === site.id) {
         this.expandedSiteId = null;
-        // Re-focus one level up: the expanded gateway if there is one, else the hub.
-        const gw = this.expandedGatewayId
-          ? this.gatewayLayout.find((g) => g.gateway.gatewayPeerId === this.expandedGatewayId)
-          : null;
-        if (gw) this.focusOn(gw.x, gw.y); else this.resetFocus();
         return;
       }
       this.expandedSiteId = site.id;
-      const item = this.visibleNetworks.find((n) => n.site.id === site.id);
-      if (item) this.focusOn(item.x, item.y);
       this.maybeLoadSiteResources(site);
     },
     // The diagram-wide payload caps resources at TOPOLOGY_RESOURCE_CAP; a
@@ -348,18 +443,33 @@ export default defineComponent({
         </button>
       </div>
 
+      <div v-if="resourceOverflow > 0" class="muted"
+           style="font-size: var(--text-xs); margin-bottom: var(--space-2)">
+        {{ t('topology.resource_overflow', { count: resourceOverflow }) }}
+      </div>
+
       <div v-if="sites.length === 0" class="topo-empty"
            style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1">
         <span style="pointer-events: auto">{{ t('topology.empty_a') }}<router-link to="/networks" style="font-weight: 600; color: var(--fg1); text-decoration: underline">{{ t('nav.networks') }}</router-link>{{ t('topology.empty_b') }}</span>
       </div>
 
       <svg class="topo" :viewBox="viewBox"
-           style="transition: viewBox 0.3s ease"
+           :style="{
+             transition: dragging ? 'none' : 'viewBox 0.3s ease',
+             cursor: needsPan ? (dragging ? 'grabbing' : 'grab') : 'default',
+             touchAction: needsPan ? 'none' : 'auto',
+             userSelect: 'none',
+           }"
+           @pointerdown="onPointerDown"
+           @pointermove="onPointerMove"
+           @pointerup="onPointerUp"
+           @pointercancel="onPointerUp"
            role="img" aria-label="Netzwerk-Topologie">
 
         <!-- Hub-to-gateway / hub-to-direct-network links -->
         <line v-for="item in gatewayLayout" :key="'gl-'+item.gateway.gatewayPeerId"
-              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y" />
+              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y"
+              :style="item.gateway.gatewayOnline ? '' : 'stroke-dasharray: 4 4; opacity: 0.55'" />
         <line v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
               class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y" />
 
@@ -474,7 +584,7 @@ export default defineComponent({
         </g>
 
         <!-- Hint -->
-        <text v-if="!expandedGatewayId && !expandedSiteId" :x="W + vbX - 12" :y="H + vbY - 12"
+        <text v-if="!expandedGatewayId && !expandedSiteId" :x="viewBoxRect.x + viewBoxRect.w - 12" :y="viewBoxRect.y + viewBoxRect.h - 12"
               style="font-family:var(--font-sans);font-size:11px;fill:var(--fg3);text-anchor:end;pointer-events:none">
           {{ t('topology.expand_hint') }}
         </text>
