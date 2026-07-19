@@ -22,6 +22,7 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0012](0012-docker-socket-proxy.md) | Docker deployment via Unix socket proxy (v1 line, 0.11.0) | Accepted | 2026-06-28 |
 | [0013](0013-default-everyone-role.md) | Default "Everyone" role with auto-membership (0.11.0) | Accepted | 2026-07-10 |
 | [0014](0014-device-discovery.md) | Device discovery by unprivileged TCP-connect scan of a site's own CIDR (0.12.0) | Accepted | 2026-07-10 |
+| [0015](0015-builtin-tls-termination.md) | Built-in TLS termination (no mandatory reverse proxy) | Accepted | 2026-07-19 |
 
 ## Status legend
 
