@@ -91,7 +91,13 @@ export default defineComponent({
       if (this.activeTypes.size === 0) return this.resources;
       return this.resources.filter((r) => this.activeTypes.has(r.type || "computer"));
     },
-    resourceCount() {
+    // Counted from `resources`, which the backend caps at TOPOLOGY_RESOURCE_CAP
+    // for the whole diagram (DashboardResource) — a network whose resources
+    // didn't make the cap undercounts here even though it has real resources.
+    // Only trustworthy as a per-site count once a type filter is active, where
+    // there's no backend-supplied filtered count to fall back on. See
+    // countForSite(), which prefers the accurate unfiltered backend count.
+    filteredResourceCount() {
       const counts = new Map();
       for (const r of this.filteredResources) {
         counts.set(r.siteId, (counts.get(r.siteId) || 0) + 1);
@@ -135,7 +141,7 @@ export default defineComponent({
       return this.directSites.map((s, i) => {
         const angle = angleAt(this.gatewayGroups.length + i, total);
         const { x, y } = polar(angle, FIRST_RING);
-        const count = this.resourceCount.get(s.id) || 0;
+        const count = this.countForSite(s);
         return { site: s, angle, x, y, dist: FIRST_RING, count, expanded: s.id === this.expandedSiteId };
       });
     },
@@ -149,7 +155,7 @@ export default defineComponent({
       const dist = FIRST_RING + NETWORK_RING_OFFSET;
       return memberSites.map((s, i) => {
         const { x, y } = polar(angles[i], dist);
-        const count = this.resourceCount.get(s.id) || 0;
+        const count = this.countForSite(s);
         return { site: s, angle: angles[i], x, y, dist, count, expanded: s.id === this.expandedSiteId,
                  parentX: gwItem.x, parentY: gwItem.y };
       });
@@ -186,6 +192,15 @@ export default defineComponent({
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+    // No active type filter → the backend's per-site count (site.resourceCount)
+    // is the true, uncapped total (a plain GROUP BY over every resource) and is
+    // what the Networks table shows too. A type filter narrows what should be
+    // counted, and there's no backend-supplied filtered-per-site count to use
+    // instead, so that case falls back to counting the (capped) resources array.
+    countForSite(site) {
+      if (this.activeTypes.size === 0) return site.resourceCount || 0;
+      return this.filteredResourceCount.get(site.id) || 0;
+    },
     networkIconMarkup() {
       return (ICON_PATHS.networks || []).join("");
     },
