@@ -45,6 +45,7 @@ class AuthorizationMatrixTest {
     void anonymous_cannotHitAdminEndpoints() {
         given().when().get("/api/v1/users").then().statusCode(401);
         given().when().get("/api/v1/peers").then().statusCode(401);
+        given().when().get("/api/v1/peers/activity-heatmap").then().statusCode(401);
         given().when().get("/api/v1/settings").then().statusCode(401);
         given().when().get("/api/v1/identity/providers").then().statusCode(401);
         given().when().get("/api/v1/audit").then().statusCode(401);

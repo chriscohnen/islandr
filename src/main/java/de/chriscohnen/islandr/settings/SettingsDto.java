@@ -30,6 +30,7 @@ public final class SettingsDto {
             Double hubLon,
             String hubLocationLabel,
             boolean ironRdpEnabled,
+            int activityRetentionDays,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete,
@@ -58,6 +59,7 @@ public final class SettingsDto {
                     s.nominatimUrl,
                     s.hubLat, s.hubLon, s.hubLocationLabel,
                     s.ironRdpEnabled,
+                    s.activityRetentionDays,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                     version,
@@ -134,7 +136,12 @@ public final class SettingsDto {
             String hubLocationLabel,
 
             // optional — enable IronRDP browser-based RDP proxy (global toggle)
-            boolean ironRdpEnabled
+            boolean ironRdpEnabled,
+
+            // optional — days to keep peer_daily_activity rows for the dashboard
+            // heatmap (#32) before the cleanup job prunes them; null/0 keeps the
+            // 180-day default.
+            @Min(0) @Max(3650) Integer activityRetentionDays
     ) {}
 
     private SettingsDto() {}

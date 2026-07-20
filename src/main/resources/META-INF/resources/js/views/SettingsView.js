@@ -37,6 +37,7 @@ export default defineComponent({
         hubLat: null,
         hubLon: null,
         hubLocationLabel: "",
+        activityRetentionDays: 180,
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
@@ -108,6 +109,7 @@ export default defineComponent({
           hubLat: s.hubLat ?? null,
           hubLon: s.hubLon ?? null,
           hubLocationLabel: s.hubLocationLabel || "",
+          activityRetentionDays: s.activityRetentionDays || 180,
         };
         this.meta = {
           updatedAt: s.updatedAt,
@@ -140,6 +142,8 @@ export default defineComponent({
           hubLat: this.form.hubLat !== "" && this.form.hubLat !== null ? Number(this.form.hubLat) : null,
           hubLon: this.form.hubLon !== "" && this.form.hubLon !== null ? Number(this.form.hubLon) : null,
           hubLocationLabel: this.form.hubLocationLabel.trim() || null,
+          activityRetentionDays: (this.form.activityRetentionDays === "" || this.form.activityRetentionDays == null
+            || Number.isNaN(this.form.activityRetentionDays)) ? 180 : this.form.activityRetentionDays,
         };
         const res = await fetch("/api/v1/settings", {
           method: "PUT",
@@ -527,6 +531,17 @@ export default defineComponent({
         </div>
         <div v-if="form.privateKeyRetention === 'encrypted'" class="callout callout-info" style="margin-top:var(--space-3)">
           {{ t('settings.ret_encrypted_hint') }}
+        </div>
+      </div>
+
+      <!-- Connection activity history retention (#32) -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.field_activity_retention') }}</h2>
+        <div class="field-hint" style="margin-bottom: var(--space-3)">{{ t('settings.activity_retention_hint') }}</div>
+        <div style="display:flex; align-items:center; gap:var(--space-2)">
+          <input id="activityRetentionDays" class="input mono" type="number" min="1" max="3650" style="max-width:120px"
+                 v-model.number="form.activityRetentionDays" />
+          <span class="muted" style="font-size:var(--text-sm)">{{ t('settings.activity_retention_days_suffix') }}</span>
         </div>
       </div>
 

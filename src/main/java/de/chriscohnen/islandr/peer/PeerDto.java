@@ -206,5 +206,21 @@ public final class PeerDto {
             String peerId    // null when skipped
     ) {}
 
+    /** One row of the dashboard's connection activity heatmap (#32). */
+    public record ActivityHeatmapRow(
+            String peerId,
+            String name,
+            String type,   // "client" | "site"
+            java.util.List<Integer> sampleHits   // one entry per day in ActivityHeatmapResponse.days, same order
+    ) {}
+
+    /** Peers x days activity matrix. {@code days} is ascending ISO-8601 date
+     *  strings (YYYY-MM-DD); each row's {@code sampleHits} aligns positionally
+     *  with {@code days}. */
+    public record ActivityHeatmapResponse(
+            java.util.List<String> days,
+            java.util.List<ActivityHeatmapRow> peers
+    ) {}
+
     private PeerDto() {}
 }

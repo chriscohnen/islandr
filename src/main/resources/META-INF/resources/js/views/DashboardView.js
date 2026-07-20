@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import TopologyDiagram from "/js/TopologyDiagram.js";
+import ActivityHeatmap from "/js/ActivityHeatmap.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 
@@ -9,7 +10,7 @@ import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 // numbers. Most cards are clickable shortcuts to the underlying view.
 export default defineComponent({
   name: "DashboardView",
-  components: { TopologyDiagram, Icon },
+  components: { TopologyDiagram, ActivityHeatmap, Icon },
   data() {
     return {
       data: null,
@@ -309,6 +310,12 @@ export default defineComponent({
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Connection activity heatmap: peers x days, who was connected when (#32) -->
+      <div class="card card-pad" style="margin-bottom: var(--space-5)">
+        <h2 style="font-size: var(--text-md); margin: 0 0 var(--space-3)">{{ t('dashboard.heatmap_title') }}</h2>
+        <ActivityHeatmap :days="30" />
       </div>
 
       <!-- Two side-by-side activity strips -->

@@ -58,6 +58,8 @@ public class SettingsService {
         s.hubLocationLabel = (req.hubLocationLabel() == null || req.hubLocationLabel().isBlank())
                 ? null : req.hubLocationLabel().strip();
         s.ironRdpEnabled = req.ironRdpEnabled();
+        s.activityRetentionDays = (req.activityRetentionDays() != null && req.activityRetentionDays() > 0)
+                ? req.activityRetentionDays() : 180;
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
 

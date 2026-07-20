@@ -46,6 +46,7 @@ class ActivityPollerTest {
 
     @Transactional
     void wipe() {
+        PeerDailyActivity.deleteAll();
         Peer.deleteAll();
         User.deleteAll();
     }
@@ -73,6 +74,26 @@ class ActivityPollerTest {
         // Deliberately do NOT call wg.setPeer — wg has no record.
         poller.poll();
         assertThat(lastSeenAtOf(peerId)).isNull();
+    }
+
+    @Test
+    void poll_bumpsDailyActivityOnHandshake() {
+        String peerId = createPeerAndRegisterWithWg("10.8.0.9");
+
+        int hits = 0;
+        for (int i = 0; i < 20; i++) {
+            poller.poll();
+            hits = dailySampleHits(peerId);
+            if (hits > 0) break;
+        }
+        assertThat(hits).as("sample_hits should increment after a poll observes a handshake").isGreaterThan(0);
+
+        int before = hits;
+        for (int i = 0; i < 20 && dailySampleHits(peerId) == before; i++) poller.poll();
+        assertThat(dailySampleHits(peerId))
+                .as("a later poll on the same UTC day should keep incrementing the same row, not create a new one")
+                .isGreaterThan(before);
+        assertThat(countActivityRows(peerId)).isEqualTo(1);
     }
 
     @Test
@@ -132,6 +153,18 @@ class ActivityPollerTest {
     void setLastSeenAt(String id, Instant value) {
         Peer p = Peer.findById(id);
         p.lastSeenAt = value;
+    }
+
+    @Transactional
+    int dailySampleHits(String peerId) {
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        PeerDailyActivity row = PeerDailyActivity.findById(new PeerDailyActivity.Id(peerId, today));
+        return row == null ? 0 : row.sampleHits;
+    }
+
+    @Transactional
+    long countActivityRows(String peerId) {
+        return PeerDailyActivity.count("id.peerId = ?1", peerId);
     }
 
     private MockWgAdapter mock() {

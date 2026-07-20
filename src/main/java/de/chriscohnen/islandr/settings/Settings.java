@@ -131,6 +131,12 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "iron_rdp_enabled", nullable = false, columnDefinition = "INTEGER")
     public boolean ironRdpEnabled = false;
 
+    // How long peer_daily_activity rows are kept before the cleanup job prunes
+    // them (#32, the dashboard's connection activity heatmap). Default matches
+    // the value proposed in the issue.
+    @Column(name = "activity_retention_days", nullable = false)
+    public int activityRetentionDays = 180;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

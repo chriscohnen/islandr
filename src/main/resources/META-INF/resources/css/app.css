@@ -1260,6 +1260,27 @@ body {
   font-size: var(--text-sm);
 }
 
+/* --- connection activity heatmap (#32) ----------------------------------- */
+/* 5 intensity levels off the existing accent ramp, GitHub-contribution-graph
+   style. Level is relative to that day's max across peers, not an absolute
+   scale — see ActivityHeatmap.js. */
+.heatmap-cell {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.heatmap-l1 { background: var(--accent-100); }
+.heatmap-l2 { background: var(--accent-200); }
+.heatmap-l3 { background: var(--accent-300); }
+.heatmap-l4 { background: var(--accent-400); }
+.heatmap-l5 { background: var(--accent-500); }
+[data-theme="dark"] .heatmap-l1 { background: var(--accent-900); }
+[data-theme="dark"] .heatmap-l2 { background: var(--accent-800); }
+[data-theme="dark"] .heatmap-l3 { background: var(--accent-700); }
+[data-theme="dark"] .heatmap-l4 { background: var(--accent-600); }
+[data-theme="dark"] .heatmap-l5 { background: var(--accent-500); }
+
 /* ============================================================================
    ResourcesView — card grid
    ============================================================================ */

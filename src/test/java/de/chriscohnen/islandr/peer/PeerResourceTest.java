@@ -40,7 +40,7 @@ class PeerResourceTest {
                 cur.gravatarEnabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
-                cur.ironRdpEnabled
+                cur.ironRdpEnabled, cur.activityRetentionDays
         ), "test");
     }
 
