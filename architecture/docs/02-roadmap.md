@@ -27,7 +27,10 @@ the work:
   ([#24](https://github.com/chriscohnen/islandr/issues/24), EPIC); concrete
   MTU value presets and guidance copy wherever MTU is set, including an
   automatic choice in the self-service portal
-  ([#31](https://github.com/chriscohnen/islandr/issues/31)).
+  ([#31](https://github.com/chriscohnen/islandr/issues/31)). Also: installed-certificate
+  detail (domain/SAN/validity/issuer) in Settings, clearer TLS validation error
+  messages, connected-peer name+IP labels on the topology diagram, and installers
+  that generate a working encryption key out of the box.
 - **0.12.1** — fully bilingual UI (EN/DE parity across every screen, relative
   times included).
 - **0.12.0** — device discovery: unprivileged CIDR scan that lists live hosts
@@ -67,6 +70,7 @@ Not yet scheduled — priority is driven by interest on the tracking issues.
 - **API key management for automation** ([#15](https://github.com/chriscohnen/islandr/issues/15)).
 - **TLS/HTTPS setup guide** ([#23](https://github.com/chriscohnen/islandr/issues/23), docs).
 - **ACME (Let's Encrypt) auto-provisioning** ([#30](https://github.com/chriscohnen/islandr/issues/30)) — follow-up to the built-in TLS termination shipped in 0.13.0.
+- **Topology diagram: live traffic activity, not just handshake recency** ([#34](https://github.com/chriscohnen/islandr/issues/34)).
 
 ---
 
