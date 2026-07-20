@@ -161,6 +161,32 @@ class SocketWgAdapterTest {
         assertThat(adapter.probeServer("wg0")).isNull();
     }
 
+    /** #37: probeServerDetailed must surface the real reason, not just fail silently. */
+    @Test
+    void probeServerDetailed_carriesRealError_whenProxyUnreachable(@TempDir Path dir) {
+        SocketWgAdapter adapter = new SocketWgAdapter(clientFor(dir.resolve("absent.sock")));
+
+        WgAdapter.ProbeResult result = adapter.probeServerDetailed("wg0");
+
+        assertThat(result.reachable()).isFalse();
+        assertThat(result.error()).isNotBlank();
+    }
+
+    /** #37: a reachable proxy reporting ok:false must surface its error text too. */
+    @Test
+    void probeServerDetailed_carriesRealError_whenWgShowFails(@TempDir Path dir) throws IOException {
+        Path socket = dir.resolve("p.sock");
+        String reply = MAPPER.writeValueAsString(java.util.Map.of(
+                "ok", false, "error", "wg_show failed: exit status 1: Unable to access interface: No such device"));
+        server = FakeProxyServer.replyingWith(reply, socket);
+        SocketWgAdapter adapter = new SocketWgAdapter(clientFor(socket));
+
+        WgAdapter.ProbeResult result = adapter.probeServerDetailed("wg0");
+
+        assertThat(result.reachable()).isFalse();
+        assertThat(result.error()).contains("No such device");
+    }
+
     /** setIfMtu is a no-op in socket mode (design §4): no exception, no proxy call. */
     @Test
     void setIfMtu_isNoOp(@TempDir Path dir) throws IOException {

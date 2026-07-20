@@ -57,9 +57,9 @@ public class ProxyReconciler {
      * logic can be exercised without the socket-mode schedule gate.
      */
     void reconcileNow() {
-        boolean reachable = wg.probeServer(wgInterface) != null;
-        if (!reachable) {
-            enforcement.markUnavailable("proxy probe failed");
+        WgAdapter.ProbeResult probe = wg.probeServerDetailed(wgInterface);
+        if (!probe.reachable()) {
+            enforcement.markUnavailable(probe.error() != null ? probe.error() : "proxy probe failed");
             return;
         }
         if (enforcement.state() != EnforcementStatus.State.UNAVAILABLE) {

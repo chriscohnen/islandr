@@ -371,6 +371,9 @@ const App = defineComponent({
             <strong>{{ t('enforcement.banner_title') }}</strong>
             {{ t('enforcement.banner_body') }}
             <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener">{{ t('enforcement.banner_link') }}</a>
+            <div v-if="enforcement.lastError" class="mono muted" style="margin-top: var(--space-2); font-size: var(--text-xs)">
+              {{ t('enforcement.banner_reason', { error: enforcement.lastError }) }}
+            </div>
 
             <!-- Running in a container with no reachable socket: offer the copy-paste
                  install path (auto-detected via runtime.container from the status API). -->

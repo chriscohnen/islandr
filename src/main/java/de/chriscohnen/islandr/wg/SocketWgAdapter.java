@@ -128,26 +128,25 @@ public class SocketWgAdapter implements WgAdapter {
     }
 
     @Override
-    public ServerInfo probeServer(String iface) {
+    public ProbeResult probeServerDetailed(String iface) {
         ProxyResponse response;
         try {
             response = client.send(Map.of("op", "wg_show"));
         } catch (ProxyUnavailableException e) {
-            // Contract: probe returns null when the interface/proxy is unreachable.
             LOG.debugf("socket mode: probeServer unreachable: %s", e.getMessage());
-            return null;
+            return ProbeResult.failed(e.getMessage());
         }
         if (!response.ok()) {
-            return null;
+            return ProbeResult.failed(response.error());
         }
         String dump = response.body().path("dump").asText("");
         String[] lines = dump.split("\n");
         if (lines.length == 0 || lines[0].isBlank()) {
-            return null;
+            return ProbeResult.failed("wg_show: empty dump");
         }
         String[] fields = lines[0].trim().split("\t");
         if (fields.length < 3) {
-            return null;
+            return ProbeResult.failed("wg_show: unexpected output format");
         }
         String publicKey = fields[1];
         int listenPort;
@@ -158,7 +157,7 @@ public class SocketWgAdapter implements WgAdapter {
         }
         int peerCount = (int) java.util.Arrays.stream(lines).skip(1).filter(l -> !l.isBlank()).count();
         // ifStatus/mtu come from `ip link`, which is not proxied — report unknown.
-        return new ServerInfo(publicKey, listenPort, peerCount, "unknown", 0);
+        return ProbeResult.ok(new ServerInfo(publicKey, listenPort, peerCount, "unknown", 0));
     }
 
     /** A reachable proxy that reports {@code ok:false} is an operational failure → WgException. */
