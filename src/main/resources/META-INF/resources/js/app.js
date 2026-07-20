@@ -137,6 +137,7 @@ const App = defineComponent({
       enforcement: { status: "active", runtime: null },
       installOpen: false,
       installCopied: null,
+      installCopyFailed: null,
       session,
         theme: document.documentElement.getAttribute("data-theme") || "light",
       lang: locale.current,
@@ -213,10 +214,29 @@ const App = defineComponent({
     },
     async copyInstall(text, key) {
       try {
-        await navigator.clipboard.writeText(text);
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // navigator.clipboard needs a secure context (HTTPS/localhost) — many
+          // self-hosted deployments are reached over plain HTTP, so fall back to
+          // the legacy execCommand path instead of silently doing nothing.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          if (!ok) throw new Error("execCommand copy failed");
+        }
         this.installCopied = key;
         setTimeout(() => { if (this.installCopied === key) this.installCopied = null; }, 2000);
-      } catch (_) {}
+      } catch (_) {
+        this.installCopyFailed = key;
+        setTimeout(() => { if (this.installCopyFailed === key) this.installCopyFailed = null; }, 2000);
+      }
     },
 
     async refreshEnforcement() {
@@ -365,19 +385,25 @@ const App = defineComponent({
                 <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_binary') }}</label>
                 <div style="display:flex; gap: var(--space-2); align-items:center; margin-bottom: var(--space-3)">
                   <code class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdRemote }}</code>
-                  <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdRemote, 'remote')">{{ installCopied === 'remote' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
+                  <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('enforcement.copy')" :title="installCopyFailed === 'remote' ? t('enforcement.copy_failed') : t('enforcement.copy')" @click="copyInstall(installCmdRemote, 'remote')">
+                    <Icon :name="installCopied === 'remote' ? 'check' : 'copy'" :size="14" />
+                  </button>
                 </div>
 
                 <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_source') }}</label>
                 <div style="display:flex; gap: var(--space-2); align-items:center; margin-bottom: var(--space-3)">
                   <code class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdSource }}</code>
-                  <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdSource, 'source')">{{ installCopied === 'source' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
+                  <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('enforcement.copy')" :title="installCopyFailed === 'source' ? t('enforcement.copy_failed') : t('enforcement.copy')" @click="copyInstall(installCmdSource, 'source')">
+                    <Icon :name="installCopied === 'source' ? 'check' : 'copy'" :size="14" />
+                  </button>
                 </div>
 
                 <label class="label muted" style="font-size: var(--text-xs)">{{ t('enforcement.install_mount') }}</label>
                 <div style="display:flex; gap: var(--space-2); align-items:center">
                   <code class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:nowrap">{{ installCmdMount }}</code>
-                  <button type="button" class="btn btn-ghost btn-sm" @click="copyInstall(installCmdMount, 'mount')">{{ installCopied === 'mount' ? t('enforcement.copied') : t('enforcement.copy') }}</button>
+                  <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('enforcement.copy')" :title="installCopyFailed === 'mount' ? t('enforcement.copy_failed') : t('enforcement.copy')" @click="copyInstall(installCmdMount, 'mount')">
+                    <Icon :name="installCopied === 'mount' ? 'check' : 'copy'" :size="14" />
+                  </button>
                 </div>
               </div>
             </div>

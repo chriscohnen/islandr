@@ -48,7 +48,7 @@ else
   BASE="https://github.com/$REPO/releases/download/$VERSION"
 fi
 
-echo "→ Prüfe wg / nft"
+echo "→ Checking for wg / nft"
 command -v wg  >/dev/null || { echo "error: 'wg' not found — install wireguard-tools" >&2; exit 1; }
 command -v nft >/dev/null || { echo "error: 'nft' not found — install nftables" >&2; exit 1; }
 WG_PATH="$(command -v wg)"
@@ -57,24 +57,24 @@ NFT_PATH="$(command -v nft)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "→ Lade islandr-proxy ($ARCH, $VERSION) + Checksum"
+echo "→ Downloading islandr-proxy ($ARCH, $VERSION) + checksum"
 curl -fsSL "$BASE/islandr-proxy-linux-$ARCH"        -o "$TMP/islandr-proxy"
 curl -fsSL "$BASE/islandr-proxy-linux-$ARCH.sha256" -o "$TMP/islandr-proxy.sha256"
 
-echo "→ Verifiziere sha256"
+echo "→ Verifying sha256"
 EXPECTED="$(cut -d' ' -f1 "$TMP/islandr-proxy.sha256")"
 ( cd "$TMP" && echo "$EXPECTED  islandr-proxy" | sha256sum -c - ) \
   || { echo "error: checksum mismatch — refusing to install" >&2; exit 1; }
 
-echo "→ Lege Systembenutzer 'islandr' an (falls nicht vorhanden)"
+echo "→ Creating system user 'islandr' (if not already present)"
 if ! id -u islandr >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/islandr --shell /usr/sbin/nologin islandr
 fi
 
-echo "→ Installiere Binary → /usr/local/bin/islandr-proxy (root:root 0755)"
+echo "→ Installing binary → /usr/local/bin/islandr-proxy (root:root 0755)"
 install -o root -g root -m 0755 "$TMP/islandr-proxy" /usr/local/bin/islandr-proxy
 
-echo "→ Schreibe tmpfiles / socket / service / sudoers"
+echo "→ Writing tmpfiles / socket / service / sudoers"
 # Keep these embedded units in sync with islandr-proxy/systemd/* in the repo.
 cat > /etc/tmpfiles.d/islandr.conf <<'EOF'
 d /run/islandr 0700 islandr islandr -
@@ -138,11 +138,11 @@ visudo -cf "$SUDO_TMP"   # validate before install — a broken sudoers file loc
 install -o root -g root -m 0440 "$SUDO_TMP" /etc/sudoers.d/islandr-proxy
 rm -f "$SUDO_TMP"
 
-echo "→ Aktiviere Socket-Activation"
+echo "→ Enabling socket activation"
 systemd-tmpfiles --create /etc/tmpfiles.d/islandr.conf
 systemctl daemon-reload
 systemctl enable --now islandr-proxy.socket
 
-echo "✓ Fertig. Socket: /run/islandr/proxy.sock (0600 islandr:islandr)"
-echo "  In den Container mounten:  -v /run/islandr/proxy.sock:/run/islandr/proxy.sock"
+echo "✓ Done. Socket: /run/islandr/proxy.sock (0600 islandr:islandr)"
+echo "  Mount into the container:  -v /run/islandr/proxy.sock:/run/islandr/proxy.sock"
 echo "  Status:  systemctl status islandr-proxy.socket"
