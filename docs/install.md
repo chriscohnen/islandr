@@ -294,6 +294,12 @@ curl http://localhost:8080
 
 The image above **boots and runs the full GUI**, but a container is unprivileged and cannot touch the host's WireGuard or nftables — so out of the box it runs in a degraded *"enforcement unavailable"* state: changes are saved but not applied. To enforce, add the **host-side socket proxy** ([ADR-0012](adr/0012-docker-socket-proxy.md)): a tiny systemd service that performs the privileged `wg`/`nft` operations while the container stays unprivileged and only talks to its socket.
 
+> **Snap Docker is not compatible with this step.** If Docker was installed via `snap install docker` (common on Ubuntu, e.g. if it was already on the host for other containers before islandr), `dockerd` runs in a confined mount namespace that can only bind-mount paths under `$HOME`, `/mnt`, or `/media` — it cannot create or mount `/var/lib/islandr` or `/run/islandr/proxy.sock`, failing with `mkdir ...: read-only file system` even if that path already exists on the real host. This is independent of file permissions and isn't fixable from the compose side. Either install Docker via the official method above instead (the clean fix), or, if migrating an existing snap-Docker host with other containers isn't practical, relocate both shared paths under `$HOME`:
+>
+> - Point `/var/lib/islandr` at a real directory under `$HOME` in compose, then make `/var/lib/islandr` on the host a symlink to it (the proxy binary hardcodes that path, so it's a "make the path resolve there" workaround, not a config option).
+> - Change `ListenStream=` in `/etc/systemd/system/islandr-proxy.socket` to a path under `$HOME` (this one *is* freely configurable — the proxy just takes whatever fd systemd hands it), and mount that real path to `/run/islandr/proxy.sock` in compose.
+> - `islandr-proxy.service` hardens with `ProtectHome=read-only` (not `true`) specifically so these symlinked/relocated paths under `$HOME` stay readable — see [#36](https://github.com/chriscohnen/islandr/issues/36) if you're on an older install with `ProtectHome=true`.
+
 **a. Install the socket proxy on the host** (needs `wg` and `nft` present):
 
 ```bash
@@ -324,6 +330,15 @@ services:
 ```
 
 The `/var/lib/islandr` bind mount is shared with the proxy: islandr writes the validated ruleset there and the proxy applies it (`nft -f /var/lib/islandr/ruleset.nft`). The managed WireGuard interface defaults to `wg0` — if you use another name, set `ISLANDR_WG_INTERFACE` on **both** the container and the `install-proxy.sh` step.
+
+If you're extending an evaluation setup from [step 2](#2-create-dockercomposeyml) that had no explicit `volumes:` entry, your existing config lives in an **anonymous** volume (from the image's `VOLUME /var/lib/islandr`), not at this new bind-mount path — switching to the bind mount above starts the container against an empty `/var/lib/islandr` unless you back it up first.
+
+Easiest: in the Admin Console, **Settings → Config export/import**, export a JSON snapshot before switching, then import it once the container is back up on the new mount. Alternatively, copy the raw volume contents across (also captures the SQLite DB itself, not just the config):
+
+```bash
+docker inspect <container> --format '{{ range .Mounts }}{{ .Name }} -> {{ .Destination }}{{ "\n" }}{{ end }}'
+docker run --rm -v <volume-name-from-above>:/from -v /var/lib/islandr:/to alpine sh -c "cp -a /from/. /to/"
+```
 
 The generated `inet islandr` table hooks the host's `forward` chain, but only to police traffic actually entering or leaving via the WireGuard interface — anything else is accepted immediately and left to the rest of the host/other tables. So enforcement is safe to enable on a host that also runs other containers or services; it does not lock down forwarding for traffic unrelated to WireGuard.
 

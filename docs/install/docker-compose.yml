@@ -76,7 +76,10 @@ services:
       # Switching from the named volume to this bind mount does NOT move your
       # existing config (peers/users/ACLs/audit) — it's a different storage
       # location, so the container starts fresh against an empty /var/lib/islandr
-      # unless you copy the data over first. Back it up before switching:
+      # unless you back it up first. Easiest: in the Admin Console, Settings →
+      # Config export/import → export a JSON snapshot before switching, then
+      # import it once the container is back up on the new mount. Alternatively,
+      # copy the raw volume contents across (also captures the SQLite DB itself):
       #   sudo mkdir -p /var/lib/islandr
       #   docker run --rm -v islandr-data:/from -v /var/lib/islandr:/to alpine \
       #     sh -c "cp -a /from/. /to/"
