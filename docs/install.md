@@ -325,7 +325,17 @@ services:
 
 The `/var/lib/islandr` bind mount is shared with the proxy: islandr writes the validated ruleset there and the proxy applies it (`nft -f /var/lib/islandr/ruleset.nft`). The managed WireGuard interface defaults to `wg0` — if you use another name, set `ISLANDR_WG_INTERFACE` on **both** the container and the `install-proxy.sh` step.
 
+The generated `inet islandr` table hooks the host's `forward` chain, but only to police traffic actually entering or leaving via the WireGuard interface — anything else is accepted immediately and left to the rest of the host/other tables. So enforcement is safe to enable on a host that also runs other containers or services; it does not lock down forwarding for traffic unrelated to WireGuard.
+
 **c. Verify.** In the admin console, **Settings → Enforcement** shows *Socket proxy — active* and the "enforcement unavailable" banner is gone. Any configuration built while degraded is reconciled and applied automatically once the proxy connects.
+
+**Troubleshooting: recovering from a bad ruleset.** The `inet islandr` nftables table is applied fresh from the database on every container start (`ruleCount=0` in the logs means no ACL grants exist yet — the table still gets installed with its default-drop policy). If islandr itself, or something else on the host, becomes unreachable after enabling enforcement, you can remove the table immediately without touching the container:
+
+```bash
+sudo nft delete table inet islandr
+```
+
+This just hands `forward` traffic back to whatever else is on the host; islandr reapplies the table on its next restart (or the next ACL change), so treat this as a way to get back in, not a permanent fix. If the problem was islandr itself being unreachable on its own port, check `docker ps` / `docker inspect <container> --format '{{json .NetworkSettings.Ports}}'` for the actual published ports first — an empty `{}` there means a port-mapping/container problem, not a firewall one, and deleting the table won't help.
 
 ---
 
