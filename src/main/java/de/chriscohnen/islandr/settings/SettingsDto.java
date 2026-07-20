@@ -42,10 +42,12 @@ public final class SettingsDto {
             String tlsMode,
             // Parsed from the current certificate's notAfter; null when the dummy
             // placeholder is in effect (it has a 20-year validity, not a rotation concern).
-            Instant tlsCertExpiresAt
+            Instant tlsCertExpiresAt,
+            // Domain/SAN/validity detail on the installed certificate — null in "none" mode.
+            de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
-                                     Instant tlsCertExpiresAt) {
+                                     Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
@@ -64,7 +66,8 @@ public final class SettingsDto {
                     s.googleWsImpersonationEmail,
                     wgInterface,
                     s.tlsMode,
-                    tlsCertExpiresAt);
+                    tlsCertExpiresAt,
+                    tlsCertInfo);
         }
     }
 

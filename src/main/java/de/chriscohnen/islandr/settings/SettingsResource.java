@@ -82,8 +82,10 @@ public class SettingsResource {
     }
 
     private SettingsDto.Response toResponse(Settings s) {
-        Instant expiresAt = "managed".equals(s.tlsMode) ? tlsSvc.certificateExpiresAt(s.tlsCertPem) : null;
-        return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt);
+        boolean hasCert = "managed".equals(s.tlsMode);
+        Instant expiresAt = hasCert ? tlsSvc.certificateExpiresAt(s.tlsCertPem) : null;
+        TlsService.CertInfo certInfo = hasCert ? tlsSvc.certificateInfo(s.tlsCertPem) : null;
+        return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt, certInfo);
     }
 
     @GET

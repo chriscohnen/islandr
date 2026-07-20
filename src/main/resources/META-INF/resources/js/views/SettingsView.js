@@ -55,6 +55,7 @@ export default defineComponent({
       // not bundled into the main settings save.
       tlsMode: "none",
       tlsCertExpiresAt: null,
+      tlsCertInfo: null,  // { subjectCn, sans, notBefore, notAfter, issuer } | null
       tlsPemInput: "",
       tlsUploading: false,
       tlsError: null,
@@ -116,6 +117,7 @@ export default defineComponent({
         };
         this.tlsMode = s.tlsMode || "none";
         this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
+        this.tlsCertInfo = s.tlsCertInfo || null;
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
       } finally {
@@ -183,6 +185,7 @@ export default defineComponent({
         const s = await res.json();
         this.tlsMode = s.tlsMode;
         this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
         this.tlsPemInput = "";
         this.tlsInfo = t("settings.tls_upload_success");
       } catch (e) {
@@ -203,6 +206,7 @@ export default defineComponent({
         const s = await res.json();
         this.tlsMode = s.tlsMode;
         this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
         this.tlsInfo = t("settings.tls_reset_success");
       } catch (e) {
         this.tlsError = t("settings.tls_upload_error", { error: e.message });
@@ -540,6 +544,26 @@ export default defineComponent({
           </div>
           <div class="callout callout-warn" v-else>
             {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+          </div>
+
+          <div v-if="tlsCertInfo" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
+            <div style="font-size: var(--text-xs); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.tls_cert_details') }}</div>
+            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_domain') }}</span>
+              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.subjectCn }}</span>
+            </div>
+            <div v-if="tlsCertInfo.sans && tlsCertInfo.sans.length > 0" style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_sans') }}</span>
+              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.sans.join(', ') }}</span>
+            </div>
+            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_validity') }}</span>
+              <span class="mono" style="color: var(--fg1)">{{ t('settings.tls_cert_validity_range', { from: formatDate(tlsCertInfo.notBefore), to: formatDate(tlsCertInfo.notAfter) }) }}</span>
+            </div>
+            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_issuer') }}</span>
+              <span style="color: var(--fg1)">{{ tlsCertInfo.issuer }}</span>
+            </div>
           </div>
         </div>
 

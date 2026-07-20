@@ -165,6 +165,58 @@ public class TlsService {
         }
     }
 
+    /** What the Settings page shows about the currently installed certificate — the
+     *  domain name (subject CN), every SAN entry (what browsers actually check, CN
+     *  alone is deprecated/ignored by modern clients), and the validity window.
+     *  Null when the cert can't be parsed, same fallback rule as {@link #certificateExpiresAt}. */
+    public record CertInfo(String subjectCn, List<String> sans, Instant notBefore, Instant notAfter, String issuer) {}
+
+    public CertInfo certificateInfo(String certPem) {
+        if (certPem == null || certPem.isBlank()) return null;
+        try {
+            X509Certificate cert = parseCertificate(certPem);
+            return new CertInfo(
+                    extractCn(cert.getSubjectX500Principal().getName()),
+                    extractSans(cert),
+                    cert.getNotBefore().toInstant(),
+                    cert.getNotAfter().toInstant(),
+                    extractCn(cert.getIssuerX500Principal().getName()));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String extractCn(String distinguishedName) {
+        try {
+            javax.naming.ldap.LdapName dn = new javax.naming.ldap.LdapName(distinguishedName);
+            for (javax.naming.ldap.Rdn rdn : dn.getRdns()) {
+                if ("CN".equalsIgnoreCase(rdn.getType())) return String.valueOf(rdn.getValue());
+            }
+        } catch (javax.naming.InvalidNameException e) {
+            // Fall through to raw DN below — better than losing the field entirely.
+        }
+        return distinguishedName;
+    }
+
+    private static List<String> extractSans(X509Certificate cert) throws CertificateException {
+        java.util.Collection<List<?>> altNames = cert.getSubjectAlternativeNames();
+        if (altNames == null) return List.of();
+        List<String> out = new ArrayList<>();
+        for (List<?> entry : altNames) {
+            Integer type = (Integer) entry.get(0);
+            Object value = entry.get(1);
+            // GeneralName types (RFC 5280 §4.2.1.6): 2 = dNSName, 7 = iPAddress.
+            // Other types (email, URI, …) are rare for a TLS server cert and are
+            // skipped rather than mis-labelled.
+            if (type == 2) {
+                out.add(String.valueOf(value));
+            } else if (type == 7) {
+                out.add("IP:" + value);
+            }
+        }
+        return out;
+    }
+
     /** Basic X.509 sanity (ADR-0015 R-152) — reject an already-expired or not-yet-valid
      *  certificate before it ever reaches storage or the keystore-loading step. */
     private X509Certificate requireCurrentlyValid(String certPem) {

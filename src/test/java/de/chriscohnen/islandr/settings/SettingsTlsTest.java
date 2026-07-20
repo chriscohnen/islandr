@@ -52,7 +52,8 @@ class SettingsTlsTest {
         given().when().get("/api/v1/settings")
                 .then().statusCode(200)
                 .body("tlsMode", equalTo("none"))
-                .body("tlsCertExpiresAt", nullValue());
+                .body("tlsCertExpiresAt", nullValue())
+                .body("tlsCertInfo", nullValue());
     }
 
     @Test
@@ -117,7 +118,11 @@ class SettingsTlsTest {
                 .when().put("/api/v1/settings/tls")
                 .then().statusCode(200)
                 .body("tlsMode", equalTo("managed"))
-                .body("tlsCertExpiresAt", notNullValue());
+                .body("tlsCertExpiresAt", notNullValue())
+                .body("tlsCertInfo.subjectCn", equalTo("test.islandr.local"))
+                .body("tlsCertInfo.issuer", equalTo("test.islandr.local"))
+                .body("tlsCertInfo.notBefore", notNullValue())
+                .body("tlsCertInfo.notAfter", notNullValue());
     }
 
     @Test
@@ -126,7 +131,8 @@ class SettingsTlsTest {
         given().when().get("/api/v1/settings")
                 .then().statusCode(200)
                 .body("tlsMode", equalTo("managed"))
-                .body("tlsCertExpiresAt", notNullValue());
+                .body("tlsCertExpiresAt", notNullValue())
+                .body("tlsCertInfo.subjectCn", equalTo("test.islandr.local"));
     }
 
     @Test
@@ -162,6 +168,7 @@ class SettingsTlsTest {
         given().when().delete("/api/v1/settings/tls")
                 .then().statusCode(200)
                 .body("tlsMode", equalTo("none"))
-                .body("tlsCertExpiresAt", nullValue());
+                .body("tlsCertExpiresAt", nullValue())
+                .body("tlsCertInfo", nullValue());
     }
 }
