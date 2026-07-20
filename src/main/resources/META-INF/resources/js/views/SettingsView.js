@@ -548,11 +548,18 @@ export default defineComponent({
             <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
             <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
                       :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
-            <div class="field-hint">{{ t('settings.tls_pem_hint') }}</div>
+            <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+              <div>{{ t('settings.tls_pem_hint_what') }}</div>
+              <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
+              <div>• {{ t('settings.tls_pem_hint_key') }}</div>
+              <div style="margin-top:var(--space-1)">{{ t('settings.tls_pem_hint_format') }}</div>
+            </div>
           </div>
 
           <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
           <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
+
+          <div class="field-hint" style="margin: 0">{{ t('settings.tls_activate_note') }}</div>
 
           <div style="display: flex; gap: var(--space-3)">
             <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsPemInput.trim()"
