@@ -1,5 +1,5 @@
 import { defineComponent } from "vue";
-import { t, formatDate } from "/js/i18n.js";
+import { t, formatDate, locale } from "/js/i18n.js";
 
 // Connection activity heatmap (#32): peers x days, GitHub-contribution-graph
 // style. Inverted from GitHub's layout (days as columns, not weeks) since
@@ -29,6 +29,26 @@ export default defineComponent({
       return this.result.days.map((_, i) =>
         Math.max(0, ...this.result.peers.map((p) => p.sampleHits[i] || 0))
       );
+    },
+    // Month header row, GitHub-contribution-graph style: one label per
+    // calendar month the visible window touches, spanning (via colspan) the
+    // columns that fall in that month — not one label per day/week column,
+    // since here columns are days rather than weeks.
+    monthSegments() {
+      if (!this.result) return [];
+      const fmt = new Intl.DateTimeFormat(locale.current === "de" ? "de-DE" : "en-US", { month: "short" });
+      const segments = [];
+      for (const iso of this.result.days) {
+        const d = new Date(iso + "T00:00:00Z");
+        const key = d.getUTCFullYear() * 12 + d.getUTCMonth();
+        const last = segments[segments.length - 1];
+        if (last && last.key === key) {
+          last.span++;
+        } else {
+          segments.push({ key, span: 1, label: fmt.format(d) });
+        }
+      }
+      return segments;
     },
   },
   methods: {
@@ -69,6 +89,13 @@ export default defineComponent({
       <div v-else style="overflow-x: auto">
         <table class="table" style="width: auto; min-width: 100%; border-collapse: separate; border-spacing: 2px 2px">
           <thead>
+            <tr>
+              <th style="position: sticky; left: 0; background: var(--surface-2); min-width: 160px"></th>
+              <th v-for="seg in monthSegments" :key="seg.key" :colspan="seg.span" class="muted"
+                  style="text-align: left; font-weight: 400; font-size: var(--text-xs); padding: 2px 0 2px 2px">
+                {{ seg.label }}
+              </th>
+            </tr>
             <tr>
               <th style="position: sticky; left: 0; background: var(--surface-2); min-width: 160px">{{ t('dashboard.heatmap_th_peer') }}</th>
               <th v-for="(d, i) in result.days" :key="d" class="mono muted"
