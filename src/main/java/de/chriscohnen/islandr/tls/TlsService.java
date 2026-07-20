@@ -14,6 +14,8 @@ import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
 import java.io.ByteArrayInputStream;
@@ -50,6 +52,16 @@ public class TlsService {
 
     public record PemBundle(String certPem, String keyPem) {}
 
+    /** {@code WebApplicationException(String, int)} does NOT put the message into the
+     *  HTTP response body — only into the Java exception's own message, which never
+     *  reaches the client. Without this, every validation error below would surface
+     *  to the admin as a bare, unexplained "HTTP 400". Builds the response explicitly
+     *  so the reason actually arrives. */
+    private static WebApplicationException badRequest(String message) {
+        return new WebApplicationException(message,
+                Response.status(400).entity(message).type(MediaType.TEXT_PLAIN).build());
+    }
+
     @Inject SettingsService settingsSvc;
     @Inject EncryptionService encSvc;
     @Inject TlsKeyStoreProvider provider;
@@ -78,7 +90,7 @@ public class TlsService {
      *  required to be singular, since that's what actually identifies "the" key. */
     public static PemBundle splitPemBundle(String combined) {
         if (combined == null || combined.isBlank()) {
-            throw new WebApplicationException("paste the certificate and private key (PEM)", 400);
+            throw badRequest("paste the certificate and private key (PEM)");
         }
         List<String> certBlocks = new ArrayList<>();
         String keyBlock = null;
@@ -98,16 +110,14 @@ public class TlsService {
             // catch a genuinely incomplete or wrong paste.
         }
         if (certBlocks.isEmpty()) {
-            throw new WebApplicationException(
-                    "no certificate found — expected a '-----BEGIN CERTIFICATE-----' block", 400);
+            throw badRequest("no certificate found — expected a '-----BEGIN CERTIFICATE-----' block");
         }
         if (keyCount == 0) {
-            throw new WebApplicationException(
-                    "no private key found — expected a '-----BEGIN PRIVATE KEY-----' or "
-                            + "'-----BEGIN RSA PRIVATE KEY-----' block", 400);
+            throw badRequest("no private key found — expected a '-----BEGIN PRIVATE KEY-----' or "
+                            + "'-----BEGIN RSA PRIVATE KEY-----' block");
         }
         if (keyCount > 1) {
-            throw new WebApplicationException("more than one private key block found — paste only one", 400);
+            throw badRequest("more than one private key block found — paste only one");
         }
         return new PemBundle(String.join("\n", certBlocks), keyBlock);
     }
@@ -162,12 +172,12 @@ public class TlsService {
         try {
             cert = parseCertificate(certPem);
         } catch (Exception e) {
-            throw new WebApplicationException("could not parse certificate — expected PEM-encoded X.509: " + e.getMessage(), 400);
+            throw badRequest("could not parse certificate — expected PEM-encoded X.509: " + e.getMessage());
         }
         try {
             cert.checkValidity();
         } catch (java.security.cert.CertificateExpiredException | java.security.cert.CertificateNotYetValidException e) {
-            throw new WebApplicationException("certificate is not currently valid: " + e.getMessage(), 400);
+            throw badRequest("certificate is not currently valid: " + e.getMessage());
         }
         return cert;
     }
@@ -188,7 +198,7 @@ public class TlsService {
         try {
             key = parsePrivateKeyPem(keyPem, cert.getPublicKey().getAlgorithm());
         } catch (Exception e) {
-            throw new WebApplicationException("could not parse private key: " + e.getMessage(), 400);
+            throw badRequest("could not parse private key: " + e.getMessage());
         }
         try {
             byte[] nonce = "islandr-tls-pairing-check".getBytes(StandardCharsets.UTF_8);
@@ -202,10 +212,10 @@ public class TlsService {
             verifier.initVerify(cert.getPublicKey());
             verifier.update(nonce);
             if (!verifier.verify(signature)) {
-                throw new WebApplicationException("the private key does not match the certificate's public key", 400);
+                throw badRequest("the private key does not match the certificate's public key");
             }
         } catch (GeneralSecurityException e) {
-            throw new WebApplicationException("could not verify certificate/key pairing: " + e.getMessage(), 400);
+            throw badRequest("could not verify certificate/key pairing: " + e.getMessage());
         }
     }
 
@@ -300,9 +310,8 @@ public class TlsService {
             PemKeyCertOptions options = provider.managedOptions(certPem, keyPem);
             options.loadKeyStore(vertx);
         } catch (Exception e) {
-            throw new WebApplicationException(
-                    "certificate/key could not be loaded — check they are valid PEM and match each other: "
-                            + e.getMessage(), 400);
+            throw badRequest("certificate/key could not be loaded — check they are valid PEM and match each other: "
+                            + e.getMessage());
         }
     }
 

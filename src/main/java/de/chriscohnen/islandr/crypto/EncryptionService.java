@@ -62,7 +62,7 @@ public class EncryptionService {
             }
         }
         String envKey = System.getenv("ISLANDR_ENCRYPTION_KEY");
-        if (envKey != null) {
+        if (envKey != null && !envKey.isBlank()) {
             try {
                 key = new SecretKeySpec(Base64.getDecoder().decode(envKey.strip()), "AES");
                 LOG.info("EncryptionService: key loaded from env var");

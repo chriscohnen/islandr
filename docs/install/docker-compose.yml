@@ -52,7 +52,9 @@ services:
 
       # Encryption key for the `encrypted` private-key retention mode (ADR-0007).
       # Without it only `never` and `plaintext` retention are available. Generate
-      # 32 random bytes into .env:  echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
+      # it into .env alongside ISLANDR_ADMIN_PASSWORD (see ../install.md, Docker
+      # Compose section) so `encrypted` is selectable from the first start:
+      #   echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
       ISLANDR_ENCRYPTION_KEY: "${ISLANDR_ENCRYPTION_KEY:-}"
 
       # --- Enforcement (stage 2): uncomment once the host proxy is installed ---
