@@ -18,6 +18,7 @@ import org.jboss.logging.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.security.GeneralSecurityException;
+import java.security.InvalidKeyException;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.Signature;
@@ -129,16 +130,13 @@ public class TlsService {
      *  a certificate's public key at load time — it just stores the pairing as given
      *  ({@link #requireLoadable} alone would accept a mismatched pair). Proves the pairing
      *  the same way a real TLS handshake would: sign a nonce with the private key, verify
-     *  it with the certificate's public key. Only PKCS8 ("BEGIN PRIVATE KEY") is supported;
-     *  legacy PKCS1 ("BEGIN RSA PRIVATE KEY") is rejected with a clear message rather than
-     *  silently mis-parsed. */
+     *  it with the certificate's public key. */
     private void requireMatchingPair(X509Certificate cert, String keyPem) {
         PrivateKey key;
         try {
-            key = parsePkcs8PrivateKey(keyPem, cert.getPublicKey().getAlgorithm());
+            key = parsePrivateKeyPem(keyPem, cert.getPublicKey().getAlgorithm());
         } catch (Exception e) {
-            throw new WebApplicationException(
-                    "could not parse private key — expected PKCS8 PEM ('BEGIN PRIVATE KEY'): " + e.getMessage(), 400);
+            throw new WebApplicationException("could not parse private key: " + e.getMessage(), 400);
         }
         try {
             byte[] nonce = "islandr-tls-pairing-check".getBytes(StandardCharsets.UTF_8);
@@ -159,13 +157,86 @@ public class TlsService {
         }
     }
 
-    private static PrivateKey parsePkcs8PrivateKey(String keyPem, String algorithm) throws GeneralSecurityException {
-        String base64 = keyPem
-                .replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
+    /** Accepts the three PEM private-key forms an operator is realistically going to
+     *  paste: PKCS8 ("BEGIN PRIVATE KEY", what most modern tooling emits), and legacy
+     *  PKCS1 RSA ("BEGIN RSA PRIVATE KEY") — notably what Cloudflare's Origin CA
+     *  certificate generator hands back for an RSA key. {@link TlsKeyStoreProvider}
+     *  and the underlying Vert.x PEM loader already accept all three natively at
+     *  serve time; this parser exists only to get a {@link PrivateKey} object for the
+     *  pairing check above, so it has to keep pace with what actually gets accepted
+     *  there. SEC1 EC keys ("BEGIN EC PRIVATE KEY") are the one form still rejected —
+     *  clearly, with a conversion command, rather than silently mis-parsed. */
+    private static PrivateKey parsePrivateKeyPem(String keyPem, String algorithm) throws GeneralSecurityException {
+        if (keyPem.contains("BEGIN RSA PRIVATE KEY")) {
+            if (!"RSA".equals(algorithm)) {
+                throw new InvalidKeyException(
+                        "the certificate's public key is " + algorithm + ", but the private key is a PKCS1 RSA key");
+            }
+            byte[] pkcs1Der = decodePemBody(keyPem, "RSA PRIVATE KEY");
+            return KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(wrapPkcs1RsaKeyAsPkcs8(pkcs1Der)));
+        }
+        if (keyPem.contains("BEGIN EC PRIVATE KEY")) {
+            throw new InvalidKeyException(
+                    "SEC1 EC private keys ('BEGIN EC PRIVATE KEY') aren't supported — convert first with "
+                            + "'openssl pkcs8 -topk8 -nocrypt -in key.pem -out key-pkcs8.pem'");
+        }
+        if (keyPem.contains("BEGIN PRIVATE KEY")) {
+            byte[] der = decodePemBody(keyPem, "PRIVATE KEY");
+            return KeyFactory.getInstance(algorithm).generatePrivate(new PKCS8EncodedKeySpec(der));
+        }
+        throw new InvalidKeyException(
+                "no recognised PEM private-key header — expected 'BEGIN PRIVATE KEY' or 'BEGIN RSA PRIVATE KEY'");
+    }
+
+    private static byte[] decodePemBody(String pem, String label) {
+        String base64 = pem
+                .replace("-----BEGIN " + label + "-----", "")
+                .replace("-----END " + label + "-----", "")
                 .replaceAll("\\s", "");
-        byte[] der = Base64.getDecoder().decode(base64);
-        return KeyFactory.getInstance(algorithm).generatePrivate(new PKCS8EncodedKeySpec(der));
+        return Base64.getDecoder().decode(base64);
+    }
+
+    /** Wraps a PKCS1 RSAPrivateKey DER structure in the minimal PKCS8 PrivateKeyInfo
+     *  envelope (RFC 5958) so the JDK's {@link KeyFactory} — which only ever accepts
+     *  PKCS8 — can parse it. The AlgorithmIdentifier is the fixed 15-byte DER encoding
+     *  of {rsaEncryption OID 1.2.840.113549.1.1.1, NULL params}; the PKCS1 bytes are
+     *  carried unmodified inside the trailing OCTET STRING. */
+    private static byte[] wrapPkcs1RsaKeyAsPkcs8(byte[] pkcs1Der) {
+        byte[] version = {0x02, 0x01, 0x00};
+        byte[] rsaAlgorithmId = {
+                0x30, 0x0d,
+                0x06, 0x09, 0x2a, (byte) 0x86, 0x48, (byte) 0x86, (byte) 0xf7, 0x0d, 0x01, 0x01, 0x01,
+                0x05, 0x00,
+        };
+        byte[] octetString = derEncode(0x04, pkcs1Der);
+        byte[] body = new byte[version.length + rsaAlgorithmId.length + octetString.length];
+        System.arraycopy(version, 0, body, 0, version.length);
+        System.arraycopy(rsaAlgorithmId, 0, body, version.length, rsaAlgorithmId.length);
+        System.arraycopy(octetString, 0, body, version.length + rsaAlgorithmId.length, octetString.length);
+        return derEncode(0x30, body);
+    }
+
+    private static byte[] derEncode(int tag, byte[] content) {
+        byte[] length = derLength(content.length);
+        byte[] out = new byte[1 + length.length + content.length];
+        out[0] = (byte) tag;
+        System.arraycopy(length, 0, out, 1, length.length);
+        System.arraycopy(content, 0, out, 1 + length.length, content.length);
+        return out;
+    }
+
+    private static byte[] derLength(int len) {
+        if (len < 0x80) return new byte[]{(byte) len};
+        int byteCount = 1;
+        int tmp = len;
+        while ((tmp >>>= 8) != 0) byteCount++;
+        byte[] out = new byte[byteCount + 1];
+        out[0] = (byte) (0x80 | byteCount);
+        for (int i = byteCount; i >= 1; i--) {
+            out[i] = (byte) (len & 0xFF);
+            len >>>= 8;
+        }
+        return out;
     }
 
     /** Reuses {@link TlsKeyStoreProvider}'s own loading path — the exact same code that

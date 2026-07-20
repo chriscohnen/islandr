@@ -96,6 +96,21 @@ class SettingsTlsTest {
 
     @Test
     @Order(7)
+    void updateTls_acceptsLegacyPkcs1RsaKey() {
+        // Cloudflare's Origin CA certificate generator hands back an RSA private key
+        // in classic PKCS1 form ("BEGIN RSA PRIVATE KEY"), not PKCS8. Vert.x already
+        // loads this natively at serve time; the pre-save pairing check needs to
+        // keep pace so a Cloudflare-issued origin cert can be pasted in directly.
+        given().contentType("application/json")
+                .body(Map.of("certPem", fixture("valid-cert-pkcs1.pem"), "keyPem", fixture("valid-key-pkcs1.pem")))
+                .when().put("/api/v1/settings/tls")
+                .then().statusCode(200)
+                .body("tlsMode", equalTo("managed"))
+                .body("tlsCertExpiresAt", notNullValue());
+    }
+
+    @Test
+    @Order(8)
     void resetTls_returnsToDummyMode() {
         given().when().delete("/api/v1/settings/tls")
                 .then().statusCode(200)
