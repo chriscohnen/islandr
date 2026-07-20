@@ -28,7 +28,11 @@ import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Instant;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Validates and persists the managed-mode TLS certificate (ADR-0015), and triggers
@@ -40,6 +44,11 @@ import java.util.Base64;
 public class TlsService {
 
     private static final Logger LOG = Logger.getLogger(TlsService.class);
+
+    private static final Pattern PEM_BLOCK = Pattern.compile(
+            "-----BEGIN ([A-Z0-9 ]+)-----.*?-----END \\1-----", Pattern.DOTALL);
+
+    public record PemBundle(String certPem, String keyPem) {}
 
     @Inject SettingsService settingsSvc;
     @Inject EncryptionService encSvc;
@@ -58,6 +67,49 @@ public class TlsService {
      *  configuration actually takes effect. */
     void onStartup(@Observes StartupEvent ev) {
         triggerReload();
+    }
+
+    /** Splits one pasted PEM blob — certificate(s) and private key in either order,
+     *  the shape an admin gets handed by e.g. Cloudflare's Origin CA generator or a
+     *  `cat cert.pem key.pem` — into the separate cert/key strings the rest of this
+     *  class works with. Every certificate-labelled block is kept and concatenated in
+     *  its original order, so a leaf + intermediate chain still works exactly as it
+     *  did when cert and key were two separate fields; only the private key is
+     *  required to be singular, since that's what actually identifies "the" key. */
+    public static PemBundle splitPemBundle(String combined) {
+        if (combined == null || combined.isBlank()) {
+            throw new WebApplicationException("paste the certificate and private key (PEM)", 400);
+        }
+        List<String> certBlocks = new ArrayList<>();
+        String keyBlock = null;
+        int keyCount = 0;
+        Matcher m = PEM_BLOCK.matcher(combined);
+        while (m.find()) {
+            String label = m.group(1);
+            String block = m.group();
+            if ("CERTIFICATE".equals(label)) {
+                certBlocks.add(block);
+            } else if (label.endsWith("PRIVATE KEY")) {
+                keyBlock = block;
+                keyCount++;
+            }
+            // Anything else (a stray CSR, a PUBLIC KEY block, …) is ignored rather
+            // than rejected outright — the cert/key presence checks below still
+            // catch a genuinely incomplete or wrong paste.
+        }
+        if (certBlocks.isEmpty()) {
+            throw new WebApplicationException(
+                    "no certificate found — expected a '-----BEGIN CERTIFICATE-----' block", 400);
+        }
+        if (keyCount == 0) {
+            throw new WebApplicationException(
+                    "no private key found — expected a '-----BEGIN PRIVATE KEY-----' or "
+                            + "'-----BEGIN RSA PRIVATE KEY-----' block", 400);
+        }
+        if (keyCount > 1) {
+            throw new WebApplicationException("more than one private key block found — paste only one", 400);
+        }
+        return new PemBundle(String.join("\n", certBlocks), keyBlock);
     }
 
     @Transactional

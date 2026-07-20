@@ -64,7 +64,8 @@ public class SettingsResource {
     public SettingsDto.Response updateTls(@Context ContainerRequestContext ctx,
                                           @Valid SettingsDto.TlsRequest body) {
         AuthContext actor = Auth.requireAdmin(ctx);
-        Settings after = tlsSvc.updateManagedCertificate(body.certPem(), body.keyPem(), actor.principal());
+        TlsService.PemBundle bundle = TlsService.splitPemBundle(body.pem());
+        Settings after = tlsSvc.updateManagedCertificate(bundle.certPem(), bundle.keyPem(), actor.principal());
         audit.logUpdate(actor.principal(), "settings.tls_update", "Settings:singleton",
                 null, Map.of("tlsMode", after.tlsMode));
         return toResponse(after);

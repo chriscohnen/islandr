@@ -69,9 +69,10 @@ public final class SettingsDto {
     }
 
     /** Managed-mode certificate upload — PEM-encoded X.509 cert + private key. */
+    // Single combined PEM paste — certificate(s) and private key in either order.
+    // de.chriscohnen.islandr.tls.TlsService#splitPemBundle does the splitting.
     public record TlsRequest(
-            @NotBlank String certPem,
-            @NotBlank String keyPem
+            @NotBlank String pem
     ) {}
 
     public record GoogleWorkspaceRequest(

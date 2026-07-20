@@ -55,8 +55,7 @@ export default defineComponent({
       // not bundled into the main settings save.
       tlsMode: "none",
       tlsCertExpiresAt: null,
-      tlsCertPemInput: "",
-      tlsKeyPemInput: "",
+      tlsPemInput: "",
       tlsUploading: false,
       tlsError: null,
       tlsInfo: null,
@@ -167,7 +166,7 @@ export default defineComponent({
     },
 
     async uploadTls() {
-      if (!this.tlsCertPemInput.trim() || !this.tlsKeyPemInput.trim()) return;
+      if (!this.tlsPemInput.trim()) return;
       this.tlsUploading = true;
       this.tlsError = null;
       this.tlsInfo = null;
@@ -175,7 +174,7 @@ export default defineComponent({
         const res = await fetch("/api/v1/settings/tls", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ certPem: this.tlsCertPemInput, keyPem: this.tlsKeyPemInput }),
+          body: JSON.stringify({ pem: this.tlsPemInput }),
         });
         if (!res.ok) {
           const text = await res.text();
@@ -184,8 +183,7 @@ export default defineComponent({
         const s = await res.json();
         this.tlsMode = s.tlsMode;
         this.tlsCertExpiresAt = s.tlsCertExpiresAt;
-        this.tlsCertPemInput = "";
-        this.tlsKeyPemInput = "";
+        this.tlsPemInput = "";
         this.tlsInfo = t("settings.tls_upload_success");
       } catch (e) {
         this.tlsError = t("settings.tls_upload_error", { error: e.message });
@@ -547,22 +545,17 @@ export default defineComponent({
 
         <div style="margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3)">
           <div class="field">
-            <label for="tls-cert">{{ t('settings.tls_field_cert') }}</label>
-            <textarea id="tls-cert" class="textarea mono" v-model="tlsCertPemInput" rows="6"
-                      :placeholder="t('settings.tls_cert_ph')" style="resize: vertical; width: 100%"></textarea>
-          </div>
-          <div class="field">
-            <label for="tls-key">{{ t('settings.tls_field_key') }}</label>
-            <textarea id="tls-key" class="textarea mono" v-model="tlsKeyPemInput" rows="6"
-                      :placeholder="t('settings.tls_key_ph')" style="resize: vertical; width: 100%"></textarea>
-            <div class="field-hint">{{ t('settings.tls_key_hint') }}</div>
+            <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
+            <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
+                      :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
+            <div class="field-hint">{{ t('settings.tls_pem_hint') }}</div>
           </div>
 
           <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
           <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
 
           <div style="display: flex; gap: var(--space-3)">
-            <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsCertPemInput.trim() || !tlsKeyPemInput.trim()"
+            <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsPemInput.trim()"
                     @click="uploadTls">
               {{ tlsUploading ? t('settings.tls_uploading') : t('settings.tls_upload_btn') }}
             </button>
