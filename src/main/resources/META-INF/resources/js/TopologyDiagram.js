@@ -26,7 +26,7 @@ const NODE_HALF_H = 14;          // gateway/network box half-height
 const NODE_RX = 8;
 const RESOURCE_R = 18;
 const LIVE_DOT_R = 4;
-const LIVE_DOT_ORBIT = 56;
+const LIVE_DOT_ORBIT = 78; // inside FIRST_RING, but far enough out for a name+IP label under the dot
 
 // The viewBox fits tightly around whatever's on screen (see contentBBox) but
 // is capped here so a big topology doesn't shrink nodes/labels into
@@ -236,8 +236,10 @@ export default defineComponent({
       for (const item of this.visibleNetworks) addBox(item.x, item.y, item.expanded ? 2 : 1);
       for (const item of this.resourceLayout) addResource(item.x, item.y);
       for (const d of this.livePeerLayout) {
-        pts.push({ x: d.x - LIVE_DOT_R, y: d.y - LIVE_DOT_R });
-        pts.push({ x: d.x + LIVE_DOT_R, y: d.y + LIVE_DOT_R });
+        pts.push({ x: d.x - 40, y: d.y - LIVE_DOT_R });
+        // Two label lines (name + IP) hang below the dot — pad enough room
+        // for both, not just the dot itself, or the diagram clips them.
+        pts.push({ x: d.x + 40, y: d.y + LIVE_DOT_R + 26 });
       }
 
       const PAD = 24;
@@ -489,11 +491,19 @@ export default defineComponent({
         <text   class="hub-label" :x="CX" :y="CY + HUB_R + 16">{{ hubLabel || 'Hub' }}</text>
         <text v-if="endpoint" class="hub-endpoint" :x="CX" :y="CY + HUB_R + 30">{{ endpoint }}</text>
 
-        <!-- Live-peer dots -->
-        <circle v-for="d in livePeerLayout" :key="'lp-'+d.peer.id"
-                :cx="d.x" :cy="d.y" :r="LIVE_DOT_R" class="hub-core" style="opacity:0.85">
-          <title>{{ d.peer.name }} · {{ d.peer.assignedIp }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
-        </circle>
+        <!-- Live-peer links + dots + labels. Unlike the static topology below,
+             these come and go with recent handshake activity, so the link is
+             thin/dashed and the dot small — but the name + IP are printed
+             right on the diagram, not hidden behind a hover-only tooltip. -->
+        <line v-for="d in livePeerLayout" :key="'ll-'+d.peer.id"
+              class="link-live" :x1="CX" :y1="CY" :x2="d.x" :y2="d.y" />
+        <g v-for="d in livePeerLayout" :key="'lp-'+d.peer.id">
+          <circle :cx="d.x" :cy="d.y" :r="LIVE_DOT_R" class="hub-core" style="opacity:0.85">
+            <title>{{ d.peer.name || t('topology.unknown_peer') }} · {{ d.peer.assignedIp }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
+          </circle>
+          <text class="live-label" :x="d.x" :y="d.y + LIVE_DOT_R + 12">{{ d.peer.name || t('topology.unknown_peer') }}</text>
+          <text v-if="d.peer.assignedIp" class="live-ip" :x="d.x" :y="d.y + LIVE_DOT_R + 24">{{ d.peer.assignedIp }}</text>
+        </g>
 
         <!-- Resource nodes (expanded network only) -->
         <g v-for="item in resourceLayout" :key="item.resource.id"
