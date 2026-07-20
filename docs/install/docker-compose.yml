@@ -72,6 +72,14 @@ services:
       # --- Enforcement (stage 2): uncomment, and comment out the named volume above ---
       # The proxy reads the ruleset from a path shared with the host, and islandr
       # talks to it over the socket. No capabilities are granted to the container.
+      #
+      # Switching from the named volume to this bind mount does NOT move your
+      # existing config (peers/users/ACLs/audit) — it's a different storage
+      # location, so the container starts fresh against an empty /var/lib/islandr
+      # unless you copy the data over first. Back it up before switching:
+      #   sudo mkdir -p /var/lib/islandr
+      #   docker run --rm -v islandr-data:/from -v /var/lib/islandr:/to alpine \
+      #     sh -c "cp -a /from/. /to/"
       # - /var/lib/islandr:/var/lib/islandr
       # - /run/islandr/proxy.sock:/run/islandr/proxy.sock
 

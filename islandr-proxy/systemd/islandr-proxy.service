@@ -15,7 +15,12 @@ ExecStart=/usr/local/bin/islandr-proxy
 NoNewPrivileges=false
 
 # Light hardening that does not interfere with sudo wg/nft:
-ProtectHome=true
+# ProtectHome=true hides /home entirely (empty tmpfs), which breaks setups
+# where /var/lib/islandr or the socket dir is a symlink/bind pointing under
+# a user's home (e.g. to work around snap Docker's confined mount namespace,
+# which can only bind-mount paths under $HOME). read-only keeps the proxy
+# from writing into /home while still letting such symlinks resolve.
+ProtectHome=read-only
 ProtectSystem=full
 PrivateTmp=true
 # /run/islandr already exists (tmpfiles, islandr:islandr 0700); short-lived
