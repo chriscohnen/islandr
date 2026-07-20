@@ -133,7 +133,7 @@ class UserAvatarResourceTest {
                 cur.wgSubnet, cur.wgSubnet6, cur.wgServerPublicKey, cur.wgServerEndpoint,
                 cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
                 enabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
-                cur.wgMtu, cur.wgIncludeMtuInConf, cur.nominatimUrl,
+                cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled
         ), "test");

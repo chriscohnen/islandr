@@ -18,6 +18,7 @@ All ADRs live in [`docs/adr/`](../adr/). Each includes a Pugh Matrix (–1/0/+1)
 | [ADR-0012](../adr/0012-docker-socket-proxy.md) | Unix socket proxy for production Docker (v1 line, 0.11.0) | **Accepted** | Demo Docker uses mock adapters only. 0.11.0 introduces `islandr-proxy` on the host — a small allowlisted daemon that executes exactly five wg/nft operations on behalf of the container; container runs with zero capabilities |
 | [ADR-0013](../adr/0013-default-everyone-role.md) | Default "Everyone" role with auto-membership (0.11.0) | Accepted | Grant a shared resource once to all users (present and future) instead of per user/group; the role is seeded, protected server-side, and auto-membership is fixed to exactly one role |
 | [ADR-0014](../adr/0014-device-discovery.md) | Device discovery by unprivileged CIDR scan (0.12.0) | Accepted | Admin-triggered scan of a site's own CIDR via unprivileged sockets (TCP `connect()` + connected-UDP ICMP-unreachable), producing a fingerprinted, bulk-importable host list; rejects raw-scan (CAP_NET_RAW) and a scan-agent as too privileged / too heavy |
+| [ADR-0015](../adr/0015-builtin-tls-termination.md) | Built-in TLS termination (no mandatory reverse proxy) | Accepted | Quarkus TLS registry reload, not the older build-time-fixed `quarkus.http.ssl.*`; DB-managed cert via an in-memory `KeyStoreProvider` (private key never touches disk) or a file-path reference relying on Quarkus's own poll-reload; ACME deferred to a follow-up |
 
 ## Cross-cutting ADR consequences
 
@@ -32,5 +33,6 @@ All ADRs live in [`docs/adr/`](../adr/). Each includes a Pugh Matrix (–1/0/+1)
 - ADR-0012 creates **R-120** (proxy socket world-readable → unauthorized proxy commands) and **R-121** (proxy protocol unauthenticated within `islandr` user boundary).
 - ADR-0013 creates **R-130** (a grant on the auto-membership `Everyone` role silently reaches all present and future users) and **R-131** (deleting/renaming/clearing the seeded role would break the "reaches all users" contract).
 - ADR-0014 creates **R-140** (best-effort discovery misses fully-filtered hosts), **R-141** (scan is an authenticated recon primitive — ties T-013), and **R-142** (scan could become a connect-flood — ties T-014). It also materially addresses **R-052**.
+- ADR-0015 creates **R-150** (decrypted TLS private key transient in heap), **R-151** (referenced-mode cert file permissions outside islandr's control), **R-152** (malformed/mismatched cert accepted before validation), and **R-153** (no renewal reminder — a managed certificate can silently expire).
 
 All risks are tracked in [Chapter 11](11-risks-and-technical-debt.md) with probability, impact, and mitigation references.

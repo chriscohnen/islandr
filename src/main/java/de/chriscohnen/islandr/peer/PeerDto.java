@@ -28,7 +28,9 @@ public final class PeerDto {
             String siteAllowedCidrs,    // null for client peers
             String deviceType,          // laptop | desktop | mobile | tablet | server | other | null
             boolean hasPresharedKey,    // true when a PSK is stored for this peer
-            Integer mtu                 // null = no per-peer override; use global setting
+            Integer mtu,                // null = no per-peer override; use global setting
+            Integer persistentKeepalive,// null = no per-peer override; 0 = off; else interval (s)
+            boolean includeDns          // false = never write the DNS line for this peer
     ) {
         public static Response from(Peer p) {
             return new Response(
@@ -37,7 +39,7 @@ public final class PeerDto {
                     p.totalRxBytes, p.totalTxBytes, p.createdAt,
                     p.type, p.siteAllowedCidrs, p.deviceType,
                     p.presharedKey != null && !p.presharedKey.isBlank(),
-                    p.mtu);
+                    p.mtu, p.persistentKeepalive, p.includeDns);
         }
     }
 
@@ -86,6 +88,9 @@ public final class PeerDto {
             @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
                     message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
             String deviceType,
+
+            // Optional per-peer MTU override (576–65535). null = use global setting.
+            @Min(576) @Max(65535) Integer mtu,
 
             // When true, the server generates and stores a preshared key for this peer.
             boolean generatePresharedKey
@@ -145,7 +150,17 @@ public final class PeerDto {
             String presharedKeyAction,
 
             // Optional per-peer MTU override (576–65535). null = use global setting.
-            @Min(576) @Max(65535) Integer mtu
+            @Min(576) @Max(65535) Integer mtu,
+
+            // Optional per-peer PersistentKeepalive override (0–65535 seconds).
+            // null = defer to global setting; 0 = keepalive off for this peer.
+            @Min(0) @Max(65535) Integer persistentKeepalive,
+
+            // Whether to write the global DNS line into this peer's .conf/QR, when
+            // one is configured. Boolean (not boolean): a request that omits this
+            // field must keep the current behaviour (true), not silently flip to
+            // false via Jackson's missing-primitive default.
+            Boolean includeDns
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */

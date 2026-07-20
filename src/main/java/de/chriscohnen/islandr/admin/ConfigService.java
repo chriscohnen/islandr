@@ -28,7 +28,8 @@ public class ConfigService {
                 s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
                 s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                 s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
-                s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf);
+                s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
+                s.wgPersistentKeepalive);
 
         List<ConfigExportDto.OidcProviderSnapshot> providers = OidcProvider.<OidcProvider>listAll()
                 .stream().map(p -> new ConfigExportDto.OidcProviderSnapshot(
@@ -307,6 +308,8 @@ public class ConfigService {
             s.selfServicePeerCreation = snap.selfServicePeerCreation();
             s.wgMtu = snap.wgMtu();
             s.wgIncludeMtuInConf = snap.wgIncludeMtuInConf();
+            // Pre-0.13.0 exports lack this field → keep the 25 default rather than 0.
+            s.wgPersistentKeepalive = snap.wgPersistentKeepalive() != null ? snap.wgPersistentKeepalive() : 25;
             // wgServerPublicKey + wgServerEndpoint: keep the target hub's own values
             s.updatedAt = Instant.now();
             s.updatedBy = "config-import";

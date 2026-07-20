@@ -33,6 +33,7 @@ export default defineComponent({
         ironRdpEnabled: false,
         wgMtu: null,
         wgIncludeMtuInConf: false,
+        wgPersistentKeepalive: 25,
         hubLat: null,
         hubLon: null,
         hubLocationLabel: "",
@@ -50,13 +51,31 @@ export default defineComponent({
       versionCheck: null,
       versionChecking: false,
       enforcement: null,
+      // TLS (ADR-0015) — separate mini-form with its own PUT/DELETE endpoints,
+      // not bundled into the main settings save.
+      tlsMode: "none",
+      tlsCertExpiresAt: null,
+      tlsCertInfo: null,  // { subjectCn, sans, notBefore, notAfter, issuer } | null
+      tlsPemInput: "",
+      tlsUploading: false,
+      tlsError: null,
+      tlsInfo: null,
     };
   },
   async mounted() {
     await this.load();
     this.loadEnforcement();
   },
-  computed: { _lang() { return locale.current; } },
+  computed: {
+    _lang() { return locale.current; },
+    // R-153: a managed cert with no ACME auto-renewal can silently expire.
+    // Warn inside a 30-day window; null outside it (including dummy/no-cert state).
+    tlsDaysUntilExpiry() {
+      if (this.tlsMode !== "managed" || !this.tlsCertExpiresAt) return null;
+      const ms = new Date(this.tlsCertExpiresAt).getTime() - Date.now();
+      return Math.ceil(ms / (1000 * 60 * 60 * 24));
+    },
+  },
   methods: {
     t(key, vars) { return t(key, vars); },
     async load() {
@@ -85,6 +104,7 @@ export default defineComponent({
           ironRdpEnabled: !!s.ironRdpEnabled,
           wgMtu: s.wgMtu || null,
           wgIncludeMtuInConf: !!s.wgIncludeMtuInConf,
+          wgPersistentKeepalive: s.wgPersistentKeepalive ?? 25,
           hubLat: s.hubLat ?? null,
           hubLon: s.hubLon ?? null,
           hubLocationLabel: s.hubLocationLabel || "",
@@ -95,6 +115,9 @@ export default defineComponent({
           setupComplete: s.setupComplete,
           version: s.version || null,
         };
+        this.tlsMode = s.tlsMode || "none";
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
+        this.tlsCertInfo = s.tlsCertInfo || null;
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
       } finally {
@@ -111,6 +134,9 @@ export default defineComponent({
           ...this.form,
           wgClientDns: this.form.wgClientDns.trim() === "" ? null : this.form.wgClientDns.trim(),
           wgMtu: this.form.wgMtu || null,
+          // Preserve an explicit 0 (= keepalive off globally); empty field → 25 default.
+          wgPersistentKeepalive: (this.form.wgPersistentKeepalive === "" || this.form.wgPersistentKeepalive == null
+            || Number.isNaN(this.form.wgPersistentKeepalive)) ? 25 : this.form.wgPersistentKeepalive,
           hubLat: this.form.hubLat !== "" && this.form.hubLat !== null ? Number(this.form.hubLat) : null,
           hubLon: this.form.hubLon !== "" && this.form.hubLon !== null ? Number(this.form.hubLon) : null,
           hubLocationLabel: this.form.hubLocationLabel.trim() || null,
@@ -138,6 +164,54 @@ export default defineComponent({
         this.error = t("settings.error_save", { error: e.message });
       } finally {
         this.saving = false;
+      }
+    },
+
+    async uploadTls() {
+      if (!this.tlsPemInput.trim()) return;
+      this.tlsUploading = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/tls", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pem: this.tlsPemInput }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
+        this.tlsPemInput = "";
+        this.tlsInfo = t("settings.tls_upload_success");
+      } catch (e) {
+        this.tlsError = t("settings.tls_upload_error", { error: e.message });
+      } finally {
+        this.tlsUploading = false;
+      }
+    },
+
+    async resetTls() {
+      if (!confirm(t("settings.tls_reset_confirm"))) return;
+      this.tlsUploading = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/tls", { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
+        this.tlsInfo = t("settings.tls_reset_success");
+      } catch (e) {
+        this.tlsError = t("settings.tls_upload_error", { error: e.message });
+      } finally {
+        this.tlsUploading = false;
       }
     },
 
@@ -170,13 +244,13 @@ export default defineComponent({
       try {
         const res = await fetch("/api/v1/settings/wg-set-mtu", { method: "POST" });
         if (res.ok) {
-          this.info = `MTU ${this.form.wgMtu} am Interface gesetzt.`;
+          this.info = t("settings.mtu_set_success", { mtu: this.form.wgMtu });
         } else {
           const body = await res.json().catch(() => ({}));
-          this.error = "MTU setzen fehlgeschlagen: " + (body.error || res.status);
+          this.error = t("settings.mtu_set_error", { error: body.error || res.status });
         }
       } catch (e) {
-        this.error = "MTU setzen fehlgeschlagen: " + e.message;
+        this.error = t("settings.mtu_set_error", { error: e.message });
       }
     },
 
@@ -368,19 +442,36 @@ export default defineComponent({
             <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
               <input type="number" class="input mono" v-model.number="form.wgMtu"
                      min="576" max="65535" :placeholder="t('settings.ph_mtu')" style="width: 120px" />
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('mtu.preset_label') }}</span>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': form.wgMtu === 1420 }" @click="form.wgMtu = 1420">1420</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': form.wgMtu === 1392 }" @click="form.wgMtu = 1392">1392</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': form.wgMtu === 1280 }" @click="form.wgMtu = 1280">1280</button>
               <span v-if="probedIfMtu && probedIfMtu !== form.wgMtu"
                     style="font-size:var(--text-sm); color:var(--fg3)">
-                Gemessen: <span class="mono" style="color:var(--fg2)">{{ probedIfMtu }}</span>
+                {{ t('settings.mtu_probed_label') }} <span class="mono" style="color:var(--fg2)">{{ probedIfMtu }}</span>
               </span>
               <button v-if="form.wgMtu" type="button" class="btn btn-ghost btn-sm" @click="setIfMtu">
-                Am WG-Interface setzen
+                {{ t('settings.mtu_set_btn') }}
               </button>
             </div>
             <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0; margin-top:var(--space-2)">
               <input type="checkbox" v-model="form.wgIncludeMtuInConf" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
               <span>{{ t('settings.label_include_mtu') }}</span>
             </label>
+            <div class="field-hint" style="line-height:1.5">
+              <div>{{ t('mtu.hint_intro') }}</div>
+              <div><strong class="mono">1420</strong> — {{ t('mtu.v1420') }}</div>
+              <div><strong class="mono">1392</strong> — {{ t('mtu.v1392') }}</div>
+              <div><strong class="mono">1280</strong> — {{ t('mtu.v1280') }}</div>
+            </div>
             <div class="field-hint">{{ t('settings.hint_include_mtu') }}</div>
+          </div>
+
+          <div class="field">
+            <label>{{ t('settings.field_keepalive') }}</label>
+            <input type="number" class="input mono" v-model.number="form.wgPersistentKeepalive"
+                   min="0" max="65535" :placeholder="t('settings.ph_keepalive')" style="width: 120px" />
+            <div class="field-hint">{{ t('settings.hint_keepalive') }}</div>
           </div>
         </div>
       </div>
@@ -436,6 +527,73 @@ export default defineComponent({
         </div>
         <div v-if="form.privateKeyRetention === 'encrypted'" class="callout callout-info" style="margin-top:var(--space-3)">
           {{ t('settings.ret_encrypted_hint') }}
+        </div>
+      </div>
+
+      <!-- TLS / HTTPS (ADR-0015) -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_tls') }}</h2>
+        <div class="field-hint" style="margin-top: 0">{{ t('settings.tls_intro') }}</div>
+
+        <div v-if="tlsMode === 'none'" class="callout callout-warn" style="margin-top: var(--space-3)">
+          {{ t('settings.tls_dummy_active') }}
+        </div>
+        <div v-else-if="tlsMode === 'managed'" style="margin-top: var(--space-3)">
+          <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
+            {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
+          </div>
+          <div class="callout callout-warn" v-else>
+            {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+          </div>
+
+          <div v-if="tlsCertInfo" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
+            <div style="font-size: var(--text-xs); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.tls_cert_details') }}</div>
+            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_domain') }}</span>
+              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.subjectCn }}</span>
+            </div>
+            <div v-if="tlsCertInfo.sans && tlsCertInfo.sans.length > 0" style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_sans') }}</span>
+              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.sans.join(', ') }}</span>
+            </div>
+            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_validity') }}</span>
+              <span class="mono" style="color: var(--fg1)">{{ t('settings.tls_cert_validity_range', { from: formatDate(tlsCertInfo.notBefore), to: formatDate(tlsCertInfo.notAfter) }) }}</span>
+            </div>
+            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_issuer') }}</span>
+              <span style="color: var(--fg1)">{{ tlsCertInfo.issuer }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3)">
+          <div class="field">
+            <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
+            <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
+                      :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
+            <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+              <div>{{ t('settings.tls_pem_hint_what') }}</div>
+              <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
+              <div>• {{ t('settings.tls_pem_hint_key') }}</div>
+              <div style="margin-top:var(--space-1)">{{ t('settings.tls_pem_hint_format') }}</div>
+            </div>
+          </div>
+
+          <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
+          <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
+
+          <div class="field-hint" style="margin: 0">{{ t('settings.tls_activate_note') }}</div>
+
+          <div style="display: flex; gap: var(--space-3)">
+            <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsPemInput.trim()"
+                    @click="uploadTls">
+              {{ tlsUploading ? t('settings.tls_uploading') : t('settings.tls_upload_btn') }}
+            </button>
+            <button type="button" class="btn btn-ghost" v-if="tlsMode === 'managed'" :disabled="tlsUploading" @click="resetTls">
+              {{ t('settings.tls_reset_btn') }}
+            </button>
+          </div>
         </div>
       </div>
 

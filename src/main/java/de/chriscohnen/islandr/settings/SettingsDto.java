@@ -1,6 +1,8 @@
 package de.chriscohnen.islandr.settings;
 
 import de.chriscohnen.islandr.validation.ValidCidr;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
@@ -22,6 +24,7 @@ public final class SettingsDto {
             boolean selfServicePeerCreation,
             Integer wgMtu,
             boolean wgIncludeMtuInConf,
+            int wgPersistentKeepalive,
             String nominatimUrl,
             Double hubLat,
             Double hubLon,
@@ -34,15 +37,24 @@ public final class SettingsDto {
             boolean encryptionKeyConfigured,
             boolean googleWsConfigured,
             String googleWsImpersonationEmail,
-            String wgInterface
+            String wgInterface,
+            // "none" (dummy placeholder cert in effect) | "managed" | "referenced" — ADR-0015
+            String tlsMode,
+            // Parsed from the current certificate's notAfter; null when the dummy
+            // placeholder is in effect (it has a 20-year validity, not a rotation concern).
+            Instant tlsCertExpiresAt,
+            // Domain/SAN/validity detail on the installed certificate — null in "none" mode.
+            de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo
     ) {
-        public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface) {
+        public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
+                                     Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
                     s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
+                    s.wgPersistentKeepalive,
                     s.nominatimUrl,
                     s.hubLat, s.hubLon, s.hubLocationLabel,
                     s.ironRdpEnabled,
@@ -52,9 +64,19 @@ public final class SettingsDto {
                     encryptionKeyConfigured,
                     s.googleWsServiceAccountJson != null && !s.googleWsServiceAccountJson.isBlank(),
                     s.googleWsImpersonationEmail,
-                    wgInterface);
+                    wgInterface,
+                    s.tlsMode,
+                    tlsCertExpiresAt,
+                    tlsCertInfo);
         }
     }
+
+    /** Managed-mode certificate upload — PEM-encoded X.509 cert + private key. */
+    // Single combined PEM paste — certificate(s) and private key in either order.
+    // de.chriscohnen.islandr.tls.TlsService#splitPemBundle does the splitting.
+    public record TlsRequest(
+            @NotBlank String pem
+    ) {}
 
     public record GoogleWorkspaceRequest(
             String serviceAccountJson,
@@ -98,6 +120,10 @@ public final class SettingsDto {
 
             // optional — when true, MTU = <wgMtu> is written into client .conf files
             boolean wgIncludeMtuInConf,
+
+            // global default PersistentKeepalive (seconds) for client .conf files.
+            // 0 = no keepalive line; 1..65535 = interval. Defaults to 25 when omitted.
+            @Min(0) @Max(65535) Integer wgPersistentKeepalive,
 
             // optional — base URL of a Nominatim instance; null/blank = geocoding disabled
             String nominatimUrl,

@@ -36,7 +36,10 @@ public class ConfigExportDto {
         boolean firewallDryRun,
         boolean selfServicePeerCreation,
         Integer wgMtu,
-        boolean wgIncludeMtuInConf
+        boolean wgIncludeMtuInConf,
+        // Integer (not int) so a pre-0.13.0 export without this field imports as
+        // null → default 25, instead of primitive 0 (which would disable keepalive).
+        Integer wgPersistentKeepalive
     ) {}
 
     public record OidcProviderSnapshot(

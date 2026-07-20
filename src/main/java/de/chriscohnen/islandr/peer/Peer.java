@@ -107,6 +107,20 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "mtu")
     public Integer mtu;
 
+    /** Per-peer PersistentKeepalive (seconds) for the client .conf [Peer] section.
+     *  null = defer to global setting (Settings.wgPersistentKeepalive);
+     *  0 = keepalive explicitly off for this peer; N = explicit interval. */
+    @Column(name = "persistent_keepalive")
+    public Integer persistentKeepalive;
+
+    /** Whether the client .conf/QR for this peer includes the global DNS line
+     *  (Settings.wgClientDns), when one is configured. true (default) = include
+     *  it, matching every peer's behaviour before this flag existed. false =
+     *  never write it for this peer — e.g. a phone scanning the QR directly
+     *  without wanting tunneled DNS. Has no effect when no global DNS is set. */
+    @Column(name = "include_dns", nullable = false)
+    public boolean includeDns = true;
+
     public boolean isSite() {
         return "site".equals(type);
     }

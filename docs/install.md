@@ -77,16 +77,27 @@ sudo visudo -c -f /etc/sudoers.d/islandr
 
 `visudo -c` must exit with `parsed OK` before you continue. If `nft` or `wg` live under a different path on your distro, adjust with `which nft` and `which wg`.
 
+If your WireGuard interface isn't named `wg0`, replace `wg0` in **both** places it appears here — and set `ISLANDR_WG_INTERFACE` to match in step 5. The interface name is baked into the sudoers rules (`wg set wg0 *`, etc.); running the service against a different interface than what sudoers grants fails silently with permission errors in `journalctl`. ([setup-hub.sh](install/setup-hub.sh) takes this as `WG_INTERFACE=wg1 sudo ./setup-hub.sh` instead.)
+
 ### 5. Configure environment variables
 
 ```bash
 # Generate a strong admin password
 ADMIN_PW="$(openssl rand -base64 24)"
 
+# Generate the private-key-retention encryption key (ADR-0007). Without this,
+# only the "never"/"plaintext" retention modes are selectable in Settings —
+# generating it now means "encrypted" is available from the first start.
+ENCRYPTION_KEY="$(openssl rand -base64 32)"
+
 sudo tee /etc/default/islandr > /dev/null << EOF
 # Local recovery admin — leave ISLANDR_ADMIN_PASSWORD empty to disable local login.
 ISLANDR_ADMIN_USER=admin
 ISLANDR_ADMIN_PASSWORD=${ADMIN_PW}
+
+# Private-key-retention encryption key (ADR-0007) — see step 9 to upgrade to a
+# TPM2-bound key via systemd-creds instead.
+ISLANDR_ENCRYPTION_KEY=${ENCRYPTION_KEY}
 
 # WireGuard + firewall
 ISLANDR_WG_INTERFACE=wg0
@@ -186,6 +197,11 @@ By default, private keys are never stored (`retention=never`). If you enable `re
 you can switch to `retention=encrypted` so keys are AES-256-GCM encrypted at rest. A DB-only
 breach cannot recover peer private keys without the separate master key.
 
+Step 5 already generated `ISLANDR_ENCRYPTION_KEY` into `/etc/default/islandr`, so `encrypted` is
+selectable in Settings right away. The steps below are only needed if you want the key upgraded
+from a plain env var to a **TPM2-bound** credential (stronger — the key can't be read by copying
+the env file off the disk):
+
 ```bash
 # 1. Generate a 32-byte key and encrypt it, machine-bound via TPM2 (requires systemd ≥ 248):
 openssl rand -base64 32 | sudo systemd-creds encrypt --tpm2=yes - /etc/islandr/kek.cred
@@ -213,10 +229,9 @@ Without TPM2 (fallback — key is encrypted with the machine's host key, no hard
 openssl rand -base64 32 | sudo systemd-creds encrypt - /etc/islandr/kek.cred
 ```
 
-For Docker (dev only — no systemd-creds), use the env-var fallback instead:
-```bash
-echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
-```
+Docker has no `systemd-creds`, so it stays on the env-var key generated in the
+[Docker Compose](#docker-compose) section's `.env` file — that's already sufficient to make
+`encrypted` selectable in Settings.
 
 ---
 
@@ -242,17 +257,23 @@ services:
     environment:
       ISLANDR_ADMIN_USER: admin
       ISLANDR_ADMIN_PASSWORD: "${ISLANDR_ADMIN_PASSWORD}"
+      ISLANDR_ENCRYPTION_KEY: "${ISLANDR_ENCRYPTION_KEY}"
       QUARKUS_HTTP_HOST: 0.0.0.0
       QUARKUS_HTTP_PORT: "8080"
     restart: unless-stopped
 ```
 
-Put the password in a `.env` file next to `docker-compose.yml` (never commit it):
+Put the password and the private-key-retention encryption key (ADR-0007) in a `.env` file next to
+`docker-compose.yml` (never commit it). Generating the encryption key now means `encrypted`
+retention is selectable in Settings from the first start, instead of an extra step later:
 
 ```bash
-echo "ISLANDR_ADMIN_PASSWORD=$(openssl rand -base64 24)" > .env
+{
+  echo "ISLANDR_ADMIN_PASSWORD=$(openssl rand -base64 24)"
+  echo "ISLANDR_ENCRYPTION_KEY=$(openssl rand -base64 32)"
+} > .env
 chmod 0600 .env
-cat .env   # save this password
+cat .env   # save the admin password
 ```
 
 ### 3. Start

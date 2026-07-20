@@ -29,7 +29,7 @@ export default defineComponent({
       viewAsUserName: null,
       modalMode: null, // null | "create" | "secret" | "rotate"
       // create form
-      newDevice: { name: "", publicKey: "" },
+      newDevice: { name: "", publicKey: "", category: "stationary" },
       importPublicKey: false,
       submitting: false,
       detectedPlatform: (() => {
@@ -272,7 +272,7 @@ export default defineComponent({
 
     openCreate() {
       this.modalMode = "create";
-      this.newDevice = { name: "", publicKey: "" };
+      this.newDevice = { name: "", publicKey: "", category: "stationary" };
       this.importPublicKey = false;
       this.formError = null;
       this.secret = null;
@@ -283,7 +283,10 @@ export default defineComponent({
         this.formError = t("myaccess.err_name");
         return;
       }
-      const payload = { name: this.newDevice.name.trim() };
+      const payload = {
+        name: this.newDevice.name.trim(),
+        deviceType: this.newDevice.category === "mobile" ? "mobile" : "desktop",
+      };
       if (this.importPublicKey) {
         if (!this.newDevice.publicKey.trim()) {
           this.formError = t("myaccess.err_key");
@@ -1018,6 +1021,24 @@ export default defineComponent({
               <input id="devName" class="input" v-model="newDevice.name" required :placeholder="t('myaccess.ph_device_name')" />
               <div class="field-hint">{{ t('myaccess.hint_device_name') }}</div>
             </div>
+
+            <fieldset class="key-mode" style="margin-bottom: var(--space-4)">
+              <legend>{{ t('myaccess.category_section') }}</legend>
+              <label class="key-mode-option">
+                <input type="radio" :checked="newDevice.category === 'stationary'" @change="newDevice.category = 'stationary'" />
+                <div>
+                  <div class="key-mode-title">{{ t('myaccess.category_stationary') }}</div>
+                  <div class="key-mode-hint">{{ t('myaccess.category_stationary_hint') }}</div>
+                </div>
+              </label>
+              <label class="key-mode-option">
+                <input type="radio" :checked="newDevice.category === 'mobile'" @change="newDevice.category = 'mobile'" />
+                <div>
+                  <div class="key-mode-title">{{ t('myaccess.category_mobile') }}</div>
+                  <div class="key-mode-hint">{{ t('myaccess.category_mobile_hint') }}</div>
+                </div>
+              </label>
+            </fieldset>
 
             <fieldset class="key-mode">
               <legend>{{ t('peer.key_section') }}</legend>

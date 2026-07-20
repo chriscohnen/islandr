@@ -1,35 +1,43 @@
 #!/usr/bin/env bash
 #
-# Islandr — Hub-Setup (Ubuntu 24.04, x86_64).
+# Islandr — Hub setup (Ubuntu 24.04, x86_64).
 #
-# Was es macht:
-#   - Service-User `islandr` anlegen
-#   - /opt/islandr (Binary) und /var/lib/islandr/data (SQLite-DB) anlegen
-#   - sudoers-Eintrag fuer nft + wg (Option B aus docs/install.md)
-#   - /etc/default/islandr mit Env-Variablen schreiben
-#   - systemd-Unit installieren und aktivieren
+# What it does:
+#   - Creates the `islandr` service user
+#   - Creates /opt/islandr (binary) and /var/lib/islandr/data (SQLite DB)
+#   - Writes the sudoers entry for nft + wg (Option B from docs/install.md)
+#   - Writes /etc/default/islandr with env variables
+#   - Installs and enables the systemd unit
 #
-# Voraussetzungen:
-#   - Native x86_64-Binary liegt unter /tmp/islandr und ist mit chmod +x ausfuehrbar
-#   - apt-Pakete `wireguard` und `nftables` sind installiert (auf bestehender wg0-VPS ohnehin der Fall)
-#   - SSH-User hat sudo-Rechte
+# Prerequisites:
+#   - Native x86_64 binary is at /tmp/islandr and chmod +x'd
+#   - apt packages `wireguard` and `nftables` are installed (already the case
+#     on an existing wg0 VPS)
+#   - SSH user has sudo rights
 #
-# Idempotenz: das Skript ist NICHT idempotent. Es geht davon aus, dass auf
-# einer frischen VPS gelaufen wird. Bei Wiederholung manuell aufraeumen.
+# Idempotency: this script is NOT idempotent. It assumes it runs on a fresh
+# VPS. Clean up manually before re-running.
 #
-# Aufruf:
+# Usage:
 #   chmod +x setup-hub.sh
 #   sudo ./setup-hub.sh
+#   # Different interface name (default: wg0):
+#   sudo WG_INTERFACE=wg1 ./setup-hub.sh
 
 set -euo pipefail
 
+# WireGuard interface name. Must match the interface configured outside this
+# script (see prerequisites above) — the name here is only used to set the
+# sudoers rules and ISLANDR_WG_INTERFACE.
+WG_INTERFACE="${WG_INTERFACE:-wg0}"
+
 # ---------------------------------------------------------------------------
-# 1. User + Verzeichnisse
+# 1. User + directories
 # ---------------------------------------------------------------------------
-echo ">>> 1/5 User und Verzeichnisse"
+echo ">>> 1/5 User and directories"
 
 if id islandr &>/dev/null; then
-    echo "  User 'islandr' existiert bereits, ueberspringe."
+    echo "  User 'islandr' already exists, skipping."
 else
     useradd -r -s /usr/sbin/nologin -d /var/lib/islandr -m islandr
 fi
@@ -38,7 +46,7 @@ install -d -o islandr -g islandr /opt/islandr
 install -d -o islandr -g islandr /var/lib/islandr/data
 
 if [[ ! -f /tmp/islandr ]]; then
-    echo "FEHLER: /tmp/islandr fehlt. Erst per scp hochladen:"
+    echo "ERROR: /tmp/islandr is missing. Upload it first via scp:"
     echo "  scp build/islandr-0.1.0-SNAPSHOT-runner USER@HOST:/tmp/islandr"
     exit 1
 fi
@@ -46,51 +54,61 @@ install -o islandr -g islandr -m 0755 /tmp/islandr /opt/islandr/islandr
 rm /tmp/islandr
 
 # ---------------------------------------------------------------------------
-# 2. sudoers-Eintrag (Option B: sudo statt CAP_NET_ADMIN)
+# 2. sudoers entry (Option B: sudo instead of CAP_NET_ADMIN)
 # ---------------------------------------------------------------------------
-echo ">>> 2/5 sudoers-Eintrag"
+echo ">>> 2/5 sudoers entry (interface: $WG_INTERFACE)"
 
-cat > /etc/sudoers.d/islandr <<'SUDOERS'
+cat > /etc/sudoers.d/islandr <<SUDOERS
 # Islandr service user: scoped sudo for nft and wg only (ADR-0011).
 # Fixed file path for nft — no wildcard on the path, only on wg arguments.
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/ruleset.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/ruleset.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
-islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0
+islandr ALL=(root) NOPASSWD: /usr/bin/wg set $WG_INTERFACE *
+islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf $WG_INTERFACE *
+islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE
 SUDOERS
 chmod 0440 /etc/sudoers.d/islandr
 
 if ! visudo -c -f /etc/sudoers.d/islandr >/dev/null; then
-    echo "FEHLER: sudoers-Syntax kaputt — Datei wird entfernt."
+    echo "ERROR: sudoers syntax broken — removing the file."
     rm /etc/sudoers.d/islandr
     exit 1
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Env-Datei mit Konfigurationsvariablen
+# 3. Env file with configuration variables
 # ---------------------------------------------------------------------------
 echo ">>> 3/5 /etc/default/islandr"
 
-# Starkes Admin-PW generieren (kann manuell ueberschrieben werden vor dem Start).
+# Generate a strong admin password (can be overridden manually before start).
 ADMIN_PW="$(openssl rand -base64 24)"
 
+# Encryption key for "encrypted" private-key retention (ADR-0007). Without
+# this key, only "never"/"plaintext" are selectable in the Admin Console.
+# Always generated here so "encrypted" is available from the first start —
+# can be upgraded to a TPM2-bound systemd-creds key at any time later
+# (see docs/install.md, section 9).
+ENCRYPTION_KEY="$(openssl rand -base64 32)"
+
 cat > /etc/default/islandr <<ENV
-# Local admin (recovery user) — leere Variable = Login deaktiviert, /api/v1/auth/login -> 503.
+# Local admin (recovery user) — empty variable = login disabled, /api/v1/auth/login -> 503.
 ISLANDR_ADMIN_USER=admin
 ISLANDR_ADMIN_PASSWORD=$ADMIN_PW
 
+# Private key retention (ADR-0007)
+ISLANDR_ENCRYPTION_KEY=$ENCRYPTION_KEY
+
 # WireGuard / nftables
-ISLANDR_WG_INTERFACE=wg0
+ISLANDR_WG_INTERFACE=$WG_INTERFACE
 ISLANDR_WG_MODE=real
 ISLANDR_NFT_MODE=real
 ISLANDR_USE_SUDO=true
 
-# Datenbank
+# Database
 QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
 
-# HTTP — bindet nur auf Loopback. Traefik / nginx kommt davor.
+# HTTP — binds to loopback only. Traefik / nginx goes in front.
 QUARKUS_HTTP_HOST=127.0.0.1
 QUARKUS_HTTP_PORT=8080
 
@@ -101,15 +119,15 @@ chmod 0640 /etc/default/islandr
 
 echo ""
 echo "  ===================================================================="
-echo "  ADMIN-PASSWORT (jetzt notieren! steht sonst nur in /etc/default/islandr):"
+echo "  ADMIN PASSWORD (note it down now! otherwise it's only in /etc/default/islandr):"
 echo "  $ADMIN_PW"
 echo "  ===================================================================="
 echo ""
 
 # ---------------------------------------------------------------------------
-# 4. systemd-Unit
+# 4. systemd unit
 # ---------------------------------------------------------------------------
-echo ">>> 4/5 systemd-Unit"
+echo ">>> 4/5 systemd unit"
 
 cat > /etc/systemd/system/islandr.service <<'UNIT'
 [Unit]
@@ -128,7 +146,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/islandr
-# Temp-Files fuer nft -c -f / nft -f liegen unter /tmp.
+# Temp files for nft -c -f / nft -f live under /tmp.
 PrivateTmp=false
 
 Restart=on-failure
@@ -143,20 +161,20 @@ systemctl daemon-reload
 # ---------------------------------------------------------------------------
 # 5. Start
 # ---------------------------------------------------------------------------
-echo ">>> 5/5 Service starten"
+echo ">>> 5/5 Starting service"
 
 systemctl enable islandr
 systemctl start islandr
 
-# Kurz warten bis Boot durch ist
+# Give it a moment to boot
 sleep 4
 
 systemctl --no-pager status islandr || true
 
 echo ""
-echo "Fertig. Logs verfolgen mit:"
+echo "Done. Follow logs with:"
 echo "  sudo journalctl -u islandr -f"
 echo ""
-echo "Smoke-Test vom Mac aus:"
+echo "Smoke test from your Mac:"
 echo "  ssh -L 8080:127.0.0.1:8080 USER@HOST"
-echo "  # dann auf dem Mac: http://localhost:8080"
+echo "  # then on the Mac: http://localhost:8080"

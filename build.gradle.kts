@@ -27,6 +27,12 @@ dependencies {
     implementation("io.quarkus:quarkus-rest-jackson")
     implementation("io.quarkus:quarkus-websockets-next")
 
+    // TLS registry — built-in HTTPS termination with runtime cert reload (ADR-0015).
+    // Already pulled in transitively by the web layer above, but declared explicitly
+    // so io.quarkus.tls.* (KeyStoreProvider, CertificateUpdatedEvent) resolves at
+    // compile time, not just on the runtime classpath.
+    implementation("io.quarkus:quarkus-tls-registry")
+
     // Persistence — Panache active record + JDBC
     implementation("io.quarkus:quarkus-hibernate-orm-panache")
     if (!sqliteOnly) {
@@ -80,7 +86,7 @@ configurations.all {
 }
 
 group = "de.chriscohnen.islandr"
-version = "0.12.1"
+version = "0.13.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -120,3 +126,27 @@ tasks.withType<JavaCompile> {
 // trips on Reflection/JNI/Resource access, the fix lives in
 // src/main/resources/META-INF/native-image/ (config JSONs Quarkus generates
 // most of automatically). Tracked as R-034 in ADR-0004.
+
+// Native integration tests (src/native-test/java, run via `./gradlew testNative`):
+// exercise the actual packaged native binary, not the JVM test suite. Guards the
+// class of regression that JVM @QuarkusTest cannot see — e.g. a DTO missing from
+// native-image reflection config, or a Response-wrapped entity that native's
+// build-time serialization analysis can't see through (see NativeReflectionConfig
+// and DiscoveryResource#startScan for the concrete incident this class of test
+// closes — ADR-0014 slice 4 / rc.3–rc.6 / issue #25).
+dependencies {
+    "nativeTestImplementation"("io.quarkus:quarkus-junit5")
+    "nativeTestImplementation"("io.rest-assured:rest-assured")
+}
+
+// The native binary boots under the prod profile (as shipped): no default admin
+// password there (set one so the IT can log in — same as ci.yml's bash-based
+// native smoke test), and its default datasource is a *relative* jdbc:sqlite:data/
+// path that requires a pre-existing writable data/ directory. Unlike the Docker
+// image smoke test (which deliberately keeps that default to catch a bad base
+// image), this IT's only job is exercising native serialization — it needs a DB
+// that just works, so point it at a scratch file like the bash smoke test does.
+tasks.named<Test>("testNative") {
+    environment("ISLANDR_ADMIN_PASSWORD", "native-it-pw")
+    environment("QUARKUS_DATASOURCE_JDBC_URL", "jdbc:sqlite:${layout.buildDirectory.get()}/native-it.db")
+}

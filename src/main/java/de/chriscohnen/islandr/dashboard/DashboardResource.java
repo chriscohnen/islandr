@@ -16,6 +16,7 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
@@ -216,5 +217,52 @@ public class DashboardResource {
                 new DashboardDto.RoleStats(roleTotal, rolesWithGrants),
                 new DashboardDto.ResourceStats(siteTotal, resTotal, portTotal),
                 setup, firewallStatus, audit, peers, topology);
+    }
+
+    /**
+     * Uncapped resource list for a single site, fetched on demand when the
+     * topology diagram's global {@link #TOPOLOGY_RESOURCE_CAP} excluded this
+     * site's resources from the main payload but the operator drilled into
+     * it anyway.
+     */
+    @GET
+    @Path("/topology/site-resources/{siteId}")
+    public List<DashboardDto.TopologyResource> siteResources(@Context ContainerRequestContext ctx,
+                                                               @PathParam("siteId") String siteId) {
+        Auth.requireAdmin(ctx);
+        List<Resource> siteResources = Resource.<Resource>list("siteId = ?1 order by name", siteId);
+        if (siteResources.isEmpty()) return List.of();
+        List<String> resIds = siteResources.stream().map(r -> r.id).toList();
+
+        Map<String, Integer> portCounts = new HashMap<>();
+        Map<String, List<String>> portLabels = new HashMap<>();
+        @SuppressWarnings("unchecked")
+        List<Object[]> pcRows = em.createQuery(
+                "select rp.resourceId, count(rp) from ResourcePort rp where rp.resourceId in ?1 group by rp.resourceId",
+                Object[].class).setParameter(1, resIds).getResultList();
+        for (Object[] r : pcRows) portCounts.put((String) r[0], ((Long) r[1]).intValue());
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> portRows = em.createQuery(
+                "select rp.resourceId, rp.transport, rp.port, rp.protocol "
+                + "from ResourcePort rp where rp.resourceId in ?1 order by rp.resourceId, rp.transport, rp.port",
+                Object[].class).setParameter(1, resIds).getResultList();
+        for (Object[] row : portRows) {
+            String resId = (String) row[0];
+            String transport = ((String) row[1]).toUpperCase();
+            int port = (Integer) row[2];
+            String protocol = (String) row[3];
+            String label = protocol == null || protocol.isBlank() || "CUSTOM".equalsIgnoreCase(protocol)
+                    ? transport + " " + port
+                    : protocol + " " + port;
+            portLabels.computeIfAbsent(resId, k -> new ArrayList<>()).add(label);
+        }
+
+        return siteResources.stream()
+                .map(r -> new DashboardDto.TopologyResource(
+                        r.id, r.siteId, r.name, r.ip, r.type,
+                        portLabels.getOrDefault(r.id, List.of()),
+                        portCounts.getOrDefault(r.id, 0)))
+                .toList();
     }
 }

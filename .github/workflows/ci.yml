@@ -50,9 +50,13 @@ jobs:
           java-version: "21"
           cache: gradle
 
-      - name: Build native binary (SQLite-only, container build)
+      # testNative builds the binary (same quarkusBuild as buildNative would) and
+      # then runs src/native-test/java against it — e.g. DiscoveryNativeIT, which
+      # guards native-image serialization regressions JVM @QuarkusTest cannot see
+      # (issue #25). One invocation; no separate native build.
+      - name: Build native binary + run native integration tests (SQLite-only, container build)
         run: |
-          ./gradlew buildNative -Psqlite \
+          ./gradlew testNative -Psqlite \
             -Dquarkus.native.container-build=true \
             -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 \
             -Dquarkus.native.additional-build-args=-march=compatibility \

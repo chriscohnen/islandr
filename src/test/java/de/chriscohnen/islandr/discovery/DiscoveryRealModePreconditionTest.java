@@ -61,4 +61,20 @@ class DiscoveryRealModePreconditionTest {
                 .when().post("/api/v1/sites/" + siteId + "/discovery/scan")
                 .then().statusCode(409);
     }
+
+    /** force=true is the deliberate escape hatch for an admin pre-configuring a site
+     *  while the enforcement plane is degraded (e.g. the Docker socket proxy isn't
+     *  wired up yet, ahead of a planned native-instance rollout) — the handshake
+     *  timestamp is meaningless in that state, and they want to check reachability
+     *  directly rather than be blocked by it. */
+    @Test
+    void realScan_forceTrue_bypassesTheStaleHandshakeCheck() {
+        String siteId = createSite("disco-stale-forced", "10.94.1.0/29");
+        attachStaleGateway(siteId, "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=", "10.94.1.2");
+
+        given().contentType("application/json")
+                .when().post("/api/v1/sites/" + siteId + "/discovery/scan?force=true")
+                .then().statusCode(202)
+                .body("jobId", org.hamcrest.Matchers.notNullValue());
+    }
 }

@@ -28,6 +28,8 @@ export const peerModalMixin = {
       editOriginalCidrs: null,
       editPeerPublicKey: null,
       editMtu: null,
+      editKeepalive: null,
+      editIncludeDns: true,
 
       newPeer: { name: "", assignedIp: "", assignedIpv6: "" },
       // Peer kind: "client" (single device) or "site" (gateway exposing a
@@ -50,8 +52,28 @@ export const peerModalMixin = {
       peerError: null,
       secret: null, // { peer, privateKey, conf, qrPngBase64, presharedKey }
       secretIsReshow: false,
+      // Per-peer .conf options, editable directly from the reveal/reshow dialog
+      // (mirrors the edit modal's mtu/keepalive/includeDns fields) so an admin
+      // can tweak and regenerate the .conf/QR without leaving this view.
+      secretEditMtu: null,
+      secretEditKeepalive: null,
+      secretEditIncludeDns: true,
+      secretApplying: false,
+      secretApplyError: null,
       copyState: "idle",
     };
+  },
+  watch: {
+    // Reseed the reveal-dialog option fields whenever a new secret is shown —
+    // covers create, reshow, and the edit-flow's auto-reopened secret alike,
+    // from one place instead of every call site that sets `secret`.
+    secret(v) {
+      if (!v || !v.peer) return;
+      this.secretEditMtu = v.peer.mtu || null;
+      this.secretEditKeepalive = v.peer.persistentKeepalive ?? null;
+      this.secretEditIncludeDns = v.peer.includeDns !== false;
+      this.secretApplyError = null;
+    },
   },
   methods: {
     async openCreatePeer(userId) {
@@ -177,6 +199,9 @@ export const peerModalMixin = {
       this.siteAllowedCidrs = peer.siteAllowedCidrs || "";
       this.editHasPsk = !!peer.hasPresharedKey;
       this.editMtu = peer.mtu || null;
+      // `?? null` (not `|| null`): 0 is a valid "keepalive off for this peer" value.
+      this.editKeepalive = peer.persistentKeepalive ?? null;
+      this.editIncludeDns = peer.includeDns !== false;
       this.pskAction = null;
       this.pskSyncing = false;
       this.pskSyncResult = null;
@@ -195,6 +220,11 @@ export const peerModalMixin = {
         deviceType: this.peerType === "client" ? (this.deviceType || null) : null,
         presharedKeyAction: this.pskAction || null,
         mtu: this.editMtu || null,
+        // Keep an explicit 0 (= keepalive off); only an empty field means "defer to global".
+        persistentKeepalive: (this.editKeepalive === "" || this.editKeepalive === null
+          || this.editKeepalive === undefined || Number.isNaN(this.editKeepalive))
+          ? null : this.editKeepalive,
+        includeDns: this.editIncludeDns,
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
@@ -315,6 +345,55 @@ export const peerModalMixin = {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    },
+
+    // Applies the .conf-only options (MTU / keepalive / DNS) directly from the
+    // reveal dialog and regenerates conf + QR in place — no need to leave this
+    // view and go through the separate edit modal. Reuses the peer's current
+    // name/IP/CIDRs/deviceType unchanged, so this never touches anything
+    // enforcement-relevant (PeerService only re-applies wg state on an IP/CIDR/
+    // PSK change, none of which happen here).
+    async applySecretOptions() {
+      if (!this.secret?.peer?.id) return;
+      this.secretApplying = true;
+      this.secretApplyError = null;
+      try {
+        const p = this.secret.peer;
+        const payload = {
+          name: p.name,
+          assignedIp: p.assignedIp,
+          assignedIpv6: p.assignedIpv6 || null,
+          siteAllowedCidrs: p.siteAllowedCidrs || "",
+          deviceType: p.deviceType || null,
+          presharedKeyAction: null,
+          mtu: this.secretEditMtu || null,
+          // Keep an explicit 0 (= keepalive off); only an empty field means "defer to global".
+          persistentKeepalive: (this.secretEditKeepalive === "" || this.secretEditKeepalive === null
+            || this.secretEditKeepalive === undefined || Number.isNaN(this.secretEditKeepalive))
+            ? null : this.secretEditKeepalive,
+          includeDns: this.secretEditIncludeDns,
+        };
+        const res = await fetch("/api/v1/peers/" + p.id, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+        }
+        const updated = await res.json();
+        this.secret = updated;
+        this.secretIsReshow = true;
+        if (typeof this.onPeerUpdated === "function") {
+          this.onPeerUpdated({ peer: updated.peer });
+        }
+        this.$emit("peer-updated", { peer: updated.peer });
+      } catch (e) {
+        this.secretApplyError = t("peer.secret_apply_error", { error: e.message });
+      } finally {
+        this.secretApplying = false;
+      }
     },
   },
 };
@@ -543,10 +622,37 @@ export const peerModalTemplate = `
 
           <div class="field" style="margin-top: var(--space-4)">
             <label>{{ t('peer.field_mtu') }}</label>
-            <input type="number" class="input mono" v-model.number="editMtu"
-                   min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
+            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
+              <input type="number" class="input mono" v-model.number="editMtu"
+                     min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
+                     style="width: 160px" />
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('mtu.preset_label') }}</span>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': editMtu === 1420 }" @click="editMtu = 1420">1420</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': editMtu === 1392 }" @click="editMtu = 1392">1392</button>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': editMtu === 1280 }" @click="editMtu = 1280">1280</button>
+            </div>
+            <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+              <div>{{ t('mtu.hint_intro') }}</div>
+              <div><strong class="mono">1420</strong> — {{ t('mtu.v1420') }}</div>
+              <div><strong class="mono">1392</strong> — {{ t('mtu.v1392') }}</div>
+              <div><strong class="mono">1280</strong> — {{ t('mtu.v1280') }}</div>
+            </div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label>{{ t('peer.field_keepalive') }}</label>
+            <input type="number" class="input mono" v-model.number="editKeepalive"
+                   min="0" max="65535" :placeholder="t('peer.field_keepalive_ph')"
                    style="width: 200px" />
-            <div class="field-hint">{{ t('peer.field_mtu_hint') }}</div>
+            <div class="field-hint">{{ t('peer.field_keepalive_hint') }}</div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0">
+              <input type="checkbox" v-model="editIncludeDns" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
+              <span>{{ t('peer.field_include_dns') }}</span>
+            </label>
+            <div class="field-hint">{{ t('peer.field_include_dns_hint') }}</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -610,6 +716,43 @@ export const peerModalTemplate = `
               </div>
             </div>
             <pre class="conf-block">{{ secret.conf }}</pre>
+
+            <div style="margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border)">
+              <div style="display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-end">
+                <div class="field" style="margin: 0">
+                  <label>{{ t('peer.field_mtu') }}</label>
+                  <div style="display:flex; align-items:center; gap: var(--space-2); flex-wrap:wrap">
+                    <input type="number" class="input mono" v-model.number="secretEditMtu"
+                           min="576" max="65535" :placeholder="t('peer.field_mtu_ph')"
+                           style="width: 140px" />
+                    <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': secretEditMtu === 1420 }" @click="secretEditMtu = 1420">1420</button>
+                    <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': secretEditMtu === 1392 }" @click="secretEditMtu = 1392">1392</button>
+                    <button type="button" class="btn btn-ghost btn-sm" :class="{ 'btn-secondary': secretEditMtu === 1280 }" @click="secretEditMtu = 1280">1280</button>
+                  </div>
+                </div>
+                <div class="field" style="margin: 0">
+                  <label>{{ t('peer.field_keepalive') }}</label>
+                  <input type="number" class="input mono" v-model.number="secretEditKeepalive"
+                         min="0" max="65535" :placeholder="t('peer.field_keepalive_ph')"
+                         style="width: 160px" />
+                </div>
+                <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0; padding-bottom: 9px">
+                  <input type="checkbox" v-model="secretEditIncludeDns" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
+                  <span>{{ t('peer.field_include_dns') }}</span>
+                </label>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="secretApplying" @click="applySecretOptions">
+                  {{ secretApplying ? t('peer.secret_applying') : t('peer.secret_apply_btn') }}
+                </button>
+              </div>
+              <div class="field-hint" style="line-height:1.5; margin-top: var(--space-2)">
+                <div>{{ t('mtu.hint_intro') }}</div>
+                <div><strong class="mono">1420</strong> — {{ t('mtu.v1420') }}</div>
+                <div><strong class="mono">1392</strong> — {{ t('mtu.v1392') }}</div>
+                <div><strong class="mono">1280</strong> — {{ t('mtu.v1280') }}</div>
+              </div>
+              <div class="field-hint" style="margin-top: var(--space-2)">{{ t('peer.secret_options_hint') }}</div>
+              <div v-if="secretApplyError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ secretApplyError }}</div>
+            </div>
           </div>
         </div>
       </div>
