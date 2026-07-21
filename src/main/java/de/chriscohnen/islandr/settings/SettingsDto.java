@@ -39,13 +39,19 @@ public final class SettingsDto {
             boolean googleWsConfigured,
             String googleWsImpersonationEmail,
             String wgInterface,
-            // "none" (dummy placeholder cert in effect) | "managed" | "referenced" — ADR-0015
+            // "none" (dummy placeholder cert in effect) | "managed" | "referenced" | "acme" — ADR-0015/0019
             String tlsMode,
             // Parsed from the current certificate's notAfter; null when the dummy
             // placeholder is in effect (it has a 20-year validity, not a rotation concern).
             Instant tlsCertExpiresAt,
             // Domain/SAN/validity detail on the installed certificate — null in "none" mode.
-            de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo
+            de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo,
+            // ACME status (ADR-0019) — populated regardless of tlsMode, so the UI can
+            // still show "last attempt" after a failed enable that never flipped the mode.
+            String acmeDomain,
+            Instant acmeLastAttemptAt,
+            Instant acmeLastRenewalAt,
+            String acmeLastError
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
                                      Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo) {
@@ -69,7 +75,11 @@ public final class SettingsDto {
                     wgInterface,
                     s.tlsMode,
                     tlsCertExpiresAt,
-                    tlsCertInfo);
+                    tlsCertInfo,
+                    s.acmeDomain,
+                    s.acmeLastAttemptAt,
+                    s.acmeLastRenewalAt,
+                    s.acmeLastError);
         }
     }
 
@@ -78,6 +88,13 @@ public final class SettingsDto {
     // de.chriscohnen.islandr.tls.TlsService#splitPemBundle does the splitting.
     public record TlsRequest(
             @NotBlank String pem
+    ) {}
+
+    /** Enables ACME mode (ADR-0019) for the given domain — this domain must
+     *  already resolve (DNS) to this hub's public IP and have port 80 reachable
+     *  from the internet, or HTTP-01 validation will fail. */
+    public record AcmeRequest(
+            @NotBlank String domain
     ) {}
 
     public record GoogleWorkspaceRequest(

@@ -66,6 +66,14 @@ export default defineComponent({
       tlsUploading: false,
       tlsError: null,
       tlsInfo: null,
+      // ACME (ADR-0019) — a third TLS mode alongside managed/referenced, its
+      // own mini-form/status like the block above.
+      acmeDomain: null,
+      acmeLastAttemptAt: null,
+      acmeLastRenewalAt: null,
+      acmeLastError: null,
+      acmeDomainInput: "",
+      acmeEnabling: false,
     };
   },
   async mounted() {
@@ -74,10 +82,12 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
-    // R-153: a managed cert with no ACME auto-renewal can silently expire.
-    // Warn inside a 30-day window; null outside it (including dummy/no-cert state).
+    // R-153: a managed cert with no auto-renewal can silently expire. Warn
+    // inside a 30-day window; null outside it (including dummy/no-cert state).
+    // "acme" mode renews itself (ADR-0019) but still shows this — a stalled
+    // renewal (R-166) should be just as visible as a forgotten manual one.
     tlsDaysUntilExpiry() {
-      if (this.tlsMode !== "managed" || !this.tlsCertExpiresAt) return null;
+      if ((this.tlsMode !== "managed" && this.tlsMode !== "acme") || !this.tlsCertExpiresAt) return null;
       const ms = new Date(this.tlsCertExpiresAt).getTime() - Date.now();
       return Math.ceil(ms / (1000 * 60 * 60 * 24));
     },
@@ -152,6 +162,10 @@ export default defineComponent({
         this.tlsMode = s.tlsMode || "none";
         this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
         this.tlsCertInfo = s.tlsCertInfo || null;
+        this.acmeDomain = s.acmeDomain || null;
+        this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
+        this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
+        this.acmeLastError = s.acmeLastError || null;
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
       } finally {
@@ -248,6 +262,46 @@ export default defineComponent({
         this.tlsError = t("settings.tls_upload_error", { error: e.message });
       } finally {
         this.tlsUploading = false;
+      }
+    },
+
+    // Blocks for up to islandr.acme.poll-timeout (~60s default) while the hub
+    // talks to Let's Encrypt — same "wait on a slow admin action" pattern as
+    // uploadTls/resetTls above and wg-probe. A failure still returns 200 with
+    // acmeLastError populated (see SettingsResource#enableAcme), not a 5xx.
+    async enableAcme() {
+      if (!this.acmeDomainInput.trim()) return;
+      this.acmeEnabling = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/acme", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ domain: this.acmeDomainInput.trim() }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
+        this.acmeDomain = s.acmeDomain || null;
+        this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
+        this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
+        this.acmeLastError = s.acmeLastError || null;
+        if (s.acmeLastError) {
+          this.tlsError = t("settings.acme_enable_error", { error: s.acmeLastError });
+        } else {
+          this.acmeDomainInput = "";
+          this.tlsInfo = t("settings.acme_enable_success", { domain: s.acmeDomain });
+        }
+      } catch (e) {
+        this.tlsError = t("settings.acme_enable_error", { error: e.message });
+      } finally {
+        this.acmeEnabling = false;
       }
     },
 
@@ -664,6 +718,38 @@ export default defineComponent({
               <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_issuer') }}</span>
               <span style="color: var(--fg1)">{{ tlsCertInfo.issuer }}</span>
             </div>
+          </div>
+        </div>
+        <div v-else-if="tlsMode === 'acme'" style="margin-top: var(--space-3)">
+          <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
+            {{ t('settings.acme_active', { domain: acmeDomain }) }}
+          </div>
+          <div class="callout callout-warn" v-else>
+            {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+          </div>
+          <div style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm)">
+            <div v-if="acmeLastRenewalAt"><span class="muted">{{ t('settings.acme_last_renewal') }}</span> <span class="mono">{{ formatDate(acmeLastRenewalAt) }}</span></div>
+            <div v-if="acmeLastAttemptAt"><span class="muted">{{ t('settings.acme_last_attempt') }}</span> <span class="mono">{{ formatDate(acmeLastAttemptAt) }}</span></div>
+            <div v-if="acmeLastError" style="color: var(--status-error)">{{ t('settings.acme_last_error') }} {{ acmeLastError }}</div>
+          </div>
+          <div style="margin-top: var(--space-3)">
+            <button type="button" class="btn btn-ghost" :disabled="tlsUploading" @click="resetTls">{{ t('settings.tls_reset_btn') }}</button>
+          </div>
+        </div>
+
+        <div style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
+          <div>
+            <div style="font-weight: 600; font-size: var(--text-sm)">{{ t('settings.acme_title') }}</div>
+            <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.acme_hint') }}</div>
+          </div>
+          <div class="field">
+            <label for="acme-domain">{{ t('settings.acme_field_domain') }}</label>
+            <input id="acme-domain" class="input mono" v-model="acmeDomainInput" placeholder="vpn.example.com" />
+          </div>
+          <div>
+            <button type="button" class="btn btn-secondary" :disabled="acmeEnabling || !acmeDomainInput.trim()" @click="enableAcme">
+              {{ acmeEnabling ? t('settings.acme_enabling') : t('settings.acme_enable_btn') }}
+            </button>
           </div>
         </div>
 

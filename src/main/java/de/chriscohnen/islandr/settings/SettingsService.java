@@ -68,6 +68,20 @@ public class SettingsService {
         return s;
     }
 
+    /** Switches TLS to ACME mode (ADR-0019) for the given domain. Does not itself
+     *  issue anything — the caller ({@code SettingsResource}) triggers
+     *  {@code AcmeService.issueCertificate()} right after, outside this
+     *  transaction (issuance is slow; this just persists the operator's choice). */
+    @Transactional
+    public Settings enableAcme(String domain, String actor) {
+        Settings s = get();
+        s.tlsMode = "acme";
+        s.acmeDomain = domain.strip();
+        s.updatedAt = Instant.now();
+        s.updatedBy = actor;
+        return s;
+    }
+
     @Transactional
     public Settings updateGoogleWorkspace(SettingsDto.GoogleWorkspaceRequest req, String actor) {
         Settings s = get();
