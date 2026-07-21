@@ -67,6 +67,14 @@ islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE
+islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE dump
+
+# The 30s activity poller runs the two "wg show" commands above constantly —
+# read-only, no state change, no audit value. Silence PAM session open/close
+# and sudo's own syslog line for just these two; every mutating command
+# above (wg set/syncconf, nft) keeps full logging.
+Cmnd_Alias ISLANDR_WG_STATUS = /usr/bin/wg show $WG_INTERFACE, /usr/bin/wg show $WG_INTERFACE dump
+Defaults!ISLANDR_WG_STATUS !pam_session, !syslog
 SUDOERS
 chmod 0440 /etc/sudoers.d/islandr
 
