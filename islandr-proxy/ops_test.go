@@ -121,6 +121,62 @@ func TestSetPeerRejectsBadPsk(t *testing.T) {
 	}
 }
 
+// presharedKey:"" (present but empty) must clear an existing PSK by passing an
+// empty file to `preshared-key` — distinct from the field being absent, which
+// must leave the peer's PSK untouched (no preshared-key arg at all).
+func TestSetPeerEmptyPskClearsExisting(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.RuntimeDir = dir
+
+	var pskPath, pskContent string
+	sawContent := false
+	ex := &recordingExec{}
+	exReader := execFunc(func(name string, args []string, stdin []byte) (string, error) {
+		for i, a := range args {
+			if a == "preshared-key" && i+1 < len(args) {
+				pskPath = args[i+1]
+				b, _ := os.ReadFile(pskPath)
+				pskContent = string(b)
+				sawContent = true
+			}
+		}
+		return ex.Run(name, args, stdin)
+	})
+	h := NewHandler(exReader, cfg)
+	resp := handleLine(t, h, `{"op":"wg_set_peer","pubkey":"`+validKey+`","allowedIps":"10.0.0.2/32","presharedKey":""}`)
+	if !resp.Ok {
+		t.Fatalf("clearing psk should succeed: %q", resp.Error)
+	}
+	if !sawContent {
+		t.Fatalf("expected a preshared-key arg to be passed to wg")
+	}
+	if pskContent != "" {
+		t.Fatalf("psk file content = %q, want empty (clear)", pskContent)
+	}
+	if _, err := os.Stat(pskPath); !os.IsNotExist(err) {
+		t.Fatalf("psk file must be removed after Handle, stat err = %v", err)
+	}
+}
+
+// omitting presharedKey entirely (vs. sending "") must NOT touch the peer's
+// existing PSK — this is what TestSetPeerBuildsCommand already exercises
+// implicitly (no presharedKey field, no preshared-key arg in the resulting
+// command); this test makes the "leave untouched" contract explicit.
+func TestSetPeerOmittedPskLeavesExistingUntouched(t *testing.T) {
+	ex := &recordingExec{}
+	h := NewHandler(ex, testConfig())
+	resp := handleLine(t, h, `{"op":"wg_set_peer","pubkey":"`+validKey+`","allowedIps":"10.0.0.2/32"}`)
+	if !resp.Ok {
+		t.Fatalf("wg_set_peer without psk should succeed: %q", resp.Error)
+	}
+	for _, a := range ex.calls[0] {
+		if a == "preshared-key" {
+			t.Fatalf("omitted presharedKey must not add a preshared-key arg, got: %v", ex.calls[0])
+		}
+	}
+}
+
 func TestWgShowReturnsDump(t *testing.T) {
 	ex := &recordingExec{out: "peerline1\npeerline2\n"}
 	h := NewHandler(ex, testConfig())

@@ -27,11 +27,16 @@ type Executor interface {
 
 // Request is the line-delimited JSON the JVM ProxyClient sends. Field names match
 // its Jackson output exactly.
+//
+// PresharedKey is a pointer, not a plain string: the field being *absent* (nil —
+// "leave the peer's preshared key as-is") must be distinguishable from it being
+// *present but empty* (pointer to "" — "clear the existing preshared key"). A
+// plain string collapses both to the zero value and can never signal a clear.
 type Request struct {
-	Op           string `json:"op"`
-	Pubkey       string `json:"pubkey"`
-	AllowedIps   string `json:"allowedIps"`
-	PresharedKey string `json:"presharedKey"`
+	Op           string  `json:"op"`
+	Pubkey       string  `json:"pubkey"`
+	AllowedIps   string  `json:"allowedIps"`
+	PresharedKey *string `json:"presharedKey"`
 }
 
 // Response is the single JSON line sent back. Ok mirrors what ProxyClient reads;
@@ -106,13 +111,16 @@ func (h *Handler) wgSetPeer(req Request) Response {
 	}
 	args := []string{"set", h.cfg.Iface, "peer", req.Pubkey, "allowed-ips", allowed}
 
-	if req.PresharedKey != "" {
-		if !validKeyMaterial(req.PresharedKey) {
+	if req.PresharedKey != nil {
+		psk := *req.PresharedKey
+		// Non-empty must be valid key material; empty is a deliberate clear
+		// (an empty file is equivalent to /dev/null for `wg set ... preshared-key`).
+		if psk != "" && !validKeyMaterial(psk) {
 			return fail("invalid presharedKey")
 		}
 		// wg never takes the PSK on the command line — it reads it from a file.
 		// Write it to a short-lived 0600 file and remove it right after the call.
-		pskPath, err := h.writePsk(req.PresharedKey)
+		pskPath, err := h.writePsk(psk)
 		if err != nil {
 			return fail("presharedKey write failed: " + err.Error())
 		}
