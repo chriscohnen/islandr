@@ -382,13 +382,25 @@ public class PeerService {
      * reconciler after the enforcement plane comes back (design §6): a full
      * re-apply, not a delta, so the live interface converges to DB state.
      *
+     * <p>One peer's rejection (bad stored data, etc.) does not stop the rest of
+     * the batch from being pushed — it's logged and skipped instead, so a single
+     * broken peer can't silently strand every peer after it in DB order.
+     *
      * <p>Propagates {@link ProxyUnavailableException} if the proxy drops
      * mid-reconcile — the reconciler catches it and re-enters the degraded state.
+     * That one does abort the batch: if the proxy itself is gone, every
+     * remaining call would fail the same way anyway.
      */
     @Transactional
     public void repushEnabledPeers() {
         for (Peer peer : Peer.<Peer>list("enabled", true)) {
-            wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+            try {
+                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+            } catch (ProxyUnavailableException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                LOG.errorf(e, "repush failed for peer %s — skipping, remaining peers still processed", peer.id);
+            }
         }
     }
 
@@ -402,7 +414,12 @@ public class PeerService {
             sb.append(",").append(peer.assignedIpv6).append("/128");
         }
         if (peer.isSite() && peer.siteAllowedCidrs != null && !peer.siteAllowedCidrs.isBlank()) {
-            sb.append(",").append(peer.siteAllowedCidrs);
+            // siteAllowedCidrs is stored "cidr1, cidr2, ..." (comma+space) for
+            // human-readable display (validateSiteCidrs joins with ", "). The
+            // wire value the proxy parses has no tolerance for whitespace
+            // (net.ParseCIDR rejects a leading space), so strip it here rather
+            // than loosen the proxy's intentionally strict parser.
+            sb.append(",").append(peer.siteAllowedCidrs.replace(" ", ""));
         }
         return sb.toString();
     }
