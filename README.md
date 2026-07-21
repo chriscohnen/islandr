@@ -250,6 +250,8 @@ islandr/
 
 **Operations**
 - **Built-in TLS termination** — starts on a placeholder certificate, hot-swaps to your uploaded one at runtime, no reverse proxy required ([ADR-0015](docs/adr/0015-builtin-tls-termination.md))
+- **Automatic Let's Encrypt certificates** — set a domain and islandr requests, installs, and renews the certificate itself via a hand-rolled ACME client ([ADR-0019](docs/adr/0019-acme-hand-rolled-client.md))
+- **Connection activity heatmap** — peers × days, so a device gone quiet stands out at a glance
 - Google Workspace user import (the service-account JSON is encrypted at rest)
 - Audit log with cursor pagination and actor/action/target filters
 - Config **export/import** as a JSON snapshot, with preview and confirm
@@ -260,6 +262,18 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.14.0**
+- **Let's Encrypt, fully automatic** — set a domain in Settings and islandr requests, validates, and installs a real certificate itself, then renews it before it expires — no Certbot, no cron job, no reverse proxy. The ACME client (RFC 8555) is hand-rolled against the JDK's own HTTP and crypto APIs rather than pulling in a certificate library, keeping the native-image build free of a whole class of reflection risk ([ADR-0019](docs/adr/0019-acme-hand-rolled-client.md), [#30](https://github.com/chriscohnen/islandr/issues/30)).
+- **Connection activity heatmap** — the dashboard now shows peers × days as a heatmap, so a pattern like "this laptop hasn't connected in three weeks" is visible at a glance instead of buried in individual last-seen timestamps ([#32](https://github.com/chriscohnen/islandr/issues/32)).
+- **wg0 bootstrap commands, shown not run** — setting up the WireGuard interface on a fresh hub used to mean copying commands out of the docs; Settings now shows the exact commands for your config, ready to paste, instead of islandr running them itself via sudo ([#40](https://github.com/chriscohnen/islandr/issues/40)).
+- **The enforcement banner says what actually broke** — a proxy or wg failure used to collapse into a generic "enforcement degraded" message; the real underlying error now reaches the UI ([#37](https://github.com/chriscohnen/islandr/issues/37)).
+- **Site peers with more than one CIDR now push correctly** — a stray space from the display-formatted `allowedIps` value was leaking into the value sent to `wg set`, so any site peer with multiple CIDRs failed to apply; fixed, and a single bad peer no longer aborts the rest of a reconcile batch ([#38](https://github.com/chriscohnen/islandr/issues/38)).
+- **"Remove" on a preshared key now actually removes it** — clearing a peer's PSK looked like it worked in the UI but left the old key live on the wg0 interface; fixed ([#39](https://github.com/chriscohnen/islandr/issues/39)).
+- **`islandr-proxy` no longer breaks on relocated data paths** — `ProtectHome=true` silently blocked symlinked or bind-mounted paths under `$HOME` (hit by, among others, the snap-Docker `$HOME`-relocation workaround); the unit now uses `ProtectHome=read-only` ([#36](https://github.com/chriscohnen/islandr/issues/36)).
+- **The forward chain no longer blocks unrelated Docker traffic on a shared host** — the generated nftables ruleset's default forward policy applied to all forwarded traffic, not just WireGuard's; other containers on the same host could lose connectivity. Scoped to `wg0`-touching traffic only.
+- **Dashboard and topology polish** — the topology diagram's click-to-collapse no longer gets eaten once a diagram needs panning; the dashboard tab switcher and a tall peer/user modal's unreachable Create button are fixed.
+- **English installer output, and clipboard copy off HTTP** — installer messages that leaked German are now English throughout; the "Copy" buttons in the enforcement banner fall back to a manual-select method on non-secure-context (plain HTTP) origins where the Clipboard API isn't available.
 
 **0.13.0**
 - **HTTPS without a reverse proxy** — islandr can terminate TLS itself now. It starts with a placeholder self-signed certificate so HTTPS is always reachable, and swaps in your real certificate the moment you upload it in Settings — no restart, no dropped connections. The plain HTTP port keeps working alongside it. Paste a Cloudflare Origin Certificate straight in, RSA private key included (its classic PKCS1 form works as-is) ([ADR-0015](docs/adr/0015-builtin-tls-termination.md), [#22](https://github.com/chriscohnen/islandr/issues/22)).

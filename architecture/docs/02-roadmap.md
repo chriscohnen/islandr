@@ -17,7 +17,23 @@ the work:
 
 ## Shipped
 
-- **0.13.0** — current stable release. **HTTPS without a reverse proxy**:
+- **0.14.0** — current stable release. **Let's Encrypt, fully automatic**: set
+  a domain and islandr requests, validates, and installs a real certificate
+  itself, then renews it before expiry — a hand-rolled ACME (RFC 8555) client,
+  no certificate library added
+  ([#30](https://github.com/chriscohnen/islandr/issues/30)). See ADR-0019.
+  Also: the dashboard connection activity heatmap (peers × days)
+  ([#32](https://github.com/chriscohnen/islandr/issues/32), see ADR-0016);
+  wg0 bootstrap commands shown in the GUI instead of automated via sudo
+  ([#40](https://github.com/chriscohnen/islandr/issues/40)); and several
+  enforcement-path fixes — multi-CIDR site peers failing to push
+  ([#38](https://github.com/chriscohnen/islandr/issues/38)), PSK removal not
+  reaching the wire ([#39](https://github.com/chriscohnen/islandr/issues/39)),
+  the enforcement banner hiding the real error
+  ([#37](https://github.com/chriscohnen/islandr/issues/37)), and
+  `islandr-proxy` breaking on relocated `$HOME` data paths
+  ([#36](https://github.com/chriscohnen/islandr/issues/36)).
+- **0.13.0** — **HTTPS without a reverse proxy**:
   built-in TLS termination, starting on a placeholder certificate and
   hot-swapping to an uploaded one at runtime, no restart
   ([#22](https://github.com/chriscohnen/islandr/issues/22)). See ADR-0015.
@@ -47,10 +63,8 @@ the work:
 
 ## Next
 
-Targeted for 0.14.0:
+Targeted for 0.15.0:
 
-- **Connection activity heatmap** ([#32](https://github.com/chriscohnen/islandr/issues/32)) —
-  peers × days, daily-aggregated so it stays cheap to store and query. See ADR-0016.
 - **Full/split tunnel as an explicit setting**
   ([#33](https://github.com/chriscohnen/islandr/issues/33)) — the split-tunnel
   network list is independent of a peer's current ACL grants, so changing a
@@ -69,7 +83,6 @@ Not yet scheduled — priority is driven by interest on the tracking issues.
 - **`.deb` package for `apt install`** ([#14](https://github.com/chriscohnen/islandr/issues/14)).
 - **API key management for automation** ([#15](https://github.com/chriscohnen/islandr/issues/15)).
 - **TLS/HTTPS setup guide** ([#23](https://github.com/chriscohnen/islandr/issues/23), docs).
-- **ACME (Let's Encrypt) auto-provisioning** ([#30](https://github.com/chriscohnen/islandr/issues/30)) — follow-up to the built-in TLS termination shipped in 0.13.0.
 - **Topology diagram: live traffic activity, not just handshake recency** ([#34](https://github.com/chriscohnen/islandr/issues/34)).
 
 ---
