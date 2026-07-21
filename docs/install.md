@@ -69,13 +69,6 @@ islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
-
-# The 30s activity poller runs the two "wg show" commands above constantly —
-# read-only, no state change, no audit value. Silence PAM session open/close
-# and sudo's own syslog line for just these two; every mutating command
-# above (wg set/syncconf, nft) keeps full logging.
-Cmnd_Alias ISLANDR_WG_STATUS = /usr/bin/wg show wg0, /usr/bin/wg show wg0 dump
-Defaults!ISLANDR_WG_STATUS !pam_session, !syslog
 EOF
 
 sudo chmod 0440 /etc/sudoers.d/islandr
@@ -83,6 +76,8 @@ sudo visudo -c -f /etc/sudoers.d/islandr
 ```
 
 `visudo -c` must exit with `parsed OK` before you continue. If `nft` or `wg` live under a different path on your distro, adjust with `which nft` and `which wg`.
+
+The 30s activity poller's `wg show wg0`/`wg show wg0 dump` calls do generate three journal lines per tick (sudo's own log line plus PAM session open/close) — this is noisy but **don't** try to silence it with a scoped `Defaults!cmnd_alias !pam_session` rule: `islandr.service` runs with `ProtectSystem=strict`, which makes `/run` read-only for the service and everything it spawns (including `sudo`). Sudo tolerates the resulting `/run/sudo/ts: Read-only file system` when it can still complete a PAM session, but disabling `pam_session` removes that tolerance and sudo falls back to demanding interactive auth — breaking **every** sudo call, including `nft`, not just the noisy one. Confirmed the hard way in production 2026-07-21.
 
 If your WireGuard interface isn't named `wg0`, replace `wg0` in **both** places it appears here — and set `ISLANDR_WG_INTERFACE` to match in step 5. The interface name is baked into the sudoers rules (`wg set wg0 *`, etc.); running the service against a different interface than what sudoers grants fails silently with permission errors in `journalctl`. ([setup-hub.sh](install/setup-hub.sh) takes this as `WG_INTERFACE=wg1 sudo ./setup-hub.sh` instead.)
 
