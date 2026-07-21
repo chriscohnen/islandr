@@ -1,6 +1,6 @@
 # ADR-0019 — ACME (Let's Encrypt) auto-provisioning via a hand-rolled client, not a library
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-21
 **Deciders:** Christian Cohnen
 **Target release:** 0.14.0 or later

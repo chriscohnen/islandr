@@ -26,7 +26,7 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0016](0016-peer-activity-heatmap-storage.md) | Daily-aggregated storage for the peer activity heatmap, not raw time series | Proposed | 2026-07-19 |
 | [0017](0017-split-tunnel-network-scope.md) | Split tunnel lists all known networks, not just the peer's current grants | Proposed | 2026-07-19 |
 | [0018](0018-websocket-tunnel-fallback.md) | WebSocket-tunnel fallback for WireGuard traffic (wstunnel-inspired) | Proposed | 2026-07-20 |
-| [0019](0019-acme-hand-rolled-client.md) | ACME (Let's Encrypt) auto-provisioning via a hand-rolled client, not a library | Proposed | 2026-07-21 |
+| [0019](0019-acme-hand-rolled-client.md) | ACME (Let's Encrypt) auto-provisioning via a hand-rolled client, not a library | Accepted | 2026-07-21 |
 
 ## Status legend
 
