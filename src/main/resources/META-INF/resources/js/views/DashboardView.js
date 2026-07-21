@@ -17,6 +17,7 @@ export default defineComponent({
       loading: true,
       error: null,
       lang: locale.current,
+      activeTab: "topology", // "topology" | "heatmap" — the heatmap grows tall with peer count, so it's a separate pane, not stacked
       liveMode: false,
       livePeers: [],       // from /api/v1/peers/live polling
       liveError: null,
@@ -250,12 +251,22 @@ export default defineComponent({
         </a>
       </div>
 
-      <!-- Topology diagram: hub + sites + resources in a two-ring radial layout.
-           Live peers (handshake in last 5 min) show as dots near the hub. -->
+      <!-- Network visualization: Topology (hub + sites + resources) and the
+           connection activity heatmap share one card, switched via tabs —
+           the heatmap grows tall as the peer count grows, so it can't just
+           stack under the topology diagram the way it used to. -->
       <div class="card card-pad" style="margin-bottom: var(--space-5)">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3)">
-          <h2 style="font-size: var(--text-md); margin: 0">{{ t('dashboard.topology_title') }}</h2>
-          <div style="display: flex; align-items: center; gap: var(--space-3)">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3); flex-wrap: wrap; gap: var(--space-3)">
+          <div style="display: flex; gap: var(--space-2)">
+            <button class="btn btn-sm" :class="activeTab === 'topology' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'topology'">
+              {{ t('dashboard.topology_title') }}
+            </button>
+            <button class="btn btn-sm" :class="activeTab === 'heatmap' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'heatmap'">
+              {{ t('dashboard.heatmap_title') }}
+            </button>
+          </div>
+
+          <div v-if="activeTab === 'topology'" style="display: flex; align-items: center; gap: var(--space-3)">
             <div class="muted" style="font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
               {{ t(data.topology.sites.length === 1 ? 'dashboard.topology_sites' : 'dashboard.topology_sites_p', { n: data.topology.sites.length }) }}
               · {{ t(data.topology.resources.length === 1 ? 'dashboard.topology_res' : 'dashboard.topology_res_p', { n: data.topology.resources.length }) }}
@@ -270,52 +281,53 @@ export default defineComponent({
           </div>
         </div>
 
-        <TopologyDiagram
-            :sites="data.topology.sites"
-            :resources="data.topology.resources"
-            :live-peers="liveMode ? livePeers : data.topology.livePeers"
-            :resource-overflow="data.topology.resourceOverflow"
-            :endpoint="data.topology.hubEndpoint"
-            :hub-label="data.topology.hubLabel"
-            @site="onTopologySite"
-            @resource="onTopologyResource" />
+        <div v-show="activeTab === 'topology'">
+          <TopologyDiagram
+              :sites="data.topology.sites"
+              :resources="data.topology.resources"
+              :live-peers="liveMode ? livePeers : data.topology.livePeers"
+              :resource-overflow="data.topology.resourceOverflow"
+              :endpoint="data.topology.hubEndpoint"
+              :hub-label="data.topology.hubLabel"
+              @site="onTopologySite"
+              @resource="onTopologyResource" />
 
-        <!-- Live peer list — only shown when liveMode is active -->
-        <div v-if="liveMode" style="margin-top: var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-3)">
-          <div v-if="liveError" class="muted" style="font-size: var(--text-sm); color: var(--status-warn)">{{ liveError }}</div>
-          <div v-else-if="livePeers.length === 0" class="muted" style="font-size: var(--text-sm)">{{ t('dashboard.live_empty') }}</div>
-          <table v-else class="table" style="font-size: var(--text-sm)">
-            <thead>
-              <tr>
-                <th>{{ t('dashboard.live_th_name') }}</th>
-                <th>{{ t('dashboard.live_th_ip') }}</th>
-                <th>{{ t('dashboard.live_th_endpoint') }}</th>
-                <th>{{ t('dashboard.live_th_handshake') }}</th>
-                <th>↓ RX</th>
-                <th>↑ TX</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="p in livePeers" :key="p.publicKey">
-                <td>
-                  <span v-if="p.name">{{ p.name }}</span>
-                  <span v-else class="muted mono" style="font-size:11px">{{ p.publicKey.slice(0,16) }}…</span>
-                </td>
-                <td class="mono">{{ p.assignedIp || '—' }}</td>
-                <td class="mono" style="font-size:11px">{{ p.endpoint || '—' }}</td>
-                <td class="muted">{{ relativeTime(p.lastHandshake) }}</td>
-                <td class="mono muted">{{ formatBytes(p.rxBytes) }}</td>
-                <td class="mono muted">{{ formatBytes(p.txBytes) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <!-- Live peer list — only shown when liveMode is active -->
+          <div v-if="liveMode" style="margin-top: var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-3)">
+            <div v-if="liveError" class="muted" style="font-size: var(--text-sm); color: var(--status-warn)">{{ liveError }}</div>
+            <div v-else-if="livePeers.length === 0" class="muted" style="font-size: var(--text-sm)">{{ t('dashboard.live_empty') }}</div>
+            <table v-else class="table" style="font-size: var(--text-sm)">
+              <thead>
+                <tr>
+                  <th>{{ t('dashboard.live_th_name') }}</th>
+                  <th>{{ t('dashboard.live_th_ip') }}</th>
+                  <th>{{ t('dashboard.live_th_endpoint') }}</th>
+                  <th>{{ t('dashboard.live_th_handshake') }}</th>
+                  <th>↓ RX</th>
+                  <th>↑ TX</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in livePeers" :key="p.publicKey">
+                  <td>
+                    <span v-if="p.name">{{ p.name }}</span>
+                    <span v-else class="muted mono" style="font-size:11px">{{ p.publicKey.slice(0,16) }}…</span>
+                  </td>
+                  <td class="mono">{{ p.assignedIp || '—' }}</td>
+                  <td class="mono" style="font-size:11px">{{ p.endpoint || '—' }}</td>
+                  <td class="muted">{{ relativeTime(p.lastHandshake) }}</td>
+                  <td class="mono muted">{{ formatBytes(p.rxBytes) }}</td>
+                  <td class="mono muted">{{ formatBytes(p.txBytes) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      <!-- Connection activity heatmap: peers x days, who was connected when (#32) -->
-      <div class="card card-pad" style="margin-bottom: var(--space-5)">
-        <h2 style="font-size: var(--text-md); margin: 0 0 var(--space-3)">{{ t('dashboard.heatmap_title') }}</h2>
-        <ActivityHeatmap :days="30" />
+        <!-- Connection activity heatmap: peers x days, who was connected when (#32) -->
+        <div v-show="activeTab === 'heatmap'">
+          <ActivityHeatmap :days="30" />
+        </div>
       </div>
 
       <!-- Two side-by-side activity strips -->
