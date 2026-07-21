@@ -49,6 +49,7 @@ class PeerActivityHeatmapResourceTest {
         p.assignedIp = "10.9.0." + (1 + (int) (Math.random() * 200));
         p.enabled = true;
         p.createdAt = Instant.now();
+        p.updatedAt = p.createdAt;
         p.type = "client";
         p.persist();
         return p.id;

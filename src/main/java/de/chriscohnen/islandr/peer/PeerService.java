@@ -85,6 +85,11 @@ public class PeerService {
         peer.assignedIpv6 = emptyToNull(req.assignedIpv6());
         peer.type = req.resolvedType();
         peer.siteAllowedCidrs = normalisedSiteCidrs;
+        if (peer.isSite()) {
+            peer.lat = req.lat();
+            peer.lng = req.lng();
+            peer.locationLabel = req.locationLabel();
+        }
         if (privateKeyForResponse != null) {
             if (settings.isPlaintextRetention()) {
                 peer.privateKeyPem = privateKeyForResponse;
@@ -278,6 +283,15 @@ public class PeerService {
         } else if (req.deviceType() != null) {
             peer.deviceType = null;
         }
+        if (peer.isSite()) {
+            peer.lat = req.lat();
+            peer.lng = req.lng();
+            peer.locationLabel = req.locationLabel();
+        } else {
+            peer.lat = null;
+            peer.lng = null;
+            peer.locationLabel = null;
+        }
         peer.mtu = (req.mtu() != null && req.mtu() > 0) ? req.mtu() : null;
         // Assigned directly (not `> 0 ? x : null` like mtu): 0 is a meaningful
         // "keepalive off for this peer" override, distinct from null = defer to global.
@@ -285,6 +299,7 @@ public class PeerService {
         // null (field omitted) keeps the current/default true; only an explicit
         // false turns off the DNS line for this peer.
         peer.includeDns = req.includeDns() == null || req.includeDns();
+        peer.updatedAt = java.time.Instant.now();
         peer.persist();
 
         if ((ipChanged || ip6Changed || cidrsChanged || pskChanged) && peer.enabled) {
@@ -334,6 +349,7 @@ public class PeerService {
         String oldKey = peer.publicKey;
         peer.publicKey = newPublicKey;
         peer.privateKeyPem = null;
+        peer.updatedAt = java.time.Instant.now();
         peer.persist();
 
         try {
@@ -369,6 +385,7 @@ public class PeerService {
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
         if (peer.enabled == enabled) return PeerDto.Response.from(peer);
         peer.enabled = enabled;
+        peer.updatedAt = java.time.Instant.now();
         if (enabled) {
             wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
         } else {

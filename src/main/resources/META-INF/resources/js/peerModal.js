@@ -37,6 +37,10 @@ export const peerModalMixin = {
       peerType: "client",
       deviceType: "laptop",
       siteAllowedCidrs: "",
+      // Geocoding — meaningful for type='site' only (physical gateway device location).
+      siteLat: "",
+      siteLng: "",
+      siteLocationLabel: "",
       // Key-import mode for the create form.
       importMode: "generate", // "generate" | "public-only" | "both"
       importPublicKey: "",
@@ -83,6 +87,9 @@ export const peerModalMixin = {
       this.peerType = "client";
       this.deviceType = "laptop";
       this.siteAllowedCidrs = "";
+      this.siteLat = "";
+      this.siteLng = "";
+      this.siteLocationLabel = "";
       this.importMode = "generate";
       this.importPublicKey = "";
       this.importPrivateKey = "";
@@ -139,6 +146,9 @@ export const peerModalMixin = {
           return;
         }
         payload.siteAllowedCidrs = this.siteAllowedCidrs.trim();
+        payload.lat = this.siteLat !== "" ? parseFloat(this.siteLat) : null;
+        payload.lng = this.siteLng !== "" ? parseFloat(this.siteLng) : null;
+        payload.locationLabel = this.siteLocationLabel.trim() || null;
       }
       if (this.importMode === "public-only") {
         if (!this.importPublicKey.trim()) {
@@ -197,6 +207,9 @@ export const peerModalMixin = {
       this.peerType = peer.type || "client";
       this.deviceType = peer.deviceType || "laptop";
       this.siteAllowedCidrs = peer.siteAllowedCidrs || "";
+      this.siteLat = peer.lat ?? "";
+      this.siteLng = peer.lng ?? "";
+      this.siteLocationLabel = peer.locationLabel || "";
       this.editHasPsk = !!peer.hasPresharedKey;
       this.editMtu = peer.mtu || null;
       // `?? null` (not `|| null`): 0 is a valid "keepalive off for this peer" value.
@@ -232,6 +245,9 @@ export const peerModalMixin = {
           return;
         }
         payload.siteAllowedCidrs = this.siteAllowedCidrs.trim();
+        payload.lat = this.siteLat !== "" ? parseFloat(this.siteLat) : null;
+        payload.lng = this.siteLng !== "" ? parseFloat(this.siteLng) : null;
+        payload.locationLabel = this.siteLocationLabel.trim() || null;
       }
 
       // Did anything wire-relevant change? If so we'll auto-open the secret
@@ -291,6 +307,22 @@ export const peerModalMixin = {
       } catch (e) {
         alert(t("myaccess.error_conf", { error: e.message }));
       }
+    },
+
+    pasteSiteCoordinates(event) {
+      const text = (event.clipboardData || window.clipboardData).getData("text").trim();
+      const parts = text.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const lat = parseFloat(parts[0]);
+        const lng = parseFloat(parts[1]);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          this.siteLat = lat;
+          this.siteLng = lng;
+          return;
+        }
+      }
+      // Fallback: paste only into the lat field
+      this.siteLat = text;
     },
 
     async syncPskFromWg() {
@@ -365,6 +397,9 @@ export const peerModalMixin = {
           assignedIpv6: p.assignedIpv6 || null,
           siteAllowedCidrs: p.siteAllowedCidrs || "",
           deviceType: p.deviceType || null,
+          lat: p.lat ?? null,
+          lng: p.lng ?? null,
+          locationLabel: p.locationLabel || null,
           presharedKeyAction: null,
           mtu: this.secretEditMtu || null,
           // Keep an explicit 0 (= keepalive off); only an empty field means "defer to global".
@@ -477,6 +512,20 @@ export const peerModalTemplate = `
             <div class="field-hint">{{ t('peer.field_cidrs_hint') }}</div>
           </div>
 
+          <div v-if="peerType === 'site'" class="field" style="margin-bottom: var(--space-5)">
+            <label>{{ t('peer.field_geo') }}</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3)">
+              <input class="input mono" v-model="siteLat" type="number" step="any" min="-90" max="90"
+                :placeholder="t('peer.field_lat_ph')"
+                @paste.prevent="pasteSiteCoordinates($event)" />
+              <input class="input mono" v-model="siteLng" type="number" step="any" min="-180" max="180"
+                :placeholder="t('peer.field_lng_ph')" />
+            </div>
+            <input class="input" v-model="siteLocationLabel" style="margin-top: var(--space-2)"
+              :placeholder="t('peer.field_location_label_ph')" />
+            <div class="field-hint">{{ t('peer.field_geo_hint') }}</div>
+          </div>
+
           <fieldset class="key-mode">
             <legend>{{ t('peer.key_section') }}</legend>
             <label class="key-mode-option">
@@ -582,6 +631,20 @@ export const peerModalTemplate = `
             <label for="editCidrs">{{ t('peer.field_cidrs') }}</label>
             <textarea id="editCidrs" class="textarea mono" rows="2" v-model="siteAllowedCidrs" required></textarea>
             <div class="field-hint">{{ t('peer.field_cidrs_hint') }}</div>
+          </div>
+
+          <div v-if="peerType === 'site'" class="field" style="margin-bottom: var(--space-4)">
+            <label>{{ t('peer.field_geo') }}</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3)">
+              <input class="input mono" v-model="siteLat" type="number" step="any" min="-90" max="90"
+                :placeholder="t('peer.field_lat_ph')"
+                @paste.prevent="pasteSiteCoordinates($event)" />
+              <input class="input mono" v-model="siteLng" type="number" step="any" min="-180" max="180"
+                :placeholder="t('peer.field_lng_ph')" />
+            </div>
+            <input class="input" v-model="siteLocationLabel" style="margin-top: var(--space-2)"
+              :placeholder="t('peer.field_location_label_ph')" />
+            <div class="field-hint">{{ t('peer.field_geo_hint') }}</div>
           </div>
 
           <div class="field">

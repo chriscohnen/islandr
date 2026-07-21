@@ -230,6 +230,7 @@ public class PeerResource {
             return Response.ok(Map.of("imported", false)).build();
         }
         peer.presharedKey = status.presharedKey();
+        peer.updatedAt = java.time.Instant.now();
         // wg already has the PSK — no need to call setPeer again
         audit.logUpdate(a.principal(), "peer.psk-sync", "Peer:" + peer.name + " (" + id + ")", null, null);
         return Response.ok(Map.of("imported", true)).build();

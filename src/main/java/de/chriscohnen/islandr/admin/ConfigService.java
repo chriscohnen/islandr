@@ -60,13 +60,14 @@ public class ConfigService {
                 .stream().map(p -> new ConfigExportDto.PeerSnapshot(
                         p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.enabled,
                         includePrivateKeys ? p.privateKeyPem : null,
-                        p.type, p.siteAllowedCidrs, p.deviceType, p.presharedKey, p.createdAt))
+                        p.type, p.siteAllowedCidrs, p.deviceType, p.presharedKey, p.createdAt,
+                        p.lat, p.lng, p.locationLabel))
                 .toList();
 
         List<ConfigExportDto.SiteSnapshot> sites = Site.<Site>listAll()
                 .stream().map(site -> new ConfigExportDto.SiteSnapshot(
                         site.id, site.name, site.cidr, site.description,
-                        site.lat, site.lng, site.gatewayPeerId, site.createdAt))
+                        site.gatewayPeerId, site.createdAt))
                 .toList();
 
         List<ConfigExportDto.ResourceSnapshot> resources = Resource.<Resource>listAll()
@@ -176,8 +177,9 @@ public class ConfigService {
                             " enabled, private_key_pem, type, site_allowed_cidrs," +
                             " device_type, preshared_key," +
                             " total_rx_bytes, total_tx_bytes," +
-                            " last_sampled_rx_bytes, last_sampled_tx_bytes, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,0,0,0,?12)")
+                            " last_sampled_rx_bytes, last_sampled_tx_bytes, created_at," +
+                            " lat, lng, location_label)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,0,0,0,?12,?13,?14,?15)")
                     .setParameter(1, peer.id())
                     .setParameter(2, peer.userId())
                     .setParameter(3, peer.name())
@@ -190,6 +192,9 @@ public class ConfigService {
                     .setParameter(10, peer.deviceType())
                     .setParameter(11, peer.presharedKey())
                     .setParameter(12, ts(peer.createdAt()))
+                    .setParameter(13, peer.lat())
+                    .setParameter(14, peer.lng())
+                    .setParameter(15, peer.locationLabel())
                     .executeUpdate();
         }
 
@@ -197,16 +202,14 @@ public class ConfigService {
         for (var site : safe(p.sites())) {
             em.createNativeQuery(
                             "INSERT INTO sites (id, name, cidr, description," +
-                            " lat, lng, gateway_peer_id, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+                            " gateway_peer_id, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6)")
                     .setParameter(1, site.id())
                     .setParameter(2, site.name())
                     .setParameter(3, site.cidr())
                     .setParameter(4, site.description())
-                    .setParameter(5, site.lat())
-                    .setParameter(6, site.lng())
-                    .setParameter(7, site.gatewayPeerId())
-                    .setParameter(8, ts(site.createdAt()))
+                    .setParameter(5, site.gatewayPeerId())
+                    .setParameter(6, ts(site.createdAt()))
                     .executeUpdate();
         }
 

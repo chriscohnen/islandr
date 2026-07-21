@@ -126,6 +126,7 @@ class ActivityPollerTest {
         p.assignedIp = ip;
         p.enabled = true;
         p.createdAt = Instant.now();
+        p.updatedAt = p.createdAt;
         p.type = "client";
         p.persist();
         return p.id;

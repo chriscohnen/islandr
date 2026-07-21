@@ -22,6 +22,8 @@ export default defineComponent({
       viewMode: "cards",     // 'cards' | 'list'
       selectedIds: [],
       bulkDeleting: false,
+      sortKey: "name",
+      sortDir: 1,        // -1 = desc, 1 = asc
       // Create/edit resource modal
       modal: null,
       form: { name: "", ip: "", description: "", type: "computer" },
@@ -84,6 +86,22 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    sortedResources() {
+      const k = this.sortKey;
+      const d = this.sortDir;
+      const list = [...this.resources];
+      list.sort((a, b) => {
+        if (k === "type") {
+          const av = this.typeLabel(a.type || "computer");
+          const bv = this.typeLabel(b.type || "computer");
+          return d * av.localeCompare(bv);
+        }
+        const av = a[k] || "";
+        const bv = b[k] || "";
+        return d * av.localeCompare(bv, undefined, { numeric: true });
+      });
+      return list;
+    },
     typeLabels() {
       void this.lang;
       return {
@@ -330,6 +348,14 @@ export default defineComponent({
     typeLabel(type) {
       return this.typeLabels[type] || type;
     },
+    sortBy(key) {
+      if (this.sortKey === key) this.sortDir *= -1;
+      else { this.sortKey = key; this.sortDir = 1; }
+    },
+    sortIcon(key) {
+      if (this.sortKey !== key) return "↕";
+      return this.sortDir === 1 ? "↑" : "↓";
+    },
 
     // -- Device discovery (ADR-0014) --------------------------------------
     openScan() {
@@ -501,14 +527,20 @@ export default defineComponent({
           <thead>
             <tr>
               <th style="width: 32px"><input type="checkbox" :checked="allSelected()" @change="toggleSelectAll" /></th>
-              <th>{{ t('resources.th_name') }}</th>
-              <th>{{ t('discovery.th_ip') }}</th>
-              <th>{{ t('discovery.th_type') }}</th>
+              <th @click="sortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('resources.th_name') }} <span class="muted" style="font-size: 10px">{{ sortIcon('name') }}</span>
+              </th>
+              <th @click="sortBy('ip')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('discovery.th_ip') }} <span class="muted" style="font-size: 10px">{{ sortIcon('ip') }}</span>
+              </th>
+              <th @click="sortBy('type')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('discovery.th_type') }} <span class="muted" style="font-size: 10px">{{ sortIcon('type') }}</span>
+              </th>
               <th>Ports</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in resources" :key="r.id" @click="toggleSelect(r.id)" style="cursor: pointer"
+            <tr v-for="r in sortedResources" :key="r.id" @click="toggleSelect(r.id)" style="cursor: pointer"
                 :style="isSelected(r.id) ? 'background: var(--surface-2)' : ''">
               <td><input type="checkbox" :checked="isSelected(r.id)" @click.stop="toggleSelect(r.id)" /></td>
               <td>{{ r.name }}</td>

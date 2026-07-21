@@ -70,6 +70,11 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
+    /** Last time any mutable field on this peer changed (config edit, key rotation,
+     *  PSK change, enable/disable). Not touched by read-only activity polling. */
+    @Column(name = "updated_at", nullable = false)
+    public Instant updatedAt;
+
     /**
      * "client" = a single user device (laptop, phone). "site" = a WireGuard
      * gateway that routes traffic for an entire downstream network (branch
@@ -121,6 +126,22 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "include_dns", nullable = false)
     public boolean includeDns = true;
 
+    /**
+     * Optional geocoding for "site"-type peers only — this is the physical gateway
+     * device's location (rack, home office), not a property of the logical
+     * network(s) it routes (moved off {@code Site} in V47: a site is just a CIDR
+     * grouping with no location of its own, and one gateway peer can serve more
+     * than one site). Always {@code null} for client peers.
+     */
+    @Column(name = "lat")
+    public Double lat;
+
+    @Column(name = "lng")
+    public Double lng;
+
+    @Column(name = "location_label", length = 255)
+    public String locationLabel;
+
     public boolean isSite() {
         return "site".equals(type);
     }
@@ -136,6 +157,7 @@ public class Peer extends PanacheEntityBase {
         p.totalRxBytes = 0;
         p.totalTxBytes = 0;
         p.createdAt = Instant.now();
+        p.updatedAt = p.createdAt;
         p.type = "client";
         return p;
     }

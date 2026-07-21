@@ -108,7 +108,8 @@ public class MyPeerResource {
                 null,
                 body.deviceType(),
                 autoMtu,
-                false); // generatePresharedKey — PSK is an admin-only option
+                false,  // generatePresharedKey — PSK is an admin-only option
+                null, null, null); // lat/lng/locationLabel — site-only, n/a for self-service client peers
         PeerDto.CreateResponse out = peers.createForUser(userId, req);
         // nftables recompute happens inside createForUser (saga step 2).
         audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().name() + " (" + out.peer().id() + ")",
