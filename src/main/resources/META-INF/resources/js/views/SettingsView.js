@@ -1,13 +1,18 @@
 import { defineComponent } from "vue";
 import { t, locale, formatDate } from "/js/i18n.js";
+import { Icon } from "/js/Icons.js";
 
 // Settings form. GET + PUT against /api/v1/settings (the singleton row).
 // All WireGuard topology that ends up in client .conf files lives here —
 // see docs/adr/0008-runtime-settings-in-db.md.
 export default defineComponent({
   name: "SettingsView",
+  components: { Icon },
   data() {
     return {
+      wgSetupOpen: false,
+      wgSetupCopied: null,
+      wgSetupCopyFailed: null,
       loading: true,
       saving: false,
       probing: false,
@@ -75,6 +80,33 @@ export default defineComponent({
       if (this.tlsMode !== "managed" || !this.tlsCertExpiresAt) return null;
       const ms = new Date(this.tlsCertExpiresAt).getTime() - Date.now();
       return Math.ceil(ms / (1000 * 60 * 60 * 24));
+    },
+    // First usable host address in the configured subnet, e.g. "10.8.0.0/24"
+    // -> "10.8.0.1/24". IPv4 only (dotted-quad); falls back to the documented
+    // default if the subnet field is empty/unparseable/IPv6.
+    wgSetupHostAddr() {
+      const cidr = this.form.wgSubnet;
+      const m = cidr && cidr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+      if (!m) return "10.8.0.1/24";
+      const octets = [+m[1], +m[2], +m[3], Math.min(+m[4] + 1, 255)];
+      return octets.join(".") + "/" + m[5];
+    },
+    // Port from the configured "host:port" endpoint, falling back to the
+    // conventional WireGuard default when nothing's set yet.
+    wgSetupPort() {
+      const m = (this.form.wgServerEndpoint || "").match(/:(\d+)$/);
+      return m ? m[1] : "51820";
+    },
+    wgSetupCmdKeys() {
+      const iface = this.wgInterface;
+      return `sudo mkdir -p /etc/wireguard\numask 077\nwg genkey | sudo tee /etc/wireguard/${iface}.key | wg pubkey | sudo tee /etc/wireguard/${iface}.pub`;
+    },
+    wgSetupCmdInterface() {
+      const iface = this.wgInterface;
+      return `sudo ip link add ${iface} type wireguard\n`
+        + `sudo wg set ${iface} private-key /etc/wireguard/${iface}.key listen-port ${this.wgSetupPort}\n`
+        + `sudo ip addr add ${this.wgSetupHostAddr} dev ${iface}\n`
+        + `sudo ip link set ${iface} up`;
     },
   },
   methods: {
@@ -216,6 +248,32 @@ export default defineComponent({
         this.tlsError = t("settings.tls_upload_error", { error: e.message });
       } finally {
         this.tlsUploading = false;
+      }
+    },
+
+    async copyWgSetup(text, key) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // navigator.clipboard needs a secure context (HTTPS/localhost) — fall
+          // back to the legacy execCommand path instead of silently doing nothing.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          if (!ok) throw new Error("execCommand copy failed");
+        }
+        this.wgSetupCopied = key;
+        setTimeout(() => { if (this.wgSetupCopied === key) this.wgSetupCopied = null; }, 2000);
+      } catch (_) {
+        this.wgSetupCopyFailed = key;
+        setTimeout(() => { if (this.wgSetupCopyFailed === key) this.wgSetupCopyFailed = null; }, 2000);
       }
     },
 
@@ -426,6 +484,33 @@ export default defineComponent({
                       @click="form.wgServerEndpoint = form.wgServerEndpoint.replace(/:\d+$/, '') + ':' + probeResult.listenPort">
                 {{ t('settings.probe_adopt_port', { port: probeResult.listenPort }) }}
               </button>
+            </div>
+          </div>
+
+          <div class="field field-full">
+            <button type="button" class="btn btn-ghost btn-sm" @click="wgSetupOpen = !wgSetupOpen">
+              {{ wgSetupOpen ? t('settings.wg_setup_hide') : t('settings.wg_setup_show') }}
+            </button>
+            <div v-if="wgSetupOpen" style="margin-top: var(--space-3)">
+              <p class="muted" style="font-size: var(--text-xs); margin: 0 0 var(--space-3)">{{ t('settings.wg_setup_intro', { iface: wgInterface }) }}</p>
+
+              <label class="label muted" style="font-size: var(--text-xs)">{{ t('settings.wg_setup_step1') }}</label>
+              <div style="display:flex; gap: var(--space-2); align-items:flex-start; margin-bottom: var(--space-3)">
+                <pre class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:pre; margin:0; background: var(--surface-2); padding: var(--space-2); border-radius: var(--radius-sm)">{{ wgSetupCmdKeys }}</pre>
+                <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('settings.wg_setup_copy')" :title="wgSetupCopyFailed === 'keys' ? t('settings.wg_setup_copy_failed') : t('settings.wg_setup_copy')" @click="copyWgSetup(wgSetupCmdKeys, 'keys')">
+                  <Icon :name="wgSetupCopied === 'keys' ? 'check' : 'copy'" :size="14" />
+                </button>
+              </div>
+
+              <label class="label muted" style="font-size: var(--text-xs)">{{ t('settings.wg_setup_step2') }}</label>
+              <div style="display:flex; gap: var(--space-2); align-items:flex-start; margin-bottom: var(--space-3)">
+                <pre class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:pre; margin:0; background: var(--surface-2); padding: var(--space-2); border-radius: var(--radius-sm)">{{ wgSetupCmdInterface }}</pre>
+                <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('settings.wg_setup_copy')" :title="wgSetupCopyFailed === 'iface' ? t('settings.wg_setup_copy_failed') : t('settings.wg_setup_copy')" @click="copyWgSetup(wgSetupCmdInterface, 'iface')">
+                  <Icon :name="wgSetupCopied === 'iface' ? 'check' : 'copy'" :size="14" />
+                </button>
+              </div>
+
+              <p class="field-hint" style="margin:0">{{ t('settings.wg_setup_note', { iface: wgInterface }) }}</p>
             </div>
           </div>
 
