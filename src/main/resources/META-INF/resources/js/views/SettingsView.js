@@ -74,10 +74,14 @@ export default defineComponent({
       acmeLastError: null,
       acmeDomainInput: "",
       acmeEnabling: false,
+      // Pure layout split — "letsencrypt" | "origin". Defaults to whichever
+      // mode is actually active so a returning admin lands where they left off.
+      tlsTab: "letsencrypt",
     };
   },
   async mounted() {
     await this.load();
+    if (this.tlsMode === "managed") this.tlsTab = "origin";
     this.loadEnforcement();
   },
   computed: {
@@ -692,93 +696,103 @@ export default defineComponent({
         <div v-if="tlsMode === 'none'" class="callout callout-warn" style="margin-top: var(--space-3)">
           {{ t('settings.tls_dummy_active') }}
         </div>
-        <div v-else-if="tlsMode === 'managed'" style="margin-top: var(--space-3)">
-          <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
-            {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
-          </div>
-          <div class="callout callout-warn" v-else>
-            {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+
+        <div style="margin-top: var(--space-4); display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden">
+          <button type="button" class="btn btn-sm" :class="tlsTab === 'letsencrypt' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="tlsTab = 'letsencrypt'">{{ t('settings.acme_title') }}</button>
+          <button type="button" class="btn btn-sm" :class="tlsTab === 'origin' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="tlsTab = 'origin'">{{ t('settings.tls_tab_origin') }}</button>
+        </div>
+
+        <div v-if="tlsTab === 'letsencrypt'" style="margin-top: var(--space-4)">
+          <div v-if="tlsMode === 'acme'">
+            <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
+              {{ t('settings.acme_active', { domain: acmeDomain }) }}
+            </div>
+            <div class="callout callout-warn" v-else>
+              {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+            </div>
+            <div style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm)">
+              <div v-if="acmeLastRenewalAt"><span class="muted">{{ t('settings.acme_last_renewal') }}</span> <span class="mono">{{ formatDate(acmeLastRenewalAt) }}</span></div>
+              <div v-if="acmeLastAttemptAt"><span class="muted">{{ t('settings.acme_last_attempt') }}</span> <span class="mono">{{ formatDate(acmeLastAttemptAt) }}</span></div>
+              <div v-if="acmeLastError" style="color: var(--status-error)">{{ t('settings.acme_last_error') }} {{ acmeLastError }}</div>
+            </div>
+            <div style="margin-top: var(--space-3)">
+              <button type="button" class="btn btn-ghost" :disabled="tlsUploading" @click="resetTls">{{ t('settings.tls_reset_btn') }}</button>
+            </div>
           </div>
 
-          <div v-if="tlsCertInfo" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
-            <div style="font-size: var(--text-xs); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.tls_cert_details') }}</div>
-            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_domain') }}</span>
-              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.subjectCn }}</span>
+          <div style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
+            <div class="field-hint" style="margin-top: 0">{{ t('settings.acme_hint') }}</div>
+            <div class="field">
+              <label for="acme-domain">{{ t('settings.acme_field_domain') }}</label>
+              <input id="acme-domain" class="input mono" v-model="acmeDomainInput" placeholder="vpn.example.com" />
             </div>
-            <div v-if="tlsCertInfo.sans && tlsCertInfo.sans.length > 0" style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_sans') }}</span>
-              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.sans.join(', ') }}</span>
-            </div>
-            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_validity') }}</span>
-              <span class="mono" style="color: var(--fg1)">{{ t('settings.tls_cert_validity_range', { from: formatDate(tlsCertInfo.notBefore), to: formatDate(tlsCertInfo.notAfter) }) }}</span>
-            </div>
-            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_issuer') }}</span>
-              <span style="color: var(--fg1)">{{ tlsCertInfo.issuer }}</span>
+            <div>
+              <button type="button" class="btn btn-secondary" :disabled="acmeEnabling || !acmeDomainInput.trim()" @click="enableAcme">
+                {{ acmeEnabling ? t('settings.acme_enabling') : t('settings.acme_enable_btn') }}
+              </button>
             </div>
           </div>
         </div>
-        <div v-else-if="tlsMode === 'acme'" style="margin-top: var(--space-3)">
-          <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
-            {{ t('settings.acme_active', { domain: acmeDomain }) }}
-          </div>
-          <div class="callout callout-warn" v-else>
-            {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
-          </div>
-          <div style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm)">
-            <div v-if="acmeLastRenewalAt"><span class="muted">{{ t('settings.acme_last_renewal') }}</span> <span class="mono">{{ formatDate(acmeLastRenewalAt) }}</span></div>
-            <div v-if="acmeLastAttemptAt"><span class="muted">{{ t('settings.acme_last_attempt') }}</span> <span class="mono">{{ formatDate(acmeLastAttemptAt) }}</span></div>
-            <div v-if="acmeLastError" style="color: var(--status-error)">{{ t('settings.acme_last_error') }} {{ acmeLastError }}</div>
-          </div>
-          <div style="margin-top: var(--space-3)">
-            <button type="button" class="btn btn-ghost" :disabled="tlsUploading" @click="resetTls">{{ t('settings.tls_reset_btn') }}</button>
-          </div>
-        </div>
 
-        <div style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
-          <div>
-            <div style="font-weight: 600; font-size: var(--text-sm)">{{ t('settings.acme_title') }}</div>
-            <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.acme_hint') }}</div>
-          </div>
-          <div class="field">
-            <label for="acme-domain">{{ t('settings.acme_field_domain') }}</label>
-            <input id="acme-domain" class="input mono" v-model="acmeDomainInput" placeholder="vpn.example.com" />
-          </div>
-          <div>
-            <button type="button" class="btn btn-secondary" :disabled="acmeEnabling || !acmeDomainInput.trim()" @click="enableAcme">
-              {{ acmeEnabling ? t('settings.acme_enabling') : t('settings.acme_enable_btn') }}
-            </button>
-          </div>
-        </div>
+        <div v-else style="margin-top: var(--space-4)">
+          <div v-if="tlsMode === 'managed'">
+            <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
+              {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
+            </div>
+            <div class="callout callout-warn" v-else>
+              {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+            </div>
 
-        <div style="margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3)">
-          <div class="field">
-            <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
-            <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
-                      :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
-            <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
-              <div>{{ t('settings.tls_pem_hint_what') }}</div>
-              <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
-              <div>• {{ t('settings.tls_pem_hint_key') }}</div>
-              <div style="margin-top:var(--space-1)">{{ t('settings.tls_pem_hint_format') }}</div>
+            <div v-if="tlsCertInfo" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
+              <div style="font-size: var(--text-xs); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.tls_cert_details') }}</div>
+              <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_domain') }}</span>
+                <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.subjectCn }}</span>
+              </div>
+              <div v-if="tlsCertInfo.sans && tlsCertInfo.sans.length > 0" style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_sans') }}</span>
+                <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.sans.join(', ') }}</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_validity') }}</span>
+                <span class="mono" style="color: var(--fg1)">{{ t('settings.tls_cert_validity_range', { from: formatDate(tlsCertInfo.notBefore), to: formatDate(tlsCertInfo.notAfter) }) }}</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_issuer') }}</span>
+                <span style="color: var(--fg1)">{{ tlsCertInfo.issuer }}</span>
+              </div>
             </div>
           </div>
 
-          <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
-          <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
+          <div style="display: flex; flex-direction: column; gap: var(--space-3)">
+            <div class="field">
+              <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
+              <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
+                        :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
+              <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+                <div>{{ t('settings.tls_pem_hint_what') }}</div>
+                <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
+                <div>• {{ t('settings.tls_pem_hint_key') }}</div>
+                <div style="margin-top:var(--space-1)">{{ t('settings.tls_pem_hint_format') }}</div>
+              </div>
+            </div>
 
-          <div class="field-hint" style="margin: 0">{{ t('settings.tls_activate_note') }}</div>
+            <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
+            <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
 
-          <div style="display: flex; gap: var(--space-3)">
-            <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsPemInput.trim()"
-                    @click="uploadTls">
-              {{ tlsUploading ? t('settings.tls_uploading') : t('settings.tls_upload_btn') }}
-            </button>
-            <button type="button" class="btn btn-ghost" v-if="tlsMode === 'managed'" :disabled="tlsUploading" @click="resetTls">
-              {{ t('settings.tls_reset_btn') }}
-            </button>
+            <div class="field-hint" style="margin: 0">{{ t('settings.tls_activate_note') }}</div>
+
+            <div style="display: flex; gap: var(--space-3)">
+              <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsPemInput.trim()"
+                      @click="uploadTls">
+                {{ tlsUploading ? t('settings.tls_uploading') : t('settings.tls_upload_btn') }}
+              </button>
+              <button type="button" class="btn btn-ghost" v-if="tlsMode === 'managed'" :disabled="tlsUploading" @click="resetTls">
+                {{ t('settings.tls_reset_btn') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
