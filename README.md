@@ -146,7 +146,7 @@ Dev server (Quarkus live coding):
 
 The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
 
-Tests (209, runs in ~9 s after warm start):
+Tests (380+, runs in ~25 s after warm start):
 
 ```bash
 ./gradlew test
@@ -164,6 +164,7 @@ islandr/
 ├── docs/
 │   ├── prd.md                               # Product Requirements Document
 │   ├── install.md                           # Installation guide (native binary, Docker)
+│   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
 │   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
 │   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
 │       ├── README.md                        # ADR index
@@ -180,7 +181,12 @@ islandr/
 │       ├── 0011-process-privilege-model.md
 │       ├── 0012-docker-socket-proxy.md
 │       ├── 0013-default-everyone-role.md
-│       └── 0014-device-discovery.md
+│       ├── 0014-device-discovery.md
+│       ├── 0015-builtin-tls-termination.md
+│       ├── 0016-peer-activity-heatmap-storage.md
+│       ├── 0017-split-tunnel-network-scope.md
+│       ├── 0018-websocket-tunnel-fallback.md
+│       └── 0019-acme-hand-rolled-client.md
 ├── architecture/
 │   ├── workspace.dsl                        # C4 model (Structurizr DSL) — source of diagrams
 │   ├── docs/                                # Markdown pages rendered into the interactive C4 site
@@ -190,28 +196,32 @@ islandr/
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
 │   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang"
+│   │   ├── acme/        # hand-rolled RFC 8555 ACME client — Let's Encrypt auto-provisioning
 │   │   ├── admin/       # config export/import, version check
 │   │   ├── audit/       # audit log (entity, diff, resource, service)
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
+│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── identity/    # OidcProvider, JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
 │   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
+│   │   ├── proxy/       # Docker socket-proxy client + reconciler (ADR-0012)
 │   │   ├── settings/    # singleton settings (WG topology, retention mode, hub geocoding)
+│   │   ├── tls/         # built-in TLS termination, cert hot-swap (ADR-0015)
 │   │   ├── user/        # User + Resource + AvatarService + Google Workspace import
 │   │   ├── validation/  # @ValidIpAddress / @ValidCidr custom validators
 │   │   ├── wg/          # WgAdapter (real shells out, mock for dev/CI)
 │   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V33, portable SQL
+│   │   ├── db/migration/                    # Flyway migrations V1–V47, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 208 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 380+ tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
