@@ -40,8 +40,10 @@ dependencies {
         // Include it for local dev / JVM runs so the datasource switching in
         // application.properties keeps working without extra config.
         implementation("io.quarkus:quarkus-jdbc-postgresql")
-        // Override BOM version (42.7.8) — CVE fix for SCRAM auth CPU exhaustion (patched 42.7.11)
-        implementation("org.postgresql:postgresql:42.7.11")
+        // NOTE: a plain implementation("org.postgresql:postgresql:42.7.11") version
+        // declaration here does NOT win — enforcedPlatform (below) silently pulls it
+        // back down to the BOM's 42.7.8. The actual override lives in the
+        // resolutionStrategy.eachDependency block, same mechanism as the Netty force.
     }
     implementation("io.quarkus:quarkus-flyway")
 
@@ -69,21 +71,48 @@ dependencies {
     testImplementation("org.assertj:assertj-core:3.27.7")
 }
 
-// Force all Netty artifacts to a patched release. The Quarkus BOM (3.29.4)
-// pulls Netty transitively at a version with several CVEs (DNS cache
-// poisoning, memory exhaustion, IPv6 subnet-filter bypass). 4.1.135.Final is a
-// patch bump within the same 4.1.x line the BOM already uses, so it stays
-// compatible without moving off the pinned Quarkus version. The group-wide
-// force overrides the enforcedPlatform constraints and also covers transitive
-// Netty submodules that are not declared directly.
+// Force several transitive dependencies to patched releases within the same
+// minor line the Quarkus 3.29.4 BOM already uses, so CVE fixes land without
+// moving off the pinned Quarkus version (see project_quarkus_lts_pin — we stay
+// on LTS on purpose). enforcedPlatform (above) silently overrides any plain
+// implementation("group:artifact:version") declaration back to the BOM's
+// version, so these overrides MUST go through resolutionStrategy.eachDependency,
+// not a version string on the dependency itself — this also covers transitive
+// submodules that aren't declared directly (e.g. Netty's many codec modules).
 configurations.all {
     resolutionStrategy.eachDependency {
         if (requested.group == "io.netty") {
-            useVersion("4.1.135.Final")
-            because("CVE fixes patched in Netty 4.1.135.Final; same 4.1.x line as Quarkus 3.29 BOM")
+            useVersion("4.1.136.Final")
+            because("CVE fixes patched in Netty 4.1.136.Final (CVE-2026-59898/59899/59900/59901/59919/59921/56745/56746/55831/55833/55851); same 4.1.x line as Quarkus 3.29 BOM")
+        }
+        if (requested.group == "org.postgresql" && requested.name == "postgresql") {
+            useVersion("42.7.12")
+            because("CVE-2026-42198 (SCRAM auth CPU exhaustion) and CVE-2026-54291 (channel-binding downgrade); same 42.7.x line as Quarkus 3.29 BOM")
+        }
+        if (requested.group == "com.fasterxml.jackson.core" &&
+            (requested.name == "jackson-core" || requested.name == "jackson-databind")) {
+            useVersion("2.21.5")
+            because("Multiple CVEs in jackson-databind/jackson-core (CVE-2026-54512/54513/54514/54515/59888 + GHSA-72hv-8253-57qq incomplete-fix follow-up); same 2.x line as Quarkus 3.29 BOM")
+        }
+        if (requested.group == "com.fasterxml.jackson.core" && requested.name == "jackson-annotations") {
+            // jackson-annotations only ships minor-numbered releases (2.21, not 2.21.5) —
+            // keep it aligned with the 2.21.x core/databind force above without a patch suffix.
+            useVersion("2.21")
+            because("Keep jackson-annotations in lockstep with the jackson-core/jackson-databind 2.21.x force above")
+        }
+        if (requested.group == "io.vertx" && requested.name == "vertx-core") {
+            useVersion("4.5.27")
+            because("CVE-2026-1002 (static handler cache DoS) and CVE-2026-6860 (unbounded SNI SslContext cache growth); same 4.5.x line as Quarkus 3.29 BOM")
         }
     }
 }
+// NOT force-overridden: io.opentelemetry:opentelemetry-api (CVE-2026-45292,
+// medium, unbounded memory in W3C baggage propagation, fixed in 1.62.0). The
+// BOM currently resolves 1.46.0 — a 16-minor-version jump is too large to
+// treat as a same-line patch bump like the others above; the OTel API's
+// compatibility with the Quarkus-managed OTel SDK/exporter at that distance
+// needs real verification, not a one-line force. Left as an open Dependabot
+// alert pending a dedicated look (see #20).
 
 group = "de.chriscohnen.islandr"
 version = "0.14.0"
