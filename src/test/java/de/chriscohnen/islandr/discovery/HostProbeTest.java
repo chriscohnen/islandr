@@ -53,6 +53,6 @@ class HostProbeTest {
     @Test
     void defaultTcpPortSet_matchesAdr0014() {
         assertThat(HostProbe.DEFAULT_TCP_PORTS)
-                .containsExactly(22, 80, 443, 445, 554, 631, 3389, 5900, 8006, 8080, 8123, 8443, 9100);
+                .containsExactly(22, 80, 443, 445, 554, 631, 3389, 5900, 7222, 8006, 8080, 8123, 8443, 9100, 9443);
     }
 }

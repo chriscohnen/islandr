@@ -117,6 +117,8 @@ ISLANDR_WG_INTERFACE=$WG_INTERFACE
 ISLANDR_WG_MODE=real
 ISLANDR_NFT_MODE=real
 ISLANDR_USE_SUDO=true
+# Device discovery (ADR-0014) scans for real by default — no setting needed.
+# Set ISLANDR_DISCOVERY_MODE=mock to get two fixed synthetic hosts instead.
 
 # Database
 QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
