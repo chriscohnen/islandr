@@ -82,8 +82,20 @@ dependencies {
 configurations.all {
     resolutionStrategy.eachDependency {
         if (requested.group == "io.netty") {
-            useVersion("4.1.136.Final")
-            because("CVE fixes patched in Netty 4.1.136.Final (CVE-2026-59898/59899/59900/59901/59919/59921/56745/56746/55831/55833/55851); same 4.1.x line as Quarkus 3.29 BOM")
+            // CAPPED AT 4.1.135.Final — do not bump further without re-running a native
+            // build. Netty 4.1.136.Final changes the constructor signature of
+            // io.netty.handler.ssl.ReferenceCountedOpenSslClientContext, which Quarkus
+            // 3.29.4's Vert.x GraalVM substitution (VertxSubstitutions.java,
+            // Target_DefaultSslContextFactory) calls directly at native-image build
+            // time with the old signature — native build fails with "Discovered
+            // unresolved method during parsing" even though the JVM test suite passes
+            // fine (substitutions only run in the native codepath). CVEs fixed in
+            // 4.1.136.Final (CVE-2026-59898/59899/59900/59901/59919/59921/56745/56746/
+            // 55831/55833/55851) are therefore NOT fixable via a same-line version bump
+            // on this Quarkus version — needs either a Quarkus upgrade or a Quarkus-side
+            // fix to the substitution, tracked as an open Dependabot alert.
+            useVersion("4.1.135.Final")
+            because("4.1.136.Final breaks the native build (Quarkus 3.29.4 Vert.x GraalVM substitution incompatibility) — capped here pending a Quarkus upgrade")
         }
         if (requested.group == "org.postgresql" && requested.name == "postgresql") {
             useVersion("42.7.12")
