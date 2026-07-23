@@ -22,10 +22,18 @@ the work:
   itself, then renews it before expiry — a hand-rolled ACME (RFC 8555) client,
   no certificate library added
   ([#30](https://github.com/chriscohnen/islandr/issues/30)). See ADR-0019.
+  TLS Settings also split into Let's Encrypt / Origin Server Certificate tabs.
+  **Device discovery now scans by default** — `islandr.discovery.mode` had
+  silently defaulted to `mock` with no mention in the install docs, so a
+  standard install's "Find devices" never touched a real network; now
+  defaults to `real`, with `mock` still available as an explicit opt-out.
   Also: the dashboard connection activity heatmap (peers × days)
   ([#32](https://github.com/chriscohnen/islandr/issues/32), see ADR-0016);
-  wg0 bootstrap commands shown in the GUI instead of automated via sudo
-  ([#40](https://github.com/chriscohnen/islandr/issues/40)); and several
+  sortable resource list and a real peer/site "last modified" column,
+  replacing the far-less-useful creation date; site geocoding moved off the
+  logical `Site` onto its gateway peer, where the physical location actually
+  belongs; wg0 bootstrap commands shown in the GUI instead of automated via
+  sudo ([#40](https://github.com/chriscohnen/islandr/issues/40)); and several
   enforcement-path fixes — multi-CIDR site peers failing to push
   ([#38](https://github.com/chriscohnen/islandr/issues/38)), PSK removal not
   reaching the wire ([#39](https://github.com/chriscohnen/islandr/issues/39)),
@@ -69,6 +77,14 @@ Targeted for 0.15.0:
   ([#33](https://github.com/chriscohnen/islandr/issues/33)) — the split-tunnel
   network list is independent of a peer's current ACL grants, so changing a
   grant never forces a re-import of the `.conf`. See ADR-0017.
+- **ACME DNS-01 challenge** ([#41](https://github.com/chriscohnen/islandr/issues/41)) —
+  alternative to HTTP-01 for hubs that don't want port 80 open; needs a
+  per-DNS-provider API integration, its own design cycle.
+- **TLS Settings: CSR generation for the Origin Certificate tab**
+  ([#42](https://github.com/chriscohnen/islandr/issues/42)) — generate a
+  private key + CSR in-app instead of requiring an externally-created
+  key/cert pair.
+- **Multi-site map view** (Leaflet + OSM, [#11](https://github.com/chriscohnen/islandr/issues/11)).
 
 ## Under consideration
 
@@ -78,7 +94,6 @@ Not yet scheduled — priority is driven by interest on the tracking issues.
   ([#25](https://github.com/chriscohnen/islandr/issues/25)) — catch
   native-image serialization regressions in CI, not in a user's deployment.
 - **Peer expiry / auto-disable** ([#10](https://github.com/chriscohnen/islandr/issues/10)).
-- **Multi-site map view** (Leaflet + OSM, [#11](https://github.com/chriscohnen/islandr/issues/11)).
 - **Google Workspace / Entra ID user import** ([#12](https://github.com/chriscohnen/islandr/issues/12)).
 - **`.deb` package for `apt install`** ([#14](https://github.com/chriscohnen/islandr/issues/14)).
 - **API key management for automation** ([#15](https://github.com/chriscohnen/islandr/issues/15)).
