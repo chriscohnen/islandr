@@ -26,8 +26,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ol>
  *
  * <p>All 27 JVM {@code @QuarkusTest} discovery cases were green throughout both
- * incidents; only booting the native binary reproduces them. Stays in mock mode
- * (the default) so it needs no real network. See issue #25.
+ * incidents; only booting the native binary reproduces them. Forced into mock
+ * mode via {@code ISLANDR_DISCOVERY_MODE=mock} on the {@code testNative} Gradle
+ * task (islandr.discovery.mode defaults to "real" in prod, unlike wg/nft — this
+ * IT only exercises native serialization, not an actual scan, and the sandboxed
+ * CI container has no route to a real host). See issue #25.
  */
 @QuarkusIntegrationTest
 class DiscoveryNativeIT {

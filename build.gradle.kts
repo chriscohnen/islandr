@@ -149,4 +149,8 @@ dependencies {
 tasks.named<Test>("testNative") {
     environment("ISLANDR_ADMIN_PASSWORD", "native-it-pw")
     environment("QUARKUS_DATASOURCE_JDBC_URL", "jdbc:sqlite:${layout.buildDirectory.get()}/native-it.db")
+    // islandr.discovery.mode defaults to "real" in prod (unlike wg/nft) — this IT
+    // only exercises native serialization (see DiscoveryNativeIT), not an actual
+    // network scan, and the sandboxed CI container has no route to any real host.
+    environment("ISLANDR_DISCOVERY_MODE", "mock")
 }
