@@ -77,6 +77,8 @@ sudo visudo -c -f /etc/sudoers.d/islandr
 
 `visudo -c` must exit with `parsed OK` before you continue. If `nft` or `wg` live under a different path on your distro, adjust with `which nft` and `which wg`.
 
+The 30s activity poller's `wg show wg0`/`wg show wg0 dump` calls do generate three journal lines per tick (sudo's own log line plus PAM session open/close) — this is noisy but **don't** try to silence it with a scoped `Defaults!cmnd_alias !pam_session` rule: `islandr.service` runs with `ProtectSystem=strict`, which makes `/run` read-only for the service and everything it spawns (including `sudo`). Sudo tolerates the resulting `/run/sudo/ts: Read-only file system` when it can still complete a PAM session, but disabling `pam_session` removes that tolerance and sudo falls back to demanding interactive auth — breaking **every** sudo call, including `nft`, not just the noisy one. Confirmed the hard way in production 2026-07-21.
+
 If your WireGuard interface isn't named `wg0`, replace `wg0` in **both** places it appears here — and set `ISLANDR_WG_INTERFACE` to match in step 5. The interface name is baked into the sudoers rules (`wg set wg0 *`, etc.); running the service against a different interface than what sudoers grants fails silently with permission errors in `journalctl`. ([setup-hub.sh](install/setup-hub.sh) takes this as `WG_INTERFACE=wg1 sudo ./setup-hub.sh` instead.)
 
 ### 5. Configure environment variables
@@ -104,6 +106,9 @@ ISLANDR_WG_INTERFACE=wg0
 ISLANDR_WG_MODE=real
 ISLANDR_NFT_MODE=real
 ISLANDR_USE_SUDO=true
+# Device discovery (ADR-0014) scans for real by default — no setting needed.
+# Set ISLANDR_DISCOVERY_MODE=mock to get two fixed synthetic hosts instead
+# (e.g. a staging box you don't want probing a real subnet).
 
 # Database (SQLite — adequate for small teams; see ADR-0004 for PostgreSQL path)
 QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
@@ -294,6 +299,12 @@ curl http://localhost:8080
 
 The image above **boots and runs the full GUI**, but a container is unprivileged and cannot touch the host's WireGuard or nftables — so out of the box it runs in a degraded *"enforcement unavailable"* state: changes are saved but not applied. To enforce, add the **host-side socket proxy** ([ADR-0012](adr/0012-docker-socket-proxy.md)): a tiny systemd service that performs the privileged `wg`/`nft` operations while the container stays unprivileged and only talks to its socket.
 
+> **Snap Docker is not compatible with this step.** If Docker was installed via `snap install docker` (common on Ubuntu, e.g. if it was already on the host for other containers before islandr), `dockerd` runs in a confined mount namespace that can only bind-mount paths under `$HOME`, `/mnt`, or `/media` — it cannot create or mount `/var/lib/islandr` or `/run/islandr/proxy.sock`, failing with `mkdir ...: read-only file system` even if that path already exists on the real host. This is independent of file permissions and isn't fixable from the compose side. Either install Docker via the official method above instead (the clean fix), or, if migrating an existing snap-Docker host with other containers isn't practical, relocate both shared paths under `$HOME`:
+>
+> - Point `/var/lib/islandr` at a real directory under `$HOME` in compose, then make `/var/lib/islandr` on the host a symlink to it (the proxy binary hardcodes that path, so it's a "make the path resolve there" workaround, not a config option).
+> - Change `ListenStream=` in `/etc/systemd/system/islandr-proxy.socket` to a path under `$HOME` (this one *is* freely configurable — the proxy just takes whatever fd systemd hands it), and mount that real path to `/run/islandr/proxy.sock` in compose.
+> - `islandr-proxy.service` hardens with `ProtectHome=read-only` (not `true`) specifically so these symlinked/relocated paths under `$HOME` stay readable — see [#36](https://github.com/chriscohnen/islandr/issues/36) if you're on an older install with `ProtectHome=true`.
+
 **a. Install the socket proxy on the host** (needs `wg` and `nft` present):
 
 ```bash
@@ -325,7 +336,26 @@ services:
 
 The `/var/lib/islandr` bind mount is shared with the proxy: islandr writes the validated ruleset there and the proxy applies it (`nft -f /var/lib/islandr/ruleset.nft`). The managed WireGuard interface defaults to `wg0` — if you use another name, set `ISLANDR_WG_INTERFACE` on **both** the container and the `install-proxy.sh` step.
 
+If you're extending an evaluation setup from [step 2](#2-create-dockercomposeyml) that had no explicit `volumes:` entry, your existing config lives in an **anonymous** volume (from the image's `VOLUME /var/lib/islandr`), not at this new bind-mount path — switching to the bind mount above starts the container against an empty `/var/lib/islandr` unless you back it up first.
+
+Easiest: in the Admin Console, **Settings → Config export/import**, export a JSON snapshot before switching, then import it once the container is back up on the new mount. Alternatively, copy the raw volume contents across (also captures the SQLite DB itself, not just the config):
+
+```bash
+docker inspect <container> --format '{{ range .Mounts }}{{ .Name }} -> {{ .Destination }}{{ "\n" }}{{ end }}'
+docker run --rm -v <volume-name-from-above>:/from -v /var/lib/islandr:/to alpine sh -c "cp -a /from/. /to/"
+```
+
+The generated `inet islandr` table hooks the host's `forward` chain, but only to police traffic actually entering or leaving via the WireGuard interface — anything else is accepted immediately and left to the rest of the host/other tables. So enforcement is safe to enable on a host that also runs other containers or services; it does not lock down forwarding for traffic unrelated to WireGuard.
+
 **c. Verify.** In the admin console, **Settings → Enforcement** shows *Socket proxy — active* and the "enforcement unavailable" banner is gone. Any configuration built while degraded is reconciled and applied automatically once the proxy connects.
+
+**Troubleshooting: recovering from a bad ruleset.** The `inet islandr` nftables table is applied fresh from the database on every container start (`ruleCount=0` in the logs means no ACL grants exist yet — the table still gets installed with its default-drop policy). If islandr itself, or something else on the host, becomes unreachable after enabling enforcement, you can remove the table immediately without touching the container:
+
+```bash
+sudo nft delete table inet islandr
+```
+
+This just hands `forward` traffic back to whatever else is on the host; islandr reapplies the table on its next restart (or the next ACL change), so treat this as a way to get back in, not a permanent fix. If the problem was islandr itself being unreachable on its own port, check `docker ps` / `docker inspect <container> --format '{{json .NetworkSettings.Ports}}'` for the actual published ports first — an empty `{}` there means a port-mapping/container problem, not a firewall one, and deleting the table won't help.
 
 ---
 

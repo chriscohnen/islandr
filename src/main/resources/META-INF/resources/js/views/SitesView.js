@@ -1,6 +1,6 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
-import { t, locale, formatDate } from "/js/i18n.js";
+import { t, locale } from "/js/i18n.js";
 
 // Sites = organisational grouping for resources. The CIDR is informational,
 // rendered next to the name; it does NOT participate in nftables rules.
@@ -15,7 +15,7 @@ export default defineComponent({
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
-      form: { name: "", cidr: "", description: "", lat: "", lng: "", gatewayPeerId: "" },
+      form: { name: "", cidr: "", description: "", gatewayPeerId: "" },
       editId: null,
       submitting: false,
       formError: null,
@@ -63,7 +63,7 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", cidr: "", description: "", lat: "", lng: "", gatewayPeerId: "" };
+      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "" };
       this.formError = null;
     },
     openEdit(site) {
@@ -73,8 +73,6 @@ export default defineComponent({
         name: site.name,
         cidr: site.cidr,
         description: site.description || "",
-        lat: site.lat ?? "",
-        lng: site.lng ?? "",
         gatewayPeerId: site.gatewayPeerId || "",
       };
       this.formError = null;
@@ -95,8 +93,6 @@ export default defineComponent({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             ...this.form,
-            lat: this.form.lat !== "" ? parseFloat(this.form.lat) : null,
-            lng: this.form.lng !== "" ? parseFloat(this.form.lng) : null,
             gatewayPeerId: this.form.gatewayPeerId || null,
           }),
         });
@@ -129,23 +125,6 @@ export default defineComponent({
     goToResources(site) {
       this.$router.push({ name: "resources", params: { siteId: site.id } });
     },
-    formatDate(iso) { return formatDate(iso); },
-
-    pasteCoordinates(event) {
-      const text = (event.clipboardData || window.clipboardData).getData("text").trim();
-      const parts = text.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
-      if (parts.length >= 2) {
-        const lat = parseFloat(parts[0]);
-        const lng = parseFloat(parts[1]);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          this.form.lat = lat;
-          this.form.lng = lng;
-          return;
-        }
-      }
-      // Fallback: paste only into lat field
-      this.form.lat = text;
-    },
   },
   template: `
     <div class="page-header">
@@ -169,7 +148,6 @@ export default defineComponent({
           <th>{{ t('sites.th_gateway') }}</th>
           <th>{{ t('sites.th_desc') }}</th>
           <th>{{ t('sites.th_resources') }}</th>
-          <th>{{ t('sites.th_created') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -191,7 +169,6 @@ export default defineComponent({
               <Icon name="resources" :size="13" />{{ s.resourceCount }}
             </button>
           </td>
-          <td class="muted">{{ formatDate(s.createdAt) }}</td>
           <td style="text-align: right">
             <button class="btn btn-ghost btn-sm" @click="openEdit(s)"><Icon name="edit" :size="13" />{{ t('sites.btn_edit') }}</button>
             <button class="btn btn-ghost btn-sm" @click="deleteSite(s)"><Icon name="trash" :size="13" />{{ t('sites.btn_delete') }}</button>
@@ -242,20 +219,9 @@ export default defineComponent({
                         style="font-size: var(--text-xs)" @click="useRange(r)">{{ r }}</button>
               </div>
             </div>
-            <div class="field" style="margin-bottom: var(--space-4)">
+            <div class="field">
               <label for="siteDesc">{{ t('sites.field_desc') }}</label>
               <textarea id="siteDesc" class="textarea" rows="2" v-model="form.description" placeholder="Optional"></textarea>
-            </div>
-            <div class="field">
-              <label>{{ t('sites.field_geo') }}</label>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3)">
-                <input class="input mono" v-model="form.lat" type="number" step="any" min="-90" max="90"
-                  :placeholder="t('sites.field_lat_ph')"
-                  @paste.prevent="pasteCoordinates($event)" />
-                <input class="input mono" v-model="form.lng" type="number" step="any" min="-180" max="180"
-                  :placeholder="t('sites.field_lng_ph')" />
-              </div>
-              <div class="field-hint">{{ t('sites.field_geo_hint') }}</div>
             </div>
           </div>
           <div class="modal-footer">

@@ -21,7 +21,7 @@ The tension is that **network scanning is intrusive**, and Islandr's whole secur
 
 Host liveness is established with **user-space sockets only** — never a raw socket, never `CAP_NET_RAW`, never a new `sudoers` entry:
 
-- **TCP `connect()`** to a fixed probe-port set — `22, 80, 443, 445, 554, 631, 3389, 5900, 8006, 8080, 8123, 8443, 9100`. `connect` succeeding (**open**) or being refused (**closed**) both prove the host is up and, for an open port, tell us *which* service. A timeout is ambiguous (down, or filtered).
+- **TCP `connect()`** to a fixed probe-port set — `22, 80, 443, 445, 554, 631, 3389, 5900, 7222, 8006, 8080, 8123, 8443, 9100, 9443`. `connect` succeeding (**open**) or being refused (**closed**) both prove the host is up and, for an open port, tell us *which* service. A timeout is ambiguous (down, or filtered).
 - **UDP port-unreachable liveness** — one UDP datagram to a fixed, likely-closed high port (`40125`) on a **`connect()`-ed `DatagramSocket`**. If the host is up and the port closed, the kernel delivers the ICMP *port unreachable* against that connected socket and Java surfaces it as `java.net.PortUnreachableException` — **without a raw socket**. An exception is a positive liveness signal even when *no* probed TCP port is open; a timeout yields nothing. This is exactly the technique `nmap` falls back to in unprivileged mode, and the reason it works is the reason we can use it: sending UDP and reading the connected-socket error are both unprivileged.
 
 A host counts as **live** if any TCP probe answered (open or refused) **or** the UDP probe raised `PortUnreachableException`. The two probes are complementary: TCP gives liveness *plus* a service fingerprint; the UDP probe adds hosts that expose none of the probed TCP ports but still emit ICMP — partially closing the "silent host" gap (R-140).
@@ -83,9 +83,9 @@ Guesses are pre-filled in the import table and freely editable:
 
 The `camera` type this leans on (RTSP/554) already exists in the resource-type set (added in `V13`, alongside `rackserver`/`kvm` from 0.11.0) — icon, `typeLabels`, DE/EN i18n, and the backend `@Pattern` allowlist are all in place. Discovery reuses it rather than adding a type; without a camera type the fingerprint for the very use case that triggered this ADR would be useless, so its prior existence is a precondition, not a side effect.
 
-### 6. Mock-first, like `wg`/`nft`
+### 6. Mock in dev/test, real by default in production — like `wg`/`nft`
 
-Discovery follows the project's mock-first pattern: a `MockDiscoveryScanner` returns synthetic hosts so the dev laptop and the test suite never touch a real network, and the real socket scanner is selected only in `real` mode. This keeps the feature testable without a live subnet and consistent with how `wg`/`nft` adapters already resolve.
+Discovery follows the project's dev/test-mock pattern: `%dev`/`%test` pin `islandr.discovery.mode=mock`, returning synthetic hosts so the dev laptop and the test suite never touch a real network. Unlike `wg`/`nft`, production does **not** need to opt in — `islandr.discovery.mode` defaults to `real`, since the scan is an unprivileged unicast probe with no `sudo`/enforcement-path involvement, so there's no reason to make a production install ask for it explicitly. (Corrected 2026-07-21: the original implementation defaulted to `mock` everywhere, which meant a stock install per `docs/install.md` silently never scanned for real.)
 
 ### 7. Independent of the enforcement path
 

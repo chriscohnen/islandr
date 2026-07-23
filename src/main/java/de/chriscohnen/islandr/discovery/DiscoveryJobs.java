@@ -23,9 +23,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * ephemeral async job — not persisted, swept after {@link #TTL} — so a restart
  * simply forgets in-flight scans. Bounded per site: one active scan at a time.
  *
- * <p>Mock-first (ADR-0014 §6): the default {@code mock} mode returns synthetic
- * hosts so the dev laptop and the test suite never touch a real network; the real
- * socket scan runs only when {@code islandr.discovery.mode=real}.
+ * <p>Real by default (same rule as {@code islandr.wg.mode}/{@code islandr.nft.mode}):
+ * a production install needs zero extra config to get a working scan.
+ * {@code %dev}/{@code %test} in application.properties pin this back to
+ * {@code mock} — synthetic hosts, ADR-0014 §6 — so the dev laptop and the test
+ * suite never touch a real network. Explicitly setting
+ * {@code islandr.discovery.mode=mock} anywhere else (e.g. a staging box) opts
+ * back out of real scanning.
  */
 @ApplicationScoped
 public class DiscoveryJobs {
@@ -33,7 +37,7 @@ public class DiscoveryJobs {
     /** Finished jobs are swept once older than this (running jobs are never swept). */
     private static final Duration TTL = Duration.ofMinutes(5);
 
-    @ConfigProperty(name = "islandr.discovery.mode", defaultValue = "mock")
+    @ConfigProperty(name = "islandr.discovery.mode", defaultValue = "real")
     String mode;
     @ConfigProperty(name = "islandr.discovery.timeout", defaultValue = "1s")
     Duration hostTimeout;

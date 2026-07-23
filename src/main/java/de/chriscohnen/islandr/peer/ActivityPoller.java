@@ -9,6 +9,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,6 +99,7 @@ public class ActivityPoller {
 
             p.lastSeenAt = now;
             p.lastSeenEndpoint = s.endpoint();
+            bumpDailyActivity(p.id, now);
 
             // Delta-accumulation: wg counters reset to 0 on interface restart.
             // A positive delta means bytes flowed; a negative delta means the
@@ -111,5 +114,22 @@ public class ActivityPoller {
             updated++;
         }
         if (updated > 0) LOG.debugf("activity poll: updated %d peer(s)", updated);
+    }
+
+    /**
+     * Upserts the peer_daily_activity row for the peer's UTC day, incrementing
+     * sample_hits. Backs the dashboard's connection activity heatmap (#32).
+     */
+    private void bumpDailyActivity(String peerId, Instant sampledAt) {
+        LocalDate day = sampledAt.atZone(ZoneOffset.UTC).toLocalDate();
+        PeerDailyActivity.Id id = new PeerDailyActivity.Id(peerId, day);
+        PeerDailyActivity row = PeerDailyActivity.findById(id);
+        if (row == null) {
+            row = new PeerDailyActivity(peerId, day);
+            row.sampleHits = 1;
+            row.persist();
+        } else {
+            row.sampleHits++;
+        }
     }
 }

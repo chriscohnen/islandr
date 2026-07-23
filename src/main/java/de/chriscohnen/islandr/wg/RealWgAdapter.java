@@ -106,13 +106,15 @@ public class RealWgAdapter implements WgAdapter {
     }
 
     @Override
-    public ServerInfo probeServer(String iface) {
+    public ProbeResult probeServerDetailed(String iface) {
         try {
             String dump = runCapture(new String[]{"wg", "show", iface, "dump"}, null, useSudo);
             String[] lines = dump.split("\n");
             String firstLine = lines[0].trim();
             String[] fields = firstLine.split("\t");
-            if (fields.length < 3) return null;
+            if (fields.length < 3) {
+                return ProbeResult.failed("wg show " + iface + " dump: unexpected output format");
+            }
             String publicKey = fields[1];
             int listenPort;
             try { listenPort = Integer.parseInt(fields[2]); } catch (NumberFormatException e) { listenPort = 51820; }
@@ -133,10 +135,10 @@ public class RealWgAdapter implements WgAdapter {
                 LOG.debugf("ip link show %s not available: %s", iface, e.getMessage());
             }
 
-            return new ServerInfo(publicKey, listenPort, peerCount, ifStatus, mtu);
+            return ProbeResult.ok(new ServerInfo(publicKey, listenPort, peerCount, ifStatus, mtu));
         } catch (WgException e) {
             LOG.infof("wg probe failed for iface %s: %s", iface, e.getMessage());
-            return null;
+            return ProbeResult.failed(e.getMessage());
         }
     }
 

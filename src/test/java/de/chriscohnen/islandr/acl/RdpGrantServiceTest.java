@@ -41,7 +41,7 @@ class RdpGrantServiceTest {
         em.createNativeQuery("INSERT INTO user_roles (user_id, role_id) VALUES (?1, ?2)")
                 .setParameter(1, granted.id).setParameter(2, role.id).executeUpdate();
 
-        Site site = Site.createNew("Site-" + suffix, "10.60.0.0/16", null, null, null);
+        Site site = Site.createNew("Site-" + suffix, "10.60.0.0/16", null);
         site.persist();
         Resource res = Resource.createNew(site.id, "Terminal-" + suffix, "10.60.0.5", null, "computer");
         res.persist();

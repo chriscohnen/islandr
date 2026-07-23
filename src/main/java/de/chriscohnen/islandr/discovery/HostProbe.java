@@ -37,7 +37,7 @@ public class HostProbe {
 
     /** Fixed TCP probe set (ADR-0014): management / console / web / camera ports. */
     public static final List<Integer> DEFAULT_TCP_PORTS =
-            List.of(22, 80, 443, 445, 554, 631, 3389, 5900, 8006, 8080, 8123, 8443, 9100);
+            List.of(22, 80, 443, 445, 554, 631, 3389, 5900, 7222, 8006, 8080, 8123, 8443, 9100, 9443);
 
     /** A fixed, likely-closed high UDP port; a port-unreachable back from it proves liveness. */
     public static final int DEFAULT_UDP_PROBE_PORT = 40125;

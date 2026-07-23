@@ -20,7 +20,7 @@ import java.nio.charset.StandardCharsets;
  * Supplies the HTTP server's TLS material (ADR-0015). Quarkus calls {@link #getKeyStore}
  * whenever the default TLS configuration is created or reloaded — there is no
  * {@code quarkus.tls.*} static config for the default configuration at all; this
- * bean is the only source. Three states, resolved from {@code Settings.tlsMode}:
+ * bean is the only source. Four states, resolved from {@code Settings.tlsMode}:
  *
  * <ul>
  *   <li>{@code none} (default) — the baked-in dummy placeholder certificate
@@ -31,7 +31,12 @@ import java.nio.charset.StandardCharsets;
  *       decrypted only for the duration of this call when {@link EncryptionService}
  *       is configured, and is never written to disk.</li>
  *   <li>{@code referenced} — a file pair the admin points at but islandr does not
- *       own or copy (their own ACME client, a CDN's origin-cert tooling).</li>
+ *       own or copy (an operator's own ACME client, a CDN's origin-cert tooling).</li>
+ *   <li>{@code acme} (ADR-0019) — islandr's own hand-rolled ACME client
+ *       ({@code de.chriscohnen.islandr.acme}) obtains and renews the certificate
+ *       itself, storing it in the same {@code tlsCertPem}/{@code tlsKeyPem} columns
+ *       as {@code managed} — same loading path here, only the material's origin
+ *       differs.</li>
  * </ul>
  *
  * A malformed or missing configured certificate falls back to the dummy rather
@@ -67,7 +72,12 @@ public class TlsKeyStoreProvider implements KeyStoreProvider {
         }
         try {
             PemKeyCertOptions options = switch (s.tlsMode) {
-                case "managed" -> managedOptions(s.tlsCertPem, s.tlsKeyPem);
+                // "acme" (ADR-0019) stores its issued certificate in the exact same
+                // tlsCertPem/tlsKeyPem columns as "managed" — identical PEM-in-DB
+                // shape, only the *source* of the material differs (AcmeService's
+                // issuance flow instead of an admin upload), so it reuses this path
+                // rather than needing a parallel one.
+                case "managed", "acme" -> managedOptions(s.tlsCertPem, s.tlsKeyPem);
                 case "referenced" -> referencedOptions(s);
                 default -> dummyOptions();
             };

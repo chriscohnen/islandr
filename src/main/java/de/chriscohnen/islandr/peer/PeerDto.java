@@ -24,22 +24,27 @@ public final class PeerDto {
             long totalRxBytes,
             long totalTxBytes,
             Instant createdAt,
+            Instant updatedAt,
             String type,                // "client" | "site"
             String siteAllowedCidrs,    // null for client peers
             String deviceType,          // laptop | desktop | mobile | tablet | server | other | null
             boolean hasPresharedKey,    // true when a PSK is stored for this peer
             Integer mtu,                // null = no per-peer override; use global setting
             Integer persistentKeepalive,// null = no per-peer override; 0 = off; else interval (s)
-            boolean includeDns          // false = never write the DNS line for this peer
+            boolean includeDns,         // false = never write the DNS line for this peer
+            Double lat,                 // site peers only — physical location of the gateway device
+            Double lng,
+            String locationLabel
     ) {
         public static Response from(Peer p) {
             return new Response(
                     p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.assignedIpv6,
                     p.enabled, p.lastSeenAt, p.lastSeenEndpoint,
-                    p.totalRxBytes, p.totalTxBytes, p.createdAt,
+                    p.totalRxBytes, p.totalTxBytes, p.createdAt, p.updatedAt,
                     p.type, p.siteAllowedCidrs, p.deviceType,
                     p.presharedKey != null && !p.presharedKey.isBlank(),
-                    p.mtu, p.persistentKeepalive, p.includeDns);
+                    p.mtu, p.persistentKeepalive, p.includeDns,
+                    p.lat, p.lng, p.locationLabel);
         }
     }
 
@@ -93,7 +98,13 @@ public final class PeerDto {
             @Min(576) @Max(65535) Integer mtu,
 
             // When true, the server generates and stores a preshared key for this peer.
-            boolean generatePresharedKey
+            boolean generatePresharedKey,
+
+            // Optional geocoding — meaningful for type='site' only (physical gateway
+            // device location); ignored/cleared for client peers.
+            Double lat,
+            Double lng,
+            String locationLabel
     ) {
         public boolean hasPublicKey()  { return publicKey  != null && !publicKey.isBlank(); }
         public boolean hasPrivateKey() { return privateKey != null && !privateKey.isBlank(); }
@@ -160,7 +171,12 @@ public final class PeerDto {
             // one is configured. Boolean (not boolean): a request that omits this
             // field must keep the current behaviour (true), not silently flip to
             // false via Jackson's missing-primitive default.
-            Boolean includeDns
+            Boolean includeDns,
+
+            // Optional geocoding — meaningful for type='site' only.
+            Double lat,
+            Double lng,
+            String locationLabel
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */
@@ -204,6 +220,22 @@ public final class PeerDto {
             String publicKey,
             String status,   // "imported" | "skipped" (already exists)
             String peerId    // null when skipped
+    ) {}
+
+    /** One row of the dashboard's connection activity heatmap (#32). */
+    public record ActivityHeatmapRow(
+            String peerId,
+            String name,
+            String type,   // "client" | "site"
+            java.util.List<Integer> sampleHits   // one entry per day in ActivityHeatmapResponse.days, same order
+    ) {}
+
+    /** Peers x days activity matrix. {@code days} is ascending ISO-8601 date
+     *  strings (YYYY-MM-DD); each row's {@code sampleHits} aligns positionally
+     *  with {@code days}. */
+    public record ActivityHeatmapResponse(
+            java.util.List<String> days,
+            java.util.List<ActivityHeatmapRow> peers
     ) {}
 
     private PeerDto() {}

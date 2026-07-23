@@ -85,6 +85,11 @@ public class PeerService {
         peer.assignedIpv6 = emptyToNull(req.assignedIpv6());
         peer.type = req.resolvedType();
         peer.siteAllowedCidrs = normalisedSiteCidrs;
+        if (peer.isSite()) {
+            peer.lat = req.lat();
+            peer.lng = req.lng();
+            peer.locationLabel = req.locationLabel();
+        }
         if (privateKeyForResponse != null) {
             if (settings.isPlaintextRetention()) {
                 peer.privateKeyPem = privateKeyForResponse;
@@ -278,6 +283,15 @@ public class PeerService {
         } else if (req.deviceType() != null) {
             peer.deviceType = null;
         }
+        if (peer.isSite()) {
+            peer.lat = req.lat();
+            peer.lng = req.lng();
+            peer.locationLabel = req.locationLabel();
+        } else {
+            peer.lat = null;
+            peer.lng = null;
+            peer.locationLabel = null;
+        }
         peer.mtu = (req.mtu() != null && req.mtu() > 0) ? req.mtu() : null;
         // Assigned directly (not `> 0 ? x : null` like mtu): 0 is a meaningful
         // "keepalive off for this peer" override, distinct from null = defer to global.
@@ -285,6 +299,7 @@ public class PeerService {
         // null (field omitted) keeps the current/default true; only an explicit
         // false turns off the DNS line for this peer.
         peer.includeDns = req.includeDns() == null || req.includeDns();
+        peer.updatedAt = java.time.Instant.now();
         peer.persist();
 
         if ((ipChanged || ip6Changed || cidrsChanged || pskChanged) && peer.enabled) {
@@ -334,6 +349,7 @@ public class PeerService {
         String oldKey = peer.publicKey;
         peer.publicKey = newPublicKey;
         peer.privateKeyPem = null;
+        peer.updatedAt = java.time.Instant.now();
         peer.persist();
 
         try {
@@ -369,6 +385,7 @@ public class PeerService {
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
         if (peer.enabled == enabled) return PeerDto.Response.from(peer);
         peer.enabled = enabled;
+        peer.updatedAt = java.time.Instant.now();
         if (enabled) {
             wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
         } else {
@@ -382,13 +399,25 @@ public class PeerService {
      * reconciler after the enforcement plane comes back (design §6): a full
      * re-apply, not a delta, so the live interface converges to DB state.
      *
+     * <p>One peer's rejection (bad stored data, etc.) does not stop the rest of
+     * the batch from being pushed — it's logged and skipped instead, so a single
+     * broken peer can't silently strand every peer after it in DB order.
+     *
      * <p>Propagates {@link ProxyUnavailableException} if the proxy drops
      * mid-reconcile — the reconciler catches it and re-enters the degraded state.
+     * That one does abort the batch: if the proxy itself is gone, every
+     * remaining call would fail the same way anyway.
      */
     @Transactional
     public void repushEnabledPeers() {
         for (Peer peer : Peer.<Peer>list("enabled", true)) {
-            wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+            try {
+                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+            } catch (ProxyUnavailableException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                LOG.errorf(e, "repush failed for peer %s — skipping, remaining peers still processed", peer.id);
+            }
         }
     }
 
@@ -402,7 +431,12 @@ public class PeerService {
             sb.append(",").append(peer.assignedIpv6).append("/128");
         }
         if (peer.isSite() && peer.siteAllowedCidrs != null && !peer.siteAllowedCidrs.isBlank()) {
-            sb.append(",").append(peer.siteAllowedCidrs);
+            // siteAllowedCidrs is stored "cidr1, cidr2, ..." (comma+space) for
+            // human-readable display (validateSiteCidrs joins with ", "). The
+            // wire value the proxy parses has no tolerance for whitespace
+            // (net.ParseCIDR rejects a leading space), so strip it here rather
+            // than loosen the proxy's intentionally strict parser.
+            sb.append(",").append(peer.siteAllowedCidrs.replace(" ", ""));
         }
         return sb.toString();
     }

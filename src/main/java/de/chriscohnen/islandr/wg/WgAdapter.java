@@ -73,8 +73,22 @@ public interface WgAdapter {
      * Used by the setup wizard to pre-fill settings from an existing WireGuard
      * installation. Returns {@code null} if the interface is not accessible
      * (e.g. Docker without a socket proxy, or interface not yet up).
+     *
+     * <p>Discards the real failure reason — existing callers (the setup wizard,
+     * {@code GET /wg-probe}) only ever needed a yes/no. Implemented in terms of
+     * {@link #probeServerDetailed}; override that, not this, to add error detail.
      */
-    ServerInfo probeServer(String iface);
+    default ServerInfo probeServer(String iface) {
+        return probeServerDetailed(iface).info();
+    }
+
+    /**
+     * Same probe as {@link #probeServer}, but on failure surfaces the real reason
+     * instead of collapsing it to a bare {@code null}. {@code ProxyReconciler} uses
+     * this so the enforcement banner can show something more useful than a
+     * generic "proxy probe failed" (#37).
+     */
+    ProbeResult probeServerDetailed(String iface);
 
     /**
      * State of the WireGuard server interface as read by the probe.
@@ -88,4 +102,11 @@ public interface WgAdapter {
             String ifStatus,  // "up" | "down" | "unknown"
             int mtu           // 0 when unknown
     ) {}
+
+    /** Outcome of {@link #probeServerDetailed}: success carries {@code info}, failure carries {@code error}. */
+    record ProbeResult(ServerInfo info, String error) {
+        public static ProbeResult ok(ServerInfo info) { return new ProbeResult(info, null); }
+        public static ProbeResult failed(String error) { return new ProbeResult(null, error); }
+        public boolean reachable() { return info != null; }
+    }
 }

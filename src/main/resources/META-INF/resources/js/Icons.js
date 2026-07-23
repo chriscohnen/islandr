@@ -363,6 +363,17 @@ export const PATHS = {
     '<path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>',
     '<line x1="2" x2="22" y1="2" y2="22"/>',
   ],
+
+  // copy — In die Zwischenablage kopieren (Lucide MIT)
+  copy: [
+    '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>',
+    '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  ],
+
+  // check — Bestätigt / kopiert (Lucide MIT)
+  check: [
+    '<path d="M20 6 9 17l-5-5"/>',
+  ],
 };
 
 export const Icon = defineComponent({

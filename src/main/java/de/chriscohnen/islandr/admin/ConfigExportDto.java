@@ -92,7 +92,11 @@ public class ConfigExportDto {
         String siteAllowedCidrs,
         String deviceType,
         String presharedKey,
-        Instant createdAt
+        Instant createdAt,
+        // Geocoding — meaningful for type="site" only (physical gateway device location).
+        Double lat,
+        Double lng,
+        String locationLabel
     ) {}
 
     public record SiteSnapshot(
@@ -100,8 +104,6 @@ public class ConfigExportDto {
         String name,
         String cidr,
         String description,
-        Double lat,
-        Double lng,
         String gatewayPeerId,
         Instant createdAt
     ) {}

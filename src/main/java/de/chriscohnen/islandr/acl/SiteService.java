@@ -57,8 +57,7 @@ public class SiteService {
                             .entity("a site named '" + req.name() + "' already exists")
                             .build());
         }
-        Site s = Site.createNew(req.name(), req.cidr(), req.description(), req.lat(), req.lng());
-        s.locationLabel = req.locationLabel();
+        Site s = Site.createNew(req.name(), req.cidr(), req.description());
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         s.persist();
         return s;
@@ -76,10 +75,8 @@ public class SiteService {
         s.name = req.name();
         s.cidr = req.cidr();
         s.description = req.description();
-        s.lat = req.lat();
-        s.lng = req.lng();
-        s.locationLabel = req.locationLabel();
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
+        s.updatedAt = Instant.now();
         return s;
     }
 

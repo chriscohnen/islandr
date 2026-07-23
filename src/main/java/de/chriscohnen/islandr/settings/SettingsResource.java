@@ -1,5 +1,7 @@
 package de.chriscohnen.islandr.settings;
 
+import de.chriscohnen.islandr.acme.AcmeException;
+import de.chriscohnen.islandr.acme.AcmeService;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
@@ -35,6 +37,7 @@ public class SettingsResource {
     @Inject WgAdapter wg;
     @Inject EncryptionService encSvc;
     @Inject TlsService tlsSvc;
+    @Inject AcmeService acmeSvc;
 
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
     String wgInterface;
@@ -81,8 +84,36 @@ public class SettingsResource {
         return toResponse(after);
     }
 
+    /** Switches to ACME mode and runs one issuance attempt synchronously (up to
+     *  {@code islandr.acme.poll-timeout}, ~60s default) — the same "block on a
+     *  slow admin action, surface the result" pattern as "Read from WireGuard".
+     *  A failure is recorded on Settings (acmeLastError) by {@link AcmeService}
+     *  itself and returned as a normal 200 with that field populated, not a 5xx —
+     *  enabling ACME with a bad domain is a validation-style outcome, not a
+     *  server error, and the mode/domain the admin chose stays saved either way
+     *  so the scheduler retries automatically. */
+    @PUT
+    @Path("/acme")
+    public SettingsDto.Response enableAcme(@Context ContainerRequestContext ctx,
+                                           @Valid SettingsDto.AcmeRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        settings.enableAcme(body.domain(), actor.principal());
+        try {
+            acmeSvc.issueCertificate();
+        } catch (AcmeException e) {
+            // already recorded on Settings.acmeLastError — surfaced via toResponse below
+        }
+        Settings after = settings.get();
+        audit.logUpdate(actor.principal(), "settings.acme_enable", "Settings:singleton",
+                null, Map.of("tlsMode", after.tlsMode, "acmeDomain", after.acmeDomain,
+                        "acmeLastError", after.acmeLastError == null ? "" : after.acmeLastError));
+        return toResponse(after);
+    }
+
     private SettingsDto.Response toResponse(Settings s) {
-        boolean hasCert = "managed".equals(s.tlsMode);
+        // "acme" stores its issued cert in the same tlsCertPem/tlsKeyPem columns as
+        // "managed" (ADR-0019) — same expiry/cert-info display applies to both.
+        boolean hasCert = "managed".equals(s.tlsMode) || "acme".equals(s.tlsMode);
         Instant expiresAt = hasCert ? tlsSvc.certificateExpiresAt(s.tlsCertPem) : null;
         TlsService.CertInfo certInfo = hasCert ? tlsSvc.certificateInfo(s.tlsCertPem) : null;
         return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt, certInfo);

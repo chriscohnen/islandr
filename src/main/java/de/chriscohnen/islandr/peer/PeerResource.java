@@ -112,6 +112,42 @@ public class PeerResource {
                 }).toList();
     }
 
+    /**
+     * Peers x days connection activity matrix for the dashboard heatmap (#32),
+     * aggregated from {@link PeerDailyActivity} (written by {@link ActivityPoller}).
+     * {@code days} defaults to 30, clamped to [1, 180] — enough for the useful
+     * "recent pattern" view without the client paying for the full retention window.
+     */
+    @GET
+    @Path("/activity-heatmap")
+    public PeerDto.ActivityHeatmapResponse activityHeatmap(@Context ContainerRequestContext ctx,
+                                                             @jakarta.ws.rs.QueryParam("days") Integer daysParam) {
+        Auth.requireAdmin(ctx);
+        int numDays = daysParam == null ? 30 : Math.max(1, Math.min(180, daysParam));
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.time.LocalDate from = today.minusDays(numDays - 1);
+
+        java.util.List<String> days = new java.util.ArrayList<>();
+        for (java.time.LocalDate d = from; !d.isAfter(today); d = d.plusDays(1)) days.add(d.toString());
+
+        java.util.List<PeerDailyActivity> rows =
+                PeerDailyActivity.find("id.day >= ?1", from.toString()).list();
+        java.util.Map<String, java.util.Map<String, Integer>> byPeer = new java.util.HashMap<>();
+        for (PeerDailyActivity row : rows) {
+            byPeer.computeIfAbsent(row.id.peerId, k -> new java.util.HashMap<>())
+                    .put(row.id.day, row.sampleHits);
+        }
+
+        java.util.List<PeerDto.ActivityHeatmapRow> peerRows = Peer.<Peer>listAll(Sort.by("name")).stream()
+                .map(p -> {
+                    java.util.Map<String, Integer> hits = byPeer.getOrDefault(p.id, java.util.Map.of());
+                    java.util.List<Integer> sampleHits = days.stream().map(d -> hits.getOrDefault(d, 0)).toList();
+                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, sampleHits);
+                }).toList();
+
+        return new PeerDto.ActivityHeatmapResponse(days, peerRows);
+    }
+
     @GET
     @Path("/wg-import-preview")
     public java.util.List<PeerDto.WgImportCandidate> wgImportPreview(@Context ContainerRequestContext ctx) {
@@ -194,6 +230,7 @@ public class PeerResource {
             return Response.ok(Map.of("imported", false)).build();
         }
         peer.presharedKey = status.presharedKey();
+        peer.updatedAt = java.time.Instant.now();
         // wg already has the PSK — no need to call setPeer again
         audit.logUpdate(a.principal(), "peer.psk-sync", "Peer:" + peer.name + " (" + id + ")", null, null);
         return Response.ok(Map.of("imported", true)).build();

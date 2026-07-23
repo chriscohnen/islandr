@@ -37,31 +37,30 @@ public class Site extends PanacheEntityBase {
     @Column(name = "description", columnDefinition = "TEXT")
     public String description;
 
-    @Column(name = "lat")
-    public Double lat;
-
-    @Column(name = "lng")
-    public Double lng;
-
-    @Column(name = "location_label", length = 255)
-    public String locationLabel;
-
-    /** Optional peer that routes traffic for this site's CIDR. Null = no gateway configured. */
+    /**
+     * Optional peer that routes traffic for this site's CIDR. Null = no gateway configured.
+     * Geocoding lives on that peer, not here (see {@link de.chriscohnen.islandr.peer.Peer#lat}) —
+     * a site is a logical CIDR grouping with no physical location of its own, and one gateway
+     * peer can serve more than one site.
+     */
     @Column(name = "gateway_peer_id", length = 36)
     public String gatewayPeerId;
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
-    public static Site createNew(String name, String cidr, String description, Double lat, Double lng) {
+    /** Last time any mutable field on this site changed (name, CIDR, gateway, …). */
+    @Column(name = "updated_at", nullable = false)
+    public Instant updatedAt;
+
+    public static Site createNew(String name, String cidr, String description) {
         Site s = new Site();
         s.id = UUID.randomUUID().toString();
         s.name = name;
         s.cidr = cidr;
         s.description = description;
-        s.lat = lat;
-        s.lng = lng;
         s.createdAt = Instant.now();
+        s.updatedAt = s.createdAt;
         return s;
     }
 }

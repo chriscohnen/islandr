@@ -34,6 +34,7 @@ import java.util.Set;
  * table inet islandr {
  *   chain forward {
  *     type filter hook forward priority 0; policy drop;
+ *     iifname != "wg0" oifname != "wg0" accept comment "islandr:not-wg-traffic, leave to host"
  *     ct state established,related accept comment "islandr:conntrack return traffic"
  *     ct state invalid drop comment "islandr:conntrack invalid"
  *
@@ -199,6 +200,9 @@ public class RuleBuilder {
         sb.append("  chain forward {\n");
         sb.append("    type filter hook forward priority -1; policy drop;\n");
         sb.append('\n');
+        sb.append(String.format(
+                "    iifname != \"%s\" oifname != \"%s\" accept comment \"islandr:not-wg-traffic, leave to host\"\n",
+                wgInterface, wgInterface));
         sb.append("    ct state established,related accept comment \"islandr:conntrack return traffic\"\n");
         sb.append("    ct state invalid drop comment \"islandr:conntrack invalid\"\n");
         if (!rulesByKey.isEmpty()) {
@@ -221,6 +225,9 @@ public class RuleBuilder {
                 + "  chain forward {\n"
                 + "    type filter hook forward priority -1; policy drop;\n"
                 + "\n"
+                + String.format(
+                        "    iifname != \"%s\" oifname != \"%s\" accept comment \"islandr:not-wg-traffic, leave to host\"\n",
+                        wgInterface, wgInterface)
                 + "    ct state established,related accept comment \"islandr:conntrack return traffic\"\n"
                 + "    ct state invalid drop comment \"islandr:conntrack invalid\"\n"
                 + "  }\n"

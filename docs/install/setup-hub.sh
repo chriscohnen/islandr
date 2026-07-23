@@ -60,13 +60,15 @@ echo ">>> 2/5 sudoers entry (interface: $WG_INTERFACE)"
 
 cat > /etc/sudoers.d/islandr <<SUDOERS
 # Islandr service user: scoped sudo for nft and wg only (ADR-0011).
-# Fixed file path for nft — no wildcard on the path, only on wg arguments.
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/ruleset.nft
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/ruleset.nft
+# Wildcard on the nft path — RealNftablesAdapter writes a fresh randomly-named
+# temp file per apply (islandr-nft-<random>.nft), not a fixed name.
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE
+islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE dump
 SUDOERS
 chmod 0440 /etc/sudoers.d/islandr
 
@@ -75,6 +77,17 @@ if ! visudo -c -f /etc/sudoers.d/islandr >/dev/null; then
     rm /etc/sudoers.d/islandr
     exit 1
 fi
+
+# NOTE: the 30s activity poller's "wg show" calls are noisy in the journal
+# (sudo's own log line + PAM session open/close per tick). Do NOT try to
+# silence that with a scoped `Defaults!cmnd_alias !pam_session` rule — the
+# systemd unit below runs with ProtectSystem=strict, which makes /run
+# read-only for the service and everything it spawns (including sudo). Sudo
+# tolerates the resulting "/run/sudo/ts: Read-only file system" as long as it
+# can still complete a PAM session; disabling pam_session removes that
+# tolerance and sudo falls back to demanding interactive auth instead —
+# breaking every sudo call, not just the noisy one. Confirmed the hard way
+# in production 2026-07-21.
 
 # ---------------------------------------------------------------------------
 # 3. Env file with configuration variables
@@ -104,6 +117,8 @@ ISLANDR_WG_INTERFACE=$WG_INTERFACE
 ISLANDR_WG_MODE=real
 ISLANDR_NFT_MODE=real
 ISLANDR_USE_SUDO=true
+# Device discovery (ADR-0014) scans for real by default — no setting needed.
+# Set ISLANDR_DISCOVERY_MODE=mock to get two fixed synthetic hosts instead.
 
 # Database
 QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db

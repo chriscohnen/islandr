@@ -24,7 +24,7 @@ export default defineComponent({
       // for the same user does not require re-picking each time).
       createUserId: "",
       filterUserId: "",   // "" = all users
-      sortKey: "createdAt",
+      sortKey: "updatedAt",
       sortDir: -1,        // -1 = desc, 1 = asc
       lang: locale.current,
       // wg import
@@ -257,8 +257,8 @@ export default defineComponent({
             {{ t('peers.th_status') }} <span class="muted" style="font-size: 10px">{{ sortIcon('enabled') }}</span>
           </th>
           <th>{{ t('peers.th_handshake') }}</th>
-          <th @click="sortBy('createdAt')" style="cursor: pointer; user-select: none; white-space: nowrap">
-            {{ t('peers.th_created') }} <span class="muted" style="font-size: 10px">{{ sortIcon('createdAt') }}</span>
+          <th @click="sortBy('updatedAt')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_updated') }} <span class="muted" style="font-size: 10px">{{ sortIcon('updatedAt') }}</span>
           </th>
           <th></th>
         </tr>
@@ -294,7 +294,7 @@ export default defineComponent({
             </span>
           </td>
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>
-          <td class="muted">{{ formatDate(p.createdAt) }}</td>
+          <td class="muted">{{ formatDate(p.updatedAt) }}</td>
           <td style="text-align: right">
             <button class="btn btn-ghost btn-sm" @click="openEditPeer(p)"><Icon name="edit" :size="13" />{{ t('peers.btn_edit') }}</button>
             <button class="btn btn-ghost btn-sm" @click="openReshow(p.userId, p.id)"><Icon name="qr-code" :size="13" />{{ t('peers.btn_qr') }}</button>

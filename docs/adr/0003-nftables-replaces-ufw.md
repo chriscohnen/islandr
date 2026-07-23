@@ -37,6 +37,7 @@ table inet islandr {
   chain forward {
     type filter hook forward priority 0; policy drop;
 
+    iifname != "wg0" oifname != "wg0" accept comment "islandr:not-wg-traffic, leave to host"
     iifname "wg0" ip saddr 10.8.0.5 ip daddr 10.20.0.5 tcp dport 3389 accept
     iifname "wg0" ip saddr 10.8.0.5 ip daddr 10.20.0.5 tcp dport 22 accept
     iifname "wg0" ip saddr 10.8.0.6 ip daddr 10.20.0.5 tcp dport 3389 accept

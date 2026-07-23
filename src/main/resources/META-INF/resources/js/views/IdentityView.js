@@ -475,14 +475,19 @@ export default defineComponent({
       <!-- ====================== CONFIRM-DIALOG ====================== -->
       <div v-if="pendingSwitch" class="modal-backdrop" @click.self="abortSwitch">
         <div class="modal modal-sm">
-          <h2>Provider wechseln?</h2>
-          <p>
-            {{ t('identity.confirm_switch', { current: providerLabel(activeProvider.providerKey), next: providerLabel(pendingSwitch) }) }}
-          </p>
-          <p class="muted" style="font-size: var(--text-sm)">
-            {{ t('identity.confirm_info') }}
-          </p>
-          <div class="modal-actions">
+          <div class="modal-header">
+            <h2>{{ t('identity.confirm_switch_title') }}</h2>
+            <button class="btn btn-ghost btn-sm" @click="abortSwitch">✕</button>
+          </div>
+          <div class="modal-body">
+            <p>
+              {{ t('identity.confirm_switch', { current: providerLabel(activeProvider.providerKey), next: providerLabel(pendingSwitch) }) }}
+            </p>
+            <p class="muted" style="font-size: var(--text-sm)">
+              {{ t('identity.confirm_info') }}
+            </p>
+          </div>
+          <div class="modal-footer">
             <button class="btn btn-ghost btn-sm" @click="abortSwitch">{{ t('identity.confirm_cancel') }}</button>
             <button class="btn btn-primary btn-sm" @click="confirmSwitch">{{ t('identity.confirm_ok') }}</button>
           </div>

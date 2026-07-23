@@ -84,6 +84,17 @@ class ProxyReconcilerTest {
         assertThat(enforcement.state()).isEqualTo(EnforcementStatus.State.UNAVAILABLE);
     }
 
+    /** #37: the real probe failure reason must reach EnforcementStatus, not a generic string. */
+    @Test
+    void reconcile_whenProbeFails_recordsTheRealReason() {
+        enforcement.markActive();
+        wgMock().forceUnavailable = true;
+
+        reconciler.reconcileNow();
+
+        assertThat(enforcement.lastError()).isEqualTo("mock: forced unavailable");
+    }
+
     /** Already ACTIVE + probe ok → no re-apply needed, stays ACTIVE. */
     @Test
     void reconcile_whenActiveAndProbeOk_staysActive() {

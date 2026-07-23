@@ -132,10 +132,12 @@ public class MockWgAdapter implements WgAdapter {
         LOG.debugf("mock: setIfMtu iface=%s mtu=%d", iface, mtu);
     }
 
-    public ServerInfo probeServer(String iface) {
-        // Match SocketWgAdapter's contract: a probe against an unreachable proxy returns null.
-        if (forceUnavailable) return null;
-        return new ServerInfo("MOCK+PublicKey+ProbeResult+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", 51820, 0, "unknown", 0);
+    @Override
+    public ProbeResult probeServerDetailed(String iface) {
+        // Match SocketWgAdapter's contract: a probe against an unreachable proxy fails with a reason.
+        if (forceUnavailable) return ProbeResult.failed("mock: forced unavailable");
+        return ProbeResult.ok(new ServerInfo(
+                "MOCK+PublicKey+ProbeResult+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", 51820, 0, "unknown", 0));
     }
 
     /** Test-only hook to reset state between tests. */

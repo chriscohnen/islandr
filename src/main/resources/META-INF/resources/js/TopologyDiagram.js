@@ -35,6 +35,7 @@ const LIVE_DOT_ORBIT = 78; // inside FIRST_RING, but far enough out for a name+I
 const MAX_VIEW_W = 900;
 const MAX_VIEW_H = 620;
 const PAN_SLACK = 40; // a little overscroll room at the content's own edges
+const DRAG_THRESHOLD_PX = 4; // pointer movement before a press counts as a pan, not a click
 
 const ALL_TYPES = [
   { key: "computer",   labelKey: "resources.type_computer" },
@@ -92,6 +93,8 @@ export default defineComponent({
       dragging: false,
       dragStartPointer: null,
       dragStartPan: null,
+      _pendingPointerId: null,
+      _pendingTarget: null,
       tooltip: null,         // { resource, x, y }
       networkTooltip: null,  // { site, x, y }
       gatewayTooltip: null,  // { gateway, x, y }
@@ -289,13 +292,27 @@ export default defineComponent({
     // nothing to pan to.
     onPointerDown(e) {
       if (!this.needsPan) return;
-      this.dragging = true;
+      // Don't commit to a drag (and don't capture the pointer) yet — a plain
+      // click on a node must survive. Per the Pointer Events spec, once an
+      // element captures the pointer, the pointerup/click for that pointer
+      // gets redirected to the capturing element instead of the node under
+      // the cursor, which silently ate clicks on network/gateway/resource
+      // nodes whenever the diagram was big enough to need panning. Capture
+      // is deferred to onPointerMove, once real movement crosses a small
+      // threshold — that's what actually distinguishes a pan from a click.
       this.dragStartPointer = { x: e.clientX, y: e.clientY };
       this.dragStartPan = { x: this.panX, y: this.panY };
-      e.currentTarget.setPointerCapture(e.pointerId);
+      this._pendingPointerId = e.pointerId;
+      this._pendingTarget = e.currentTarget;
     },
     onPointerMove(e) {
-      if (!this.dragging) return;
+      if (!this.dragStartPointer) return;
+      if (!this.dragging) {
+        const moved = Math.hypot(e.clientX - this.dragStartPointer.x, e.clientY - this.dragStartPointer.y);
+        if (moved < DRAG_THRESHOLD_PX) return;
+        this.dragging = true;
+        this._pendingTarget.setPointerCapture(this._pendingPointerId);
+      }
       const rect = e.currentTarget.getBoundingClientRect();
       const b = this.viewBoxRect;
       const scale = Math.min(rect.width / b.w, rect.height / b.h);
@@ -308,10 +325,14 @@ export default defineComponent({
       this.panY = this.dragStartPan.y - dyUser;
     },
     onPointerUp(e) {
+      if (this.dragging) {
+        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+      }
       this.dragging = false;
       this.dragStartPointer = null;
       this.dragStartPan = null;
-      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+      this._pendingPointerId = null;
+      this._pendingTarget = null;
     },
     resetPan() { this.panX = 0; this.panY = 0; },
     // No active type filter → the backend's per-site count (site.resourceCount)

@@ -439,6 +439,21 @@ body {
   flex: none;
 }
 
+/* Several modals wrap .modal-body + .modal-footer in a <form> so Enter
+   submits (modal-header stays outside, as a sibling, for its own close
+   button). That form is a plain block box, not a flex item — it broke the
+   .modal flex chain, so .modal-body's flex:1 1 auto / overflow-y:auto never
+   applied. The body rendered at full content height instead of shrinking
+   to fit, .modal's own overflow:hidden then clipped the excess with no
+   scrollbar at all, and the footer (with the submit button) ended up
+   unreachable on any form tall enough to not fit the viewport — e.g. the
+   Create Peer modal. display:contents removes the <form>'s own box from
+   layout so modal-body/modal-footer become direct flex children of .modal
+   again, without changing its submit-on-enter behavior. */
+.modal > form {
+  display: contents;
+}
+
 /* --- key-import mode (radio group inside peer-create modal) ------------- */
 .key-mode {
   border: 1px solid var(--border);
@@ -1117,32 +1132,15 @@ body {
   background: var(--surface-2);
 }
 
-/* Confirm-Dialog (klein, mittig) */
-.modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(15, 26, 34, 0.5);
-  display: grid;
-  place-items: center;
-  z-index: 1000;
-}
-.modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md, var(--shadow-sm));
-  padding: var(--space-6);
-  max-width: 520px;
-  width: calc(100% - var(--space-6) * 2);
-}
+/* Small-width override for confirm-style dialogs. .modal/.modal-backdrop's
+   base (scrollable body, pinned header/footer) is defined above — a second,
+   conflicting .modal/.modal-backdrop declaration used to live here and
+   dropped the max-height/overflow-hidden constraint from the base rule,
+   which silently broke scrolling on every tall modal in the app (e.g. the
+   Create Peer form's submit button becoming unreachable with no scrollbar,
+   since .modal grew to fit its content instead of capping at the viewport
+   and letting .modal-body scroll internally). */
 .modal.modal-sm { max-width: 440px; }
-.modal h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
-.modal p { margin: 0 0 var(--space-3); }
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
 
 @media (max-width: 640px) {
   .identity-hero-main {
@@ -1259,6 +1257,27 @@ body {
   color: var(--fg3);
   font-size: var(--text-sm);
 }
+
+/* --- connection activity heatmap (#32) ----------------------------------- */
+/* 5 intensity levels off the existing accent ramp, GitHub-contribution-graph
+   style. Level is relative to that day's max across peers, not an absolute
+   scale — see ActivityHeatmap.js. */
+.heatmap-cell {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.heatmap-l1 { background: var(--accent-100); }
+.heatmap-l2 { background: var(--accent-200); }
+.heatmap-l3 { background: var(--accent-300); }
+.heatmap-l4 { background: var(--accent-400); }
+.heatmap-l5 { background: var(--accent-500); }
+[data-theme="dark"] .heatmap-l1 { background: var(--accent-900); }
+[data-theme="dark"] .heatmap-l2 { background: var(--accent-800); }
+[data-theme="dark"] .heatmap-l3 { background: var(--accent-700); }
+[data-theme="dark"] .heatmap-l4 { background: var(--accent-600); }
+[data-theme="dark"] .heatmap-l5 { background: var(--accent-500); }
 
 /* ============================================================================
    ResourcesView — card grid

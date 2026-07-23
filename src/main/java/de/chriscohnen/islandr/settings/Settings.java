@@ -102,6 +102,36 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "tls_key_path", length = 512)
     public String tlsKeyPath;
 
+    // ACME auto-provisioning (ADR-0019). tlsMode="acme" reuses tlsCertPem/tlsKeyPem
+    // above for the issued certificate (identical PEM-in-DB shape as "managed") --
+    // these columns hold only the ACME-protocol state: which domain to request a
+    // certificate for, the account keypair (encrypted at rest, same guarantee as
+    // tlsKeyPem), the account URL ("kid") Let's Encrypt assigned on registration,
+    // and status fields the Settings UI surfaces (last attempt/renewal/error).
+    @Column(name = "acme_domain", length = 255)
+    public String acmeDomain;
+
+    @Column(name = "acme_account_key_pem", columnDefinition = "TEXT")
+    public String acmeAccountKeyPem;
+
+    // Public half of the account keypair (X.509 SubjectPublicKeyInfo DER, base64) --
+    // stored so the JWK/thumbprint needed on every ACME request is a plain
+    // KeyFactory round-trip, not re-derived from the private key.
+    @Column(name = "acme_account_pub_key", length = 200)
+    public String acmeAccountPubKey;
+
+    @Column(name = "acme_account_url", length = 512)
+    public String acmeAccountUrl;
+
+    @Column(name = "acme_last_attempt_at")
+    public Instant acmeLastAttemptAt;
+
+    @Column(name = "acme_last_renewal_at")
+    public Instant acmeLastRenewalAt;
+
+    @Column(name = "acme_last_error", columnDefinition = "TEXT")
+    public String acmeLastError;
+
     // Optional Nominatim base URL for address geocoding in the Sites view.
     // Empty / null = geocoding disabled. No external calls are made without
     // an explicit admin-configured URL.
@@ -130,6 +160,12 @@ public class Settings extends PanacheEntityBase {
 
     @Column(name = "iron_rdp_enabled", nullable = false, columnDefinition = "INTEGER")
     public boolean ironRdpEnabled = false;
+
+    // How long peer_daily_activity rows are kept before the cleanup job prunes
+    // them (#32, the dashboard's connection activity heatmap). Default matches
+    // the value proposed in the issue.
+    @Column(name = "activity_retention_days", nullable = false)
+    public int activityRetentionDays = 180;
 
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);

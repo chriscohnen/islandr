@@ -52,6 +52,18 @@ public class JdkHttpFetcher implements HttpFetcher {
         return new Response(resp.statusCode(), resp.body(), flattenHeaders(resp));
     }
 
+    @Override
+    public Response postBody(String url, byte[] body, String contentType, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(10))
+                .header("content-type", contentType)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+        if (headers != null) headers.forEach(b::header);
+        HttpResponse<byte[]> resp = client.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+        return new Response(resp.statusCode(), resp.body(), flattenHeaders(resp));
+    }
+
     private static String encodeForm(Map<String, String> fields) {
         StringBuilder sb = new StringBuilder();
         fields.forEach((k, v) -> {

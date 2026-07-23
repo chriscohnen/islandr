@@ -58,11 +58,27 @@ public class SettingsService {
         s.hubLocationLabel = (req.hubLocationLabel() == null || req.hubLocationLabel().isBlank())
                 ? null : req.hubLocationLabel().strip();
         s.ironRdpEnabled = req.ironRdpEnabled();
+        s.activityRetentionDays = (req.activityRetentionDays() != null && req.activityRetentionDays() > 0)
+                ? req.activityRetentionDays() : 180;
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
 
         migrateKeys(oldMode, newMode);
         // No explicit persist() needed — Panache flushes managed entities on commit.
+        return s;
+    }
+
+    /** Switches TLS to ACME mode (ADR-0019) for the given domain. Does not itself
+     *  issue anything — the caller ({@code SettingsResource}) triggers
+     *  {@code AcmeService.issueCertificate()} right after, outside this
+     *  transaction (issuance is slow; this just persists the operator's choice). */
+    @Transactional
+    public Settings enableAcme(String domain, String actor) {
+        Settings s = get();
+        s.tlsMode = "acme";
+        s.acmeDomain = domain.strip();
+        s.updatedAt = Instant.now();
+        s.updatedBy = actor;
         return s;
     }
 

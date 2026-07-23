@@ -1,13 +1,18 @@
 import { defineComponent } from "vue";
 import { t, locale, formatDate } from "/js/i18n.js";
+import { Icon } from "/js/Icons.js";
 
 // Settings form. GET + PUT against /api/v1/settings (the singleton row).
 // All WireGuard topology that ends up in client .conf files lives here —
 // see docs/adr/0008-runtime-settings-in-db.md.
 export default defineComponent({
   name: "SettingsView",
+  components: { Icon },
   data() {
     return {
+      wgSetupOpen: false,
+      wgSetupCopied: null,
+      wgSetupCopyFailed: null,
       loading: true,
       saving: false,
       probing: false,
@@ -37,6 +42,7 @@ export default defineComponent({
         hubLat: null,
         hubLon: null,
         hubLocationLabel: "",
+        activityRetentionDays: 180,
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
@@ -60,20 +66,61 @@ export default defineComponent({
       tlsUploading: false,
       tlsError: null,
       tlsInfo: null,
+      // ACME (ADR-0019) — a third TLS mode alongside managed/referenced, its
+      // own mini-form/status like the block above.
+      acmeDomain: null,
+      acmeLastAttemptAt: null,
+      acmeLastRenewalAt: null,
+      acmeLastError: null,
+      acmeDomainInput: "",
+      acmeEnabling: false,
+      // Pure layout split — "letsencrypt" | "origin". Defaults to whichever
+      // mode is actually active so a returning admin lands where they left off.
+      tlsTab: "letsencrypt",
     };
   },
   async mounted() {
     await this.load();
+    if (this.tlsMode === "managed") this.tlsTab = "origin";
     this.loadEnforcement();
   },
   computed: {
     _lang() { return locale.current; },
-    // R-153: a managed cert with no ACME auto-renewal can silently expire.
-    // Warn inside a 30-day window; null outside it (including dummy/no-cert state).
+    // R-153: a managed cert with no auto-renewal can silently expire. Warn
+    // inside a 30-day window; null outside it (including dummy/no-cert state).
+    // "acme" mode renews itself (ADR-0019) but still shows this — a stalled
+    // renewal (R-166) should be just as visible as a forgotten manual one.
     tlsDaysUntilExpiry() {
-      if (this.tlsMode !== "managed" || !this.tlsCertExpiresAt) return null;
+      if ((this.tlsMode !== "managed" && this.tlsMode !== "acme") || !this.tlsCertExpiresAt) return null;
       const ms = new Date(this.tlsCertExpiresAt).getTime() - Date.now();
       return Math.ceil(ms / (1000 * 60 * 60 * 24));
+    },
+    // First usable host address in the configured subnet, e.g. "10.8.0.0/24"
+    // -> "10.8.0.1/24". IPv4 only (dotted-quad); falls back to the documented
+    // default if the subnet field is empty/unparseable/IPv6.
+    wgSetupHostAddr() {
+      const cidr = this.form.wgSubnet;
+      const m = cidr && cidr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+      if (!m) return "10.8.0.1/24";
+      const octets = [+m[1], +m[2], +m[3], Math.min(+m[4] + 1, 255)];
+      return octets.join(".") + "/" + m[5];
+    },
+    // Port from the configured "host:port" endpoint, falling back to the
+    // conventional WireGuard default when nothing's set yet.
+    wgSetupPort() {
+      const m = (this.form.wgServerEndpoint || "").match(/:(\d+)$/);
+      return m ? m[1] : "51820";
+    },
+    wgSetupCmdKeys() {
+      const iface = this.wgInterface;
+      return `sudo mkdir -p /etc/wireguard\numask 077\nwg genkey | sudo tee /etc/wireguard/${iface}.key | wg pubkey | sudo tee /etc/wireguard/${iface}.pub`;
+    },
+    wgSetupCmdInterface() {
+      const iface = this.wgInterface;
+      return `sudo ip link add ${iface} type wireguard\n`
+        + `sudo wg set ${iface} private-key /etc/wireguard/${iface}.key listen-port ${this.wgSetupPort}\n`
+        + `sudo ip addr add ${this.wgSetupHostAddr} dev ${iface}\n`
+        + `sudo ip link set ${iface} up`;
     },
   },
   methods: {
@@ -108,6 +155,7 @@ export default defineComponent({
           hubLat: s.hubLat ?? null,
           hubLon: s.hubLon ?? null,
           hubLocationLabel: s.hubLocationLabel || "",
+          activityRetentionDays: s.activityRetentionDays || 180,
         };
         this.meta = {
           updatedAt: s.updatedAt,
@@ -118,6 +166,10 @@ export default defineComponent({
         this.tlsMode = s.tlsMode || "none";
         this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
         this.tlsCertInfo = s.tlsCertInfo || null;
+        this.acmeDomain = s.acmeDomain || null;
+        this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
+        this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
+        this.acmeLastError = s.acmeLastError || null;
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
       } finally {
@@ -140,6 +192,8 @@ export default defineComponent({
           hubLat: this.form.hubLat !== "" && this.form.hubLat !== null ? Number(this.form.hubLat) : null,
           hubLon: this.form.hubLon !== "" && this.form.hubLon !== null ? Number(this.form.hubLon) : null,
           hubLocationLabel: this.form.hubLocationLabel.trim() || null,
+          activityRetentionDays: (this.form.activityRetentionDays === "" || this.form.activityRetentionDays == null
+            || Number.isNaN(this.form.activityRetentionDays)) ? 180 : this.form.activityRetentionDays,
         };
         const res = await fetch("/api/v1/settings", {
           method: "PUT",
@@ -212,6 +266,72 @@ export default defineComponent({
         this.tlsError = t("settings.tls_upload_error", { error: e.message });
       } finally {
         this.tlsUploading = false;
+      }
+    },
+
+    // Blocks for up to islandr.acme.poll-timeout (~60s default) while the hub
+    // talks to Let's Encrypt — same "wait on a slow admin action" pattern as
+    // uploadTls/resetTls above and wg-probe. A failure still returns 200 with
+    // acmeLastError populated (see SettingsResource#enableAcme), not a 5xx.
+    async enableAcme() {
+      if (!this.acmeDomainInput.trim()) return;
+      this.acmeEnabling = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/acme", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ domain: this.acmeDomainInput.trim() }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
+        this.acmeDomain = s.acmeDomain || null;
+        this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
+        this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
+        this.acmeLastError = s.acmeLastError || null;
+        if (s.acmeLastError) {
+          this.tlsError = t("settings.acme_enable_error", { error: s.acmeLastError });
+        } else {
+          this.acmeDomainInput = "";
+          this.tlsInfo = t("settings.acme_enable_success", { domain: s.acmeDomain });
+        }
+      } catch (e) {
+        this.tlsError = t("settings.acme_enable_error", { error: e.message });
+      } finally {
+        this.acmeEnabling = false;
+      }
+    },
+
+    async copyWgSetup(text, key) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // navigator.clipboard needs a secure context (HTTPS/localhost) — fall
+          // back to the legacy execCommand path instead of silently doing nothing.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          if (!ok) throw new Error("execCommand copy failed");
+        }
+        this.wgSetupCopied = key;
+        setTimeout(() => { if (this.wgSetupCopied === key) this.wgSetupCopied = null; }, 2000);
+      } catch (_) {
+        this.wgSetupCopyFailed = key;
+        setTimeout(() => { if (this.wgSetupCopyFailed === key) this.wgSetupCopyFailed = null; }, 2000);
       }
     },
 
@@ -426,6 +546,33 @@ export default defineComponent({
           </div>
 
           <div class="field field-full">
+            <button type="button" class="btn btn-ghost btn-sm" @click="wgSetupOpen = !wgSetupOpen">
+              {{ wgSetupOpen ? t('settings.wg_setup_hide') : t('settings.wg_setup_show') }}
+            </button>
+            <div v-if="wgSetupOpen" style="margin-top: var(--space-3)">
+              <p class="muted" style="font-size: var(--text-xs); margin: 0 0 var(--space-3)">{{ t('settings.wg_setup_intro', { iface: wgInterface }) }}</p>
+
+              <label class="label muted" style="font-size: var(--text-xs)">{{ t('settings.wg_setup_step1') }}</label>
+              <div style="display:flex; gap: var(--space-2); align-items:flex-start; margin-bottom: var(--space-3)">
+                <pre class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:pre; margin:0; background: var(--surface-2); padding: var(--space-2); border-radius: var(--radius-sm)">{{ wgSetupCmdKeys }}</pre>
+                <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('settings.wg_setup_copy')" :title="wgSetupCopyFailed === 'keys' ? t('settings.wg_setup_copy_failed') : t('settings.wg_setup_copy')" @click="copyWgSetup(wgSetupCmdKeys, 'keys')">
+                  <Icon :name="wgSetupCopied === 'keys' ? 'check' : 'copy'" :size="14" />
+                </button>
+              </div>
+
+              <label class="label muted" style="font-size: var(--text-xs)">{{ t('settings.wg_setup_step2') }}</label>
+              <div style="display:flex; gap: var(--space-2); align-items:flex-start; margin-bottom: var(--space-3)">
+                <pre class="mono" style="flex:1; min-width:0; font-size: var(--text-xs); overflow-x:auto; white-space:pre; margin:0; background: var(--surface-2); padding: var(--space-2); border-radius: var(--radius-sm)">{{ wgSetupCmdInterface }}</pre>
+                <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('settings.wg_setup_copy')" :title="wgSetupCopyFailed === 'iface' ? t('settings.wg_setup_copy_failed') : t('settings.wg_setup_copy')" @click="copyWgSetup(wgSetupCmdInterface, 'iface')">
+                  <Icon :name="wgSetupCopied === 'iface' ? 'check' : 'copy'" :size="14" />
+                </button>
+              </div>
+
+              <p class="field-hint" style="margin:0">{{ t('settings.wg_setup_note', { iface: wgInterface }) }}</p>
+            </div>
+          </div>
+
+          <div class="field field-full">
             <label for="wgClientAllowedIps">{{ t('settings.field_allowed') }}</label>
             <input id="wgClientAllowedIps" class="input mono" v-model="form.wgClientAllowedIps" required placeholder="10.8.0.0/24, 192.168.50.0/24" />
             <div class="field-hint">{{ t('settings.hint_allowed_ips') }}</div>
@@ -530,6 +677,17 @@ export default defineComponent({
         </div>
       </div>
 
+      <!-- Connection activity history retention (#32) -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.field_activity_retention') }}</h2>
+        <div class="field-hint" style="margin-bottom: var(--space-3)">{{ t('settings.activity_retention_hint') }}</div>
+        <div style="display:flex; align-items:center; gap:var(--space-2)">
+          <input id="activityRetentionDays" class="input mono" type="number" min="1" max="3650" style="max-width:120px"
+                 v-model.number="form.activityRetentionDays" />
+          <span class="muted" style="font-size:var(--text-sm)">{{ t('settings.activity_retention_days_suffix') }}</span>
+        </div>
+      </div>
+
       <!-- TLS / HTTPS (ADR-0015) -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_tls') }}</h2>
@@ -538,61 +696,103 @@ export default defineComponent({
         <div v-if="tlsMode === 'none'" class="callout callout-warn" style="margin-top: var(--space-3)">
           {{ t('settings.tls_dummy_active') }}
         </div>
-        <div v-else-if="tlsMode === 'managed'" style="margin-top: var(--space-3)">
-          <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
-            {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
-          </div>
-          <div class="callout callout-warn" v-else>
-            {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+
+        <div style="margin-top: var(--space-4); display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden">
+          <button type="button" class="btn btn-sm" :class="tlsTab === 'letsencrypt' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="tlsTab = 'letsencrypt'">{{ t('settings.acme_title') }}</button>
+          <button type="button" class="btn btn-sm" :class="tlsTab === 'origin' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="tlsTab = 'origin'">{{ t('settings.tls_tab_origin') }}</button>
+        </div>
+
+        <div v-if="tlsTab === 'letsencrypt'" style="margin-top: var(--space-4)">
+          <div v-if="tlsMode === 'acme'">
+            <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
+              {{ t('settings.acme_active', { domain: acmeDomain }) }}
+            </div>
+            <div class="callout callout-warn" v-else>
+              {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+            </div>
+            <div style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm)">
+              <div v-if="acmeLastRenewalAt"><span class="muted">{{ t('settings.acme_last_renewal') }}</span> <span class="mono">{{ formatDate(acmeLastRenewalAt) }}</span></div>
+              <div v-if="acmeLastAttemptAt"><span class="muted">{{ t('settings.acme_last_attempt') }}</span> <span class="mono">{{ formatDate(acmeLastAttemptAt) }}</span></div>
+              <div v-if="acmeLastError" style="color: var(--status-error)">{{ t('settings.acme_last_error') }} {{ acmeLastError }}</div>
+            </div>
+            <div style="margin-top: var(--space-3)">
+              <button type="button" class="btn btn-ghost" :disabled="tlsUploading" @click="resetTls">{{ t('settings.tls_reset_btn') }}</button>
+            </div>
           </div>
 
-          <div v-if="tlsCertInfo" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
-            <div style="font-size: var(--text-xs); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.tls_cert_details') }}</div>
-            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_domain') }}</span>
-              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.subjectCn }}</span>
+          <div style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
+            <div class="field-hint" style="margin-top: 0">{{ t('settings.acme_hint') }}</div>
+            <div class="field">
+              <label for="acme-domain">{{ t('settings.acme_field_domain') }}</label>
+              <input id="acme-domain" class="input mono" v-model="acmeDomainInput" placeholder="vpn.example.com" />
             </div>
-            <div v-if="tlsCertInfo.sans && tlsCertInfo.sans.length > 0" style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_sans') }}</span>
-              <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.sans.join(', ') }}</span>
-            </div>
-            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_validity') }}</span>
-              <span class="mono" style="color: var(--fg1)">{{ t('settings.tls_cert_validity_range', { from: formatDate(tlsCertInfo.notBefore), to: formatDate(tlsCertInfo.notAfter) }) }}</span>
-            </div>
-            <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
-              <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_issuer') }}</span>
-              <span style="color: var(--fg1)">{{ tlsCertInfo.issuer }}</span>
+            <div>
+              <button type="button" class="btn btn-secondary" :disabled="acmeEnabling || !acmeDomainInput.trim()" @click="enableAcme">
+                {{ acmeEnabling ? t('settings.acme_enabling') : t('settings.acme_enable_btn') }}
+              </button>
             </div>
           </div>
         </div>
 
-        <div style="margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3)">
-          <div class="field">
-            <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
-            <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
-                      :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
-            <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
-              <div>{{ t('settings.tls_pem_hint_what') }}</div>
-              <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
-              <div>• {{ t('settings.tls_pem_hint_key') }}</div>
-              <div style="margin-top:var(--space-1)">{{ t('settings.tls_pem_hint_format') }}</div>
+        <div v-else style="margin-top: var(--space-4)">
+          <div v-if="tlsMode === 'managed'">
+            <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
+              {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
+            </div>
+            <div class="callout callout-warn" v-else>
+              {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
+            </div>
+
+            <div v-if="tlsCertInfo" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
+              <div style="font-size: var(--text-xs); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.08em">{{ t('settings.tls_cert_details') }}</div>
+              <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_domain') }}</span>
+                <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.subjectCn }}</span>
+              </div>
+              <div v-if="tlsCertInfo.sans && tlsCertInfo.sans.length > 0" style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_sans') }}</span>
+                <span class="mono" style="color: var(--fg1)">{{ tlsCertInfo.sans.join(', ') }}</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_validity') }}</span>
+                <span class="mono" style="color: var(--fg1)">{{ t('settings.tls_cert_validity_range', { from: formatDate(tlsCertInfo.notBefore), to: formatDate(tlsCertInfo.notAfter) }) }}</span>
+              </div>
+              <div style="display: flex; gap: var(--space-2); font-size: var(--text-sm)">
+                <span style="color: var(--fg2); min-width: 100px; flex-shrink: 0">{{ t('settings.tls_cert_issuer') }}</span>
+                <span style="color: var(--fg1)">{{ tlsCertInfo.issuer }}</span>
+              </div>
             </div>
           </div>
 
-          <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
-          <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
+          <div style="display: flex; flex-direction: column; gap: var(--space-3)">
+            <div class="field">
+              <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
+              <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
+                        :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
+              <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+                <div>{{ t('settings.tls_pem_hint_what') }}</div>
+                <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
+                <div>• {{ t('settings.tls_pem_hint_key') }}</div>
+                <div style="margin-top:var(--space-1)">{{ t('settings.tls_pem_hint_format') }}</div>
+              </div>
+            </div>
 
-          <div class="field-hint" style="margin: 0">{{ t('settings.tls_activate_note') }}</div>
+            <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
+            <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
 
-          <div style="display: flex; gap: var(--space-3)">
-            <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsPemInput.trim()"
-                    @click="uploadTls">
-              {{ tlsUploading ? t('settings.tls_uploading') : t('settings.tls_upload_btn') }}
-            </button>
-            <button type="button" class="btn btn-ghost" v-if="tlsMode === 'managed'" :disabled="tlsUploading" @click="resetTls">
-              {{ t('settings.tls_reset_btn') }}
-            </button>
+            <div class="field-hint" style="margin: 0">{{ t('settings.tls_activate_note') }}</div>
+
+            <div style="display: flex; gap: var(--space-3)">
+              <button type="button" class="btn btn-primary" :disabled="tlsUploading || !tlsPemInput.trim()"
+                      @click="uploadTls">
+                {{ tlsUploading ? t('settings.tls_uploading') : t('settings.tls_upload_btn') }}
+              </button>
+              <button type="button" class="btn btn-ghost" v-if="tlsMode === 'managed'" :disabled="tlsUploading" @click="resetTls">
+                {{ t('settings.tls_reset_btn') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
