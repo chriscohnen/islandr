@@ -27,12 +27,15 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0017](0017-split-tunnel-network-scope.md) | Split tunnel lists all known networks, not just the peer's current grants | Proposed | 2026-07-19 |
 | [0018](0018-websocket-tunnel-fallback.md) | WebSocket-tunnel fallback for WireGuard traffic (wstunnel-inspired) | Proposed | 2026-07-20 |
 | [0019](0019-acme-hand-rolled-client.md) | ACME (Let's Encrypt) auto-provisioning via a hand-rolled client, not a library | Accepted | 2026-07-21 |
+| [0020](0020-dns01-challenge-with-manual-mode.md) | DNS-01 challenge support, with a manual no-API-token mode alongside Cloudflare | Accepted (retroactive) | 2026-07-26 |
+| [0021](0021-topology-world-map.md) | World-map topology view: air-gapped SVG projection, manual geocoding only | Accepted | 2026-07-26 |
 
 ## Status legend
 
 - **Proposed** — under discussion, not yet decided
 - **Accepted** — the decision is in effect
 - **Accepted (inferred)** — rationale was reconstructed after the fact; confirm before relying on it
+- **Accepted (retroactive)** — the decision was made and shipped first, this file was written afterward by the same decider to document it; unlike "(inferred)", the rationale is confirmed, not reconstructed-and-unverified
 - **Accepted (with caveats)** — accepted, but a named open question must be resolved before locking in
 - **Superseded by ADR-NNNN** — replaced; keep the file for traceability, do not delete
 

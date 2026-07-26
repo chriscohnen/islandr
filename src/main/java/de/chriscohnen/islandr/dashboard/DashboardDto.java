@@ -52,7 +52,14 @@ public final class DashboardDto {
             String hubEndpoint,
             // Operator-set hub location name (Settings) shown as the hub node
             // label instead of the generic "Hub". Null/blank → "Hub".
-            String hubLabel
+            String hubLabel,
+            // Hub coordinates (Settings.hubLat/hubLon), manually entered —
+            // null unless the operator has set them. Backs the world-map
+            // topology view (ADR-0021); unrelated to the radial diagram above.
+            // "hubLon" (not "hubLng") to match the naming already established
+            // by Settings/SettingsDto for the hub specifically.
+            Double hubLat,
+            Double hubLon
     ) {}
 
     public record TopologySite(
@@ -64,7 +71,12 @@ public final class DashboardDto {
             String gatewayPeerName,
             Boolean gatewayOnline,      // null = no gateway configured
             String gatewayIp,
-            Instant gatewayLastSeenAt
+            Instant gatewayLastSeenAt,
+            // Gateway peer's manually-entered coordinates (Peer.lat/lng, only
+            // ever set for type=site peers) — null if never geocoded. Backs
+            // the world-map topology view (ADR-0021).
+            Double gatewayLat,
+            Double gatewayLng
     ) {}
 
     public record TopologyResource(

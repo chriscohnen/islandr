@@ -1258,6 +1258,32 @@ body {
   font-size: var(--text-sm);
 }
 
+/* --- world-map topology view (ADR-0021, #11) ----------------------------- */
+/* Shares .topo's hub-pulse/hub-core/node-ring/node-label rules (TopologyWorldMap
+   renders <svg class="topo worldmap">) — only the ocean/land fills and the
+   link styling below are new. No gradients, monochrome land mass, themed
+   entirely through existing surface/border tokens. */
+.worldmap-ocean {
+  fill: var(--surface-2);
+}
+.worldmap-land {
+  fill: var(--border);
+  stroke: none;
+}
+.worldmap-link {
+  fill: none;
+  stroke-width: 1.4;
+}
+.worldmap-link-live {
+  stroke: var(--status-ok, #16a34a);
+  opacity: 0.55;
+}
+.worldmap-link-down {
+  stroke: var(--fg3);
+  stroke-dasharray: 3 4;
+  opacity: 0.35;
+}
+
 /* --- connection activity heatmap (#32) ----------------------------------- */
 /* 5 intensity levels off the existing accent ramp, GitHub-contribution-graph
    style. Level is relative to that day's max across peers, not an absolute
