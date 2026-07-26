@@ -74,6 +74,18 @@ export default defineComponent({
       acmeLastError: null,
       acmeDomainInput: "",
       acmeEnabling: false,
+      // DNS-01 challenge (#41, ADR-0020) — an alternative to HTTP-01 for hubs
+      // that don't want port 80 reachable. "manual" needs no API token: it
+      // pauses issuance and shows the TXT record to add elsewhere yourself.
+      acmeChallengeType: "http-01",
+      acmeDnsProvider: null,
+      acmeDnsPendingRecordName: null,
+      acmeDnsPendingRecordValue: null,
+      acmeChallengeTypeInput: "http-01",
+      acmeDnsProviderInput: "cloudflare",
+      acmeDnsApiTokenInput: "",
+      dnsContinuing: false,
+      dnsCopyState: "idle",
       // Pure layout split — "letsencrypt" | "origin". Defaults to whichever
       // mode is actually active so a returning admin lands where they left off.
       tlsTab: "letsencrypt",
@@ -178,6 +190,10 @@ export default defineComponent({
         this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
         this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
         this.acmeLastError = s.acmeLastError || null;
+        this.acmeChallengeType = s.acmeChallengeType || "http-01";
+        this.acmeDnsProvider = s.acmeDnsProvider || null;
+        this.acmeDnsPendingRecordName = s.acmeDnsPendingRecordName || null;
+        this.acmeDnsPendingRecordValue = s.acmeDnsPendingRecordValue || null;
         this.pendingCsrPem = s.pendingCsrPem || null;
         this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
       } catch (e) {
@@ -296,7 +312,13 @@ export default defineComponent({
         const res = await fetch("/api/v1/settings/acme", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ domain: this.acmeDomainInput.trim() }),
+          body: JSON.stringify({
+            domain: this.acmeDomainInput.trim(),
+            challengeType: this.acmeChallengeTypeInput,
+            dnsProvider: this.acmeChallengeTypeInput === "dns-01" ? this.acmeDnsProviderInput : null,
+            dnsApiToken: (this.acmeChallengeTypeInput === "dns-01" && this.acmeDnsProviderInput === "cloudflare"
+              && this.acmeDnsApiTokenInput.trim()) ? this.acmeDnsApiTokenInput.trim() : null,
+          }),
         });
         if (!res.ok) {
           const text = await res.text();
@@ -310,18 +332,74 @@ export default defineComponent({
         this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
         this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
         this.acmeLastError = s.acmeLastError || null;
+        this.acmeChallengeType = s.acmeChallengeType || "http-01";
+        this.acmeDnsProvider = s.acmeDnsProvider || null;
+        this.acmeDnsPendingRecordName = s.acmeDnsPendingRecordName || null;
+        this.acmeDnsPendingRecordValue = s.acmeDnsPendingRecordValue || null;
         this.pendingCsrPem = s.pendingCsrPem || null;
         this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
         if (s.acmeLastError) {
           this.tlsError = t("settings.acme_enable_error", { error: s.acmeLastError });
+        } else if (s.acmeDnsPendingRecordValue) {
+          this.acmeDomainInput = "";
+          this.acmeDnsApiTokenInput = "";
+          this.tlsInfo = t("settings.acme_dns_pending_info");
         } else {
           this.acmeDomainInput = "";
+          this.acmeDnsApiTokenInput = "";
           this.tlsInfo = t("settings.acme_enable_success", { domain: s.acmeDomain });
         }
       } catch (e) {
         this.tlsError = t("settings.acme_enable_error", { error: e.message });
       } finally {
         this.acmeEnabling = false;
+      }
+    },
+
+    // Resumes a "manual" dns-01 challenge (ADR-0020) once the admin has added
+    // the TXT record enableAcme above asked for. Same blocking/error pattern.
+    async continueDns() {
+      this.dnsContinuing = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/acme/dns-continue", { method: "POST" });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
+        this.acmeDomain = s.acmeDomain || null;
+        this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
+        this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
+        this.acmeLastError = s.acmeLastError || null;
+        this.acmeChallengeType = s.acmeChallengeType || "http-01";
+        this.acmeDnsProvider = s.acmeDnsProvider || null;
+        this.acmeDnsPendingRecordName = s.acmeDnsPendingRecordName || null;
+        this.acmeDnsPendingRecordValue = s.acmeDnsPendingRecordValue || null;
+        if (s.acmeLastError) {
+          this.tlsError = t("settings.acme_enable_error", { error: s.acmeLastError });
+        } else {
+          this.tlsInfo = t("settings.acme_enable_success", { domain: s.acmeDomain });
+        }
+      } catch (e) {
+        this.tlsError = t("settings.acme_enable_error", { error: e.message });
+      } finally {
+        this.dnsContinuing = false;
+      }
+    },
+
+    async copyDnsRecord() {
+      if (!this.acmeDnsPendingRecordValue) return;
+      try {
+        await navigator.clipboard.writeText(this.acmeDnsPendingRecordValue);
+        this.dnsCopyState = "copied";
+        setTimeout(() => (this.dnsCopyState = "idle"), 1500);
+      } catch {
+        this.dnsCopyState = "idle";
       }
     },
 
@@ -776,11 +854,53 @@ export default defineComponent({
             </div>
           </div>
 
-          <div style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
+          <div v-if="acmeDnsPendingRecordValue" class="callout callout-warn" style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2)">
+            <div>{{ t('settings.acme_dns_pending_hint') }}</div>
+            <div style="display:flex; flex-direction:column; gap:var(--space-1); font-size:var(--text-sm)">
+              <div><span class="muted">{{ t('settings.acme_dns_record_name') }}</span> <span class="mono">{{ acmeDnsPendingRecordName }}</span></div>
+              <div style="display:flex; align-items:center; gap:var(--space-2)">
+                <span class="muted">{{ t('settings.acme_dns_record_value') }}</span>
+                <span class="mono" style="word-break: break-all">{{ acmeDnsPendingRecordValue }}</span>
+                <button type="button" class="btn btn-ghost btn-sm" @click="copyDnsRecord">
+                  {{ dnsCopyState === 'copied' ? t('settings.acme_dns_copied_btn') : t('settings.acme_dns_copy_btn') }}
+                </button>
+              </div>
+            </div>
+            <div>
+              <button type="button" class="btn btn-secondary" :disabled="dnsContinuing" @click="continueDns">
+                {{ dnsContinuing ? t('settings.acme_dns_continuing') : t('settings.acme_dns_continue_btn') }}
+              </button>
+            </div>
+          </div>
+
+          <div v-else style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
             <div class="field-hint" style="margin-top: 0">{{ t('settings.acme_hint') }}</div>
             <div class="field">
               <label for="acme-domain">{{ t('settings.acme_field_domain') }}</label>
               <input id="acme-domain" class="input mono" v-model="acmeDomainInput" placeholder="vpn.example.com" />
+            </div>
+            <div class="field">
+              <label for="acme-challenge-type">{{ t('settings.acme_field_challenge_type') }}</label>
+              <select id="acme-challenge-type" class="select" v-model="acmeChallengeTypeInput" style="max-width:420px">
+                <option value="http-01">{{ t('settings.acme_challenge_http01') }}</option>
+                <option value="dns-01">{{ t('settings.acme_challenge_dns01') }}</option>
+              </select>
+              <div class="field-hint">{{ t('settings.acme_challenge_type_hint') }}</div>
+            </div>
+            <div class="field" v-if="acmeChallengeTypeInput === 'dns-01'">
+              <label for="acme-dns-provider">{{ t('settings.acme_field_dns_provider') }}</label>
+              <select id="acme-dns-provider" class="select" v-model="acmeDnsProviderInput" style="max-width:420px">
+                <option value="cloudflare">{{ t('settings.acme_dns_provider_cloudflare') }}</option>
+                <option value="manual">{{ t('settings.acme_dns_provider_manual') }}</option>
+              </select>
+            </div>
+            <div class="field" v-if="acmeChallengeTypeInput === 'dns-01' && acmeDnsProviderInput === 'cloudflare'">
+              <label for="acme-dns-token">{{ t('settings.acme_field_dns_token') }}</label>
+              <input id="acme-dns-token" class="input mono" type="password" v-model="acmeDnsApiTokenInput" placeholder="•••••••••" />
+              <div class="field-hint">{{ t('settings.acme_dns_token_hint') }}</div>
+            </div>
+            <div class="field-hint" v-if="acmeChallengeTypeInput === 'dns-01' && acmeDnsProviderInput === 'manual'">
+              {{ t('settings.acme_dns_provider_manual_hint') }}
             </div>
             <div>
               <button type="button" class="btn btn-secondary" :disabled="acmeEnabling || !acmeDomainInput.trim()" @click="enableAcme">

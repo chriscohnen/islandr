@@ -52,6 +52,15 @@ public final class SettingsDto {
             Instant acmeLastAttemptAt,
             Instant acmeLastRenewalAt,
             String acmeLastError,
+            // "http-01" (default) | "dns-01" — ADR-0020.
+            String acmeChallengeType,
+            // "cloudflare" | "manual" — only meaningful when acmeChallengeType is dns-01.
+            // Never exposes the API token itself.
+            String acmeDnsProvider,
+            // Non-null while a "manual" dns-01 challenge is awaiting the admin adding
+            // this TXT record and clicking "Continue".
+            String acmeDnsPendingRecordName,
+            String acmeDnsPendingRecordValue,
             // Pending Origin-Certificate CSR (#42) — non-null while an admin-generated
             // key+CSR is awaiting a matching signed certificate upload.
             String pendingCsrPem,
@@ -84,6 +93,10 @@ public final class SettingsDto {
                     s.acmeLastAttemptAt,
                     s.acmeLastRenewalAt,
                     s.acmeLastError,
+                    s.acmeChallengeType,
+                    s.acmeDnsProvider,
+                    s.acmeDnsPendingRecordName,
+                    s.acmeDnsPendingRecordValue,
                     s.pendingCsrPem,
                     s.pendingCsrCreatedAt);
         }
@@ -96,11 +109,17 @@ public final class SettingsDto {
             @NotBlank String pem
     ) {}
 
-    /** Enables ACME mode (ADR-0019) for the given domain — this domain must
-     *  already resolve (DNS) to this hub's public IP and have port 80 reachable
-     *  from the internet, or HTTP-01 validation will fail. */
+    /** Enables ACME mode (ADR-0019/0020) for the given domain. With the default
+     *  http-01 challenge, this domain must already resolve (DNS) to this hub's
+     *  public IP and have port 80 reachable from the internet, or validation
+     *  will fail. challengeType/dnsProvider/dnsApiToken are all optional —
+     *  omitted or blank means "keep whatever's already configured" (see
+     *  {@code SettingsService#enableAcme}). */
     public record AcmeRequest(
-            @NotBlank String domain
+            @NotBlank String domain,
+            String challengeType,
+            String dnsProvider,
+            String dnsApiToken
     ) {}
 
     /** Generates a private key + CSR for the Origin Server Certificate tab (#42). */

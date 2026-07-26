@@ -34,12 +34,14 @@ public class FakeHttpFetcher implements HttpFetcher {
     private static final Map<String, Response> getStubs = new HashMap<>();
     private static final Map<String, Response> postStubs = new HashMap<>();
     private static final Map<String, Response> postBodyStubs = new HashMap<>();
+    private static final Map<String, Response> deleteStubs = new HashMap<>();
     public static final List<Call> calls = new ArrayList<>();
 
     public void reset() {
         getStubs.clear();
         postStubs.clear();
         postBodyStubs.clear();
+        deleteStubs.clear();
         calls.clear();
     }
 
@@ -82,6 +84,19 @@ public class FakeHttpFetcher implements HttpFetcher {
     public Response postBody(String url, byte[] body, String contentType, Map<String, String> headers) {
         calls.add(new Call("POST", url, null, headers == null ? Map.of() : headers, body));
         Response r = postBodyStubs.get(url);
+        if (r == null) return new Response(404, new byte[0], Map.of());
+        return r;
+    }
+
+    public void deleteStub(String url, int status, String body, Map<String, String> headers) {
+        deleteStubs.put(url, new Response(status, body.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                headers == null ? Map.of("content-type", "application/json") : headers));
+    }
+
+    @Override
+    public Response delete(String url, Map<String, String> headers) {
+        calls.add(new Call("DELETE", url, null, headers == null ? Map.of() : headers));
+        Response r = deleteStubs.get(url);
         if (r == null) return new Response(404, new byte[0], Map.of());
         return r;
     }

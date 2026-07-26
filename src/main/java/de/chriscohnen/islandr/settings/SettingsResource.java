@@ -114,7 +114,7 @@ public class SettingsResource {
     public SettingsDto.Response enableAcme(@Context ContainerRequestContext ctx,
                                            @Valid SettingsDto.AcmeRequest body) {
         AuthContext actor = Auth.requireAdmin(ctx);
-        settings.enableAcme(body.domain(), actor.principal());
+        settings.enableAcme(body.domain(), body.challengeType(), body.dnsProvider(), body.dnsApiToken(), actor.principal());
         try {
             acmeSvc.issueCertificate();
         } catch (AcmeException e) {
@@ -123,6 +123,26 @@ public class SettingsResource {
         Settings after = settings.get();
         audit.logUpdate(actor.principal(), "settings.acme_enable", "Settings:singleton",
                 null, Map.of("tlsMode", after.tlsMode, "acmeDomain", after.acmeDomain,
+                        "acmeLastError", after.acmeLastError == null ? "" : after.acmeLastError));
+        return toResponse(after);
+    }
+
+    /** Resumes a "manual" dns-01 challenge (ADR-0020) once the admin has added
+     *  the TXT record {@code enableAcme} above asked for. Same "block and
+     *  surface acmeLastError on failure, not a 5xx" pattern as enableAcme. */
+    @POST
+    @Path("/acme/dns-continue")
+    @Consumes(MediaType.WILDCARD)  // no body — don't reject for missing Content-Type
+    public SettingsDto.Response continueAcmeDns(@Context ContainerRequestContext ctx) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        try {
+            acmeSvc.continueManualDnsChallenge();
+        } catch (AcmeException e) {
+            // already recorded on Settings.acmeLastError — surfaced via toResponse below
+        }
+        Settings after = settings.get();
+        audit.logUpdate(actor.principal(), "settings.acme_dns_continue", "Settings:singleton",
+                null, Map.of("tlsMode", after.tlsMode,
                         "acmeLastError", after.acmeLastError == null ? "" : after.acmeLastError));
         return toResponse(after);
     }

@@ -146,6 +146,42 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "acme_last_error", columnDefinition = "TEXT")
     public String acmeLastError;
 
+    // DNS-01 challenge support (ADR-0020) — an alternative to HTTP-01 for hubs
+    // that don't want port 80 reachable. "http-01" (default) | "dns-01".
+    @Column(name = "acme_challenge_type", nullable = false, length = 20)
+    public String acmeChallengeType = "http-01";
+
+    // Which DnsProvider implementation to use — "cloudflare" only in v1.
+    @Column(name = "acme_dns_provider", length = 50)
+    public String acmeDnsProvider;
+
+    // API token for acmeDnsProvider, encrypted at rest (same guarantee as tlsKeyPem).
+    @Column(name = "acme_dns_api_token", columnDefinition = "TEXT")
+    public String acmeDnsApiToken;
+
+    // "manual" provider (no API automation) pending state — the TXT record to
+    // show the admin, and the ACME order/authz/challenge/finalize URLs needed
+    // to resume once they've added it and click "Continue". Non-null
+    // acmeDnsPendingRecordValue is the signal that a manual DNS-01 challenge
+    // is awaiting completion.
+    @Column(name = "acme_dns_pending_record_name", length = 255)
+    public String acmeDnsPendingRecordName;
+
+    @Column(name = "acme_dns_pending_record_value", length = 255)
+    public String acmeDnsPendingRecordValue;
+
+    @Column(name = "acme_dns_pending_order_url", length = 512)
+    public String acmeDnsPendingOrderUrl;
+
+    @Column(name = "acme_dns_pending_authz_url", length = 512)
+    public String acmeDnsPendingAuthzUrl;
+
+    @Column(name = "acme_dns_pending_challenge_url", length = 512)
+    public String acmeDnsPendingChallengeUrl;
+
+    @Column(name = "acme_dns_pending_finalize_url", length = 512)
+    public String acmeDnsPendingFinalizeUrl;
+
     // Optional Nominatim base URL for address geocoding in the Sites view.
     // Empty / null = geocoding disabled. No external calls are made without
     // an explicit admin-configured URL.

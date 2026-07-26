@@ -77,6 +77,61 @@ class AcmeSettingsStore {
         return settingsSvc.get().acmeDomain;
     }
 
+    record DnsChallengeConfig(String challengeType, String provider, String apiToken) {}
+
+    /** Same transactional-read rule as {@link #domain()} above — a plain
+     *  {@code settingsSvc.get()} risks the stale request-scoped-session read
+     *  described there. */
+    @Transactional
+    DnsChallengeConfig dnsChallengeConfig() {
+        Settings s = settingsSvc.get();
+        String token = s.acmeDnsApiToken == null ? null
+                : (encSvc.isEncrypted(s.acmeDnsApiToken) ? encSvc.decrypt(s.acmeDnsApiToken) : s.acmeDnsApiToken);
+        return new DnsChallengeConfig(s.acmeChallengeType, s.acmeDnsProvider, token);
+    }
+
+    /** "manual" DNS-01 provider (no API automation) pending state — the TXT
+     *  record to show the admin, and the ACME URLs needed to resume once
+     *  they've added it. {@code recordValue} is the existence signal: null
+     *  means no manual challenge is currently awaiting completion. */
+    record PendingManualDns(String recordName, String recordValue,
+                             String orderUrl, String authzUrl, String challengeUrl, String finalizeUrl) {}
+
+    @Transactional
+    void persistManualDnsPending(String recordName, String recordValue,
+                                  String orderUrl, String authzUrl, String challengeUrl, String finalizeUrl) {
+        Settings s = settingsSvc.get();
+        s.acmeDnsPendingRecordName = recordName;
+        s.acmeDnsPendingRecordValue = recordValue;
+        s.acmeDnsPendingOrderUrl = orderUrl;
+        s.acmeDnsPendingAuthzUrl = authzUrl;
+        s.acmeDnsPendingChallengeUrl = challengeUrl;
+        s.acmeDnsPendingFinalizeUrl = finalizeUrl;
+        s.acmeLastAttemptAt = Instant.now();
+        LOG.infof("ACME: dns-01 (manual) challenge pending for %s — add %s TXT %s",
+                s.acmeDomain, recordName, recordValue);
+    }
+
+    @Transactional
+    PendingManualDns manualDnsPending() {
+        Settings s = settingsSvc.get();
+        if (s.acmeDnsPendingRecordValue == null) return null;
+        return new PendingManualDns(s.acmeDnsPendingRecordName, s.acmeDnsPendingRecordValue,
+                s.acmeDnsPendingOrderUrl, s.acmeDnsPendingAuthzUrl,
+                s.acmeDnsPendingChallengeUrl, s.acmeDnsPendingFinalizeUrl);
+    }
+
+    @Transactional
+    void clearManualDnsPending() {
+        Settings s = settingsSvc.get();
+        s.acmeDnsPendingRecordName = null;
+        s.acmeDnsPendingRecordValue = null;
+        s.acmeDnsPendingOrderUrl = null;
+        s.acmeDnsPendingAuthzUrl = null;
+        s.acmeDnsPendingChallengeUrl = null;
+        s.acmeDnsPendingFinalizeUrl = null;
+    }
+
     @Transactional
     KeyPair ensureAccountKey() throws Exception {
         Settings s = settingsSvc.get();
