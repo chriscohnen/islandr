@@ -117,6 +117,9 @@ public class PeerResource {
      * aggregated from {@link PeerDailyActivity} (written by {@link ActivityPoller}).
      * {@code days} defaults to 30, clamped to [1, 180] — enough for the useful
      * "recent pattern" view without the client paying for the full retention window.
+     * Carries both {@code sampleHits} (connection presence) and {@code rxBytes}/
+     * {@code txBytes} (traffic volume) per day — the frontend toggles which one
+     * drives the heatmap's color intensity.
      */
     @GET
     @Path("/activity-heatmap")
@@ -132,17 +135,22 @@ public class PeerResource {
 
         java.util.List<PeerDailyActivity> rows =
                 PeerDailyActivity.find("id.day >= ?1", from.toString()).list();
-        java.util.Map<String, java.util.Map<String, Integer>> byPeer = new java.util.HashMap<>();
+        java.util.Map<String, java.util.Map<String, PeerDailyActivity>> byPeer = new java.util.HashMap<>();
         for (PeerDailyActivity row : rows) {
             byPeer.computeIfAbsent(row.id.peerId, k -> new java.util.HashMap<>())
-                    .put(row.id.day, row.sampleHits);
+                    .put(row.id.day, row);
         }
 
         java.util.List<PeerDto.ActivityHeatmapRow> peerRows = Peer.<Peer>listAll(Sort.by("name")).stream()
                 .map(p -> {
-                    java.util.Map<String, Integer> hits = byPeer.getOrDefault(p.id, java.util.Map.of());
-                    java.util.List<Integer> sampleHits = days.stream().map(d -> hits.getOrDefault(d, 0)).toList();
-                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, sampleHits);
+                    java.util.Map<String, PeerDailyActivity> byDay = byPeer.getOrDefault(p.id, java.util.Map.of());
+                    java.util.List<Integer> sampleHits = days.stream()
+                            .map(d -> byDay.containsKey(d) ? byDay.get(d).sampleHits : 0).toList();
+                    java.util.List<Long> rxBytes = days.stream()
+                            .map(d -> byDay.containsKey(d) ? byDay.get(d).rxBytes : 0L).toList();
+                    java.util.List<Long> txBytes = days.stream()
+                            .map(d -> byDay.containsKey(d) ? byDay.get(d).txBytes : 0L).toList();
+                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, sampleHits, rxBytes, txBytes);
                 }).toList();
 
         return new PeerDto.ActivityHeatmapResponse(days, peerRows);

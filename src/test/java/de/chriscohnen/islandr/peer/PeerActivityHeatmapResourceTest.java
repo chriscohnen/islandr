@@ -63,6 +63,16 @@ class PeerActivityHeatmapResourceTest {
         row.persist();
     }
 
+    @Transactional
+    void bumpTodayWithBytes(String peerId, long rx, long tx) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        PeerDailyActivity row = new PeerDailyActivity(peerId, today);
+        row.sampleHits = 1;
+        row.rxBytes = rx;
+        row.txBytes = tx;
+        row.persist();
+    }
+
     @Test
     void defaultWindow_is30Days() {
         given().when().get("/api/v1/peers/activity-heatmap")
@@ -93,5 +103,15 @@ class PeerActivityHeatmapResourceTest {
         given().queryParam("days", 1).when().get("/api/v1/peers/activity-heatmap")
                 .then().statusCode(200)
                 .body("peers.find { it.peerId == '" + peerId + "' }.sampleHits[0]", equalTo(42));
+    }
+
+    @Test
+    void reflectsTodaysBytes() {
+        String peerId = createPeer("chatty-peer");
+        bumpTodayWithBytes(peerId, 12345L, 6789L);
+        given().queryParam("days", 1).when().get("/api/v1/peers/activity-heatmap")
+                .then().statusCode(200)
+                .body("peers.find { it.peerId == '" + peerId + "' }.rxBytes[0]", equalTo(12345))
+                .body("peers.find { it.peerId == '" + peerId + "' }.txBytes[0]", equalTo(6789));
     }
 }

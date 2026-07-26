@@ -21,11 +21,11 @@ import java.util.Map;
  * {@code peer.lastSeenAt} to decide whether a peer dot is rendered as
  * "live" (within the 5-minute window) or "idle".
  *
- * <p>Scope is deliberately minimal in v1: only {@code lastSeenAt} and
- * {@code lastSeenEndpoint}. Cumulative byte counters from {@code wg} are not
- * yet persisted — they reset to 0 on interface restart, which would surface
- * as backwards counter jumps in the UI without a delta-tracking column. That
- * is deferred until we add proper sampled-bytes columns.
+ * <p>Byte counters from {@code wg} reset to 0 on interface restart, so raw
+ * values are never stored directly — only the clamped-to-non-negative delta
+ * per tick, both onto {@link Peer#totalRxBytes}/{@code totalTxBytes} (all-time)
+ * and onto the current day's {@link PeerDailyActivity} row (for the heatmap's
+ * traffic-volume coloring mode).
  *
  * <p>Disabled by setting {@code islandr.activity.poll-enabled=false}; the
  * test profile turns it off so unit tests don't see the dashboard mutate
@@ -99,7 +99,6 @@ public class ActivityPoller {
 
             p.lastSeenAt = now;
             p.lastSeenEndpoint = s.endpoint();
-            bumpDailyActivity(p.id, now);
 
             // Delta-accumulation: wg counters reset to 0 on interface restart.
             // A positive delta means bytes flowed; a negative delta means the
@@ -111,6 +110,8 @@ public class ActivityPoller {
             p.lastSampledRxBytes = s.rxBytes();
             p.lastSampledTxBytes = s.txBytes();
 
+            bumpDailyActivity(p.id, now, Math.max(0, rxDelta), Math.max(0, txDelta));
+
             updated++;
         }
         if (updated > 0) LOG.debugf("activity poll: updated %d peer(s)", updated);
@@ -118,18 +119,24 @@ public class ActivityPoller {
 
     /**
      * Upserts the peer_daily_activity row for the peer's UTC day, incrementing
-     * sample_hits. Backs the dashboard's connection activity heatmap (#32).
+     * sample_hits and adding this tick's already-clamped rx/tx deltas. Backs
+     * the dashboard's connection activity heatmap (#32) and its traffic-volume
+     * coloring mode.
      */
-    private void bumpDailyActivity(String peerId, Instant sampledAt) {
+    private void bumpDailyActivity(String peerId, Instant sampledAt, long rxDelta, long txDelta) {
         LocalDate day = sampledAt.atZone(ZoneOffset.UTC).toLocalDate();
         PeerDailyActivity.Id id = new PeerDailyActivity.Id(peerId, day);
         PeerDailyActivity row = PeerDailyActivity.findById(id);
         if (row == null) {
             row = new PeerDailyActivity(peerId, day);
             row.sampleHits = 1;
+            row.rxBytes = rxDelta;
+            row.txBytes = txDelta;
             row.persist();
         } else {
             row.sampleHits++;
+            row.rxBytes += rxDelta;
+            row.txBytes += txDelta;
         }
     }
 }

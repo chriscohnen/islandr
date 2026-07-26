@@ -14,7 +14,8 @@ import java.util.Objects;
 /**
  * One row per peer per UTC day, incremented by {@link ActivityPoller} whenever it
  * observes a fresh handshake for that peer on that day. Backs the dashboard's
- * connection activity heatmap (#32). See migration V44.
+ * connection activity heatmap (#32), including its traffic-volume coloring
+ * mode (rxBytes/txBytes, added in V50). See migration V44.
  *
  * <p>{@code day} is stored as an ISO-8601 string, not a JDBC DATE column —
  * SQLite's driver (dev backend, ADR-0004) does not round-trip {@link LocalDate}
@@ -63,6 +64,12 @@ public class PeerDailyActivity extends PanacheEntityBase {
 
     @Column(name = "sample_hits", nullable = false)
     public int sampleHits;
+
+    @Column(name = "rx_bytes", nullable = false)
+    public long rxBytes;
+
+    @Column(name = "tx_bytes", nullable = false)
+    public long txBytes;
 
     public PeerDailyActivity() {}
 

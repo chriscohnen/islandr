@@ -14,7 +14,10 @@ export default defineComponent({
     return {
       loading: true,
       error: null,
-      result: null, // { days: [...], peers: [{ peerId, name, type, sampleHits }] }
+      result: null, // { days: [...], peers: [{ peerId, name, type, sampleHits, rxBytes, txBytes }] }
+      // "hits" = connection presence (how many polls saw a handshake that day),
+      // "bytes" = rxBytes+txBytes that day — same matrix, different color driver.
+      metric: "hits",
     };
   },
   async mounted() {
@@ -23,11 +26,12 @@ export default defineComponent({
   computed: {
     // Per-day max across all peers — intensity levels are relative to this,
     // per the issue spec ("4-5 intensity levels based on sample_hits share
-    // of that day's max"), not an absolute scale.
+    // of that day's max"), not an absolute scale. Same relative-to-day-max
+    // approach applies to the bytes metric.
     dailyMax() {
       if (!this.result) return [];
       return this.result.days.map((_, i) =>
-        Math.max(0, ...this.result.peers.map((p) => p.sampleHits[i] || 0))
+        Math.max(0, ...this.result.peers.map((p) => this.metricValue(p, i)))
       );
     },
     // Month header row, GitHub-contribution-graph style: one label per
@@ -66,19 +70,41 @@ export default defineComponent({
         this.loading = false;
       }
     },
-    level(hits, dayIndex) {
-      if (!hits) return 0;
+    metricValue(peer, dayIndex) {
+      return this.metric === "bytes"
+        ? (peer.rxBytes[dayIndex] || 0) + (peer.txBytes[dayIndex] || 0)
+        : peer.sampleHits[dayIndex] || 0;
+    },
+    level(value, dayIndex) {
+      if (!value) return 0;
       const max = this.dailyMax[dayIndex];
       if (!max) return 0;
-      return Math.max(1, Math.min(5, Math.ceil((hits / max) * 5)));
+      return Math.max(1, Math.min(5, Math.ceil((value / max) * 5)));
     },
     dayLabel(iso) {
       // Short day-of-month for the column header; full date lives in the title tooltip.
       const d = new Date(iso + "T00:00:00Z");
       return String(d.getUTCDate());
     },
-    cellTitle(peerName, iso, hits) {
-      return `${peerName} · ${formatDate(iso + "T00:00:00Z")} · ${t("dashboard.heatmap_hits", { n: hits })}`;
+    formatBytes(b) {
+      if (!b) return "0 B";
+      const units = ["B", "KB", "MB", "GB", "TB"];
+      let i = 0;
+      let v = b;
+      while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i++;
+      }
+      return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+    },
+    cellTitle(peer, dayIndex) {
+      const iso = this.result.days[dayIndex];
+      const hits = peer.sampleHits[dayIndex] || 0;
+      const bytes = (peer.rxBytes[dayIndex] || 0) + (peer.txBytes[dayIndex] || 0);
+      const detail = this.metric === "bytes"
+        ? this.formatBytes(bytes)
+        : t("dashboard.heatmap_hits", { n: hits });
+      return `${peer.name} · ${formatDate(iso + "T00:00:00Z")} · ${detail}`;
     },
   },
   template: `
@@ -86,7 +112,14 @@ export default defineComponent({
       <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
       <div v-else-if="error" class="error-banner">{{ error }}</div>
       <div v-else-if="!result || result.peers.length === 0" class="muted">{{ t('dashboard.heatmap_empty') }}</div>
-      <div v-else style="overflow-x: auto">
+      <template v-else>
+        <div style="margin-bottom: var(--space-2); display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden">
+          <button type="button" class="btn btn-sm" :class="metric === 'hits' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="metric = 'hits'">{{ t('dashboard.heatmap_metric_hits') }}</button>
+          <button type="button" class="btn btn-sm" :class="metric === 'bytes' ? 'btn-secondary' : 'btn-ghost'"
+                  style="border: none; border-radius: 0" @click="metric = 'bytes'">{{ t('dashboard.heatmap_metric_bytes') }}</button>
+        </div>
+      <div style="overflow-x: auto">
         <table class="table" style="width: auto; min-width: 100%; border-collapse: separate; border-spacing: 2px 2px">
           <thead>
             <tr>
@@ -109,13 +142,14 @@ export default defineComponent({
               <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle; font-size: var(--text-sm)">
                 {{ p.name }}
               </td>
-              <td v-for="(d, i) in result.days" :key="d" :title="cellTitle(p.name, d, p.sampleHits[i])"
-                  :class="'heatmap-cell heatmap-l' + level(p.sampleHits[i], i)"
+              <td v-for="(d, i) in result.days" :key="d" :title="cellTitle(p, i)"
+                  :class="'heatmap-cell heatmap-l' + level(metricValue(p, i), i)"
                   style="padding: 0"></td>
             </tr>
           </tbody>
         </table>
       </div>
+      </template>
     </div>
   `,
 });

@@ -97,6 +97,19 @@ class ActivityPollerTest {
     }
 
     @Test
+    void poll_accumulatesDailyBytesAlongsideAllTimeTotals() {
+        String peerId = createPeerAndRegisterWithWg("10.8.0.11");
+
+        for (int i = 0; i < 20 && dailyRxBytes(peerId) == 0; i++) poller.poll();
+
+        assertThat(dailyRxBytes(peerId)).as("daily rx_bytes should accumulate after a handshake tick").isGreaterThan(0);
+        assertThat(dailyTxBytes(peerId)).as("daily tx_bytes should accumulate after a handshake tick").isGreaterThan(0);
+        // Same delta source as the all-time totals — daily can never exceed all-time.
+        assertThat(dailyRxBytes(peerId)).isLessThanOrEqualTo(totalRxBytesOf(peerId));
+        assertThat(dailyTxBytes(peerId)).isLessThanOrEqualTo(totalTxBytesOf(peerId));
+    }
+
+    @Test
     void poll_doesNotResetExistingLastSeenWhenPeerVanishesFromWg() {
         // A peer that was seen yesterday and is no longer on the interface
         // (e.g. wg flushed after a reboot before the next handshake) must not
@@ -166,6 +179,32 @@ class ActivityPollerTest {
     @Transactional
     long countActivityRows(String peerId) {
         return PeerDailyActivity.count("id.peerId = ?1", peerId);
+    }
+
+    @Transactional
+    long dailyRxBytes(String peerId) {
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        PeerDailyActivity row = PeerDailyActivity.findById(new PeerDailyActivity.Id(peerId, today));
+        return row == null ? 0 : row.rxBytes;
+    }
+
+    @Transactional
+    long dailyTxBytes(String peerId) {
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        PeerDailyActivity row = PeerDailyActivity.findById(new PeerDailyActivity.Id(peerId, today));
+        return row == null ? 0 : row.txBytes;
+    }
+
+    @Transactional
+    long totalRxBytesOf(String peerId) {
+        Peer p = Peer.findById(peerId);
+        return p.totalRxBytes;
+    }
+
+    @Transactional
+    long totalTxBytesOf(String peerId) {
+        Peer p = Peer.findById(peerId);
+        return p.totalTxBytes;
     }
 
     private MockWgAdapter mock() {
