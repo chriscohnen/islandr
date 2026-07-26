@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.tls;
 
+import de.chriscohnen.islandr.acme.OriginCsrService;
 import de.chriscohnen.islandr.crypto.EncryptionService;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.settings.SettingsService;
@@ -112,14 +113,46 @@ public class TlsService {
         if (certBlocks.isEmpty()) {
             throw badRequest("no certificate found — expected a '-----BEGIN CERTIFICATE-----' block");
         }
-        if (keyCount == 0) {
-            throw badRequest("no private key found — expected a '-----BEGIN PRIVATE KEY-----' or "
-                            + "'-----BEGIN RSA PRIVATE KEY-----' block");
-        }
         if (keyCount > 1) {
             throw badRequest("more than one private key block found — paste only one");
         }
+        // keyBlock stays null when absent — allowed here (a cert-only paste completing
+        // a pending generated CSR, #42); resolveKeyPem() below is what actually
+        // requires a key to exist from one source or the other.
         return new PemBundle(String.join("\n", certBlocks), keyBlock);
+    }
+
+    /** Resolves the private key to pair with an uploaded certificate: the pasted key
+     *  if there was one, otherwise the key from a pending generated CSR (#42) — so
+     *  completing a "Generate private key" flow only requires pasting the signed
+     *  certificate back, not the private key islandr already has. */
+    public String resolveKeyPem(PemBundle bundle) {
+        if (bundle.keyPem() != null) return bundle.keyPem();
+        Settings current = settingsSvc.get();
+        if (current.pendingKeyPem == null) {
+            throw badRequest("no private key found — paste a private key too, or generate a CSR first "
+                            + "and paste only the signed certificate back once it's issued");
+        }
+        return encSvc.isEncrypted(current.pendingKeyPem) ? encSvc.decrypt(current.pendingKeyPem) : current.pendingKeyPem;
+    }
+
+    @Inject OriginCsrService csrSvc;
+
+    /** Generates a private key + CSR for the Origin Server Certificate tab and stores
+     *  both as "pending" until a matching signed certificate is uploaded (or the admin
+     *  switches to ACME / uploads their own key+cert pair instead, both of which clear
+     *  this). The key is encrypted at rest under the same guarantee as tlsKeyPem. */
+    @Transactional
+    public Settings generateCsr(String domain, String actor) {
+        if (domain == null || domain.isBlank()) throw badRequest("domain is required");
+        OriginCsrService.Generated gen = csrSvc.generate(domain.strip());
+        Settings s = settingsSvc.get();
+        s.pendingCsrPem = gen.csrPem();
+        s.pendingKeyPem = encSvc.isConfigured() ? encSvc.encrypt(gen.keyPem()) : gen.keyPem();
+        s.pendingCsrCreatedAt = Instant.now();
+        s.updatedAt = Instant.now();
+        s.updatedBy = actor;
+        return s;
     }
 
     @Transactional
@@ -134,6 +167,11 @@ public class TlsService {
         s.tlsKeyPem = encSvc.isConfigured() ? encSvc.encrypt(keyPem) : keyPem;
         s.tlsCertPath = null;
         s.tlsKeyPath = null;
+        // A pending CSR/key (#42) is consumed by this save, whether it supplied the
+        // key (resolveKeyPem) or the admin pasted their own pair instead.
+        s.pendingCsrPem = null;
+        s.pendingKeyPem = null;
+        s.pendingCsrCreatedAt = null;
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
         triggerReload();
@@ -148,6 +186,9 @@ public class TlsService {
         s.tlsKeyPem = null;
         s.tlsCertPath = null;
         s.tlsKeyPath = null;
+        s.pendingCsrPem = null;
+        s.pendingKeyPem = null;
+        s.pendingCsrCreatedAt = null;
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
         triggerReload();

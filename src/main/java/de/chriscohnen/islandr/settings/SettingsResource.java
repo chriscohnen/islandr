@@ -68,9 +68,26 @@ public class SettingsResource {
                                           @Valid SettingsDto.TlsRequest body) {
         AuthContext actor = Auth.requireAdmin(ctx);
         TlsService.PemBundle bundle = TlsService.splitPemBundle(body.pem());
-        Settings after = tlsSvc.updateManagedCertificate(bundle.certPem(), bundle.keyPem(), actor.principal());
+        String keyPem = tlsSvc.resolveKeyPem(bundle);
+        Settings after = tlsSvc.updateManagedCertificate(bundle.certPem(), keyPem, actor.principal());
         audit.logUpdate(actor.principal(), "settings.tls_update", "Settings:singleton",
                 null, Map.of("tlsMode", after.tlsMode));
+        return toResponse(after);
+    }
+
+    /** Generates a private key + CSR for the Origin Server Certificate tab (#42) so an
+     *  admin can bring it to an external CA themselves, instead of pasting an
+     *  already-issued key/cert pair. The CSR stays visible/pending until a matching
+     *  certificate is uploaded (PUT above, cert-only paste), ACME is enabled instead,
+     *  or the admin uploads their own key+cert pair — all three clear it. */
+    @POST
+    @Path("/tls/csr")
+    public SettingsDto.Response generateTlsCsr(@Context ContainerRequestContext ctx,
+                                               @Valid SettingsDto.CsrRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        Settings after = tlsSvc.generateCsr(body.domain(), actor.principal());
+        audit.logUpdate(actor.principal(), "settings.tls_csr_generate", "Settings:singleton",
+                null, Map.of("domain", body.domain()));
         return toResponse(after);
     }
 

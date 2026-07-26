@@ -77,6 +77,11 @@ public class SettingsService {
         Settings s = get();
         s.tlsMode = "acme";
         s.acmeDomain = domain.strip();
+        // A pending Origin-Certificate CSR/key (#42) is superseded — ACME manages
+        // tlsCertPem/tlsKeyPem itself from here on.
+        s.pendingCsrPem = null;
+        s.pendingKeyPem = null;
+        s.pendingCsrCreatedAt = null;
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
         return s;

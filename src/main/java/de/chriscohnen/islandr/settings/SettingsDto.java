@@ -51,7 +51,11 @@ public final class SettingsDto {
             String acmeDomain,
             Instant acmeLastAttemptAt,
             Instant acmeLastRenewalAt,
-            String acmeLastError
+            String acmeLastError,
+            // Pending Origin-Certificate CSR (#42) — non-null while an admin-generated
+            // key+CSR is awaiting a matching signed certificate upload.
+            String pendingCsrPem,
+            Instant pendingCsrCreatedAt
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
                                      Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo) {
@@ -79,7 +83,9 @@ public final class SettingsDto {
                     s.acmeDomain,
                     s.acmeLastAttemptAt,
                     s.acmeLastRenewalAt,
-                    s.acmeLastError);
+                    s.acmeLastError,
+                    s.pendingCsrPem,
+                    s.pendingCsrCreatedAt);
         }
     }
 
@@ -94,6 +100,11 @@ public final class SettingsDto {
      *  already resolve (DNS) to this hub's public IP and have port 80 reachable
      *  from the internet, or HTTP-01 validation will fail. */
     public record AcmeRequest(
+            @NotBlank String domain
+    ) {}
+
+    /** Generates a private key + CSR for the Origin Server Certificate tab (#42). */
+    public record CsrRequest(
             @NotBlank String domain
     ) {}
 

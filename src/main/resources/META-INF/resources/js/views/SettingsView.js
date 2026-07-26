@@ -77,6 +77,14 @@ export default defineComponent({
       // Pure layout split — "letsencrypt" | "origin". Defaults to whichever
       // mode is actually active so a returning admin lands where they left off.
       tlsTab: "letsencrypt",
+      // Origin-certificate CSR generation (#42) — pending until a matching
+      // signed certificate is uploaded, ACME is enabled, or an own key+cert
+      // pair is uploaded instead (all three clear it server-side).
+      pendingCsrPem: null,
+      pendingCsrCreatedAt: null,
+      csrDomainInput: "",
+      csrGenerating: false,
+      csrCopyState: "idle",
     };
   },
   async mounted() {
@@ -170,6 +178,8 @@ export default defineComponent({
         this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
         this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
         this.acmeLastError = s.acmeLastError || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
       } finally {
@@ -240,6 +250,8 @@ export default defineComponent({
         this.tlsMode = s.tlsMode;
         this.tlsCertExpiresAt = s.tlsCertExpiresAt;
         this.tlsCertInfo = s.tlsCertInfo || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
         this.tlsPemInput = "";
         this.tlsInfo = t("settings.tls_upload_success");
       } catch (e) {
@@ -261,6 +273,8 @@ export default defineComponent({
         this.tlsMode = s.tlsMode;
         this.tlsCertExpiresAt = s.tlsCertExpiresAt;
         this.tlsCertInfo = s.tlsCertInfo || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
         this.tlsInfo = t("settings.tls_reset_success");
       } catch (e) {
         this.tlsError = t("settings.tls_upload_error", { error: e.message });
@@ -296,6 +310,8 @@ export default defineComponent({
         this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
         this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
         this.acmeLastError = s.acmeLastError || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
         if (s.acmeLastError) {
           this.tlsError = t("settings.acme_enable_error", { error: s.acmeLastError });
         } else {
@@ -306,6 +322,44 @@ export default defineComponent({
         this.tlsError = t("settings.acme_enable_error", { error: e.message });
       } finally {
         this.acmeEnabling = false;
+      }
+    },
+
+    async generateCsr() {
+      if (!this.csrDomainInput.trim()) return;
+      this.csrGenerating = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/tls/csr", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ domain: this.csrDomainInput.trim() }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
+        this.csrDomainInput = "";
+        this.tlsInfo = t("settings.csr_generate_success");
+      } catch (e) {
+        this.tlsError = t("settings.csr_generate_error", { error: e.message });
+      } finally {
+        this.csrGenerating = false;
+      }
+    },
+
+    async copyCsr() {
+      if (!this.pendingCsrPem) return;
+      try {
+        await navigator.clipboard.writeText(this.pendingCsrPem);
+        this.csrCopyState = "copied";
+        setTimeout(() => (this.csrCopyState = "idle"), 1500);
+      } catch {
+        this.csrCopyState = "idle";
       }
     },
 
@@ -737,6 +791,8 @@ export default defineComponent({
         </div>
 
         <div v-else style="margin-top: var(--space-4)">
+          <div class="field-hint" style="margin: 0 0 var(--space-4)">{{ t('settings.origin_intro') }}</div>
+
           <div v-if="tlsMode === 'managed'">
             <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
               {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
@@ -766,12 +822,42 @@ export default defineComponent({
             </div>
           </div>
 
+          <div v-if="pendingCsrPem" style="margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3)">
+              <div style="font-weight: 600; font-size: var(--text-sm)">{{ t('settings.csr_pending_title') }}</div>
+              <span class="muted" style="font-size: var(--text-xs)">{{ formatDate(pendingCsrCreatedAt) }}</span>
+            </div>
+            <div class="field-hint" style="margin: 0">{{ t('settings.csr_pending_hint') }}</div>
+            <textarea class="textarea mono" readonly rows="10" style="resize: vertical; width: 100%">{{ pendingCsrPem }}</textarea>
+            <div>
+              <button type="button" class="btn btn-ghost btn-sm" @click="copyCsr">
+                {{ csrCopyState === 'copied' ? t('settings.csr_copied_btn') : t('settings.csr_copy_btn') }}
+              </button>
+            </div>
+          </div>
+          <div v-else style="margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
+            <div>
+              <div style="font-weight: 600; font-size: var(--text-sm)">{{ t('settings.csr_generate_title') }}</div>
+              <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.csr_generate_hint') }}</div>
+            </div>
+            <div class="field">
+              <label for="csr-domain">{{ t('settings.csr_field_domain') }}</label>
+              <input id="csr-domain" class="input mono" v-model="csrDomainInput" placeholder="vpn.example.com" />
+            </div>
+            <div>
+              <button type="button" class="btn btn-secondary" :disabled="csrGenerating || !csrDomainInput.trim()" @click="generateCsr">
+                {{ csrGenerating ? t('settings.csr_generating') : t('settings.csr_generate_btn') }}
+              </button>
+            </div>
+          </div>
+
           <div style="display: flex; flex-direction: column; gap: var(--space-3)">
             <div class="field">
               <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
               <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
-                        :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
+                        :placeholder="pendingCsrPem ? t('settings.tls_pem_ph_pending') : t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
               <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+                <div v-if="pendingCsrPem">{{ t('settings.tls_pem_hint_pending') }}</div>
                 <div>{{ t('settings.tls_pem_hint_what') }}</div>
                 <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
                 <div>• {{ t('settings.tls_pem_hint_key') }}</div>

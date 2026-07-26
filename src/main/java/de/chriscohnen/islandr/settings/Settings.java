@@ -102,6 +102,20 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "tls_key_path", length = 512)
     public String tlsKeyPath;
 
+    // Origin Server Certificate CSR generation (#42): an admin can have islandr
+    // generate a private key + PKCS#10 CSR instead of bringing their own, then
+    // paste the CA-signed certificate back once it arrives — no need to paste
+    // the private key again, islandr already has it. Cleared on a successful
+    // certificate upload, on switching to ACME, or on a reset to the dummy cert.
+    @Column(name = "pending_csr_pem", columnDefinition = "TEXT")
+    public String pendingCsrPem;
+
+    @Column(name = "pending_key_pem", columnDefinition = "TEXT")
+    public String pendingKeyPem;
+
+    @Column(name = "pending_csr_created_at")
+    public java.time.Instant pendingCsrCreatedAt;
+
     // ACME auto-provisioning (ADR-0019). tlsMode="acme" reuses tlsCertPem/tlsKeyPem
     // above for the issued certificate (identical PEM-in-DB shape as "managed") --
     // these columns hold only the ACME-protocol state: which domain to request a
