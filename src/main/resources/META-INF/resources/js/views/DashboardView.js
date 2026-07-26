@@ -74,11 +74,15 @@ export default defineComponent({
       return issues;
     },
     // World-map tab only makes sense once there's actually something
-    // geographic to show — ADR-0021: at least 2 site-peers with manually
-    // entered coordinates.
+    // geographic to show — ADR-0021 (revised 2026-07-26): hub coordinates
+    // set AND at least one geocoded site-peer, so a hub + single remote
+    // site (a real, common case) already gets a map instead of needing a
+    // second site purely to clear an arbitrary count.
     worldMapAvailable() {
       if (!this.data) return false;
-      return this.data.topology.sites.filter((s) => s.gatewayLat != null && s.gatewayLng != null).length >= 2;
+      const hasHub = this.data.topology.hubLat != null && this.data.topology.hubLon != null;
+      const geocodedSites = this.data.topology.sites.filter((s) => s.gatewayLat != null && s.gatewayLng != null).length;
+      return hasHub && geocodedSites >= 1;
     },
   },
   methods: {

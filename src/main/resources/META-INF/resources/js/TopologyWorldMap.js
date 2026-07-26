@@ -136,7 +136,7 @@ export default defineComponent({
     <div style="position: relative">
       <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
       <div v-else-if="error" class="error-banner">{{ error }}</div>
-      <div v-else-if="geocodedSites.length < 2" class="muted">{{ t('dashboard.worldmap_empty') }}</div>
+      <div v-else-if="!hasHub || geocodedSites.length < 1" class="muted">{{ t('dashboard.worldmap_empty') }}</div>
       <svg v-else class="topo worldmap" :viewBox="viewBox" role="img" :aria-label="t('dashboard.worldmap_title')">
         <rect class="worldmap-ocean" x="0" :y="0" :width="W" :height="H" />
         <path class="worldmap-land" :d="landPath" />
