@@ -136,6 +136,20 @@ java {
 
 tasks.withType<Test> {
     systemProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager")
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+// Jacoco's own plugin default only turns on the HTML report — codecov-action
+// (ci.yml) reads build/reports/jacoco/test/jacocoTestReport.xml, which the
+// default config never produces. Without this, the upload step silently found
+// nothing to upload every run ("No coverage reports found"), which is why the
+// Codecov badge never had real data despite the workflow step "succeeding".
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
 }
 
 tasks.withType<JavaCompile> {
