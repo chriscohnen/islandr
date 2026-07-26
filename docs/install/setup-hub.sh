@@ -123,9 +123,21 @@ ISLANDR_USE_SUDO=true
 # Database
 QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
 
-# HTTP — binds to loopback only. Traefik / nginx goes in front.
-QUARKUS_HTTP_HOST=127.0.0.1
-QUARKUS_HTTP_PORT=8080
+# HTTP + HTTPS — binds to all interfaces; islandr terminates TLS itself
+# (ADR-0015) and can auto-provision a Let's Encrypt certificate (ADR-0019).
+# Port 80 must stay reachable on the public interface for the ACME HTTP-01
+# challenge (RFC 8555 always validates on port 80 — not configurable, on
+# either side).
+#
+# Running a reverse proxy on this host instead of islandr's own TLS/ACME?
+# Bind islandr to loopback on different ports and point the proxy at those:
+#   QUARKUS_HTTP_HOST=127.0.0.1
+#   QUARKUS_HTTP_PORT=8080
+#   QUARKUS_HTTP_SSL_PORT=8443
+# See ../reverse-proxy.md for both paths side by side.
+QUARKUS_HTTP_HOST=0.0.0.0
+QUARKUS_HTTP_PORT=80
+QUARKUS_HTTP_SSL_PORT=443
 
 QUARKUS_LOG_LEVEL=INFO
 ENV
@@ -164,6 +176,12 @@ ReadWritePaths=/var/lib/islandr
 # Temp files for nft -c -f / nft -f live under /tmp.
 PrivateTmp=false
 
+# Binding ports 80/443 as the unprivileged islandr user needs this one narrow
+# capability — same scoped-privilege principle as the sudoers rules above
+# (islandr never runs as root, never gets CAP_NET_ADMIN or a setuid binary).
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
 Restart=on-failure
 RestartSec=3
 
@@ -190,6 +208,15 @@ echo ""
 echo "Done. Follow logs with:"
 echo "  sudo journalctl -u islandr -f"
 echo ""
+echo "Listening on: http://<host>:80 and https://<host>:443"
+echo "  Port 80 must stay open in your firewall/security group for Let's"
+echo "  Encrypt's HTTP-01 challenge, even once a real certificate is issued."
+echo ""
+echo "Running a reverse proxy instead? Set QUARKUS_HTTP_HOST=127.0.0.1 plus"
+echo "  loopback ports (e.g. QUARKUS_HTTP_PORT=8080, QUARKUS_HTTP_SSL_PORT=8443)"
+echo "  in /etc/default/islandr, then: sudo systemctl restart islandr"
+echo "  See docs/install/reverse-proxy.md for both paths side by side."
+echo ""
 echo "Smoke test from your Mac:"
-echo "  ssh -L 8080:127.0.0.1:8080 USER@HOST"
-echo "  # then on the Mac: http://localhost:8080"
+echo "  ssh -L 8443:127.0.0.1:443 USER@HOST"
+echo "  # then on the Mac: https://localhost:8443 (dummy cert until you configure one)"

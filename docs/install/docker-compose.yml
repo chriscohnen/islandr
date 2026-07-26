@@ -23,17 +23,26 @@ services:
     image: ghcr.io/chriscohnen/islandr:latest
     restart: unless-stopped
 
-    # Host port 7080 (8080 is often already taken); the container keeps 8080
-    # internally. Published on all interfaces so the app is reachable over the
-    # LAN (e.g. http://<vm-ip>:7080). If a reverse proxy terminates TLS on the
-    # SAME host, restrict this to "127.0.0.1:7080:8080" and point the proxy at
-    # it. See the post-install checklist in ../install.md.
+    # Host ports 80/443 map to the container's internal 8080/8443. Docker does
+    # the privileged low-port bind on the host side, so the container itself
+    # stays unprivileged — no capability needed. Port 80 must stay reachable
+    # on the public interface for Let's Encrypt's HTTP-01 challenge (RFC 8555
+    # always validates on port 80; this is not configurable, on either side).
+    #
+    # If a reverse proxy terminates TLS on the SAME host instead of islandr's
+    # own built-in TLS/ACME, bind islandr to different host ports instead —
+    # e.g. "127.0.0.1:7080:8080" and "127.0.0.1:7443:8443" — and point the
+    # proxy at those. See ../reverse-proxy.md for both paths side by side.
     ports:
-      - "7080:8080"
+      - "80:8080"
+      - "443:8443"
 
     environment:
       QUARKUS_HTTP_HOST: 0.0.0.0
       QUARKUS_HTTP_PORT: "8080"
+      # HTTPS listens alongside plain HTTP (ADR-0015); 8443 is the Quarkus
+      # default and matches the container-side half of the 443 mapping above.
+      QUARKUS_HTTP_SSL_PORT: "8443"
 
       # Local recovery admin. OIDC is the intended login (Settings → Identity);
       # the local admin exists for recovery. Leave the password empty to disable
