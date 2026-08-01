@@ -9,6 +9,7 @@ import de.chriscohnen.islandr.validation.ValidCidr;
 import jakarta.validation.constraints.NotBlank;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -62,5 +63,22 @@ public class Site extends PanacheEntityBase {
         s.createdAt = Instant.now();
         s.updatedAt = s.createdAt;
         return s;
+    }
+
+    /**
+     * CIDR of every site whose gateway peer exists and is enabled. Used by
+     * {@link de.chriscohnen.islandr.peer.AllowedIpsCalculator} (issue #33) to
+     * fill in routes for sites a split-tunnel supernet doesn't cover — never
+     * for nftables rule generation (see class javadoc).
+     */
+    public static List<String> enabledGatewayCidrs() {
+        return Site.<Site>listAll().stream()
+                .filter(site -> site.gatewayPeerId != null)
+                .filter(site -> {
+                    de.chriscohnen.islandr.peer.Peer gw = de.chriscohnen.islandr.peer.Peer.findById(site.gatewayPeerId);
+                    return gw != null && gw.enabled;
+                })
+                .map(site -> site.cidr)
+                .toList();
     }
 }

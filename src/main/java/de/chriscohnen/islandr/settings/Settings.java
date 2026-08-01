@@ -43,6 +43,31 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "wg_client_dns", length = 255)
     public String wgClientDns;
 
+    // Explicit full/split tunnel setting (#33, ADR-0017, F-22).
+    // tunnelMode: "FULL" | "SPLIT". allowedIpsMode: "AUTO" (computed via
+    // AllowedIpsCalculator) | "MANUAL" (wgClientAllowedIps used verbatim).
+    // splitSupernet is only meaningful for SPLIT+AUTO — an admin-declared CIDR
+    // sized for future site growth so new sites never invalidate a deployed
+    // client config, as long as they land inside it. See
+    // docs/superpowers/specs/2026-07-29-split-tunnel-allowed-ips-design.md.
+    //
+    // allowedIpsMode defaults to MANUAL on every install: upgrading never opts an
+    // admin into AUTO mode, and an already-downloaded .conf file is never touched.
+    // That guarantee does NOT extend to a peer config regenerated after the upgrade —
+    // installs with sites behind enabled gateway peers relied on PeerService.renderConf
+    // auto-appending each such site's CIDR, and this feature removes that auto-append
+    // (MANUAL mode returns wgClientAllowedIps verbatim). Regenerating a .conf
+    // post-upgrade on such an install will be missing those site routes; that is the
+    // point of the feature, not an oversight in the default.
+    @Column(name = "tunnel_mode", nullable = false, length = 10)
+    public String tunnelMode = "SPLIT";
+
+    @Column(name = "allowed_ips_mode", nullable = false, length = 10)
+    public String allowedIpsMode = "MANUAL";
+
+    @Column(name = "split_supernet", length = 50)
+    public String splitSupernet;
+
     @Column(name = "private_key_retention", nullable = false, length = 20)
     public String privateKeyRetention;
 
@@ -102,6 +127,20 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "tls_key_path", length = 512)
     public String tlsKeyPath;
 
+    // Origin Server Certificate CSR generation (#42): an admin can have islandr
+    // generate a private key + PKCS#10 CSR instead of bringing their own, then
+    // paste the CA-signed certificate back once it arrives — no need to paste
+    // the private key again, islandr already has it. Cleared on a successful
+    // certificate upload, on switching to ACME, or on a reset to the dummy cert.
+    @Column(name = "pending_csr_pem", columnDefinition = "TEXT")
+    public String pendingCsrPem;
+
+    @Column(name = "pending_key_pem", columnDefinition = "TEXT")
+    public String pendingKeyPem;
+
+    @Column(name = "pending_csr_created_at")
+    public java.time.Instant pendingCsrCreatedAt;
+
     // ACME auto-provisioning (ADR-0019). tlsMode="acme" reuses tlsCertPem/tlsKeyPem
     // above for the issued certificate (identical PEM-in-DB shape as "managed") --
     // these columns hold only the ACME-protocol state: which domain to request a
@@ -131,6 +170,42 @@ public class Settings extends PanacheEntityBase {
 
     @Column(name = "acme_last_error", columnDefinition = "TEXT")
     public String acmeLastError;
+
+    // DNS-01 challenge support (ADR-0020) — an alternative to HTTP-01 for hubs
+    // that don't want port 80 reachable. "http-01" (default) | "dns-01".
+    @Column(name = "acme_challenge_type", nullable = false, length = 20)
+    public String acmeChallengeType = "http-01";
+
+    // Which DnsProvider implementation to use — "cloudflare" only in v1.
+    @Column(name = "acme_dns_provider", length = 50)
+    public String acmeDnsProvider;
+
+    // API token for acmeDnsProvider, encrypted at rest (same guarantee as tlsKeyPem).
+    @Column(name = "acme_dns_api_token", columnDefinition = "TEXT")
+    public String acmeDnsApiToken;
+
+    // "manual" provider (no API automation) pending state — the TXT record to
+    // show the admin, and the ACME order/authz/challenge/finalize URLs needed
+    // to resume once they've added it and click "Continue". Non-null
+    // acmeDnsPendingRecordValue is the signal that a manual DNS-01 challenge
+    // is awaiting completion.
+    @Column(name = "acme_dns_pending_record_name", length = 255)
+    public String acmeDnsPendingRecordName;
+
+    @Column(name = "acme_dns_pending_record_value", length = 255)
+    public String acmeDnsPendingRecordValue;
+
+    @Column(name = "acme_dns_pending_order_url", length = 512)
+    public String acmeDnsPendingOrderUrl;
+
+    @Column(name = "acme_dns_pending_authz_url", length = 512)
+    public String acmeDnsPendingAuthzUrl;
+
+    @Column(name = "acme_dns_pending_challenge_url", length = 512)
+    public String acmeDnsPendingChallengeUrl;
+
+    @Column(name = "acme_dns_pending_finalize_url", length = 512)
+    public String acmeDnsPendingFinalizeUrl;
 
     // Optional Nominatim base URL for address geocoding in the Sites view.
     // Empty / null = geocoding disabled. No external calls are made without

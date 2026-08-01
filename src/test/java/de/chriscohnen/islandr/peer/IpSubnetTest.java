@@ -175,6 +175,38 @@ class IpSubnetTest {
                 .hasMessageContaining("range");
     }
 
+    // ── containsSubnet ──────────────────────────────────────────────────────────
+
+    @Test
+    void containsSubnet_trueWhenOtherIsNarrowerAndInside() {
+        assertThat(IpSubnet.parse("10.0.0.0/8").containsSubnet(IpSubnet.parse("10.20.0.0/16"))).isTrue();
+    }
+
+    @Test
+    void containsSubnet_trueWhenIdentical() {
+        assertThat(IpSubnet.parse("10.0.0.0/8").containsSubnet(IpSubnet.parse("10.0.0.0/8"))).isTrue();
+    }
+
+    @Test
+    void containsSubnet_falseWhenOtherIsWider() {
+        assertThat(IpSubnet.parse("10.0.0.0/16").containsSubnet(IpSubnet.parse("10.0.0.0/8"))).isFalse();
+    }
+
+    @Test
+    void containsSubnet_falseWhenDisjoint() {
+        assertThat(IpSubnet.parse("10.0.0.0/8").containsSubnet(IpSubnet.parse("192.168.1.0/24"))).isFalse();
+    }
+
+    @Test
+    void containsSubnet_worksForIpv6() {
+        assertThat(IpSubnet.parse("fd11::/48").containsSubnet(IpSubnet.parse("fd11:0:0:1::/64"))).isTrue();
+    }
+
+    @Test
+    void containsSubnet_falseAcrossAddressFamilies() {
+        assertThat(IpSubnet.parse("10.0.0.0/8").containsSubnet(IpSubnet.parse("fd11::/64"))).isFalse();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static <T> List<T> collect(Iterable<T> it) {

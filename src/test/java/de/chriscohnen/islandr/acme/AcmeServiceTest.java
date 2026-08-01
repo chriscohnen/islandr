@@ -102,6 +102,15 @@ class AcmeServiceTest {
         s.acmeLastError = null;
         s.tlsCertPem = null;
         s.tlsKeyPem = null;
+        s.acmeChallengeType = "http-01";
+        s.acmeDnsProvider = null;
+        s.acmeDnsApiToken = null;
+        s.acmeDnsPendingRecordName = null;
+        s.acmeDnsPendingRecordValue = null;
+        s.acmeDnsPendingOrderUrl = null;
+        s.acmeDnsPendingAuthzUrl = null;
+        s.acmeDnsPendingChallengeUrl = null;
+        s.acmeDnsPendingFinalizeUrl = null;
     }
 
     @Transactional

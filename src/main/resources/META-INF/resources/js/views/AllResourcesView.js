@@ -91,6 +91,9 @@ export default defineComponent({
     typeLabel(type) {
       return this.typeLabels[type] || type;
     },
+    goToResource(r) {
+      this.$router.push({ name: "resources", params: { siteId: r.siteId } });
+    },
     portList(r) {
       if (!r.ports || r.ports.length === 0) return "—";
       return r.ports
@@ -153,12 +156,12 @@ export default defineComponent({
             <!-- Resource rows for this site -->
             <div class="allres-rows">
               <div v-for="r in filtered.filter(x => x.siteId === site.id)" :key="r.id" class="allres-row">
-                <div class="allres-icon-col">
+                <div class="allres-icon-col" style="cursor: pointer" @click="goToResource(r)" :title="t('allres.drilldown_hint')">
                   <div class="allres-type-dot">
                     <Icon :name="r.type || 'computer'" :size="16" />
                   </div>
                 </div>
-                <div class="allres-main">
+                <div class="allres-main" style="cursor: pointer" @click="goToResource(r)" :title="t('allres.drilldown_hint')">
                   <span class="allres-name">{{ r.name }}</span>
                   <span class="allres-type-label">{{ typeLabel(r.type || 'computer') }}</span>
                 </div>

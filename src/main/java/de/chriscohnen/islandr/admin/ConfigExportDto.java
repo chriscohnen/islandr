@@ -21,7 +21,11 @@ public class ConfigExportDto {
         List<PortGroupSnapshot> portGroups,
         List<PortGroupMemberSnapshot> portGroupMembers,
         List<GrantSnapshot> roleResourceGrants,
-        List<GrantPortLink> grantPortLinks
+        List<GrantPortLink> grantPortLinks,
+        // Nullable: an export from before this field existed imports as if
+        // this list were empty — same "add-a-field, tolerate its absence"
+        // pattern as wgMtu above.
+        List<TypeGrantSnapshot> roleResourceTypeGrants
     ) {}
 
     public record SettingsSnapshot(
@@ -39,7 +43,14 @@ public class ConfigExportDto {
         boolean wgIncludeMtuInConf,
         // Integer (not int) so a pre-0.13.0 export without this field imports as
         // null → default 25, instead of primitive 0 (which would disable keepalive).
-        Integer wgPersistentKeepalive
+        Integer wgPersistentKeepalive,
+        // Added for #33 (ADR-0017). A pre-existing export (created before this feature
+        // existed) has these as null on import; the import code below must default them
+        // the same way Settings's own entity defaults do (SPLIT/MANUAL/null) rather than
+        // crash or silently force a specific mode.
+        String tunnelMode,
+        String allowedIpsMode,
+        String splitSupernet
     ) {}
 
     public record OidcProviderSnapshot(
@@ -155,6 +166,14 @@ public class ConfigExportDto {
     ) {}
 
     public record GrantPortLink(String grantId, String portId) {}
+
+    public record TypeGrantSnapshot(
+        String id,
+        String roleId,
+        String siteId,
+        String resourceType,
+        Instant createdAt
+    ) {}
 
     public record ImportResult(
         int users,

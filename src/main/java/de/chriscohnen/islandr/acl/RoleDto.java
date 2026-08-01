@@ -60,5 +60,21 @@ public final class RoleDto {
 
     public record MatrixApplyRequest(List<GrantUpdate> grants) {}
 
+    /** A "all resources of this type in this site" grant — see {@link RoleResourceTypeGrant}. */
+    public record TypeGrantResponse(
+            String id,
+            String roleId,
+            String siteId,
+            String siteName,
+            String resourceType,
+            Instant createdAt
+    ) {}
+
+    public record TypeGrantRequest(
+            @NotBlank String roleId,
+            @NotBlank String siteId,
+            @NotBlank String resourceType
+    ) {}
+
     private RoleDto() {}
 }

@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.acl;
 import de.chriscohnen.islandr.peer.Peer;
 import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
@@ -15,6 +16,8 @@ import java.util.Map;
 @ApplicationScoped
 public class SiteService {
 
+    @Inject de.chriscohnen.islandr.settings.SettingsService settingsSvc;
+
     public List<Site> listAll() {
         return Site.<Site>listAll(Sort.by("name"));
     }
@@ -26,16 +29,31 @@ public class SiteService {
     }
 
     public SiteDto.Response toResponse(Site s, int resourceCount) {
+        Boolean outside = outsideSplitSupernet(s);
         if (s.gatewayPeerId == null) {
-            return SiteDto.Response.from(s, resourceCount, null, null);
+            return SiteDto.Response.from(s, resourceCount, null, null, outside);
         }
         Peer gw = Peer.findById(s.gatewayPeerId);
         if (gw == null) {
-            return SiteDto.Response.from(s, resourceCount, null, null);
+            return SiteDto.Response.from(s, resourceCount, null, null, outside);
         }
         Instant threshold = Instant.now().minus(5, java.time.temporal.ChronoUnit.MINUTES);
         boolean online = gw.lastSeenAt != null && gw.lastSeenAt.isAfter(threshold);
-        return SiteDto.Response.from(s, resourceCount, gw.name, online);
+        return SiteDto.Response.from(s, resourceCount, gw.name, online, outside);
+    }
+
+    private Boolean outsideSplitSupernet(Site s) {
+        if (s.gatewayPeerId == null) return null;
+        de.chriscohnen.islandr.settings.Settings settings = settingsSvc.get();
+        if (!"SPLIT".equals(settings.tunnelMode) || !"AUTO".equals(settings.allowedIpsMode)) return null;
+        if (settings.splitSupernet == null || settings.splitSupernet.isBlank()) return null;
+        try {
+            de.chriscohnen.islandr.peer.IpSubnet supernet = de.chriscohnen.islandr.peer.IpSubnet.parse(settings.splitSupernet);
+            de.chriscohnen.islandr.peer.IpSubnet site = de.chriscohnen.islandr.peer.IpSubnet.parse(s.cidr);
+            return !supernet.containsSubnet(site);
+        } catch (IllegalArgumentException e) {
+            return null; // malformed CIDR is caught elsewhere by @ValidCidr; don't fail the list here
+        }
     }
 
     public Map<String, Long> resourceCountBySite() {

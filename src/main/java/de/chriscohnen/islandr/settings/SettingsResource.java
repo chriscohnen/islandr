@@ -68,9 +68,26 @@ public class SettingsResource {
                                           @Valid SettingsDto.TlsRequest body) {
         AuthContext actor = Auth.requireAdmin(ctx);
         TlsService.PemBundle bundle = TlsService.splitPemBundle(body.pem());
-        Settings after = tlsSvc.updateManagedCertificate(bundle.certPem(), bundle.keyPem(), actor.principal());
+        String keyPem = tlsSvc.resolveKeyPem(bundle);
+        Settings after = tlsSvc.updateManagedCertificate(bundle.certPem(), keyPem, actor.principal());
         audit.logUpdate(actor.principal(), "settings.tls_update", "Settings:singleton",
                 null, Map.of("tlsMode", after.tlsMode));
+        return toResponse(after);
+    }
+
+    /** Generates a private key + CSR for the Origin Server Certificate tab (#42) so an
+     *  admin can bring it to an external CA themselves, instead of pasting an
+     *  already-issued key/cert pair. The CSR stays visible/pending until a matching
+     *  certificate is uploaded (PUT above, cert-only paste), ACME is enabled instead,
+     *  or the admin uploads their own key+cert pair — all three clear it. */
+    @POST
+    @Path("/tls/csr")
+    public SettingsDto.Response generateTlsCsr(@Context ContainerRequestContext ctx,
+                                               @Valid SettingsDto.CsrRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        Settings after = tlsSvc.generateCsr(body.domain(), actor.principal());
+        audit.logUpdate(actor.principal(), "settings.tls_csr_generate", "Settings:singleton",
+                null, Map.of("domain", body.domain()));
         return toResponse(after);
     }
 
@@ -97,7 +114,7 @@ public class SettingsResource {
     public SettingsDto.Response enableAcme(@Context ContainerRequestContext ctx,
                                            @Valid SettingsDto.AcmeRequest body) {
         AuthContext actor = Auth.requireAdmin(ctx);
-        settings.enableAcme(body.domain(), actor.principal());
+        settings.enableAcme(body.domain(), body.challengeType(), body.dnsProvider(), body.dnsApiToken(), actor.principal());
         try {
             acmeSvc.issueCertificate();
         } catch (AcmeException e) {
@@ -110,6 +127,42 @@ public class SettingsResource {
         return toResponse(after);
     }
 
+    /** Resumes a "manual" dns-01 challenge (ADR-0020) once the admin has added
+     *  the TXT record {@code enableAcme} above asked for. Same "block and
+     *  surface acmeLastError on failure, not a 5xx" pattern as enableAcme. */
+    @POST
+    @Path("/acme/dns-continue")
+    @Consumes(MediaType.WILDCARD)  // no body — don't reject for missing Content-Type
+    public SettingsDto.Response continueAcmeDns(@Context ContainerRequestContext ctx) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        try {
+            acmeSvc.continueManualDnsChallenge();
+        } catch (AcmeException e) {
+            // already recorded on Settings.acmeLastError — surfaced via toResponse below
+        }
+        Settings after = settings.get();
+        audit.logUpdate(actor.principal(), "settings.acme_dns_continue", "Settings:singleton",
+                null, Map.of("tlsMode", after.tlsMode,
+                        "acmeLastError", after.acmeLastError == null ? "" : after.acmeLastError));
+        return toResponse(after);
+    }
+
+    /** Aborts an in-progress ACME onboarding attempt — always clears a stuck
+     *  manual dns-01 pending challenge; only resets the TLS mode back to
+     *  "none" if no certificate has actually been issued yet (see
+     *  {@link AcmeService#cancel}), so cancelling never discards an
+     *  already-working certificate. */
+    @DELETE
+    @Path("/acme")
+    public SettingsDto.Response cancelAcme(@Context ContainerRequestContext ctx) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        acmeSvc.cancel(actor.principal());
+        Settings after = settings.get();
+        audit.logUpdate(actor.principal(), "settings.acme_cancel", "Settings:singleton",
+                null, Map.of("tlsMode", after.tlsMode));
+        return toResponse(after);
+    }
+
     private SettingsDto.Response toResponse(Settings s) {
         // "acme" stores its issued cert in the same tlsCertPem/tlsKeyPem columns as
         // "managed" (ADR-0019) — same expiry/cert-info display applies to both.
@@ -117,6 +170,55 @@ public class SettingsResource {
         Instant expiresAt = hasCert ? tlsSvc.certificateExpiresAt(s.tlsCertPem) : null;
         TlsService.CertInfo certInfo = hasCert ? tlsSvc.certificateInfo(s.tlsCertPem) : null;
         return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt, certInfo);
+    }
+
+    /** Recomputes the client {@code AllowedIPs} preview from unsaved form values,
+     *  so the Settings UI can show the actual result live while an admin edits
+     *  tunnel mode / Auto-Manual / supernet, instead of only after a save.
+     *  Any parameter left null/blank falls back to the currently saved setting. */
+    @GET
+    @Path("/allowed-ips-preview")
+    public SettingsDto.AllowedIpsPreview allowedIpsPreview(
+            @Context ContainerRequestContext ctx,
+            @QueryParam("tunnelMode") String tunnelMode,
+            @QueryParam("allowedIpsMode") String allowedIpsMode,
+            @QueryParam("wgClientAllowedIps") String wgClientAllowedIps,
+            @QueryParam("splitSupernet") String splitSupernet) {
+        Auth.requireAdmin(ctx);
+        Settings s = settings.get();
+        String effectiveTunnelMode = (tunnelMode == null || tunnelMode.isBlank()) ? s.tunnelMode : tunnelMode;
+        String effectiveAllowedIpsMode = (allowedIpsMode == null || allowedIpsMode.isBlank()) ? s.allowedIpsMode : allowedIpsMode;
+        String effectiveManualValue = (wgClientAllowedIps == null) ? s.wgClientAllowedIps : wgClientAllowedIps;
+
+        java.util.List<String> siteCidrs = de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs();
+        String preview = de.chriscohnen.islandr.peer.AllowedIpsCalculator.compute(
+                effectiveTunnelMode, effectiveAllowedIpsMode, effectiveManualValue,
+                s.wgSubnet, s.wgSubnet6, splitSupernet, siteCidrs,
+                s.wgClientDns, true);
+
+        int outsideCount = 0;
+        if ("SPLIT".equals(effectiveTunnelMode) && "AUTO".equals(effectiveAllowedIpsMode)
+                && splitSupernet != null && !splitSupernet.isBlank()) {
+            de.chriscohnen.islandr.peer.IpSubnet supernet;
+            try {
+                supernet = de.chriscohnen.islandr.peer.IpSubnet.parse(splitSupernet.trim());
+            } catch (IllegalArgumentException e) {
+                supernet = null; // malformed — fail safe by counting every site as uncovered
+            }
+            for (String cidr : siteCidrs) {
+                boolean covered = false;
+                if (supernet != null) {
+                    try {
+                        covered = supernet.containsSubnet(de.chriscohnen.islandr.peer.IpSubnet.parse(cidr));
+                    } catch (IllegalArgumentException ignored) {
+                        // malformed site CIDR — not coverable, counts as outside
+                    }
+                }
+                if (!covered) outsideCount++;
+            }
+        }
+
+        return new SettingsDto.AllowedIpsPreview(preview, outsideCount);
     }
 
     @GET

@@ -19,6 +19,7 @@ export default defineComponent({
       users: [],
       loading: true,
       error: null,
+      quickFilter: "", // matches against display name, nickname, real name, or email — substring, case-insensitive
       newUser: { name: "", email: "" },
       submitting: false,
       lang: locale.current,
@@ -44,6 +45,15 @@ export default defineComponent({
     modalUserName() {
       const u = this.users.find((x) => x.id === this.modalUserId);
       return u ? `${u.displayName} (${u.email})` : null;
+    },
+    filteredUsers() {
+      const q = this.quickFilter.trim().toLowerCase();
+      if (!q) return this.users;
+      return this.users.filter((u) =>
+        (u.displayName || "").toLowerCase().includes(q)
+        || (u.nickname || "").toLowerCase().includes(q)
+        || (u.name || "").toLowerCase().includes(q)
+        || (u.email || "").toLowerCase().includes(q));
     },
   },
   async mounted() {
@@ -276,10 +286,18 @@ export default defineComponent({
   },
   template: `
     <div class="page-header">
-      <h1>{{ t('users.title') }} <span v-if="users.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">{{ users.length }}</span></h1>
-      <button v-if="googleWsAvailable" class="btn btn-ghost btn-sm" @click="openGwsDialog">
-        <Icon name="users" :size="13" />{{ t('users.gws_btn') }}
-      </button>
+      <h1>{{ t('users.title') }}
+        <span v-if="users.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">
+          {{ filteredUsers.length }}<template v-if="quickFilter.trim()"> / {{ users.length }}</template>
+        </span>
+      </h1>
+      <div style="display: flex; gap: var(--space-2)">
+        <input class="input input-sm" type="search" v-model="quickFilter"
+               :placeholder="t('users.quickfilter_ph')" style="width: 220px" />
+        <button v-if="googleWsAvailable" class="btn btn-ghost btn-sm" @click="openGwsDialog">
+          <Icon name="users" :size="13" />{{ t('users.gws_btn') }}
+        </button>
+      </div>
     </div>
 
     <!-- Google Workspace Import Dialog -->
@@ -361,6 +379,10 @@ export default defineComponent({
       <p>{{ t('users.empty_desc') }}</p>
     </div>
 
+    <div v-else-if="filteredUsers.length === 0" class="muted" style="padding: var(--space-4) 0">
+      {{ t('users.empty_filtered', { query: quickFilter.trim() }) }}
+    </div>
+
     <table v-else class="table">
       <thead>
         <tr>
@@ -374,7 +396,7 @@ export default defineComponent({
         </tr>
       </thead>
       <tbody>
-        <tr v-for="u in users" :key="u.id" :style="!u.enabled ? 'opacity: 0.55' : ''">
+        <tr v-for="u in filteredUsers" :key="u.id" :style="!u.enabled ? 'opacity: 0.55' : ''">
           <td>
             <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
               <Avatar :user="u" :size="32" />

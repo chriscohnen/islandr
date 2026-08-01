@@ -886,11 +886,12 @@ export default defineComponent({
                         <line x1="5" x2="13" y1="15" y2="15"/>
                         <line x1="9" x2="9" y1="11" y2="15"/>
                       </svg>
+                      <span>{{ t('myaccess.rdp_client_label') }}</span>
                     </a>
                   </template>
                   <!-- Browser button: only when the admin has enabled browser-based RDP -->
                   <button v-if="ironRdpEnabled" @click="openRdpDialog(r, p)"
-                     :class="['myaccess-port-link', 'myaccess-port-rdp',
+                     :class="['myaccess-port-link', 'myaccess-port-rdp', 'myaccess-port-rdp-browser',
                               p.rdpAccessMode === 'web-only' ? '' : 'myaccess-port-rdp-browser-adj']"
                      :title="t('myaccess.open_in_browser')">
                     <!-- Monitor + globe badge -->
@@ -907,7 +908,7 @@ export default defineComponent({
                       <line x1="13" y1="15" x2="21" y2="15" stroke="white" stroke-width="1.1"/>
                     </svg>
                     <span v-if="p.rdpAccessMode === 'web-only'" class="mono">{{ p.port }}/{{ p.transport }}</span>
-                    <span v-if="p.rdpAccessMode === 'web-only'">{{ p.label || p.protocol }}</span>
+                    <span>{{ t('myaccess.open_in_browser') }}</span>
                   </button>
                 </div>
                 <a v-else-if="isVncPort(p)"
@@ -1149,7 +1150,7 @@ export default defineComponent({
     <div v-if="rdpDialog" class="modal-backdrop" @click.self="closeRdpDialog">
       <div class="modal" style="max-width: 400px">
         <div class="modal-header">
-          <h3 style="margin:0; font-size: var(--text-md)">{{ t('myaccess.open_in_browser') }}</h3>
+          <h3 style="margin:0; font-size: var(--text-md)">{{ t('myaccess.rdp_dialog_title') }}</h3>
         </div>
         <div class="modal-body">
           <div class="muted" style="margin-bottom: var(--space-4); font-size: var(--text-sm)">

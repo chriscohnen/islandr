@@ -154,7 +154,13 @@ export default defineComponent({
       <tbody>
         <tr v-for="s in sites" :key="s.id">
           <td>{{ s.name }}</td>
-          <td class="mono">{{ s.cidr }}</td>
+          <td class="mono">
+            {{ s.cidr }}
+            <span v-if="s.outsideSplitSupernet" :title="t('sites.warn_outside_supernet')"
+                  style="display:inline-flex; align-items:center; gap:4px; color:var(--status-warn); font-family:var(--font-sans); font-size:var(--text-xs); font-weight:500; margin-left:var(--space-2)">
+              {{ t('sites.warn_outside_supernet_short') }}
+            </span>
+          </td>
           <td>
             <span v-if="!s.gatewayPeerId" class="muted">—</span>
             <span v-else style="display:inline-flex;align-items:center;gap:var(--space-2)">

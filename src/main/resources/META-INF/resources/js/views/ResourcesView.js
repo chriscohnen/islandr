@@ -10,6 +10,7 @@ export default defineComponent({
   components: { Icon },
   props: {
     siteId: { type: String, required: true },
+    ironRdpEnabled: { type: Boolean, default: false },
   },
   data() {
     return {
@@ -20,6 +21,7 @@ export default defineComponent({
       error: null,
       // Card grid vs. compact list with multi-select + bulk delete
       viewMode: "cards",     // 'cards' | 'list'
+      quickFilter: "",       // matches against name or ip, substring, case-insensitive
       selectedIds: [],
       bulkDeleting: false,
       sortKey: "name",
@@ -86,10 +88,16 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    filteredResources() {
+      const q = this.quickFilter.trim().toLowerCase();
+      if (!q) return this.resources;
+      return this.resources.filter((r) =>
+        (r.name || "").toLowerCase().includes(q) || (r.ip || "").toLowerCase().includes(q));
+    },
     sortedResources() {
       const k = this.sortKey;
       const d = this.sortDir;
-      const list = [...this.resources];
+      const list = [...this.filteredResources];
       list.sort((a, b) => {
         if (k === "type") {
           const av = this.typeLabel(a.type || "computer");
@@ -491,6 +499,8 @@ export default defineComponent({
         </div>
       </div>
       <div style="display: flex; gap: var(--space-2)">
+        <input class="input input-sm" type="search" v-model="quickFilter"
+               :placeholder="t('resources.quickfilter_ph')" style="width: 180px" />
         <div style="display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden">
           <button class="btn btn-sm" :class="viewMode === 'cards' ? 'btn-secondary' : 'btn-ghost'"
                   style="border: none; border-radius: 0" @click="setView('cards')">{{ t('resources.view_cards') }}</button>
@@ -510,6 +520,11 @@ export default defineComponent({
     <div v-else-if="resources.length === 0" class="empty-state">
       <h2>{{ t('resources.empty_title') }}</h2>
       <p>{{ t('resources.empty_desc') }}</p>
+    </div>
+
+    <div v-else-if="filteredResources.length === 0" class="empty-state">
+      <h2>{{ t('resources.quickfilter_empty_title') }}</h2>
+      <p>{{ t('resources.quickfilter_empty_desc') }}</p>
     </div>
 
     <!-- List view: multi-select + bulk delete -->
@@ -554,7 +569,7 @@ export default defineComponent({
     </div>
 
     <div v-else class="res-grid">
-      <div v-for="r in resources" :key="r.id" class="res-card">
+      <div v-for="r in filteredResources" :key="r.id" class="res-card">
 
         <!-- Card head: icon + identity + actions -->
         <div class="res-card-head">
@@ -663,6 +678,10 @@ export default defineComponent({
                 <div style="display: flex; gap: var(--space-2); align-self: flex-end">
                   <button type="submit" class="btn btn-primary btn-sm">{{ t('resources.add_btn') }}</button>
                 </div>
+              </div>
+              <div v-if="portForm.protocol === 'RDP' && !ironRdpEnabled" class="callout callout-info" style="margin-top: var(--space-3)">
+                {{ t('resources.iron_rdp_disabled_hint') }}
+                <router-link :to="{ name: 'settings' }">{{ t('resources.iron_rdp_disabled_link') }}</router-link>
               </div>
               <div v-if="portError" class="error-banner" style="margin-top: var(--space-3)">{{ portError }}</div>
             </form>

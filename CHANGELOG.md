@@ -8,6 +8,18 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 ---
 
+## 0.15.0
+
+- **Grant access by resource type, not just by resource** — a role can now be granted every resource of a given type at a site ("all printers in the home office"), additive to the existing per-resource grants and always scoped to all ports by design ([ADR-0022](docs/adr/0022-acl-type-grants.md)).
+- **World-map topology view** — sites, gateways and live tunnels plotted on a geocoded map alongside the existing network diagram, with pan and zoom. One pin per gateway peer, with a small grid of squares for each network it routes (capped at 24, then a summary block); a gateway pin nudges away from the hub when both would otherwise land on the same coordinates, e.g. a homelab where hub and site are the same physical location ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md)).
+- **DNS-01 as an alternative to HTTP-01** — issue a Let's Encrypt certificate without port 80 reachable from the internet, including a manual no-API-token mode for registrars without a supported DNS API ([ADR-0020](docs/adr/0020-dns01-challenge-with-manual-mode.md), [#41](https://github.com/chriscohnen/islandr/issues/41)).
+- **Generate a CSR for the Origin Certificate tab** — a private key and certificate signing request now generate in-app instead of requiring `openssl` on the side ([#42](https://github.com/chriscohnen/islandr/issues/42)).
+- **The activity heatmap is coloured by traffic volume**, not just presence, and a hover shows estimated connection duration in connections mode or ↓/↑ MB in traffic mode.
+- **A network's resource list scales past a starburst** — an expanded network's resources now render as a vertical icon+name row list off a tree spine instead of a circular fan, so it stays readable well past the ~20-30 resources where the old radial layout became an unreadable cluster.
+- **A stuck ACME attempt can actually be cancelled** — a failed first Let's Encrypt attempt used to leave no way back into the form; a new `DELETE /api/v1/settings/acme` resets a pending manual DNS-01 state and/or stops waiting on an in-flight attempt, and the Cancel button now shows up when it's needed. Never touches a certificate that already issued successfully.
+- **Geo-map fixes found in testing this release** — a stray line spanning the whole map where a land ring crosses the antimeridian (Fiji, Wrangel Island) is now broken at the seam instead of drawn straight across; pins and labels no longer rescale as you zoom; the tab is labelled "Geo Map" instead of "Map".
+- **Audit log entries for type-grants show names, not raw UUIDs** — creating or deleting a resource-type grant used to log the underlying IDs; it now logs the resolved role/site/resource-type names like every other audit entry.
+
 ## 0.14.0
 
 - **Let's Encrypt, fully automatic** — set a domain in Settings and islandr requests, validates, and installs a real certificate itself, then renews it before it expires. No Certbot, no cron job, no reverse proxy required. The ACME client (RFC 8555) is hand-rolled against the JDK's own HTTP and crypto APIs rather than pulling in a certificate library, keeping the native-image build free of a whole class of reflection risk ([ADR-0019](docs/adr/0019-acme-hand-rolled-client.md), [#30](https://github.com/chriscohnen/islandr/issues/30)). The TLS Settings card is also split into Let's Encrypt / Origin Server Certificate tabs, instead of one stacked block.

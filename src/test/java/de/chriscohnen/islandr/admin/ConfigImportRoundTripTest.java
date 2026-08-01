@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.admin;
 
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleBootstrap;
+import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.user.User;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
@@ -109,5 +110,94 @@ class ConfigImportRoundTripTest {
         assertThat(Role.<Role>find("autoAll", true).count())
                 .as("exactly one auto-membership role, or the next boot breaks")
                 .isEqualTo(1);
+    }
+
+    /**
+     * #33 (ADR-0017) added tunnelMode/allowedIpsMode/splitSupernet to the Settings entity but
+     * the export/import round trip forgot them: SettingsSnapshot didn't carry the fields, so an
+     * admin who configured SPLIT+AUTO+a splitSupernet and exported for a host migration would
+     * silently get the bare entity defaults (SPLIT/MANUAL/null) back on the target host.
+     */
+    @Test
+    void tunnelSettingsSurviveTheRoundTrip() {
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.tunnelMode = "SPLIT";
+            s.allowedIpsMode = "AUTO";
+            s.splitSupernet = "10.0.0.0/8";
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+
+        assertThat(export.settings().tunnelMode()).isEqualTo("SPLIT");
+        assertThat(export.settings().allowedIpsMode()).isEqualTo("AUTO");
+        assertThat(export.settings().splitSupernet()).isEqualTo("10.0.0.0/8");
+
+        // Reset to different values first so the import below is a genuine restore, not a
+        // no-op that would pass even if the fields were never wired up.
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.tunnelMode = "FULL";
+            s.allowedIpsMode = "MANUAL";
+            s.splitSupernet = null;
+        });
+
+        configService.importConfig(export);
+
+        Settings reloaded =
+                QuarkusTransaction.requiringNew().call(() -> Settings.findById(Settings.SINGLETON_ID));
+        assertThat(reloaded.tunnelMode).isEqualTo("SPLIT");
+        assertThat(reloaded.allowedIpsMode).isEqualTo("AUTO");
+        assertThat(reloaded.splitSupernet).isEqualTo("10.0.0.0/8");
+    }
+
+    /**
+     * An export created before #33 has null tunnelMode/allowedIpsMode/splitSupernet (the fields
+     * didn't exist yet). Importing it must fall back to the same defaults the Settings entity
+     * itself uses (SPLIT/MANUAL/null) rather than crash on a NOT NULL constraint.
+     */
+    @Test
+    void legacyExportWithoutTunnelSettingsFallsBackToDefaults() {
+        ConfigExportDto.Export original =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        ConfigExportDto.SettingsSnapshot orig = original.settings();
+
+        ConfigExportDto.SettingsSnapshot legacySettings = new ConfigExportDto.SettingsSnapshot(
+                orig.wgSubnet(), orig.wgServerPublicKey(), orig.wgServerEndpoint(),
+                orig.wgClientAllowedIps(), orig.wgClientDns(), orig.privateKeyRetention(),
+                orig.gravatarEnabled(), orig.oidcAutoProvision(), orig.firewallDryRun(),
+                orig.selfServicePeerCreation(), orig.wgMtu(), orig.wgIncludeMtuInConf(),
+                orig.wgPersistentKeepalive(),
+                null, null, null);
+
+        ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
+                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                legacySettings, original.oidcProviders(), original.users(), original.roles(),
+                original.roleMemberships(), original.peers(), original.sites(),
+                original.resources(), original.resourcePorts(), original.portGroups(),
+                original.portGroupMembers(), original.roleResourceGrants(),
+                original.grantPortLinks(), original.roleResourceTypeGrants());
+
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.tunnelMode = "FULL";
+            s.allowedIpsMode = "AUTO";
+            s.splitSupernet = "10.0.0.0/8";
+        });
+
+        configService.importConfig(legacyExport);
+
+        Settings reloaded =
+                QuarkusTransaction.requiringNew().call(() -> Settings.findById(Settings.SINGLETON_ID));
+        assertThat(reloaded.tunnelMode)
+                .as("legacy export without tunnelMode must fall back to the entity default")
+                .isEqualTo("SPLIT");
+        assertThat(reloaded.allowedIpsMode)
+                .as("legacy export without allowedIpsMode must fall back to the entity default")
+                .isEqualTo("MANUAL");
+        assertThat(reloaded.splitSupernet)
+                .as("splitSupernet has no fallback — null is its own valid default")
+                .isNull();
     }
 }

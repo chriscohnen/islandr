@@ -20,11 +20,20 @@ const CY = H / 2;   // hub center Y
 const HUB_R = 30;
 const FIRST_RING = 150;          // hub → gateway peers + direct networks
 const NETWORK_RING_OFFSET = 90;  // gateway → its grouped networks
-const RESOURCE_OFFSET = 110;     // network → its resources (added to the network's own hub distance)
 const NODE_HALF_W = 24;          // gateway/network box half-width
 const NODE_HALF_H = 14;          // gateway/network box half-height
 const NODE_RX = 8;
-const RESOURCE_R = 18;
+// Resources of an expanded network render as a "netzplan"-style row list —
+// a vertical stack of icon+name rows off a tree spine — instead of a
+// circular fan. A fan of circular nodes reads fine for a handful of
+// resources but turns into an unreadable starburst well before 20-30 (the
+// exact case flagged in TODO.md's "Darstellung bei sehr vielen Ressourcen"),
+// where a plain scrollable-feeling list stays legible at any count.
+const RESOURCE_ROW_H = 22;       // vertical spacing between resource rows
+const RESOURCE_ICON_R = 8;       // small icon circle at the start of each row
+const RESOURCE_LIST_GAP = 50;    // network box edge → row icons, horizontal
+const RESOURCE_SPINE_GAP = 22;   // network box edge → the vertical tree spine
+const RESOURCE_LABEL_W = 130;    // approx label width, for viewBox sizing only
 const LIVE_DOT_R = 4;
 const LIVE_DOT_ORBIT = 78; // inside FIRST_RING, but far enough out for a name+IP label under the dot
 
@@ -188,6 +197,10 @@ export default defineComponent({
     visibleNetworks() {
       return [...this.directNetworkLayout, ...this.expandedGatewayNetworkLayout];
     },
+    // One row per resource, stacked vertically off the expanded network's
+    // box — see the RESOURCE_* comment above. Extends toward whichever side
+    // of the hub the network box is already on (dir), so the list grows away
+    // from the hub/other spokes instead of back over them.
     resourceLayout() {
       if (!this.expandedSiteId) return [];
       const net = this.visibleNetworks.find((n) => n.site.id === this.expandedSiteId);
@@ -197,15 +210,35 @@ export default defineComponent({
         ? (this.activeTypes.size === 0 ? cached : cached.filter((r) => this.activeTypes.has(r.type || "computer")))
         : this.filteredResources.filter((r) => r.siteId === this.expandedSiteId);
       if (list.length === 0) return [];
-      const angles = fanAngles(net.angle, list.length);
-      // Push the ring outward for busy sites so the wider fan (see fanAngles)
-      // still leaves breathing room between adjacent resource nodes instead
-      // of just spreading a fixed-radius circle thinner.
-      const dist = net.dist + RESOURCE_OFFSET + Math.max(0, list.length - 10) * 4;
-      return list.map((r, i) => {
-        const { x, y } = polar(angles[i], dist);
-        return { resource: r, netX: net.x, netY: net.y, x, y };
-      });
+      const dir = net.x >= CX ? 1 : -1;
+      const totalH = list.length * RESOURCE_ROW_H;
+      const startY = net.y - totalH / 2 + RESOURCE_ROW_H / 2;
+      const iconX = net.x + dir * (NODE_HALF_W + RESOURCE_LIST_GAP);
+      return list.map((r, i) => ({
+        resource: r, netX: net.x, netY: net.y, dir,
+        x: iconX, y: startY + i * RESOURCE_ROW_H,
+      }));
+    },
+    // x-position of the vertical tree spine the resource rows branch off of —
+    // sits partway between the network box and the row icons.
+    resourceSpineX() {
+      if (this.resourceLayout.length === 0) return null;
+      const first = this.resourceLayout[0];
+      return first.netX + first.dir * (NODE_HALF_W + RESOURCE_SPINE_GAP);
+    },
+    // Short stub from the network box to the spine.
+    resourceTrunk() {
+      if (this.resourceLayout.length === 0) return null;
+      const first = this.resourceLayout[0];
+      return { x1: first.netX, y1: first.netY, x2: this.resourceSpineX, y2: first.netY };
+    },
+    // The spine itself, spanning every row's y — each row then branches off
+    // it horizontally (rendered per-row in the template).
+    resourceSpineLine() {
+      if (this.resourceLayout.length === 0) return null;
+      const ys = this.resourceLayout.map((r) => r.y);
+      const x = this.resourceSpineX;
+      return { x1: x, y1: Math.min(...ys), x2: x, y2: Math.max(...ys) };
     },
     livePeerLayout() {
       // Site-type peers are already represented by their gateway node (ring color
@@ -231,13 +264,19 @@ export default defineComponent({
         pts.push({ x: x - NODE_HALF_W, y: y - NODE_HALF_H });
         pts.push({ x: x + NODE_HALF_W, y: y + NODE_HALF_H + 14 * labelLines });
       };
-      const addResource = (x, y) => {
-        pts.push({ x: x - RESOURCE_R, y: y - RESOURCE_R });
-        pts.push({ x: x + RESOURCE_R, y: y + RESOURCE_R + 14 });
+      const addResourceRow = (item) => {
+        // The label hangs off the icon in the row's own direction (dir) —
+        // pad that side by the approx label width, the icon side by just
+        // the icon radius.
+        const iconEdge = item.dir > 0 ? item.x - RESOURCE_ICON_R : item.x + RESOURCE_ICON_R;
+        const labelEdge = item.dir > 0 ? item.x + RESOURCE_ICON_R + RESOURCE_LABEL_W
+                                        : item.x - RESOURCE_ICON_R - RESOURCE_LABEL_W;
+        pts.push({ x: Math.min(iconEdge, labelEdge), y: item.y - RESOURCE_ICON_R });
+        pts.push({ x: Math.max(iconEdge, labelEdge), y: item.y + RESOURCE_ICON_R });
       };
       for (const item of this.gatewayLayout) addBox(item.x, item.y, item.gateway.sites.length > 1 ? 2 : 1);
       for (const item of this.visibleNetworks) addBox(item.x, item.y, item.expanded ? 2 : 1);
-      for (const item of this.resourceLayout) addResource(item.x, item.y);
+      for (const item of this.resourceLayout) addResourceRow(item);
       for (const d of this.livePeerLayout) {
         pts.push({ x: d.x - 40, y: d.y - LIVE_DOT_R });
         // Two label lines (name + IP) hang below the dot — pad enough room
@@ -501,10 +540,18 @@ export default defineComponent({
               class="link" style="opacity:0.45"
               :x1="item.parentX" :y1="item.parentY" :x2="item.x" :y2="item.y" />
 
-        <!-- Network-to-resource links (expanded network only) -->
+        <!-- Network-to-resource tree (expanded network only): a short trunk
+             from the network box to a vertical spine, then one horizontal
+             branch per resource row off that spine — see the RESOURCE_*
+             comment near the top of the file for why this replaced the old
+             circular fan. -->
+        <line v-if="resourceTrunk" class="link" style="opacity:0.45"
+              :x1="resourceTrunk.x1" :y1="resourceTrunk.y1" :x2="resourceTrunk.x2" :y2="resourceTrunk.y2" />
+        <line v-if="resourceSpineLine" class="link" style="opacity:0.45"
+              :x1="resourceSpineLine.x1" :y1="resourceSpineLine.y1" :x2="resourceSpineLine.x2" :y2="resourceSpineLine.y2" />
         <line v-for="item in resourceLayout" :key="'rl-'+item.resource.id"
               class="link" style="opacity:0.45"
-              :x1="item.netX" :y1="item.netY" :x2="item.x" :y2="item.y" />
+              :x1="resourceSpineX" :y1="item.y" :x2="item.x" :y2="item.y" />
 
         <!-- Hub -->
         <circle class="hub-pulse" :cx="CX" :cy="CY" :r="HUB_R" />
@@ -526,7 +573,9 @@ export default defineComponent({
           <text v-if="d.peer.assignedIp" class="live-ip" :x="d.x" :y="d.y + LIVE_DOT_R + 24">{{ d.peer.assignedIp }}</text>
         </g>
 
-        <!-- Resource nodes (expanded network only) -->
+        <!-- Resource rows (expanded network only) — icon + name, "netzplan"
+             list style. Hover still surfaces IP/ports via the same tooltip
+             as before, just triggered off a row instead of a circle. -->
         <g v-for="item in resourceLayout" :key="item.resource.id"
            class="node live"
            @click="onResourceClick(item.resource.siteId, item.resource.id)"
@@ -534,13 +583,16 @@ export default defineComponent({
            @mousemove="moveTooltip($event)"
            @mouseleave="hideTooltip"
            :transform="'translate('+item.x+','+item.y+')'">
-          <circle class="node-ring" :r="RESOURCE_R" />
-          <circle class="node-bg"   :r="RESOURCE_R - 2" />
-          <g class="node-icon" transform="translate(-9.6,-9.6) scale(0.8)"
+          <circle class="node-ring" :r="RESOURCE_ICON_R" />
+          <circle class="node-bg"   :r="RESOURCE_ICON_R - 2" />
+          <g class="node-icon" transform="translate(-6,-6) scale(0.5)"
              fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round"
              v-html="resourceIconMarkup(item.resource.type)" />
-          <text class="node-label" :y="RESOURCE_R + 13">{{ item.resource.name }}</text>
+          <text class="node-label"
+                :x="item.dir > 0 ? RESOURCE_ICON_R + 6 : -(RESOURCE_ICON_R + 6)"
+                y="4"
+                :style="'text-anchor:' + (item.dir > 0 ? 'start' : 'end')">{{ item.resource.name }}</text>
         </g>
 
         <!-- Gateway-peer nodes — router silhouette (box, not circle): a shared
@@ -706,6 +758,6 @@ export default defineComponent({
     this.CX = CX; this.CY = CY;
     this.HUB_R = HUB_R;
     this.NODE_HALF_W = NODE_HALF_W; this.NODE_HALF_H = NODE_HALF_H; this.NODE_RX = NODE_RX;
-    this.RESOURCE_R = RESOURCE_R; this.LIVE_DOT_R = LIVE_DOT_R;
+    this.RESOURCE_ICON_R = RESOURCE_ICON_R; this.LIVE_DOT_R = LIVE_DOT_R;
   },
 });

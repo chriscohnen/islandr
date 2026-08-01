@@ -27,8 +27,9 @@ nb-configuration.xml
 .DS_Store
 Thumbs.db
 
-# Local data
-data/
+# Local data (runtime SQLite dir at repo root — not src/main/resources/**/data,
+# which ships bundled static assets like the world-map land outlines)
+/data/
 *.db
 *.db-journal
 *.db-wal

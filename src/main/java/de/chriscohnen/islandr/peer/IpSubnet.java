@@ -74,6 +74,19 @@ public final class IpSubnet {
         return this.networkInt.and(sharedMask).equals(other.networkInt.and(sharedMask));
     }
 
+    /**
+     * True if {@code other} is fully contained within this subnet: same address
+     * family, {@code other}'s prefix at least as specific as this one's, and
+     * {@code other}'s network falls inside this one's range. Used to check
+     * whether a site's CIDR falls inside the admin-declared split-tunnel
+     * supernet (issue #33).
+     */
+    public boolean containsSubnet(IpSubnet other) {
+        if (this.v6 != other.v6) return false;
+        if (other.prefix < this.prefix) return false;
+        return other.networkInt.and(this.maskInt).equals(this.networkInt);
+    }
+
     /** Returns the WireGuard server address (network + 1 convention). */
     public String networkAddress() {
         return intToAddr(networkInt.add(BigInteger.ONE), v6 ? 16 : 4);

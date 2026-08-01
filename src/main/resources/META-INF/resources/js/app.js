@@ -133,6 +133,7 @@ const App = defineComponent({
       setupComplete: true,
       retention: "never",
       selfServicePeerCreation: true,
+      ironRdpEnabled: false,
       googleWsAvailable: false,
       enforcement: { status: "active", runtime: null },
       installOpen: false,
@@ -185,6 +186,7 @@ const App = defineComponent({
         this.setupComplete = !!s.setupComplete;
         this.retention = s.privateKeyRetention || "never";
         this.selfServicePeerCreation = s.selfServicePeerCreation !== false;
+        this.ironRdpEnabled = !!s.ironRdpEnabled;
         this.googleWsAvailable = !!s.googleWsConfigured;
       } catch {
         // ignore — banner just won't show
@@ -260,6 +262,7 @@ const App = defineComponent({
       this.setupComplete = !!s.setupComplete;
       this.retention = s.privateKeyRetention || "never";
       this.selfServicePeerCreation = s.selfServicePeerCreation !== false;
+      this.ironRdpEnabled = !!s.ironRdpEnabled;
       this.googleWsAvailable = !!s.googleWsConfigured;
     },
     toggleTheme() {
@@ -412,7 +415,7 @@ const App = defineComponent({
             </div>
           </div>
         </div>
-        <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" :google-ws-available="googleWsAvailable" @settings-changed="onSettingsChanged" />
+        <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" :iron-rdp-enabled="ironRdpEnabled" :google-ws-available="googleWsAvailable" @settings-changed="onSettingsChanged" />
       </main>
     </div>
   `,

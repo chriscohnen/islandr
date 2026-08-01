@@ -39,6 +39,15 @@ public class SettingsService {
         s.wgSubnet6 = (req.wgSubnet6() == null || req.wgSubnet6().isBlank()) ? null : req.wgSubnet6().strip();
         s.wgServerPublicKey = req.wgServerPublicKey();
         s.wgServerEndpoint = req.wgServerEndpoint();
+        String allowedIpsMode = (req.allowedIpsMode() == null || req.allowedIpsMode().isBlank())
+                ? "MANUAL" : req.allowedIpsMode();
+        if ("MANUAL".equals(allowedIpsMode) && (req.wgClientAllowedIps() == null || req.wgClientAllowedIps().isBlank())) {
+            throw badRequest("wgClientAllowedIps is required when allowedIpsMode is MANUAL");
+        }
+        s.allowedIpsMode = allowedIpsMode;
+        s.tunnelMode = (req.tunnelMode() == null || req.tunnelMode().isBlank()) ? "SPLIT" : req.tunnelMode();
+        s.splitSupernet = (req.splitSupernet() == null || req.splitSupernet().isBlank())
+                ? null : req.splitSupernet().strip();
         s.wgClientAllowedIps = req.wgClientAllowedIps();
         s.wgClientDns = (req.wgClientDns() == null || req.wgClientDns().isBlank())
                 ? null : req.wgClientDns();
@@ -68,18 +77,55 @@ public class SettingsService {
         return s;
     }
 
-    /** Switches TLS to ACME mode (ADR-0019) for the given domain. Does not itself
-     *  issue anything — the caller ({@code SettingsResource}) triggers
+    /** Switches TLS to ACME mode (ADR-0019/0020) for the given domain. Does not
+     *  itself issue anything — the caller ({@code SettingsResource}) triggers
      *  {@code AcmeService.issueCertificate()} right after, outside this
-     *  transaction (issuance is slow; this just persists the operator's choice). */
+     *  transaction (issuance is slow; this just persists the operator's choice).
+     *
+     *  <p>{@code challengeType}/{@code dnsProvider}/{@code dnsApiToken} are all
+     *  optional and "keep the existing value if omitted or blank" — so
+     *  re-enabling with just a new domain doesn't force re-entering a DNS
+     *  provider token that's already on file. {@code dnsApiToken} is meaningless
+     *  (and ignored) for the "manual" provider, which needs no API access. */
     @Transactional
-    public Settings enableAcme(String domain, String actor) {
+    public Settings enableAcme(String domain, String challengeType, String dnsProvider, String dnsApiToken, String actor) {
         Settings s = get();
         s.tlsMode = "acme";
         s.acmeDomain = domain.strip();
+        if (challengeType != null && !challengeType.isBlank()) {
+            if (!"http-01".equals(challengeType) && !"dns-01".equals(challengeType)) {
+                throw badRequest("challengeType must be 'http-01' or 'dns-01'");
+            }
+            s.acmeChallengeType = challengeType;
+        } else if (s.acmeChallengeType == null) {
+            s.acmeChallengeType = "http-01";
+        }
+        if (dnsProvider != null && !dnsProvider.isBlank()) {
+            if (!"cloudflare".equals(dnsProvider) && !"manual".equals(dnsProvider)) {
+                throw badRequest("dnsProvider must be 'cloudflare' or 'manual'");
+            }
+            s.acmeDnsProvider = dnsProvider;
+        }
+        if (dnsApiToken != null && !dnsApiToken.isBlank()) {
+            s.acmeDnsApiToken = encSvc.isConfigured() ? encSvc.encrypt(dnsApiToken) : dnsApiToken;
+        }
+        if ("dns-01".equals(s.acmeChallengeType) && "cloudflare".equals(s.acmeDnsProvider) && s.acmeDnsApiToken == null) {
+            throw badRequest("dns-01 with the cloudflare provider needs an API token");
+        }
+        // A pending Origin-Certificate CSR/key (#42) is superseded — ACME manages
+        // tlsCertPem/tlsKeyPem itself from here on.
+        s.pendingCsrPem = null;
+        s.pendingKeyPem = null;
+        s.pendingCsrCreatedAt = null;
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
         return s;
+    }
+
+    private static WebApplicationException badRequest(String message) {
+        return new WebApplicationException(message,
+                jakarta.ws.rs.core.Response.status(400).entity(message)
+                        .type(jakarta.ws.rs.core.MediaType.TEXT_PLAIN).build());
     }
 
     @Transactional

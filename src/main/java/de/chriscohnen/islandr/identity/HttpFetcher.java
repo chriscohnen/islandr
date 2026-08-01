@@ -27,4 +27,8 @@ public interface HttpFetcher {
      *  requests, ADR-0019) — the request shapes above don't fit a signed JSON body. */
     Response postBody(String url, byte[] body, String contentType, Map<String, String> headers)
             throws IOException, InterruptedException;
+
+    /** DELETE with no body (e.g. removing a DNS-01 TXT record after validation,
+     *  ADR-0020) — returns body and status like the others. */
+    Response delete(String url, Map<String, String> headers) throws IOException, InterruptedException;
 }

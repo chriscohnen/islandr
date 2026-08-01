@@ -66,7 +66,8 @@ class MyPeerResourceCreateMtuTest {
                 cur.gravatarEnabled, cur.oidcAutoProvision, cur.firewallDryRun, true,
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
-                cur.ironRdpEnabled, cur.activityRetentionDays
+                cur.ironRdpEnabled, cur.activityRetentionDays,
+                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet
         ), "test");
     }
 

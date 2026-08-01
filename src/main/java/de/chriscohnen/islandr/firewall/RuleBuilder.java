@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
+import de.chriscohnen.islandr.acl.RoleResourceTypeGrant;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.user.User;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -96,6 +97,21 @@ public class RuleBuilder {
 
         Map<String, Resource> resourceById = new HashMap<>();
         for (Resource r : Resource.<Resource>listAll()) resourceById.put(r.id, r);
+
+        // Type grants ("all printers in Homeoffice", ACL type-grants
+        // 2026-07-28): expand each into a synthetic all-ports RoleResourceGrant
+        // per matching resource — never persisted, just reuses the exact same
+        // grant shape everything below this point already knows how to render,
+        // so the rest of RuleBuilder needs no further changes. Additive only:
+        // these are appended alongside, never replacing, concrete grants.
+        for (RoleResourceTypeGrant tg : RoleResourceTypeGrant.<RoleResourceTypeGrant>listAll()) {
+            for (Resource r : resourceById.values()) {
+                if (r.siteId.equals(tg.siteId) && r.type.equals(tg.resourceType)) {
+                    grantsByRole.computeIfAbsent(tg.roleId, k -> new ArrayList<>())
+                            .add(RoleResourceGrant.createNew(tg.roleId, r.id, true));
+                }
+            }
+        }
         Map<String, List<ResourcePort>> portsByResource = new HashMap<>();
         for (ResourcePort p : ResourcePort.<ResourcePort>listAll()) {
             portsByResource.computeIfAbsent(p.resourceId, k -> new ArrayList<>()).add(p);

@@ -157,6 +157,40 @@ class DashboardResourceTest {
         assertThat(body.getInt("topology.resourceOverflow")).isEqualTo(0);
     }
 
+    /** Backs the world-map topology view (ADR-0021, #11). */
+    @Test
+    void dashboard_topology_exposesGatewayAndHubCoordinates() {
+        seedGatewayAndHubCoordinates();
+
+        JsonPath body = given().when().get("/api/v1/dashboard")
+                .then().statusCode(200).extract().jsonPath();
+
+        assertThat(body.getDouble("topology.sites[0].gatewayLat")).isEqualTo(50.1109);
+        assertThat(body.getDouble("topology.sites[0].gatewayLng")).isEqualTo(8.6821);
+        assertThat(body.getDouble("topology.hubLat")).isEqualTo(52.52);
+        assertThat(body.getDouble("topology.hubLon")).isEqualTo(13.405);
+    }
+
+    @Transactional
+    void seedGatewayAndHubCoordinates() {
+        User owner = User.createNew("Site Owner", "owner-" + UUID.randomUUID() + "@firma.de");
+        owner.persist();
+        Peer gateway = Peer.createNew(owner.id, "gw-frankfurt",
+                "k4k4k4k4k4k4k4k4k4k4k4k4k4k4k4k4k4k4k4k4k4=", "10.99.0.30");
+        gateway.type = "site";
+        gateway.lat = 50.1109;
+        gateway.lng = 8.6821;
+        gateway.persist();
+
+        Site site = Site.find("name", "DC1").firstResult();
+        site.gatewayPeerId = gateway.id;
+
+        de.chriscohnen.islandr.settings.Settings s =
+                de.chriscohnen.islandr.settings.Settings.findById(de.chriscohnen.islandr.settings.Settings.SINGLETON_ID);
+        s.hubLat = 52.52;
+        s.hubLon = 13.405;
+    }
+
     @Test
     void dashboard_topology_livePeers_onlyRecentHandshakes() {
         JsonPath body = given().when().get("/api/v1/dashboard")

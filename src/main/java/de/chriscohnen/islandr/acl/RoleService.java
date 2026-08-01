@@ -299,4 +299,47 @@ public class RoleService {
         for (Object[] r : rows) out.put((String) r[0], ((Number) r[1]).longValue());
         return out;
     }
+
+    // -- Type grants (Role × Site × Resource-Type) ----------------------------
+    // "All printers in Homeoffice" instead of one grant per concrete resource.
+    // See RoleResourceTypeGrant's own doc comment for the additive-only,
+    // always-all-ports scoping decision.
+
+    public List<RoleDto.TypeGrantResponse> listTypeGrants() {
+        List<RoleResourceTypeGrant> grants = RoleResourceTypeGrant.<RoleResourceTypeGrant>listAll(Sort.by("createdAt"));
+        if (grants.isEmpty()) return List.of();
+        Map<String, String> siteNames = new HashMap<>();
+        for (Site s : Site.<Site>list("id in ?1", grants.stream().map(g -> g.siteId).distinct().toList())) {
+            siteNames.put(s.id, s.name);
+        }
+        List<RoleDto.TypeGrantResponse> out = new ArrayList<>(grants.size());
+        for (RoleResourceTypeGrant g : grants) {
+            out.add(new RoleDto.TypeGrantResponse(
+                    g.id, g.roleId, g.siteId, siteNames.getOrDefault(g.siteId, g.siteId), g.resourceType, g.createdAt));
+        }
+        return out;
+    }
+
+    @Transactional
+    public RoleResourceTypeGrant createTypeGrant(RoleDto.TypeGrantRequest req) {
+        if (Role.findById(req.roleId()) == null) {
+            throw new NotFoundException("role not found: " + req.roleId());
+        }
+        if (Site.findById(req.siteId()) == null) {
+            throw new NotFoundException("site not found: " + req.siteId());
+        }
+        RoleResourceTypeGrant existing = RoleResourceTypeGrant.findByRoleSiteType(
+                req.roleId(), req.siteId(), req.resourceType());
+        if (existing != null) return existing;  // re-granting the same rule is a no-op, not a conflict
+        RoleResourceTypeGrant g = RoleResourceTypeGrant.createNew(req.roleId(), req.siteId(), req.resourceType());
+        g.persist();
+        return g;
+    }
+
+    @Transactional
+    public void deleteTypeGrant(String id) {
+        RoleResourceTypeGrant g = RoleResourceTypeGrant.findById(id);
+        if (g == null) throw new NotFoundException("type grant not found: " + id);
+        g.delete();
+    }
 }

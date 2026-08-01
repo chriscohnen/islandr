@@ -28,6 +28,14 @@ export default defineComponent({
       picker: null,    // { roleId, resourceId, portsForResource }
       saving: false,
       lang: locale.current,
+      // Type grants ("all printers in Homeoffice", ACL type-grants 2026-07-28) —
+      // additive, always all-ports, scoped by site like the matrix itself, but
+      // not a matrix cell (no single resourceId), so it's its own small panel.
+      typeGrants: [],
+      newTypeGrantRoleId: "",
+      newTypeGrantType: "computer",
+      typeGrantSaving: false,
+      typeGrantError: null,
     };
   },
   computed: {
@@ -64,6 +72,25 @@ export default defineComponent({
       const n = this.dirtyCount;
       return t(n === 1 ? "acl.unsaved" : "acl.unsaved_p", { n });
     },
+    typeGrantsForActiveSite() {
+      return this.typeGrants.filter((g) => g.siteId === this.activeSiteId);
+    },
+    resourceTypeOptions() {
+      void this.lang;
+      return [
+        ["computer", t("resources.type_computer")],
+        ["nas", t("resources.type_nas")],
+        ["printer", t("resources.type_printer")],
+        ["router", t("resources.type_router")],
+        ["camera", t("resources.type_camera")],
+        ["iot", t("resources.type_iot")],
+        ["virt-host", t("resources.type_virt")],
+        ["rackserver", t("resources.type_rackserver")],
+        ["kvm", t("resources.type_kvm")],
+        ["management", t("resources.type_mgmt")],
+        ["other", t("resources.type_other")],
+      ];
+    },
   },
   async mounted() {
     await this.load();
@@ -76,19 +103,21 @@ export default defineComponent({
       this.error = null;
       this.pending = {};
       try {
-        const [sitesRes, resRes, rolesRes, gRes] = await Promise.all([
+        const [sitesRes, resRes, rolesRes, gRes, tgRes] = await Promise.all([
           fetch("/api/v1/sites"),
           fetch("/api/v1/resources"),
           fetch("/api/v1/roles"),
           fetch("/api/v1/acl/matrix"),
+          fetch("/api/v1/acl/type-grants"),
         ]);
-        if (!sitesRes.ok || !resRes.ok || !rolesRes.ok || !gRes.ok) {
+        if (!sitesRes.ok || !resRes.ok || !rolesRes.ok || !gRes.ok || !tgRes.ok) {
           throw new Error(t("acl.err_load_matrix"));
         }
         this.sites = await sitesRes.json();
         this.resources = await resRes.json();
         this.roles = await rolesRes.json();
         this.grants = await gRes.json();
+        this.typeGrants = await tgRes.json();
         if (!this.activeSiteId && this.sites.length > 0) {
           this.activeSiteId = this.sites[0].id;
         }
@@ -222,6 +251,53 @@ export default defineComponent({
         this.saving = false;
       }
     },
+
+    typeLabel(key) {
+      const found = this.resourceTypeOptions.find(([k]) => k === key);
+      return found ? found[1] : key;
+    },
+
+    async addTypeGrant() {
+      if (!this.newTypeGrantRoleId || !this.activeSiteId) return;
+      this.typeGrantSaving = true;
+      this.typeGrantError = null;
+      try {
+        const res = await fetch("/api/v1/acl/type-grants", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            roleId: this.newTypeGrantRoleId,
+            siteId: this.activeSiteId,
+            resourceType: this.newTypeGrantType,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+        }
+        const created = await res.json();
+        // Idempotent create can return an existing row — avoid a visual duplicate.
+        if (!this.typeGrants.some((g) => g.id === created.id)) {
+          this.typeGrants = [...this.typeGrants, created];
+        }
+        this.newTypeGrantRoleId = "";
+      } catch (e) {
+        this.typeGrantError = t("acl.type_grant_error", { error: e.message });
+      } finally {
+        this.typeGrantSaving = false;
+      }
+    },
+
+    async removeTypeGrant(id) {
+      this.typeGrantError = null;
+      try {
+        const res = await fetch("/api/v1/acl/type-grants/" + id, { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.typeGrants = this.typeGrants.filter((g) => g.id !== id);
+      } catch (e) {
+        this.typeGrantError = t("acl.type_grant_error", { error: e.message });
+      }
+    },
   },
   template: `
     <div class="page-header">
@@ -313,6 +389,52 @@ export default defineComponent({
           <span class="mono">ⓐ</span> {{ t('acl.legend_all') }} &nbsp;·&nbsp;
           <span class="mono">N</span> N {{ t('acl.legend_selected') }} &nbsp;·&nbsp;
           {{ t('acl.legend_amber') }}
+        </div>
+
+        <!-- Type grants ("all printers in Homeoffice") — additive, always
+             all-ports, scoped to the active site like the matrix above but
+             not a matrix cell: applies to every current AND future resource
+             of that type in this site, not one concrete resourceId. Takes
+             effect immediately on add/remove (unlike the matrix, no
+             apply-batch step — there's no per-cell state to stage here). -->
+        <div class="card card-pad" style="margin-top: var(--space-5)">
+          <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.type_grants_title') }}</h2>
+          <div class="field-hint" style="margin-top: 0">{{ t('acl.type_grants_hint') }}</div>
+
+          <div v-if="typeGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ typeGrantError }}</div>
+
+          <table v-if="typeGrantsForActiveSite.length > 0" class="table" style="margin-top: var(--space-3)">
+            <thead>
+              <tr>
+                <th>{{ t('acl.th_role') }}</th>
+                <th>{{ t('acl.th_type') }}</th>
+                <th style="width: 40px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="g in typeGrantsForActiveSite" :key="g.id">
+                <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
+                <td>{{ typeLabel(g.resourceType) }}</td>
+                <td>
+                  <button class="btn btn-ghost btn-sm" @click="removeTypeGrant(g.id)" :title="t('acl.type_grant_remove')">✕</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.type_grants_empty') }}</p>
+
+          <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
+            <select class="select" v-model="newTypeGrantRoleId" style="max-width: 220px">
+              <option value="" disabled>{{ t('acl.type_grant_pick_role') }}</option>
+              <option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option>
+            </select>
+            <select class="select" v-model="newTypeGrantType" style="max-width: 200px">
+              <option v-for="[key, label] in resourceTypeOptions" :key="key" :value="key">{{ label }}</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" :disabled="!newTypeGrantRoleId || typeGrantSaving" @click="addTypeGrant">
+              {{ typeGrantSaving ? t('common.loading') : t('acl.type_grant_add_btn') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>

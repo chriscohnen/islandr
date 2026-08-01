@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import TopologyDiagram from "/js/TopologyDiagram.js";
+import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import ActivityHeatmap from "/js/ActivityHeatmap.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
@@ -10,7 +11,7 @@ import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 // numbers. Most cards are clickable shortcuts to the underlying view.
 export default defineComponent({
   name: "DashboardView",
-  components: { TopologyDiagram, ActivityHeatmap, Icon },
+  components: { TopologyDiagram, TopologyWorldMap, ActivityHeatmap, Icon },
   data() {
     return {
       data: null,
@@ -72,6 +73,17 @@ export default defineComponent({
       }
       return issues;
     },
+    // World-map tab only makes sense once there's actually something
+    // geographic to show — ADR-0021 (revised 2026-07-26): hub coordinates
+    // set AND at least one geocoded site-peer, so a hub + single remote
+    // site (a real, common case) already gets a map instead of needing a
+    // second site purely to clear an arbitrary count.
+    worldMapAvailable() {
+      if (!this.data) return false;
+      const hasHub = this.data.topology.hubLat != null && this.data.topology.hubLon != null;
+      const geocodedSites = this.data.topology.sites.filter((s) => s.gatewayLat != null && s.gatewayLng != null).length;
+      return hasHub && geocodedSites >= 1;
+    },
   },
   methods: {
     t(key, vars) { return t(key, vars); },
@@ -83,6 +95,7 @@ export default defineComponent({
         const res = await fetch("/api/v1/dashboard");
         if (!res.ok) throw new Error("HTTP " + res.status);
         this.data = await res.json();
+        if (this.activeTab === "map" && !this.worldMapAvailable) this.activeTab = "topology";
       } catch (e) {
         this.error = t("dashboard.error_load", { error: e.message });
       } finally {
@@ -261,6 +274,9 @@ export default defineComponent({
             <button class="btn btn-sm" :class="activeTab === 'topology' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'topology'">
               {{ t('dashboard.topology_title') }}
             </button>
+            <button v-if="worldMapAvailable" class="btn btn-sm" :class="activeTab === 'map' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'map'">
+              {{ t('dashboard.worldmap_title') }}
+            </button>
             <button class="btn btn-sm" :class="activeTab === 'heatmap' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'heatmap'">
               {{ t('dashboard.heatmap_title') }}
             </button>
@@ -322,6 +338,17 @@ export default defineComponent({
               </tbody>
             </table>
           </div>
+        </div>
+
+        <!-- World-map topology view (ADR-0021, #11): geographic alternative to
+             the radial diagram above, for operators with distributed sites. -->
+        <div v-if="worldMapAvailable" v-show="activeTab === 'map'">
+          <TopologyWorldMap
+              :sites="data.topology.sites"
+              :hub-lat="data.topology.hubLat"
+              :hub-lon="data.topology.hubLon"
+              :hub-label="data.topology.hubLabel"
+              @site="onTopologySite" />
         </div>
 
         <!-- Connection activity heatmap: peers x days, who was connected when (#32) -->

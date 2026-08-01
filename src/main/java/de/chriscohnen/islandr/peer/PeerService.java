@@ -588,16 +588,11 @@ public class PeerService {
             sb.append("MTU = ").append(effectiveMtu).append("\n");
         }
 
-        String siteCidrs = de.chriscohnen.islandr.acl.Site.<de.chriscohnen.islandr.acl.Site>listAll().stream()
-                .filter(site -> site.gatewayPeerId != null)
-                .filter(site -> { Peer gw = Peer.findById(site.gatewayPeerId); return gw != null && gw.enabled; })
-                .map(site -> site.cidr)
-                .collect(java.util.stream.Collectors.joining(", "));
-
-        String allowedIps = settings.wgClientAllowedIps;
-        if (!siteCidrs.isBlank()) {
-            allowedIps = allowedIps + ", " + siteCidrs;
-        }
+        String allowedIps = AllowedIpsCalculator.compute(
+                settings.tunnelMode, settings.allowedIpsMode, settings.wgClientAllowedIps,
+                settings.wgSubnet, settings.wgSubnet6, settings.splitSupernet,
+                de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
+                settings.wgClientDns, peerIncludeDns);
 
         sb.append("\n[Peer]\n");
         sb.append("PublicKey = ").append(settings.wgServerPublicKey).append("\n");

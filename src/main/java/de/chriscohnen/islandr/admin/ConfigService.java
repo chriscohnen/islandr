@@ -29,7 +29,8 @@ public class ConfigService {
                 s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                 s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
                 s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
-                s.wgPersistentKeepalive);
+                s.wgPersistentKeepalive,
+                s.tunnelMode, s.allowedIpsMode, s.splitSupernet);
 
         List<ConfigExportDto.OidcProviderSnapshot> providers = OidcProvider.<OidcProvider>listAll()
                 .stream().map(p -> new ConfigExportDto.OidcProviderSnapshot(
@@ -105,11 +106,16 @@ public class ConfigService {
                 .map(r -> new ConfigExportDto.GrantPortLink((String) r[0], (String) r[1]))
                 .toList();
 
+        List<ConfigExportDto.TypeGrantSnapshot> typeGrants = RoleResourceTypeGrant.<RoleResourceTypeGrant>listAll()
+                .stream().map(g -> new ConfigExportDto.TypeGrantSnapshot(
+                        g.id, g.roleId, g.siteId, g.resourceType, g.createdAt))
+                .toList();
+
         return new ConfigExportDto.Export(
                 "1", Instant.now(), includePrivateKeys,
                 settings, providers, users, roles, memberships, peers,
                 sites, resources, ports, portGroups, portGroupMembers,
-                grants, grantPortLinks);
+                grants, grantPortLinks, typeGrants);
     }
 
     @Transactional
@@ -117,6 +123,7 @@ public class ConfigService {
         // --- Tear-down in FK order -------------------------------------------
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_grants").executeUpdate();
+        em.createNativeQuery("DELETE FROM role_resource_type_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM resource_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM resources").executeUpdate();
         // Break the sites ↔ peers FK cycle before deleting either table.
@@ -287,6 +294,20 @@ public class ConfigService {
                     .executeUpdate();
         }
 
+        // --- ACL type grants ("all printers in Homeoffice") ------------------
+        for (var g : safe(p.roleResourceTypeGrants())) {
+            em.createNativeQuery(
+                            "INSERT INTO role_resource_type_grants" +
+                            " (id, role_id, site_id, resource_type, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5)")
+                    .setParameter(1, g.id())
+                    .setParameter(2, g.roleId())
+                    .setParameter(3, g.siteId())
+                    .setParameter(4, g.resourceType())
+                    .setParameter(5, ts(g.createdAt()))
+                    .executeUpdate();
+        }
+
         // --- Grant-port links ------------------------------------------------
         for (var gpl : safe(p.grantPortLinks())) {
             em.createNativeQuery(
@@ -313,6 +334,11 @@ public class ConfigService {
             s.wgIncludeMtuInConf = snap.wgIncludeMtuInConf();
             // Pre-0.13.0 exports lack this field → keep the 25 default rather than 0.
             s.wgPersistentKeepalive = snap.wgPersistentKeepalive() != null ? snap.wgPersistentKeepalive() : 25;
+            // Pre-#33 exports lack these fields → fall back to the same defaults the
+            // Settings entity itself uses (SPLIT/MANUAL/null).
+            s.tunnelMode = snap.tunnelMode() != null ? snap.tunnelMode() : "SPLIT";
+            s.allowedIpsMode = snap.allowedIpsMode() != null ? snap.allowedIpsMode() : "MANUAL";
+            s.splitSupernet = snap.splitSupernet();
             // wgServerPublicKey + wgServerEndpoint: keep the target hub's own values
             s.updatedAt = Instant.now();
             s.updatedBy = "config-import";

@@ -80,6 +80,7 @@ class FirewallTest {
         // Wipe everything ACL-related so each test starts from a known state.
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         RoleResourceGrant.deleteAll();
+        de.chriscohnen.islandr.acl.RoleResourceTypeGrant.deleteAll();
         em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
         ResourcePort.deleteAll();
         Resource.deleteAll();
@@ -187,6 +188,37 @@ class FirewallTest {
                 .contains("tcp dport 22")
                 .contains("tcp dport 443")
                 .contains("icmp type echo-request");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_typeGrant_coversMatchingResourceInThatSiteOnly() {
+        // "All printers in Homeoffice" (ACL type-grants, 2026-07-28): a
+        // type-grant with no concrete RoleResourceGrant row must still
+        // produce enforcement rules for a matching resource, and must NOT
+        // apply to a same-typed resource in a different site.
+        User u = persistUser("carol@example.test", "Carol");
+        Role role = persistRole("Printing");
+        addUserToRole(u.id, role.id);
+        Site home = persistSite("Homeoffice", "10.22.0.0/16");
+        Site office = persistSite("Office", "10.23.0.0/16");
+        Resource homePrinter = de.chriscohnen.islandr.acl.Resource.createNew(
+                home.id, "LaserJet", "10.22.0.5", null, "printer");
+        homePrinter.persist();
+        Resource officePrinter = de.chriscohnen.islandr.acl.Resource.createNew(
+                office.id, "OfficeJet", "10.23.0.5", null, "printer");
+        officePrinter.persist();
+        persistPort(homePrinter.id, 631, "tcp", "IPP");
+        persistPort(officePrinter.id, 631, "tcp", "IPP");
+        de.chriscohnen.islandr.acl.RoleResourceTypeGrant.createNew(role.id, home.id, "printer").persist();
+        persistPeer(u.id, "laptop", "10.8.0.7");
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.rulesetText())
+                .contains("ip daddr 10.22.0.5")
+                .contains("tcp dport 631");
+        assertThat(snap.rulesetText()).doesNotContain("ip daddr 10.23.0.5");
     }
 
     @Test

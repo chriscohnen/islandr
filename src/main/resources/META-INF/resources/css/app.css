@@ -1258,26 +1258,92 @@ body {
   font-size: var(--text-sm);
 }
 
+/* --- world-map topology view (ADR-0021, #11) ----------------------------- */
+/* Shares .topo's hub-pulse/hub-core/node-ring/node-label rules (TopologyWorldMap
+   renders <svg class="topo worldmap">) — only the ocean/land fills and the
+   link styling below are new. No gradients, monochrome land mass, themed
+   entirely through existing surface/border tokens. */
+.worldmap-ocean {
+  fill: var(--surface-2);
+}
+.worldmap-land {
+  fill: var(--border);
+  stroke: none;
+}
+/* stroke-width (and, for -down, stroke-dasharray) are set inline by
+   TopologyWorldMap.js's linkStyle(), scaled by 1/zoom — a fixed value here
+   would stretch into ever-thicker lines / ever-longer dashes while zooming
+   in. LINK_STROKE_WIDTH/LINK_DASH/LINK_GAP there are this class's real
+   source of truth; keep them in sync if these ever change. */
+.worldmap-link {
+  fill: none;
+}
+.worldmap-link-live {
+  stroke: var(--status-ok, #16a34a);
+  opacity: 0.55;
+}
+.worldmap-link-down {
+  stroke: var(--fg3);
+  opacity: 0.35;
+}
+/* One square per network under a multi-network gateway's pin (see GRID_*
+   in TopologyWorldMap.js) — same accent as the topology diagram's network
+   count text, not a new color. Filled (not just outlined) so it reads as a
+   solid glyph at this size instead of a hollow square blending into the
+   land/ocean fill behind it. */
+.worldmap-net-square {
+  fill: var(--accent);
+  stroke: none;
+}
+.worldmap-net-count {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  /* Sits on top of the now solid-accent-filled .worldmap-net-square (the
+     "too many to enumerate" overflow block) — needs the on-accent contrast
+     token, not --accent, or the number disappears into its own background. */
+  fill: var(--fg-on-accent);
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
 /* --- connection activity heatmap (#32) ----------------------------------- */
 /* 5 intensity levels off the existing accent ramp, GitHub-contribution-graph
    style. Level is relative to that day's max across peers, not an absolute
    scale — see ActivityHeatmap.js. */
-.heatmap-cell {
-  width: 18px;
-  height: 18px;
+/* `.table td { height: var(--row-height) }` (components.css) outranks a bare
+   `.heatmap-cell` on specificity (class+element beats class alone), so every
+   day cell rendered at the shared ~44px row height while staying 18px wide —
+   not square. `td.heatmap-cell` matches that specificity to actually win.
+   The sticky peer-name cell in the same row is given a matching explicit
+   height inline (ActivityHeatmap.js) — a table row's rendered height is the
+   max across all its cells, so the day cells alone being 20px tall isn't
+   enough if the name cell in the same row still demands the default 44px. */
+td.heatmap-cell {
+  width: 20px;
+  height: 20px;
   border-radius: 3px;
   background: var(--surface-2);
 }
-.heatmap-l1 { background: var(--accent-100); }
-.heatmap-l2 { background: var(--accent-200); }
-.heatmap-l3 { background: var(--accent-300); }
-.heatmap-l4 { background: var(--accent-400); }
-.heatmap-l5 { background: var(--accent-500); }
-[data-theme="dark"] .heatmap-l1 { background: var(--accent-900); }
-[data-theme="dark"] .heatmap-l2 { background: var(--accent-800); }
-[data-theme="dark"] .heatmap-l3 { background: var(--accent-700); }
-[data-theme="dark"] .heatmap-l4 { background: var(--accent-600); }
-[data-theme="dark"] .heatmap-l5 { background: var(--accent-500); }
+/* Same specificity trap as the width/height rule above: `td.heatmap-cell`
+   (element+class) outranks a bare `.heatmap-lN` (class only), so the level
+   color never actually applied in light mode — every cell silently fell
+   back to td.heatmap-cell's --surface-2, regardless of activity. It only
+   looked correct in dark mode because those overrides added an extra
+   [data-theme="dark"] attribute selector, which happened to out-rank it.
+   `td.heatmap-cell.heatmap-lN` matches td.heatmap-cell's specificity plus
+   the level class, so it wins in both themes without relying on that. */
+td.heatmap-cell.heatmap-l1 { background: var(--accent-100); }
+td.heatmap-cell.heatmap-l2 { background: var(--accent-200); }
+td.heatmap-cell.heatmap-l3 { background: var(--accent-300); }
+td.heatmap-cell.heatmap-l4 { background: var(--accent-400); }
+td.heatmap-cell.heatmap-l5 { background: var(--accent-500); }
+[data-theme="dark"] td.heatmap-cell.heatmap-l1 { background: var(--accent-900); }
+[data-theme="dark"] td.heatmap-cell.heatmap-l2 { background: var(--accent-800); }
+[data-theme="dark"] td.heatmap-cell.heatmap-l3 { background: var(--accent-700); }
+[data-theme="dark"] td.heatmap-cell.heatmap-l4 { background: var(--accent-600); }
+[data-theme="dark"] td.heatmap-cell.heatmap-l5 { background: var(--accent-500); }
 
 /* ============================================================================
    ResourcesView — card grid
@@ -1719,13 +1785,19 @@ body {
 .myaccess-port-rdp-right {
   border-top-left-radius: 5px;
   border-bottom-left-radius: 5px;
-  padding: 0 var(--space-2);
 }
 
 /* browser button when adjacent to native split buttons */
 .myaccess-port-rdp-browser-adj {
   border-top-left-radius: 5px;
   border-bottom-left-radius: 5px;
+}
+
+/* the "open in browser" button carries its own accent so it reads as the
+   IronRDP action at a glance, not just another monitor icon in the row */
+.myaccess-port-rdp-browser {
+  color: var(--accent-strong, var(--accent));
+  font-weight: 600;
 }
 
 /* IronRDP full-screen overlay */

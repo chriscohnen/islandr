@@ -21,6 +21,9 @@ export default defineComponent({
       error: null,
       info: null,
       savedRetention: "never",
+      computedAllowedIpsPreview: "",
+      sitesOutsideSupernetCount: 0,
+      allowedIpsPreviewTimer: null,
       encryptionKeyConfigured: false,
       wgInterface: "wg0", // read-only; set via ISLANDR_WG_INTERFACE at deploy time
       form: {
@@ -30,6 +33,9 @@ export default defineComponent({
         wgServerEndpoint: "",
         wgClientAllowedIps: "",
         wgClientDns: "",
+        tunnelMode: "SPLIT",
+        allowedIpsMode: "MANUAL",
+        splitSupernet: "",
         privateKeyRetention: "never",
         gravatarEnabled: false,
         oidcAutoProvision: true,
@@ -74,15 +80,48 @@ export default defineComponent({
       acmeLastError: null,
       acmeDomainInput: "",
       acmeEnabling: false,
+      _acmeAbort: null, // AbortController for the in-flight enableAcme() request — lets "Cancel" stop waiting on it
+
+      // DNS-01 challenge (#41, ADR-0020) — an alternative to HTTP-01 for hubs
+      // that don't want port 80 reachable. "manual" needs no API token: it
+      // pauses issuance and shows the TXT record to add elsewhere yourself.
+      acmeChallengeType: "http-01",
+      acmeDnsProvider: null,
+      acmeDnsPendingRecordName: null,
+      acmeDnsPendingRecordValue: null,
+      acmeChallengeTypeInput: "http-01",
+      acmeDnsProviderInput: "cloudflare",
+      acmeDnsApiTokenInput: "",
+      dnsContinuing: false,
+      dnsCopyState: "idle",
       // Pure layout split — "letsencrypt" | "origin". Defaults to whichever
       // mode is actually active so a returning admin lands where they left off.
       tlsTab: "letsencrypt",
+      // Origin-certificate CSR generation (#42) — pending until a matching
+      // signed certificate is uploaded, ACME is enabled, or an own key+cert
+      // pair is uploaded instead (all three clear it server-side).
+      pendingCsrPem: null,
+      pendingCsrCreatedAt: null,
+      csrDomainInput: "",
+      csrGenerating: false,
+      csrCopyState: "idle",
     };
   },
   async mounted() {
     await this.load();
     if (this.tlsMode === "managed") this.tlsTab = "origin";
     this.loadEnforcement();
+    this.refreshAllowedIpsPreview();
+  },
+  watch: {
+    // Live preview: recompute against unsaved form values whenever tunnel mode,
+    // Auto/Manual, the supernet, or the manual value change — instead of only
+    // after Save. Debounced so typing in the supernet/manual fields doesn't
+    // fire a request per keystroke.
+    "form.tunnelMode"() { this.scheduleAllowedIpsPreview(); },
+    "form.allowedIpsMode"() { this.scheduleAllowedIpsPreview(); },
+    "form.splitSupernet"() { this.scheduleAllowedIpsPreview(); },
+    "form.wgClientAllowedIps"() { this.scheduleAllowedIpsPreview(); },
   },
   computed: {
     _lang() { return locale.current; },
@@ -125,6 +164,25 @@ export default defineComponent({
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+    // Same "paste a 'lat, lng' pair, split into both fields" convenience the
+    // site-peer form already has (peerModal.js#pasteSiteCoordinates) — the
+    // hub-location fields never got it, so a paste here either dropped the
+    // second value or (since these are type=number inputs) got silently
+    // truncated at the comma, leaving hubLon unset/garbage.
+    pasteHubCoordinates(event) {
+      const text = (event.clipboardData || window.clipboardData).getData("text").trim();
+      const parts = text.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const lat = parseFloat(parts[0]);
+        const lon = parseFloat(parts[1]);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          this.form.hubLat = lat;
+          this.form.hubLon = lon;
+          return;
+        }
+      }
+      this.form.hubLat = text;
+    },
     async load() {
       this.loading = true;
       this.error = null;
@@ -143,6 +201,9 @@ export default defineComponent({
           wgServerEndpoint: s.wgServerEndpoint || "",
           wgClientAllowedIps: s.wgClientAllowedIps || "",
           wgClientDns: s.wgClientDns || "",
+          tunnelMode: s.tunnelMode || "SPLIT",
+          allowedIpsMode: s.allowedIpsMode || "MANUAL",
+          splitSupernet: s.splitSupernet || "",
           privateKeyRetention: s.privateKeyRetention || "never",
           gravatarEnabled: !!s.gravatarEnabled,
           oidcAutoProvision: s.oidcAutoProvision !== false,
@@ -157,6 +218,7 @@ export default defineComponent({
           hubLocationLabel: s.hubLocationLabel || "",
           activityRetentionDays: s.activityRetentionDays || 180,
         };
+        this.computedAllowedIpsPreview = s.computedAllowedIpsPreview || "";
         this.meta = {
           updatedAt: s.updatedAt,
           updatedBy: s.updatedBy,
@@ -170,6 +232,12 @@ export default defineComponent({
         this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
         this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
         this.acmeLastError = s.acmeLastError || null;
+        this.acmeChallengeType = s.acmeChallengeType || "http-01";
+        this.acmeDnsProvider = s.acmeDnsProvider || null;
+        this.acmeDnsPendingRecordName = s.acmeDnsPendingRecordName || null;
+        this.acmeDnsPendingRecordValue = s.acmeDnsPendingRecordValue || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
       } catch (e) {
         this.error = t("settings.error_load", { error: e.message });
       } finally {
@@ -211,6 +279,8 @@ export default defineComponent({
           setupComplete: s.setupComplete,
         };
         this.savedRetention = s.privateKeyRetention || "never";
+        this.computedAllowedIpsPreview = s.computedAllowedIpsPreview || "";
+        this.refreshAllowedIpsPreview(); // also refreshes sitesOutsideSupernetCount
         this.encryptionKeyConfigured = !!s.encryptionKeyConfigured;
         this.info = t("settings.saved");
         this.$emit("settings-changed", s);
@@ -218,6 +288,33 @@ export default defineComponent({
         this.error = t("settings.error_save", { error: e.message });
       } finally {
         this.saving = false;
+      }
+    },
+
+    scheduleAllowedIpsPreview() {
+      clearTimeout(this.allowedIpsPreviewTimer);
+      this.allowedIpsPreviewTimer = setTimeout(() => this.refreshAllowedIpsPreview(), 300);
+    },
+
+    // Recomputes the AllowedIPs preview from the current, unsaved form values —
+    // the point being to show the admin the real result while editing, not just
+    // after Save. Silent on failure: this is a convenience preview, not the save
+    // path, and a transient error here shouldn't surface as a form-level error.
+    async refreshAllowedIpsPreview() {
+      try {
+        const params = new URLSearchParams({
+          tunnelMode: this.form.tunnelMode || "",
+          allowedIpsMode: this.form.allowedIpsMode || "",
+          splitSupernet: this.form.splitSupernet || "",
+          wgClientAllowedIps: this.form.wgClientAllowedIps || "",
+        });
+        const res = await fetch("/api/v1/settings/allowed-ips-preview?" + params.toString());
+        if (!res.ok) return;
+        const p = await res.json();
+        this.computedAllowedIpsPreview = p.preview || "";
+        this.sitesOutsideSupernetCount = p.sitesOutsideSupernetCount || 0;
+      } catch (e) {
+        // preview convenience only — ignore
       }
     },
 
@@ -240,6 +337,8 @@ export default defineComponent({
         this.tlsMode = s.tlsMode;
         this.tlsCertExpiresAt = s.tlsCertExpiresAt;
         this.tlsCertInfo = s.tlsCertInfo || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
         this.tlsPemInput = "";
         this.tlsInfo = t("settings.tls_upload_success");
       } catch (e) {
@@ -261,6 +360,8 @@ export default defineComponent({
         this.tlsMode = s.tlsMode;
         this.tlsCertExpiresAt = s.tlsCertExpiresAt;
         this.tlsCertInfo = s.tlsCertInfo || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
         this.tlsInfo = t("settings.tls_reset_success");
       } catch (e) {
         this.tlsError = t("settings.tls_upload_error", { error: e.message });
@@ -278,11 +379,19 @@ export default defineComponent({
       this.acmeEnabling = true;
       this.tlsError = null;
       this.tlsInfo = null;
+      this._acmeAbort = new AbortController();
       try {
         const res = await fetch("/api/v1/settings/acme", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ domain: this.acmeDomainInput.trim() }),
+          signal: this._acmeAbort.signal,
+          body: JSON.stringify({
+            domain: this.acmeDomainInput.trim(),
+            challengeType: this.acmeChallengeTypeInput,
+            dnsProvider: this.acmeChallengeTypeInput === "dns-01" ? this.acmeDnsProviderInput : null,
+            dnsApiToken: (this.acmeChallengeTypeInput === "dns-01" && this.acmeDnsProviderInput === "cloudflare"
+              && this.acmeDnsApiTokenInput.trim()) ? this.acmeDnsApiTokenInput.trim() : null,
+          }),
         });
         if (!res.ok) {
           const text = await res.text();
@@ -296,16 +405,150 @@ export default defineComponent({
         this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
         this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
         this.acmeLastError = s.acmeLastError || null;
+        this.acmeChallengeType = s.acmeChallengeType || "http-01";
+        this.acmeDnsProvider = s.acmeDnsProvider || null;
+        this.acmeDnsPendingRecordName = s.acmeDnsPendingRecordName || null;
+        this.acmeDnsPendingRecordValue = s.acmeDnsPendingRecordValue || null;
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
+        if (s.acmeLastError) {
+          this.tlsError = t("settings.acme_enable_error", { error: s.acmeLastError });
+        } else if (s.acmeDnsPendingRecordValue) {
+          this.acmeDomainInput = "";
+          this.acmeDnsApiTokenInput = "";
+          this.tlsInfo = t("settings.acme_dns_pending_info");
+        } else {
+          this.acmeDomainInput = "";
+          this.acmeDnsApiTokenInput = "";
+          this.tlsInfo = t("settings.acme_enable_success", { domain: s.acmeDomain });
+        }
+      } catch (e) {
+        if (e.name === "AbortError") {
+          this.tlsInfo = t("settings.acme_cancelled");
+        } else {
+          this.tlsError = t("settings.acme_enable_error", { error: e.message });
+        }
+      } finally {
+        this.acmeEnabling = false;
+        this._acmeAbort = null;
+      }
+    },
+
+    // "Cancel" while enableAcme()'s request is still in flight: this only
+    // stops the browser from waiting on it — the hub keeps running the
+    // in-flight attempt to completion server-side (there's no async job to
+    // actually interrupt, see AcmeService#cancel's own doc comment) — then
+    // calls the cancel endpoint to clear any pending/error state so the form
+    // comes back clean instead of possibly showing a stale pending challenge
+    // a moment later.
+    async cancelEnableAcme() {
+      if (this._acmeAbort) this._acmeAbort.abort();
+      await this.cancelAcmeSetup();
+    },
+
+    async cancelAcmeSetup() {
+      this.tlsError = null;
+      try {
+        const res = await fetch("/api/v1/settings/acme", { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.acmeDomain = s.acmeDomain || null;
+        this.acmeLastError = s.acmeLastError || null;
+        this.acmeChallengeType = s.acmeChallengeType || "http-01";
+        this.acmeDnsProvider = s.acmeDnsProvider || null;
+        this.acmeDnsPendingRecordName = s.acmeDnsPendingRecordName || null;
+        this.acmeDnsPendingRecordValue = s.acmeDnsPendingRecordValue || null;
+        this.acmeChallengeTypeInput = "http-01";
+        this.acmeDnsProviderInput = "cloudflare";
+        this.tlsInfo = t("settings.acme_cancelled");
+      } catch (e) {
+        this.tlsError = t("settings.acme_enable_error", { error: e.message });
+      }
+    },
+
+    // Resumes a "manual" dns-01 challenge (ADR-0020) once the admin has added
+    // the TXT record enableAcme above asked for. Same blocking/error pattern.
+    async continueDns() {
+      this.dnsContinuing = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/acme/dns-continue", { method: "POST" });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsCertExpiresAt = s.tlsCertExpiresAt;
+        this.tlsCertInfo = s.tlsCertInfo || null;
+        this.acmeDomain = s.acmeDomain || null;
+        this.acmeLastAttemptAt = s.acmeLastAttemptAt || null;
+        this.acmeLastRenewalAt = s.acmeLastRenewalAt || null;
+        this.acmeLastError = s.acmeLastError || null;
+        this.acmeChallengeType = s.acmeChallengeType || "http-01";
+        this.acmeDnsProvider = s.acmeDnsProvider || null;
+        this.acmeDnsPendingRecordName = s.acmeDnsPendingRecordName || null;
+        this.acmeDnsPendingRecordValue = s.acmeDnsPendingRecordValue || null;
         if (s.acmeLastError) {
           this.tlsError = t("settings.acme_enable_error", { error: s.acmeLastError });
         } else {
-          this.acmeDomainInput = "";
           this.tlsInfo = t("settings.acme_enable_success", { domain: s.acmeDomain });
         }
       } catch (e) {
         this.tlsError = t("settings.acme_enable_error", { error: e.message });
       } finally {
-        this.acmeEnabling = false;
+        this.dnsContinuing = false;
+      }
+    },
+
+    async copyDnsRecord() {
+      if (!this.acmeDnsPendingRecordValue) return;
+      try {
+        await navigator.clipboard.writeText(this.acmeDnsPendingRecordValue);
+        this.dnsCopyState = "copied";
+        setTimeout(() => (this.dnsCopyState = "idle"), 1500);
+      } catch {
+        this.dnsCopyState = "idle";
+      }
+    },
+
+    async generateCsr() {
+      if (!this.csrDomainInput.trim()) return;
+      this.csrGenerating = true;
+      this.tlsError = null;
+      this.tlsInfo = null;
+      try {
+        const res = await fetch("/api/v1/settings/tls/csr", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ domain: this.csrDomainInput.trim() }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "HTTP " + res.status);
+        }
+        const s = await res.json();
+        this.pendingCsrPem = s.pendingCsrPem || null;
+        this.pendingCsrCreatedAt = s.pendingCsrCreatedAt || null;
+        this.csrDomainInput = "";
+        this.tlsInfo = t("settings.csr_generate_success");
+      } catch (e) {
+        this.tlsError = t("settings.csr_generate_error", { error: e.message });
+      } finally {
+        this.csrGenerating = false;
+      }
+    },
+
+    async copyCsr() {
+      if (!this.pendingCsrPem) return;
+      try {
+        await navigator.clipboard.writeText(this.pendingCsrPem);
+        this.csrCopyState = "copied";
+        setTimeout(() => (this.csrCopyState = "idle"), 1500);
+      } catch {
+        this.csrCopyState = "idle";
       }
     },
 
@@ -573,9 +816,58 @@ export default defineComponent({
           </div>
 
           <div class="field field-full">
+            <label>{{ t('settings.field_tunnel_mode') }}</label>
+            <div style="display:flex; gap: var(--space-2); flex-wrap:wrap">
+              <button type="button" class="btn" :class="form.tunnelMode === 'FULL' ? 'btn-secondary' : 'btn-ghost'"
+                      style="display:flex; align-items:center; gap:var(--space-2); flex:1; min-width:220px; text-align:left; padding: var(--space-3)"
+                      @click="form.tunnelMode = 'FULL'">
+                <Icon name="shield" :size="18" />
+                <span>
+                  <span style="display:block; font-weight:500">{{ t('settings.tunnel_full_label') }}</span>
+                  <span class="muted" style="display:block; font-size:var(--text-xs); font-weight:400; text-transform:none; letter-spacing:0">{{ t('settings.tunnel_full_hint') }}</span>
+                </span>
+              </button>
+              <button type="button" class="btn" :class="form.tunnelMode === 'SPLIT' ? 'btn-secondary' : 'btn-ghost'"
+                      style="display:flex; align-items:center; gap:var(--space-2); flex:1; min-width:220px; text-align:left; padding: var(--space-3)"
+                      @click="form.tunnelMode = 'SPLIT'">
+                <Icon name="networks" :size="18" />
+                <span>
+                  <span style="display:block; font-weight:500">{{ t('settings.tunnel_split_label') }}</span>
+                  <span class="muted" style="display:block; font-size:var(--text-xs); font-weight:400; text-transform:none; letter-spacing:0">{{ t('settings.tunnel_split_hint') }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="field field-full">
+            <label>{{ t('settings.field_allowed_ips_mode') }}</label>
+            <div style="display:flex; border:1px solid var(--border); border-radius:var(--radius-sm); width:fit-content; overflow:hidden">
+              <button type="button" class="btn btn-sm" :class="form.allowedIpsMode === 'AUTO' ? 'btn-secondary' : 'btn-ghost'"
+                      style="border:none; border-radius:0" @click="form.allowedIpsMode = 'AUTO'">{{ t('settings.allowed_ips_auto_label') }}</button>
+              <button type="button" class="btn btn-sm" :class="form.allowedIpsMode === 'MANUAL' ? 'btn-secondary' : 'btn-ghost'"
+                      style="border:none; border-radius:0" @click="form.allowedIpsMode = 'MANUAL'">{{ t('settings.allowed_ips_manual_label') }}</button>
+            </div>
+          </div>
+
+          <div v-if="form.tunnelMode === 'SPLIT' && form.allowedIpsMode === 'AUTO'" class="field field-full">
+            <label for="splitSupernet">{{ t('settings.field_split_supernet') }}</label>
+            <input id="splitSupernet" class="input mono" v-model="form.splitSupernet" placeholder="10.0.0.0/8" />
+            <div class="field-hint">{{ t('settings.hint_split_supernet') }}</div>
+          </div>
+
+          <div v-if="form.allowedIpsMode === 'MANUAL'" class="field field-full">
             <label for="wgClientAllowedIps">{{ t('settings.field_allowed') }}</label>
-            <input id="wgClientAllowedIps" class="input mono" v-model="form.wgClientAllowedIps" required placeholder="10.8.0.0/24, 192.168.50.0/24" />
+            <input id="wgClientAllowedIps" class="input mono" v-model="form.wgClientAllowedIps" placeholder="10.8.0.0/24, 192.168.50.0/24" />
             <div class="field-hint">{{ t('settings.hint_allowed_ips') }}</div>
+          </div>
+
+          <div v-if="form.allowedIpsMode === 'AUTO'" class="field field-full">
+            <label>{{ t('settings.label_allowed_ips_preview') }}</label>
+            <div class="mono" style="padding: var(--space-2) var(--space-3); background: var(--surface-2); border-radius: var(--radius-sm); font-size: var(--text-sm)">{{ computedAllowedIpsPreview || '—' }}</div>
+            <div class="field-hint">{{ t('settings.hint_allowed_ips_preview') }}</div>
+            <div v-if="form.tunnelMode === 'SPLIT' && sitesOutsideSupernetCount > 0" class="field-hint" style="color:var(--warning-fg)">
+              {{ t('settings.hint_sites_outside_supernet', { n: sitesOutsideSupernetCount }) }}
+            </div>
           </div>
 
           <div class="field">
@@ -636,7 +928,8 @@ export default defineComponent({
           <div class="field">
             <label for="hubLat">{{ t('settings.label_lat') }}</label>
             <input id="hubLat" class="input mono" type="number" step="any" min="-90" max="90"
-                   v-model="form.hubLat" placeholder="50.1109" />
+                   v-model="form.hubLat" placeholder="50.1109"
+                   @paste.prevent="pasteHubCoordinates($event)" />
           </div>
           <div class="field">
             <label for="hubLon">{{ t('settings.label_lon') }}</label>
@@ -717,26 +1010,85 @@ export default defineComponent({
               <div v-if="acmeLastAttemptAt"><span class="muted">{{ t('settings.acme_last_attempt') }}</span> <span class="mono">{{ formatDate(acmeLastAttemptAt) }}</span></div>
               <div v-if="acmeLastError" style="color: var(--status-error)">{{ t('settings.acme_last_error') }} {{ acmeLastError }}</div>
             </div>
-            <div style="margin-top: var(--space-3)">
+            <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2)">
+              <!-- A stuck attempt (tlsMode already flips to 'acme' on the very
+                   first enable, before issuance even runs — see AcmeSettingsStore
+                   #cancelPendingSetup's own doc comment) has no working
+                   certificate yet (no expiry to show) but sits here with an
+                   error and no other way back to the enable form. -->
+              <button v-if="acmeLastError && !tlsCertExpiresAt" type="button" class="btn btn-secondary"
+                      :disabled="tlsUploading" @click="cancelAcmeSetup">
+                {{ t('settings.acme_cancel_btn') }}
+              </button>
               <button type="button" class="btn btn-ghost" :disabled="tlsUploading" @click="resetTls">{{ t('settings.tls_reset_btn') }}</button>
             </div>
           </div>
 
-          <div style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
+          <div v-if="acmeDnsPendingRecordValue" class="callout callout-warn" style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2)">
+            <div>{{ t('settings.acme_dns_pending_hint') }}</div>
+            <div style="display:flex; flex-direction:column; gap:var(--space-1); font-size:var(--text-sm)">
+              <div><span class="muted">{{ t('settings.acme_dns_record_name') }}</span> <span class="mono">{{ acmeDnsPendingRecordName }}</span></div>
+              <div style="display:flex; align-items:center; gap:var(--space-2)">
+                <span class="muted">{{ t('settings.acme_dns_record_value') }}</span>
+                <span class="mono" style="word-break: break-all">{{ acmeDnsPendingRecordValue }}</span>
+                <button type="button" class="btn btn-ghost btn-sm" @click="copyDnsRecord">
+                  {{ dnsCopyState === 'copied' ? t('settings.acme_dns_copied_btn') : t('settings.acme_dns_copy_btn') }}
+                </button>
+              </div>
+            </div>
+            <div style="display:flex; gap:var(--space-2)">
+              <button type="button" class="btn btn-secondary" :disabled="dnsContinuing" @click="continueDns">
+                {{ dnsContinuing ? t('settings.acme_dns_continuing') : t('settings.acme_dns_continue_btn') }}
+              </button>
+              <button type="button" class="btn btn-ghost" :disabled="dnsContinuing" @click="cancelAcmeSetup">
+                {{ t('settings.acme_cancel_btn') }}
+              </button>
+            </div>
+          </div>
+
+          <div v-else style="margin-top: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
             <div class="field-hint" style="margin-top: 0">{{ t('settings.acme_hint') }}</div>
             <div class="field">
               <label for="acme-domain">{{ t('settings.acme_field_domain') }}</label>
               <input id="acme-domain" class="input mono" v-model="acmeDomainInput" placeholder="vpn.example.com" />
             </div>
-            <div>
+            <div class="field">
+              <label for="acme-challenge-type">{{ t('settings.acme_field_challenge_type') }}</label>
+              <select id="acme-challenge-type" class="select" v-model="acmeChallengeTypeInput" style="max-width:420px">
+                <option value="http-01">{{ t('settings.acme_challenge_http01') }}</option>
+                <option value="dns-01">{{ t('settings.acme_challenge_dns01') }}</option>
+              </select>
+              <div class="field-hint">{{ t('settings.acme_challenge_type_hint') }}</div>
+            </div>
+            <div class="field" v-if="acmeChallengeTypeInput === 'dns-01'">
+              <label for="acme-dns-provider">{{ t('settings.acme_field_dns_provider') }}</label>
+              <select id="acme-dns-provider" class="select" v-model="acmeDnsProviderInput" style="max-width:420px">
+                <option value="cloudflare">{{ t('settings.acme_dns_provider_cloudflare') }}</option>
+                <option value="manual">{{ t('settings.acme_dns_provider_manual') }}</option>
+              </select>
+            </div>
+            <div class="field" v-if="acmeChallengeTypeInput === 'dns-01' && acmeDnsProviderInput === 'cloudflare'">
+              <label for="acme-dns-token">{{ t('settings.acme_field_dns_token') }}</label>
+              <input id="acme-dns-token" class="input mono" type="password" v-model="acmeDnsApiTokenInput" placeholder="•••••••••" />
+              <div class="field-hint">{{ t('settings.acme_dns_token_hint') }}</div>
+            </div>
+            <div class="field-hint" v-if="acmeChallengeTypeInput === 'dns-01' && acmeDnsProviderInput === 'manual'">
+              {{ t('settings.acme_dns_provider_manual_hint') }}
+            </div>
+            <div style="display:flex; gap:var(--space-2)">
               <button type="button" class="btn btn-secondary" :disabled="acmeEnabling || !acmeDomainInput.trim()" @click="enableAcme">
                 {{ acmeEnabling ? t('settings.acme_enabling') : t('settings.acme_enable_btn') }}
+              </button>
+              <button v-if="acmeEnabling" type="button" class="btn btn-ghost" @click="cancelEnableAcme">
+                {{ t('settings.acme_cancel_btn') }}
               </button>
             </div>
           </div>
         </div>
 
         <div v-else style="margin-top: var(--space-4)">
+          <div class="field-hint" style="margin: 0 0 var(--space-4)">{{ t('settings.origin_intro') }}</div>
+
           <div v-if="tlsMode === 'managed'">
             <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
               {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
@@ -766,12 +1118,42 @@ export default defineComponent({
             </div>
           </div>
 
+          <div v-if="pendingCsrPem" style="margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2)">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3)">
+              <div style="font-weight: 600; font-size: var(--text-sm)">{{ t('settings.csr_pending_title') }}</div>
+              <span class="muted" style="font-size: var(--text-xs)">{{ formatDate(pendingCsrCreatedAt) }}</span>
+            </div>
+            <div class="field-hint" style="margin: 0">{{ t('settings.csr_pending_hint') }}</div>
+            <textarea class="textarea mono" readonly rows="10" style="resize: vertical; width: 100%">{{ pendingCsrPem }}</textarea>
+            <div>
+              <button type="button" class="btn btn-ghost btn-sm" @click="copyCsr">
+                {{ csrCopyState === 'copied' ? t('settings.csr_copied_btn') : t('settings.csr_copy_btn') }}
+              </button>
+            </div>
+          </div>
+          <div v-else style="margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-3)">
+            <div>
+              <div style="font-weight: 600; font-size: var(--text-sm)">{{ t('settings.csr_generate_title') }}</div>
+              <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.csr_generate_hint') }}</div>
+            </div>
+            <div class="field">
+              <label for="csr-domain">{{ t('settings.csr_field_domain') }}</label>
+              <input id="csr-domain" class="input mono" v-model="csrDomainInput" placeholder="vpn.example.com" />
+            </div>
+            <div>
+              <button type="button" class="btn btn-secondary" :disabled="csrGenerating || !csrDomainInput.trim()" @click="generateCsr">
+                {{ csrGenerating ? t('settings.csr_generating') : t('settings.csr_generate_btn') }}
+              </button>
+            </div>
+          </div>
+
           <div style="display: flex; flex-direction: column; gap: var(--space-3)">
             <div class="field">
               <label for="tls-pem">{{ t('settings.tls_field_pem') }}</label>
               <textarea id="tls-pem" class="textarea mono" v-model="tlsPemInput" rows="12"
-                        :placeholder="t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
+                        :placeholder="pendingCsrPem ? t('settings.tls_pem_ph_pending') : t('settings.tls_pem_ph')" style="resize: vertical; width: 100%"></textarea>
               <div class="field-hint" style="line-height:1.5; margin-top:var(--space-2)">
+                <div v-if="pendingCsrPem">{{ t('settings.tls_pem_hint_pending') }}</div>
                 <div>{{ t('settings.tls_pem_hint_what') }}</div>
                 <div>• {{ t('settings.tls_pem_hint_cert') }}</div>
                 <div>• {{ t('settings.tls_pem_hint_key') }}</div>

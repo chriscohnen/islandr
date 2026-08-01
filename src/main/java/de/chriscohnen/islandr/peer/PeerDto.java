@@ -227,7 +227,9 @@ public final class PeerDto {
             String peerId,
             String name,
             String type,   // "client" | "site"
-            java.util.List<Integer> sampleHits   // one entry per day in ActivityHeatmapResponse.days, same order
+            java.util.List<Integer> sampleHits,  // one entry per day in ActivityHeatmapResponse.days, same order
+            java.util.List<Long> rxBytes,        // ditto — rx bytes for that day
+            java.util.List<Long> txBytes         // ditto — tx bytes for that day
     ) {}
 
     /** Peers x days activity matrix. {@code days} is ascending ISO-8601 date

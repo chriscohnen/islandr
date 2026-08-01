@@ -80,7 +80,20 @@ public class MyAccessResource {
                         "SELECT id, resource_id, all_ports FROM role_resource_grants WHERE role_id IN ?1")
                 .setParameter(1, roleIds)
                 .getResultList();
-        if (grantRows.isEmpty()) return List.of();
+
+        // 2b. Type grants ("all printers in Homeoffice") — every resource whose
+        // site+type matches one of these roles' type-grants, always all-ports.
+        // Union with the concrete grants above, not a replacement — see
+        // RoleResourceTypeGrant's own doc comment for why this is additive-only.
+        @SuppressWarnings("unchecked")
+        List<String> typeGrantResourceIds = em.createNativeQuery(
+                        "SELECT r.id FROM resources r " +
+                        "JOIN role_resource_type_grants g ON g.site_id = r.site_id AND g.resource_type = r.type " +
+                        "WHERE g.role_id IN ?1")
+                .setParameter(1, roleIds)
+                .getResultList();
+
+        if (grantRows.isEmpty() && typeGrantResourceIds.isEmpty()) return List.of();
 
         // 3. Limited-port sets for grants that don't cover all ports.
         Set<String> grantIds = new HashSet<>();
@@ -118,6 +131,12 @@ public class MyAccessResource {
                     existing.portIds().addAll(ids);
                 }
             }
+        }
+        // Type grants always widen to all-ports — unconditional overwrite is
+        // safe here (idempotent whether or not a narrower grant already set
+        // this resourceId; all-ports is always the correct, widest result).
+        for (String resourceId : typeGrantResourceIds) {
+            effective.put(resourceId, new EffectiveGrant(true, Set.of()));
         }
 
         // 5. Load resources + their ports + site names.
