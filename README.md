@@ -27,7 +27,14 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 > Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so point it at a test box or lab network first and back up `/etc/wireguard/` and the database before upgrading — pre-1.0 releases can still bring breaking changes.
 > This is exactly the stage where testers make the biggest difference. Kick the tyres, and if you hit a rough edge [open an issue](https://github.com/chriscohnen/islandr/issues) — that feedback is what moves it toward 1.0. Starring or watching the repo is the easiest way to follow releases.
 
-![Dashboard screenshot](https://islandr-gateway.net/screenshots/light/dashboard.png)
+<p align="center">
+  <img src="https://islandr-gateway.net/screenshots/light/dashboard.png" width="49%" alt="Dashboard: live topology diagram, peers, sites and networks">
+  <img src="https://islandr-gateway.net/screenshots/light/worldmap.png" width="49%" alt="World-map view: sites and gateways plotted on a geocoded map">
+</p>
+<p align="center">
+  <img src="https://islandr-gateway.net/screenshots/light/heatmap.png" width="49%" alt="Connection activity heatmap: peers × days, coloured by traffic volume">
+  <img src="https://islandr-gateway.net/screenshots/light/self-service.png" width="49%" alt="Self-service portal: employees enrol their own devices">
+</p>
 
 ---
 
@@ -67,8 +74,6 @@ A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Sit
 ```
 
 ![QR code & config download](https://islandr-gateway.net/screenshots/light/qr-conf.png)
-
-![Self-service portal](https://islandr-gateway.net/screenshots/light/self-service.png)
 
 ## Two surfaces, one brand
 
@@ -186,7 +191,10 @@ islandr/
 │       ├── 0016-peer-activity-heatmap-storage.md
 │       ├── 0017-split-tunnel-network-scope.md
 │       ├── 0018-websocket-tunnel-fallback.md
-│       └── 0019-acme-hand-rolled-client.md
+│       ├── 0019-acme-hand-rolled-client.md
+│       ├── 0020-dns01-challenge-with-manual-mode.md
+│       ├── 0021-topology-world-map.md
+│       └── 0022-acl-type-grants.md
 ├── architecture/
 │   ├── workspace.dsl                        # C4 model (Structurizr DSL) — source of diagrams
 │   ├── docs/                                # Markdown pages rendered into the interactive C4 site
@@ -215,7 +223,7 @@ islandr/
 │   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V47, portable SQL
+│   │   ├── db/migration/                    # Flyway migrations V1–V52, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
