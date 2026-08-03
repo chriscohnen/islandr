@@ -30,7 +30,10 @@ public class ConfigService {
                 s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
                 s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
                 s.wgPersistentKeepalive,
-                s.tunnelMode, s.allowedIpsMode, s.splitSupernet);
+                s.tunnelMode, s.allowedIpsMode, s.splitSupernet,
+                s.wgSubnet6,
+                s.hubLat, s.hubLon, s.hubLocationLabel,
+                s.nominatimUrl, s.ironRdpEnabled, s.activityRetentionDays);
 
         List<ConfigExportDto.OidcProviderSnapshot> providers = OidcProvider.<OidcProvider>listAll()
                 .stream().map(p -> new ConfigExportDto.OidcProviderSnapshot(
@@ -339,6 +342,13 @@ public class ConfigService {
             s.tunnelMode = snap.tunnelMode() != null ? snap.tunnelMode() : "SPLIT";
             s.allowedIpsMode = snap.allowedIpsMode() != null ? snap.allowedIpsMode() : "MANUAL";
             s.splitSupernet = snap.splitSupernet();
+            s.wgSubnet6 = snap.wgSubnet6();
+            s.hubLat = snap.hubLat();
+            s.hubLon = snap.hubLon();
+            s.hubLocationLabel = snap.hubLocationLabel();
+            s.nominatimUrl = snap.nominatimUrl();
+            s.ironRdpEnabled = snap.ironRdpEnabled() != null ? snap.ironRdpEnabled() : false;
+            s.activityRetentionDays = snap.activityRetentionDays() != null ? snap.activityRetentionDays() : 180;
             // wgServerPublicKey + wgServerEndpoint: keep the target hub's own values
             s.updatedAt = Instant.now();
             s.updatedBy = "config-import";

@@ -169,7 +169,8 @@ class ConfigImportRoundTripTest {
                 orig.gravatarEnabled(), orig.oidcAutoProvision(), orig.firewallDryRun(),
                 orig.selfServicePeerCreation(), orig.wgMtu(), orig.wgIncludeMtuInConf(),
                 orig.wgPersistentKeepalive(),
-                null, null, null);
+                null, null, null,
+                null, null, null, null, null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
                 original.version(), original.exportedAt(), original.privateKeysIncluded(),
@@ -198,6 +199,112 @@ class ConfigImportRoundTripTest {
                 .isEqualTo("MANUAL");
         assertThat(reloaded.splitSupernet)
                 .as("splitSupernet has no fallback — null is its own valid default")
+                .isNull();
+    }
+
+    /**
+     * hubLat/hubLon/hubLocationLabel drive the dashboard topology map. They were added to
+     * Settings but never wired into SettingsSnapshot, so a config export silently dropped them —
+     * an admin migrating hosts lost the map pin every time. wgSubnet6, nominatimUrl,
+     * ironRdpEnabled and activityRetentionDays had the same gap; assert them here too rather than
+     * leave the bug half-fixed.
+     */
+    @Test
+    void hubLocationAndOtherSettingsFieldsSurviveTheRoundTrip() {
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.hubLat = 52.5200;
+            s.hubLon = 13.4050;
+            s.hubLocationLabel = "Berlin";
+            s.wgSubnet6 = "fd11::/64";
+            s.nominatimUrl = "https://nominatim.example.org";
+            s.ironRdpEnabled = true;
+            s.activityRetentionDays = 30;
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+
+        assertThat(export.settings().hubLat()).isEqualTo(52.5200);
+        assertThat(export.settings().hubLon()).isEqualTo(13.4050);
+        assertThat(export.settings().hubLocationLabel()).isEqualTo("Berlin");
+        assertThat(export.settings().wgSubnet6()).isEqualTo("fd11::/64");
+        assertThat(export.settings().nominatimUrl()).isEqualTo("https://nominatim.example.org");
+        assertThat(export.settings().ironRdpEnabled()).isTrue();
+        assertThat(export.settings().activityRetentionDays()).isEqualTo(30);
+
+        // Reset to different values first so the import below is a genuine restore, not a
+        // no-op that would pass even if the fields were never wired up.
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.hubLat = null;
+            s.hubLon = null;
+            s.hubLocationLabel = null;
+            s.wgSubnet6 = null;
+            s.nominatimUrl = null;
+            s.ironRdpEnabled = false;
+            s.activityRetentionDays = 180;
+        });
+
+        configService.importConfig(export);
+
+        Settings reloaded =
+                QuarkusTransaction.requiringNew().call(() -> Settings.findById(Settings.SINGLETON_ID));
+        assertThat(reloaded.hubLat).isEqualTo(52.5200);
+        assertThat(reloaded.hubLon).isEqualTo(13.4050);
+        assertThat(reloaded.hubLocationLabel).isEqualTo("Berlin");
+        assertThat(reloaded.wgSubnet6).isEqualTo("fd11::/64");
+        assertThat(reloaded.nominatimUrl).isEqualTo("https://nominatim.example.org");
+        assertThat(reloaded.ironRdpEnabled).isTrue();
+        assertThat(reloaded.activityRetentionDays).isEqualTo(30);
+    }
+
+    /**
+     * A legacy export predating these fields has them all null. Importing it must fall back to
+     * the same defaults the Settings entity itself uses (false/180), not crash on the NOT NULL
+     * columns backing ironRdpEnabled/activityRetentionDays.
+     */
+    @Test
+    void legacyExportWithoutHubOrIronRdpSettingsFallsBackToDefaults() {
+        ConfigExportDto.Export original =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        ConfigExportDto.SettingsSnapshot orig = original.settings();
+
+        ConfigExportDto.SettingsSnapshot legacySettings = new ConfigExportDto.SettingsSnapshot(
+                orig.wgSubnet(), orig.wgServerPublicKey(), orig.wgServerEndpoint(),
+                orig.wgClientAllowedIps(), orig.wgClientDns(), orig.privateKeyRetention(),
+                orig.gravatarEnabled(), orig.oidcAutoProvision(), orig.firewallDryRun(),
+                orig.selfServicePeerCreation(), orig.wgMtu(), orig.wgIncludeMtuInConf(),
+                orig.wgPersistentKeepalive(),
+                orig.tunnelMode(), orig.allowedIpsMode(), orig.splitSupernet(),
+                null, null, null, null, null, null, null);
+
+        ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
+                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                legacySettings, original.oidcProviders(), original.users(), original.roles(),
+                original.roleMemberships(), original.peers(), original.sites(),
+                original.resources(), original.resourcePorts(), original.portGroups(),
+                original.portGroupMembers(), original.roleResourceGrants(),
+                original.grantPortLinks(), original.roleResourceTypeGrants());
+
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.ironRdpEnabled = true;
+            s.activityRetentionDays = 30;
+        });
+
+        configService.importConfig(legacyExport);
+
+        Settings reloaded =
+                QuarkusTransaction.requiringNew().call(() -> Settings.findById(Settings.SINGLETON_ID));
+        assertThat(reloaded.ironRdpEnabled)
+                .as("legacy export without ironRdpEnabled must fall back to the entity default")
+                .isFalse();
+        assertThat(reloaded.activityRetentionDays)
+                .as("legacy export without activityRetentionDays must fall back to the entity default")
+                .isEqualTo(180);
+        assertThat(reloaded.hubLat)
+                .as("hubLat has no fallback — null is its own valid default")
                 .isNull();
     }
 }

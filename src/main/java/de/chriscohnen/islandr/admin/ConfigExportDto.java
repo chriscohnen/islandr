@@ -50,7 +50,26 @@ public class ConfigExportDto {
         // crash or silently force a specific mode.
         String tunnelMode,
         String allowedIpsMode,
-        String splitSupernet
+        String splitSupernet,
+        // Optional IPv6 ULA subnet (Settings.wgSubnet6) — null on IPv4-only installs and
+        // on any export from before this field existed.
+        String wgSubnet6,
+        // Hub location for the dashboard topology map (Settings.hubLat/hubLon/hubLocationLabel).
+        // Nullable: unset on installs that never filled in the map location, and on any
+        // export from before these fields existed.
+        Double hubLat,
+        Double hubLon,
+        String hubLocationLabel,
+        // Optional Nominatim base URL for Sites-view geocoding (Settings.nominatimUrl).
+        String nominatimUrl,
+        // Boolean (not primitive) so a pre-existing export without this field imports as
+        // null → the entity default (false), same "add-a-field, tolerate its absence"
+        // pattern as wgIncludeMtuInConf above.
+        Boolean ironRdpEnabled,
+        // Integer (not int) so a pre-existing export without this field imports as
+        // null → the entity default (180), instead of primitive 0 (which would prune
+        // the activity heatmap immediately).
+        Integer activityRetentionDays
     ) {}
 
     public record OidcProviderSnapshot(
