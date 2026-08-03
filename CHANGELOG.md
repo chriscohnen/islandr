@@ -8,6 +8,10 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 ---
 
+## 0.15.1
+
+- **Config export/import no longer drops the hub's map location** — `hubLat`/`hubLon`/`hubLocationLabel` (the dashboard topology map pin), the optional IPv6 `wgSubnet6`, the Nominatim geocoding URL, the IronRDP toggle and the activity-heatmap retention setting were added to Settings across several releases but never wired into the config export/import round trip, so migrating a hub silently lost them ([#44](https://github.com/chriscohnen/islandr/issues/44)).
+
 ## 0.15.0
 
 - **Grant access by resource type, not just by resource** — a role can now be granted every resource of a given type at a site ("all printers in the home office"), additive to the existing per-resource grants and always scoped to all ports by design ([ADR-0022](docs/adr/0022-acl-type-grants.md)).

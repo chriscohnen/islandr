@@ -285,16 +285,8 @@ islandr/
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-**0.15.0**
-- **Grant access by resource type, not just by resource** — a role can now be granted every resource of a type at a site ("all printers in the home office"), on top of the existing per-resource grants, additive and always all ports by design ([ADR-0022](docs/adr/0022-acl-type-grants.md)).
-- **World-map topology view** — sites, gateways and live tunnels plotted on a geocoded map alongside the existing network diagram; pan and zoom, one pin per gateway peer with a small grid of squares for each network it routes, capped and summarised past 24 ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md)).
-- **DNS-01 as an alternative to HTTP-01** — issue a Let's Encrypt certificate without port 80 reachable from the internet, including a manual no-API-token mode for registrars without a supported DNS API ([ADR-0020](docs/adr/0020-dns01-challenge-with-manual-mode.md), [#41](https://github.com/chriscohnen/islandr/issues/41)).
-- **Generate a CSR for the Origin Certificate tab** — a private key + certificate signing request now generates in-app, instead of requiring `openssl` on the side ([#42](https://github.com/chriscohnen/islandr/issues/42)).
-- **The activity heatmap is coloured by traffic volume**, not just presence, and a hover shows connection duration (connections mode) or ↓/↑ MB (traffic mode).
-- **A network's resource list scales past a starburst** — an expanded network's resources now render as a vertical icon+name row list off a tree spine instead of a circular fan, readable at any count instead of an unreadable cluster past ~20-30 resources.
-- **A stuck ACME attempt can actually be cancelled** — a failed first Let's Encrypt attempt used to leave no way back into the form; `DELETE /api/v1/settings/acme` now resets it, and the Cancel button shows up when it's needed.
-- **Geo-map fixes from testing this release** — a stray line spanning the whole map where land rings cross the antimeridian (Fiji, Wrangel Island); pins and labels no longer rescale with zoom; a gateway pin nudges away from the hub when they'd otherwise land on the same coordinates (e.g. a homelab).
-- **Audit log entries for type-grants show names, not raw UUIDs** — creating or deleting a resource-type grant used to log the underlying IDs; it now logs the resolved role/site/resource-type names like every other audit entry.
+**0.15.1**
+- **Config export/import no longer drops the hub's map location** — the dashboard topology map pin, the optional IPv6 `wgSubnet6`, the Nominatim geocoding URL, the IronRDP toggle and the activity-heatmap retention setting were added to Settings across several releases but never wired into the config export/import round trip, so migrating a hub silently lost them ([#44](https://github.com/chriscohnen/islandr/issues/44)).
 
 Planned features are tracked as GitHub issues — 👍 or comment to signal what matters to you.
 
