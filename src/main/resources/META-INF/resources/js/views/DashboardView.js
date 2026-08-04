@@ -371,6 +371,7 @@ export default defineComponent({
         <div v-if="worldMapAvailable" v-show="activeTab === 'map'">
           <TopologyWorldMap
               :sites="data.topology.sites"
+              :live-peers="liveMode ? livePeers : data.topology.livePeers"
               :hub-lat="data.topology.hubLat"
               :hub-lon="data.topology.hubLon"
               :hub-label="data.topology.hubLabel"

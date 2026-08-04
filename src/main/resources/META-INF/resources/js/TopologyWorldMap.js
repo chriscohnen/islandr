@@ -29,6 +29,14 @@ const SITE_R = 5;
 // viewBox), so lines look ever thicker while zooming in unless the
 // stroke-width itself is scaled down by 1/zoom to compensate.
 const LINK_STROKE_WIDTH = 1.4;
+// Traffic-tier thickness (issue #34, extended from TopologyDiagram.js to the
+// geo map): a gateway whose live-poll byte counters are moving gets a
+// visibly thicker line than a merely-connected-but-idle one — richer signal
+// than the flat online/offline color+dash split alone, and it's the delta
+// in *this*, not a binary state, that actually varies interestingly poll to
+// poll.
+const LINK_STROKE_WIDTH_FLOWING = 2.2;
+const LINK_STROKE_WIDTH_HEAVY = 3.4;
 // Same reasoning applies to the dashed "down" link's dash pattern (see
 // .worldmap-link-down in app.css, which this JS-computed value overrides
 // inline): a fixed dasharray in user units stretches into ever-longer
@@ -122,6 +130,7 @@ export default defineComponent({
   name: "TopologyWorldMap",
   props: {
     sites: { type: Array, required: true }, // DashboardDto.TopologySite[]
+    livePeers: { type: Array, default: () => [] }, // /api/v1/peers/live, tagged with trafficTier by DashboardView
     hubLat: { type: Number, default: null },
     hubLon: { type: Number, default: null },
     hubLabel: { type: String, default: "" },
@@ -308,6 +317,14 @@ export default defineComponent({
     },
     canZoomIn() { return this.zoom < MAX_ZOOM; },
     canZoomOut() { return this.zoom > MIN_ZOOM; },
+    // Live peer's own `id` is the same Islandr peer-id as a site's
+    // `gatewayPeerId` when that peer is the site's router — direct join, no
+    // publicKey round-trip needed.
+    livePeerByGatewayId() {
+      const map = new Map();
+      for (const p of this.livePeers) if (p.id) map.set(p.id, p);
+      return map;
+    },
   },
   methods: {
     t,
@@ -325,11 +342,29 @@ export default defineComponent({
       const cy = my + (dx / dist) * dist * 0.15;
       return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
     },
+    trafficTierForGateway(gatewayPeerId) {
+      const peer = this.livePeerByGatewayId.get(gatewayPeerId);
+      return peer ? peer.trafficTier || "idle" : "idle";
+    },
+    trafficTier(pt) {
+      return this.trafficTierForGateway(pt.gateway.gatewayPeerId);
+    },
+    trafficLabelKey(gateway) {
+      const tier = this.trafficTierForGateway(gateway.gatewayPeerId);
+      return "topology.traffic_" + (tier === "flowing-heavy" ? "flowing_heavy" : tier);
+    },
     linkClass(pt) {
-      return pt.gateway.gatewayOnline ? "worldmap-link worldmap-link-live" : "worldmap-link worldmap-link-down";
+      const base = pt.gateway.gatewayOnline ? "worldmap-link worldmap-link-live" : "worldmap-link worldmap-link-down";
+      const tier = this.trafficTier(pt);
+      if (!pt.gateway.gatewayOnline || tier === "idle") return base;
+      return base + (tier === "flowing-heavy" ? " worldmap-link-flowing-heavy" : " worldmap-link-flowing");
     },
     linkStyle(pt) {
-      const style = { strokeWidth: (LINK_STROKE_WIDTH / this.zoom).toFixed(2) };
+      const tier = pt.gateway.gatewayOnline ? this.trafficTier(pt) : "idle";
+      const width = tier === "flowing-heavy" ? LINK_STROKE_WIDTH_HEAVY
+                  : tier === "flowing"       ? LINK_STROKE_WIDTH_FLOWING
+                  : LINK_STROKE_WIDTH;
+      const style = { strokeWidth: (width / this.zoom).toFixed(2) };
       if (!pt.gateway.gatewayOnline) {
         style.strokeDasharray = `${(LINK_DASH / this.zoom).toFixed(2)} ${(LINK_GAP / this.zoom).toFixed(2)}`;
       }
@@ -600,6 +635,7 @@ export default defineComponent({
               <span style="font-family: var(--font-mono); color: var(--fg2)">{{ tooltip.gateway.gatewayIp }}</span>
             </div>
             <div>{{ tooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(tooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
+            <div v-if="tooltip.gateway.gatewayOnline">{{ t(trafficLabelKey(tooltip.gateway)) }}</div>
             <div v-if="tooltip.gateway.sites.length > 1" style="margin-top: 2px">{{ tooltip.gateway.sites.length }} {{ t('topology.networks_short') }}</div>
           </div>
         </template>

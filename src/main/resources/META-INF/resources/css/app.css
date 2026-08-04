@@ -1294,6 +1294,12 @@ body {
   stroke: var(--fg3);
   opacity: 0.35;
 }
+/* Traffic-tier reinforcement (issue #34) — stroke-width itself is set
+   inline by linkStyle() (see the comment above .worldmap-link), scaled by
+   1/zoom; these two only lift opacity so a flowing/heavy link also reads
+   brighter, not just thicker. */
+.worldmap-link-flowing       { opacity: 0.8; }
+.worldmap-link-flowing-heavy { opacity: 1; }
 /* One square per network under a multi-network gateway's pin (see GRID_*
    in TopologyWorldMap.js) — same accent as the topology diagram's network
    count text, not a new color. Filled (not just outlined) so it reads as a
