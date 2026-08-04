@@ -5,6 +5,12 @@ import ActivityHeatmap from "/js/ActivityHeatmap.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 
+const LIVE_POLL_MS = 10000;
+// Sustained throughput above this reads as an active transfer (a big
+// download, a backup, streaming) rather than background keepalive/chatter —
+// the topology diagram draws its link thicker past this point (issue #34).
+const HEAVY_TRAFFIC_BPS = 50 * 1024; // 50 KB/s
+
 // Walking-skeleton dashboard. One backend round-trip (/api/v1/dashboard)
 // feeds four KPI cards, a setup-status card, and two latest-activity strips.
 // No background polling — admin clicks "Aktualisieren" when they want fresh
@@ -23,6 +29,7 @@ export default defineComponent({
       livePeers: [],       // from /api/v1/peers/live polling
       liveError: null,
       _liveTimer: null,
+      _prevLiveBytes: new Map(), // publicKey -> rxBytes+txBytes from the previous poll, for the traffic-flowing delta (issue #34)
     };
   },
   async mounted() {
@@ -117,7 +124,7 @@ export default defineComponent({
       } else {
         this.liveMode = true;
         await this._pollLive();
-        this._liveTimer = setInterval(() => this._pollLive(), 10000);
+        this._liveTimer = setInterval(() => this._pollLive(), LIVE_POLL_MS);
       }
     },
     _stopLive() {
@@ -125,12 +132,31 @@ export default defineComponent({
       if (this._liveTimer) { clearInterval(this._liveTimer); this._liveTimer = null; }
       this.livePeers = [];
       this.liveError = null;
+      this._prevLiveBytes.clear();
     },
     async _pollLive() {
       try {
         const res = await fetch("/api/v1/peers/live");
         if (!res.ok) throw new Error("HTTP " + res.status);
-        this.livePeers = await res.json();
+        const peers = await res.json();
+        // Issue #34: the endpoint only gives cumulative rx/tx counters, so
+        // "traffic is currently flowing" — and how much — has to be derived
+        // client-side from the delta against the previous poll, no new
+        // storage needed. Three tiers, not a continuous scale: "idle" (no
+        // movement), "flowing" (some bytes moved), "flowing-heavy" (moving
+        // fast enough that it reads as an active transfer, not background
+        // chatter) — the diagram reinforces this with line thickness.
+        for (const p of peers) {
+          const total = (p.rxBytes || 0) + (p.txBytes || 0);
+          const prevTotal = this._prevLiveBytes.get(p.publicKey);
+          const delta = prevTotal != null ? total - prevTotal : 0;
+          const bytesPerSec = delta / (LIVE_POLL_MS / 1000);
+          p.trafficTier = bytesPerSec >= HEAVY_TRAFFIC_BPS ? "flowing-heavy"
+                         : bytesPerSec > 0                  ? "flowing"
+                         : "idle";
+          this._prevLiveBytes.set(p.publicKey, total);
+        }
+        this.livePeers = peers;
         this.liveError = null;
       } catch (e) {
         this.liveError = e.message;

@@ -1187,9 +1187,18 @@ body {
   stroke-width: 1.4;
   opacity: 0.5;
 }
-.topo .link-stale  { opacity: 0.2; stroke-dasharray: 3 4; }
-.topo .link-down   { opacity: 0.15; stroke-dasharray: 1 4; stroke: var(--fg3); }
+.topo .link-down   { opacity: 0.55; stroke-dasharray: 4 4; stroke: var(--fg3); }
 .topo .link-live   { fill: none; stroke: var(--accent); stroke-width: 1; opacity: 0.3; stroke-dasharray: 2 3; }
+/* Third link/node state (issue #34): a live peer whose byte counters moved
+   between the last two live-polls, distinct from "connected but idle". Line
+   thickness carries the traffic-volume signal — flowing-heavy is the
+   thicker of the two — so the diagram reads at a glance without needing the
+   byte-counter table underneath. No added motion — only color/weight/dash
+   change, per the one-ambient-motion rule (the hub pulse already owns that
+   budget). */
+.topo .link-flowing       { stroke-width: 1.8; opacity: 0.7;  stroke-dasharray: none; }
+.topo .link-flowing-heavy { stroke-width: 3;   opacity: 0.95; stroke-dasharray: none; }
+.topo .live-dot-flowing { opacity: 1; }
 .topo .node {
   cursor: pointer;
 }
@@ -1199,7 +1208,6 @@ body {
   stroke-width: 1;
 }
 .topo .node.live      .node-ring { stroke: var(--success, #16a34a); stroke-width: 2; }
-.topo .node.stale     .node-ring { stroke: var(--fg3);              stroke-width: 1.4; }
 .topo .node.disabled  .node-ring { stroke: var(--fg3);              stroke-width: 1.4; stroke-dasharray: 2 3; }
 .topo .node-glyph {
   fill: none;

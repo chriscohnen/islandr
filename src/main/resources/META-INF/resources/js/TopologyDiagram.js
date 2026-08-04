@@ -81,6 +81,21 @@ function polar(angle, dist) {
   return { x: CX + dist * Math.cos(angle), y: CY + dist * Math.sin(angle) };
 }
 
+// Quadratic-bezier path between two points, bowed to one side — gives the
+// hub's spokes a mindmap-style swoop instead of ruler-straight lines. The
+// resource list below a network stays straight-line "netzplan" style on
+// purpose (see RESOURCE_* comment); this is only for the radial hub/gateway/
+// network spokes and the live-peer lines fanning off the hub.
+const CURVE_BOW = 0.24;
+function curvePath(x1, y1, x2, y2, bow = CURVE_BOW) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy) || 1;
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const cx = mx + (-dy / dist) * dist * bow;
+  const cy = my + (dx / dist) * dist * bow;
+  return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+}
+
 export default defineComponent({
   name: "TopologyDiagram",
   props: {
@@ -325,6 +340,7 @@ export default defineComponent({
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+    linkPath(x1, y1, x2, y2, bow) { return curvePath(x1, y1, x2, y2, bow); },
     // Drag-to-pan, mouse and touch alike via Pointer Events. Only does
     // anything once the content no longer fits the capped viewBox
     // (needsPan) — otherwise everything's already visible and there's
@@ -528,17 +544,18 @@ export default defineComponent({
            @pointercancel="onPointerUp"
            role="img" aria-label="Netzwerk-Topologie">
 
-        <!-- Hub-to-gateway / hub-to-direct-network links -->
-        <line v-for="item in gatewayLayout" :key="'gl-'+item.gateway.gatewayPeerId"
-              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y"
-              :style="item.gateway.gatewayOnline ? '' : 'stroke-dasharray: 4 4; opacity: 0.55'" />
-        <line v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
-              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y" />
+        <!-- Hub-to-gateway / hub-to-direct-network links, swept into a gentle
+             mindmap-style curve rather than a ruler-straight radius. -->
+        <path v-for="item in gatewayLayout" :key="'gl-'+item.gateway.gatewayPeerId"
+              :class="['link', item.gateway.gatewayOnline ? '' : 'link-down']"
+              :d="linkPath(CX, CY, item.x, item.y)" />
+        <path v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
+              class="link" :d="linkPath(CX, CY, item.x, item.y)" />
 
         <!-- Gateway-to-network links (expanded gateway only) -->
-        <line v-for="item in expandedGatewayNetworkLayout" :key="'gnl-'+item.site.id"
+        <path v-for="item in expandedGatewayNetworkLayout" :key="'gnl-'+item.site.id"
               class="link" style="opacity:0.45"
-              :x1="item.parentX" :y1="item.parentY" :x2="item.x" :y2="item.y" />
+              :d="linkPath(item.parentX, item.parentY, item.x, item.y)" />
 
         <!-- Network-to-resource tree (expanded network only): a short trunk
              from the network box to a vertical spine, then one horizontal
@@ -563,11 +580,12 @@ export default defineComponent({
              these come and go with recent handshake activity, so the link is
              thin/dashed and the dot small — but the name + IP are printed
              right on the diagram, not hidden behind a hover-only tooltip. -->
-        <line v-for="d in livePeerLayout" :key="'ll-'+d.peer.id"
-              class="link-live" :x1="CX" :y1="CY" :x2="d.x" :y2="d.y" />
+        <path v-for="d in livePeerLayout" :key="'ll-'+d.peer.id"
+              :class="['link-live', d.peer.trafficTier === 'flowing' ? 'link-flowing' : '', d.peer.trafficTier === 'flowing-heavy' ? 'link-flowing-heavy' : '']"
+              :d="linkPath(CX, CY, d.x, d.y, 0.1)" />
         <g v-for="d in livePeerLayout" :key="'lp-'+d.peer.id">
-          <circle :cx="d.x" :cy="d.y" :r="LIVE_DOT_R" class="hub-core" style="opacity:0.85">
-            <title>{{ d.peer.name || t('topology.unknown_peer') }} · {{ d.peer.assignedIp }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
+          <circle :cx="d.x" :cy="d.y" :r="LIVE_DOT_R" :class="['hub-core', d.peer.trafficTier !== 'idle' ? 'live-dot-flowing' : '']" style="opacity:0.85">
+            <title>{{ d.peer.name || t('topology.unknown_peer') }} · {{ d.peer.assignedIp }} · {{ t('topology.traffic_' + (d.peer.trafficTier === 'flowing-heavy' ? 'flowing_heavy' : d.peer.trafficTier || 'idle')) }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
           </circle>
           <text class="live-label" :x="d.x" :y="d.y + LIVE_DOT_R + 12">{{ d.peer.name || t('topology.unknown_peer') }}</text>
           <text v-if="d.peer.assignedIp" class="live-ip" :x="d.x" :y="d.y + LIVE_DOT_R + 24">{{ d.peer.assignedIp }}</text>
@@ -598,7 +616,7 @@ export default defineComponent({
         <!-- Gateway-peer nodes — router silhouette (box, not circle): a shared
              site router groups every network routed through it into one spoke. -->
         <g v-for="item in gatewayLayout" :key="item.gateway.gatewayPeerId"
-           class="node live"
+           :class="['node', item.gateway.gatewayOnline ? 'live' : 'disabled']"
            @click="onGatewayClick(item.gateway.gatewayPeerId)"
            @mouseenter="showGatewayTooltip($event, item.gateway)"
            @mousemove="moveGatewayTooltip($event)"
