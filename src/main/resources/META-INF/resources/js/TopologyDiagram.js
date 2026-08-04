@@ -134,6 +134,18 @@ export default defineComponent({
       const seen = new Set(this.resources.map((r) => r.type || "computer"));
       return ALL_TYPES.filter((ty) => seen.has(ty.key));
     },
+    // Per-type counts for the filter chips (icon + count, Unifi Site
+    // Manager-style) — same `resources` list/cap caveat as filteredResourceCount
+    // below: undercounts a type once any of its resources fall outside the
+    // diagram-wide TOPOLOGY_RESOURCE_CAP, fine for a filter-bar hint.
+    typeCounts() {
+      const counts = new Map();
+      for (const r of this.resources) {
+        const key = r.type || "computer";
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      return counts;
+    },
     filteredResources() {
       if (this.activeTypes.size === 0) return this.resources;
       return this.resources.filter((r) => this.activeTypes.has(r.type || "computer"));
@@ -530,14 +542,19 @@ export default defineComponent({
            style="display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); font-family: var(--font-sans)">
         <button @click="clearTypes"
           :class="['btn','btn-sm', activeTypes.size === 0 ? 'btn-secondary' : 'btn-ghost']"
-          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
+          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
           {{ t('topology.filter_all') }}
+          <span style="font-family: var(--font-mono); opacity: 0.6">{{ resources.length }}</span>
         </button>
         <button v-for="tp in presentTypes" :key="tp.key"
           @click="toggleType(tp.key)"
           :class="['btn','btn-sm', activeTypes.has(tp.key) ? 'btn-secondary' : 'btn-ghost']"
-          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
+          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               style="flex-shrink: 0; opacity: 0.75" v-html="resourceIconMarkup(tp.key)" />
           {{ t(tp.labelKey) }}
+          <span style="font-family: var(--font-mono); opacity: 0.6">{{ typeCounts.get(tp.key) || 0 }}</span>
         </button>
       </div>
 
@@ -660,7 +677,8 @@ export default defineComponent({
 
         <!-- Network boxes — direct hub spokes, plus whichever gateway's group is expanded -->
         <g v-for="item in visibleNetworks" :key="item.site.id"
-           class="node live"
+           class="node network"
+           :style="!item.expanded && item.count === 0 ? 'opacity: 0.55' : ''"
            @click="onNetworkClick(item.site)"
            @mouseenter="showNetworkTooltip($event, item.site)"
            @mousemove="moveNetworkTooltip($event)"
@@ -677,9 +695,7 @@ export default defineComponent({
                fill="none" stroke="currentColor" stroke-width="2.5"
                stroke-linecap="round" stroke-linejoin="round"
                v-html="networkIconMarkup()" />
-            <text style="font-family: var(--font-mono); font-size: 12px; font-weight: 700;
-                         fill: var(--accent); text-anchor: middle; dominant-baseline: central;
-                         user-select: none"
+            <text :style="'font-family: var(--font-mono); font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: central; user-select: none; fill: ' + (item.count === 0 ? 'var(--fg3)' : 'var(--accent)')"
                   y="6">{{ item.count }}</text>
           </g>
           <g v-else-if="item.site.id === expandedSiteId && siteResourceLoading !== item.site.id && resourceLayout.length === 0 && item.count > 0">
