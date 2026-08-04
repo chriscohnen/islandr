@@ -341,6 +341,26 @@ export default defineComponent({
   methods: {
     t(key, vars) { return t(key, vars); },
     linkPath(x1, y1, x2, y2, bow) { return curvePath(x1, y1, x2, y2, bow); },
+    // A resource row's ring is a ~160° arc, not a full circle: solid on the
+    // side the branch line enters from (reads as the line flowing straight
+    // into the arc), open on the side the label sits on (so icon + text sit
+    // flush together instead of a ring boundary between them).
+    resourceRingPath(dir) {
+      const r = RESOURCE_ICON_R;
+      // Icon sits further from the hub than the spine it branches off, so
+      // the line always enters from the spine side — opposite the label's
+      // outward direction (dir).
+      const center = dir > 0 ? 180 : 0; // degrees — the line-entry side
+      const steps = 16;
+      const startDeg = center - 80, endDeg = center + 80;
+      let d = "";
+      for (let i = 0; i <= steps; i++) {
+        const deg = startDeg + ((endDeg - startDeg) * i) / steps;
+        const rad = (deg * Math.PI) / 180;
+        d += (i === 0 ? "M" : "L") + (r * Math.cos(rad)).toFixed(2) + "," + (r * Math.sin(rad)).toFixed(2);
+      }
+      return d;
+    },
     // Drag-to-pan, mouse and touch alike via Pointer Events. Only does
     // anything once the content no longer fits the capped viewBox
     // (needsPan) — otherwise everything's already visible and there's
@@ -595,14 +615,14 @@ export default defineComponent({
              list style. Hover still surfaces IP/ports via the same tooltip
              as before, just triggered off a row instead of a circle. -->
         <g v-for="item in resourceLayout" :key="item.resource.id"
-           class="node live"
+           class="node resource"
            @click="onResourceClick(item.resource.siteId, item.resource.id)"
            @mouseenter="showTooltip($event, item.resource)"
            @mousemove="moveTooltip($event)"
            @mouseleave="hideTooltip"
            :transform="'translate('+item.x+','+item.y+')'">
-          <circle class="node-ring" :r="RESOURCE_ICON_R" />
-          <circle class="node-bg"   :r="RESOURCE_ICON_R - 2" />
+          <circle class="node-bg" :r="RESOURCE_ICON_R - 2" />
+          <path class="node-ring" fill="none" :d="resourceRingPath(item.dir)" />
           <g class="node-icon" transform="translate(-6,-6) scale(0.5)"
              fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round"
