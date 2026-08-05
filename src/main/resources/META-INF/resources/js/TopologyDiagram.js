@@ -105,6 +105,12 @@ export default defineComponent({
     resourceOverflow: { type: Number, default: 0 },
     endpoint:         { type: String, default: "" },
     hubLabel:         { type: String, default: "" },
+    // Portal (self-service) reuse of this component (#43): gateway tunnel IP
+    // and raw handshake timestamp are Admin-register technical detail the
+    // backend already omits for portal callers — this only swaps the
+    // *wording* of the connected/disconnected fallback text so "Handshake"
+    // never appears in the end-user-facing tooltip.
+    portal:           { type: Boolean, default: false },
   },
   emits: ["site", "resource"],
   data() {
@@ -745,12 +751,17 @@ export default defineComponent({
           {{ gatewayTooltip.gateway.gatewayPeerName }}
         </div>
         <div style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
-          <div style="margin-bottom: 2px">
+          <div v-if="!portal && gatewayTooltip.gateway.gatewayIp" style="margin-bottom: 2px">
             <span :style="gatewayTooltip.gateway.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
                   style="font-size:9px">{{ gatewayTooltip.gateway.gatewayOnline ? '●' : '○' }}</span>
             <span style="font-family: var(--font-mono); color: var(--fg2)">{{ gatewayTooltip.gateway.gatewayIp }}</span>
           </div>
-          <div>{{ gatewayTooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(gatewayTooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
+          <div v-if="portal">
+            <span :style="gatewayTooltip.gateway.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                  style="font-size:9px">{{ gatewayTooltip.gateway.gatewayOnline ? '●' : '○' }}</span>
+            {{ gatewayTooltip.gateway.gatewayOnline ? t('topology.portal_connected') : t('topology.portal_disconnected') }}
+          </div>
+          <div v-else>{{ gatewayTooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(gatewayTooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
           <div style="margin-top: 2px">{{ gatewayTooltip.gateway.sites.length }} {{ t('topology.networks_short') }}</div>
         </div>
       </div>
@@ -772,7 +783,7 @@ export default defineComponent({
         <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
           {{ networkTooltip.site.name }}
         </div>
-        <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
+        <div v-if="networkTooltip.site.cidr" style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
           {{ networkTooltip.site.cidr }}
         </div>
       </div>

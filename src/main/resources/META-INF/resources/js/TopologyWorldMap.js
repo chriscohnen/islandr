@@ -134,6 +134,11 @@ export default defineComponent({
     hubLat: { type: Number, default: null },
     hubLon: { type: Number, default: null },
     hubLabel: { type: String, default: "" },
+    // Portal (self-service) reuse of this component (#43) — see the same
+    // prop on TopologyDiagram.js for why: swaps Admin-worded tooltip
+    // fallback text, doesn't change what data is shown (the backend
+    // already omits gatewayIp/gatewayLastSeenAt for portal callers).
+    portal: { type: Boolean, default: false },
   },
   emits: ["site"],
   data() {
@@ -629,13 +634,18 @@ export default defineComponent({
             {{ tooltip.gateway.gatewayPeerName }}
           </div>
           <div style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
-            <div style="margin-bottom: 2px">
+            <div v-if="!portal && tooltip.gateway.gatewayIp" style="margin-bottom: 2px">
               <span :style="tooltip.gateway.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
                     style="font-size:9px">{{ tooltip.gateway.gatewayOnline ? '●' : '○' }}</span>
               <span style="font-family: var(--font-mono); color: var(--fg2)">{{ tooltip.gateway.gatewayIp }}</span>
             </div>
-            <div>{{ tooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(tooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
-            <div v-if="tooltip.gateway.gatewayOnline">{{ t(trafficLabelKey(tooltip.gateway)) }}</div>
+            <div v-if="portal">
+              <span :style="tooltip.gateway.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                    style="font-size:9px">{{ tooltip.gateway.gatewayOnline ? '●' : '○' }}</span>
+              {{ tooltip.gateway.gatewayOnline ? t('topology.portal_connected') : t('topology.portal_disconnected') }}
+            </div>
+            <div v-else>{{ tooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(tooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
+            <div v-if="!portal && tooltip.gateway.gatewayOnline">{{ t(trafficLabelKey(tooltip.gateway)) }}</div>
             <div v-if="tooltip.gateway.sites.length > 1" style="margin-top: 2px">{{ tooltip.gateway.sites.length }} {{ t('topology.networks_short') }}</div>
           </div>
         </template>
@@ -643,7 +653,7 @@ export default defineComponent({
           <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
             {{ tooltip.site.name }}
           </div>
-          <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
+          <div v-if="tooltip.site.cidr" style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
             {{ tooltip.site.cidr }}
           </div>
         </template>
