@@ -143,7 +143,11 @@ WorkingDirectory=/var/lib/islandr
 EnvironmentFile=/etc/default/islandr
 ExecStart=/opt/islandr/islandr
 
-NoNewPrivileges=true
+# islandr calls nft/wg via sudo (ADR-0011). NoNewPrivileges=true blocks the
+# setuid bit that sudo relies on to become root, so it must stay off — leaving
+# it on fails silently until the first sudo call, e.g. "sudo: unable to
+# change to root gid: Operation not permitted".
+NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/islandr
@@ -154,8 +158,14 @@ PrivateTmp=false
 # (Settings, ADR-0023) — both are privileged ports the unprivileged islandr
 # user can't bind without this. Harmless to leave in even if you use neither;
 # it grants nothing beyond "may bind ports <1024", not root.
+#
+# Deliberately NOT paired with CapabilityBoundingSet=CAP_NET_BIND_SERVICE:
+# the bounding set applies to the whole process tree, including `sudo`
+# children (ADR-0011). Restricting it there denies sudo the CAP_SETUID/
+# CAP_SETGID it needs to actually become root after its setuid-root exec,
+# breaking every sudo nft/wg call with "unable to change to root gid:
+# Operation not permitted" — confirmed the hard way 2026-08-08.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 Restart=on-failure
 RestartSec=3
