@@ -295,6 +295,11 @@ export const peerModalMixin = {
           this.secret = updated;
           this.secretIsReshow = true;
           this.modalMode = "secret";
+          // This transition bypasses closeModal(), so any armed-but-unconfirmed
+          // rotate-key state from the edit modal must be cleared here too —
+          // otherwise it leaks into the secret modal's own rotate-key callout.
+          this.keyRotateArmed = false;
+          this.keyRotating = false;
         } else {
           this.closeModal();
         }
