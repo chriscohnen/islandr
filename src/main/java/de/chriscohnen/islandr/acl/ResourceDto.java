@@ -18,11 +18,17 @@ public final class ResourceDto {
             String ip,
             String description,
             String type,
+            // Optional DNS label for the resource-name resolver (ADR-0023, MVP).
+            // Null = this resource never resolves through it.
+            String dnsName,
+            // When true, resolves as "<dnsName>.<zone>" directly — no site
+            // subdomain (ADR-0023 follow-up). Meaningless unless dnsName is set.
+            boolean dnsFlat,
             List<PortResponse> ports,
             Instant createdAt
     ) {
         public static Response from(Resource r, List<PortResponse> ports) {
-            return new Response(r.id, r.siteId, r.name, r.ip, r.description, r.type, ports, r.createdAt);
+            return new Response(r.id, r.siteId, r.name, r.ip, r.description, r.type, r.dnsName, r.dnsFlat, ports, r.createdAt);
         }
     }
 
@@ -56,7 +62,18 @@ public final class ResourceDto {
             // input to the documented set (see V13 migration).
             @Pattern(regexp = "^(computer|router|printer|nas|camera|iot|virt-host|rackserver|kvm|management|other)?$",
                     message = "type must be one of: computer, router, printer, nas, camera, iot, virt-host, rackserver, kvm, management, other")
-            String type
+            String type,
+
+            // Optional — DNS label for the resource-name resolver (ADR-0023).
+            // Blank/null = never resolves. Lowercased and stripped by ResourceService.
+            @Pattern(regexp = "^$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$",
+                    message = "must be a DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
+            String dnsName,
+
+            // Optional — true resolves this resource directly under the zone
+            // apex, no site subdomain (ADR-0023 follow-up). Ignored when dnsName
+            // is blank.
+            boolean dnsFlat
     ) {}
 
     /**

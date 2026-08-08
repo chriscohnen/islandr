@@ -75,8 +75,16 @@ public class SiteService {
                             .entity("a site named '" + req.name() + "' already exists")
                             .build());
         }
+        String subdomain = normalizeSubdomain(req.subdomain());
+        if (subdomain != null && Site.count("lower(subdomain) = ?1", subdomain) > 0) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("a site with subdomain '" + subdomain + "' already exists")
+                            .build());
+        }
         Site s = Site.createNew(req.name(), req.cidr(), req.description());
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
+        s.subdomain = subdomain;
         s.persist();
         return s;
     }
@@ -90,12 +98,28 @@ public class SiteService {
                             .entity("a site named '" + req.name() + "' already exists")
                             .build());
         }
+        String subdomain = normalizeSubdomain(req.subdomain());
+        if (subdomain != null && !subdomain.equals(s.subdomain)
+                && Site.count("lower(subdomain) = ?1 and id <> ?2", subdomain, id) > 0) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("a site with subdomain '" + subdomain + "' already exists")
+                            .build());
+        }
         s.name = req.name();
         s.cidr = req.cidr();
         s.description = req.description();
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
+        s.subdomain = subdomain;
         s.updatedAt = Instant.now();
         return s;
+    }
+
+    /** Blank → null (derive live from name); otherwise lowercased as the
+     *  case-insensitive uniqueness/lookup key (ADR-0023). */
+    private static String normalizeSubdomain(String subdomain) {
+        return (subdomain == null || subdomain.isBlank())
+                ? null : subdomain.strip().toLowerCase(java.util.Locale.ROOT);
     }
 
     private String validatedGatewayPeerId(String peerId) {

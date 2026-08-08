@@ -15,7 +15,7 @@ export default defineComponent({
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
-      form: { name: "", cidr: "", description: "", gatewayPeerId: "" },
+      form: { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "" },
       editId: null,
       submitting: false,
       formError: null,
@@ -33,6 +33,11 @@ export default defineComponent({
       const p = this.peers.find((x) => x.id === this.form.gatewayPeerId);
       if (!p || !p.siteAllowedCidrs) return [];
       return p.siteAllowedCidrs.split(",").map((s) => s.trim()).filter(Boolean);
+    },
+    // Never written into form.subdomain automatically — placeholder/accept-chip
+    // only, same "suggestion, not silent" pattern as the Resource DNS-name field.
+    subdomainSuggestion() {
+      return this.form.subdomain ? "" : this.slugifySubdomain(this.form.name);
     },
   },
   methods: {
@@ -63,7 +68,7 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "" };
+      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "" };
       this.formError = null;
     },
     openEdit(site) {
@@ -74,8 +79,23 @@ export default defineComponent({
         cidr: site.cidr,
         description: site.description || "",
         gatewayPeerId: site.gatewayPeerId || "",
+        subdomain: site.subdomain || "",
       };
       this.formError = null;
+    },
+    acceptSubdomainSuggestion() {
+      this.form.subdomain = this.subdomainSuggestion;
+    },
+    // Mirrors the backend's DNS-label rule (Site.subdomain / DnsQueryHandler.slugify):
+    // German umlauts transliterated (ü→ue, ö→oe, ä→ae, ß→ss), other accents
+    // stripped, lowercase, non [a-z0-9] runs collapsed to a hyphen, max 63 chars.
+    // A pure suggestion — server-side validation is the actual source of truth.
+    slugifySubdomain(name) {
+      const lower = (name || "").trim().toLowerCase()
+        .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+      const deaccented = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const slug = deaccented.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      return slug.slice(0, 63).replace(/-+$/g, "");
     },
     closeModal() {
       this.modal = null;
@@ -225,9 +245,19 @@ export default defineComponent({
                         style="font-size: var(--text-xs)" @click="useRange(r)">{{ r }}</button>
               </div>
             </div>
-            <div class="field">
+            <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteDesc">{{ t('sites.field_desc') }}</label>
               <textarea id="siteDesc" class="textarea" rows="2" v-model="form.description" placeholder="Optional"></textarea>
+            </div>
+            <div class="field">
+              <label for="siteSubdomain">{{ t('sites.field_subdomain') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <input id="siteSubdomain" class="input mono" v-model="form.subdomain" :placeholder="subdomainSuggestion || t('sites.field_subdomain_ph')" />
+              <div v-if="subdomainSuggestion" class="field-hint" style="display:flex; align-items:center; gap: var(--space-2)">
+                <span>{{ t('sites.field_subdomain_suggestion', { name: subdomainSuggestion }) }}</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding: 0 var(--space-2); height: auto; min-height: 0; line-height: 1.6"
+                        @click="acceptSubdomainSuggestion">{{ t('sites.field_subdomain_accept') }}</button>
+              </div>
+              <div class="field-hint">{{ t('sites.field_subdomain_hint') }}</div>
             </div>
           </div>
           <div class="modal-footer">

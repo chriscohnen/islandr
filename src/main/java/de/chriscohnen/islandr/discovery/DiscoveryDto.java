@@ -29,7 +29,16 @@ public final class DiscoveryDto {
             @Pattern(regexp = "^(computer|router|printer|nas|camera|iot|virt-host|rackserver|kvm|management|other)$",
                     message = "type must be a valid resource type (resolve 'unknown' before importing)")
             String type,
-            List<Integer> ports
+            List<Integer> ports,
+            // Optional — DNS label for the resource-name resolver (ADR-0023). The UI
+            // pre-fills this from `name` (already space-free for scanned hosts) but
+            // an admin can edit or clear it per row before importing. Blank/null =
+            // skip. A collision (with an existing resource or another row in the
+            // same batch) also silently drops it for that row rather than failing
+            // the whole import — see DiscoveryResource#importHosts.
+            @Pattern(regexp = "^$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$",
+                    message = "must be a DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
+            String dnsName
     ) {}
 
     public record ImportRequest(@Valid List<ImportHost> hosts) {}

@@ -41,7 +41,28 @@ class PeerResourceTest {
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
-                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet
+                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsResolverUpstream
+        ), "test");
+    }
+
+    /** Mutates the shared settings singleton — callers must restore it (see the
+     *  resolver tests' try/finally) since the row is shared across the suite.
+     *  Goes through {@code SettingsService} directly (not the HTTP endpoint),
+     *  so it never triggers {@code DnsResolverService.reconcile()} — no socket
+     *  bind attempt from this test. */
+    @Transactional
+    void setDnsResolverEnabled(boolean enabled) {
+        var cur = settings.get();
+        settings.update(new SettingsDto.UpdateRequest(
+                cur.wgSubnet, cur.wgSubnet6, cur.wgServerPublicKey, cur.wgServerEndpoint,
+                cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
+                cur.gravatarEnabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
+                cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
+                cur.hubLat, cur.hubLon, cur.hubLocationLabel,
+                cur.ironRdpEnabled, cur.activityRetentionDays,
+                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
+                enabled, cur.dnsResolverZone, cur.dnsResolverUpstream
         ), "test");
     }
 
@@ -714,6 +735,79 @@ class PeerResourceTest {
                     .body("peer.includeDns", equalTo(true))
                     .body("conf", containsString("DNS = 10.9.0.1"));
         } finally {
+            setGlobalDns(null);
+        }
+    }
+
+    // ---- Resource-name DNS resolver opt-in (ADR-0023) ----------------------
+    //
+    // When the resolver is on, the hub's own tunnel IP (network+1 of wgSubnet,
+    // "10.8.0.1" for the test profile's default "10.8.0.0/24") becomes the
+    // peer's primary DNS server — it's the only way a peer can reach the
+    // resolver at all. Whatever's in wgClientDns is kept after it as a
+    // fallback, unchanged free-text/split-DNS syntax.
+
+    @Test
+    void create_confPrefixesHubIpWhenResolverEnabled_keepingFallback() {
+        setGlobalDns("10.9.0.1");
+        setDnsResolverEnabled(true);
+        try {
+            String userId = createUser();
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-on", "assignedIp": "10.8.0.74" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .body("conf", containsString("DNS = 10.8.0.1, 10.9.0.1"));
+        } finally {
+            setDnsResolverEnabled(false);
+            setGlobalDns(null);
+        }
+    }
+
+    @Test
+    void create_confHasHubIpOnly_whenResolverEnabledWithNoFallbackConfigured() {
+        setGlobalDns(null);
+        setDnsResolverEnabled(true);
+        try {
+            String userId = createUser();
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-no-fallback", "assignedIp": "10.8.0.75" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .body("conf", containsString("DNS = 10.8.0.1"))
+                    .body("conf", not(containsString("DNS = 10.8.0.1,")));
+        } finally {
+            setDnsResolverEnabled(false);
+        }
+    }
+
+    @Test
+    void create_perPeerIncludeDnsFalseOmitsHubIpToo() {
+        setGlobalDns("10.9.0.1");
+        setDnsResolverEnabled(true);
+        try {
+            String userId = createUser();
+            String peerId = given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-opt-out", "assignedIp": "10.8.0.76" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .extract().path("peer.id");
+
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-opt-out", "assignedIp": "10.8.0.76", "includeDns": false }
+                            """)
+                    .when().put("/api/v1/peers/" + peerId)
+                    .then().statusCode(200)
+                    .body("conf", not(containsString("DNS =")));
+        } finally {
+            setDnsResolverEnabled(false);
             setGlobalDns(null);
         }
     }

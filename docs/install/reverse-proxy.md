@@ -90,8 +90,56 @@ server {
 }
 ```
 
+**Traefik** (dynamic file provider — drop this next to your `traefik.yml`, or translate to the
+equivalent Docker labels if Traefik discovers containers instead of files):
+
+```yaml
+# dynamic.yml
+http:
+  routers:
+    islandr:
+      rule: "Host(`islandr.yourdomain.com`)"
+      entryPoints:
+        - websecure
+      service: islandr
+      tls:
+        certResolver: le   # your ACME resolver, defined elsewhere in traefik.yml
+
+  services:
+    islandr:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:7080"
+```
+
+Islandr already trusts `X-Forwarded-Proto`/`X-Forwarded-Host`/`X-Forwarded-Prefix`
+(`quarkus.http.proxy.*` in `application.properties`) — Traefik, Caddy, and nginx's `proxy_pass`
+all set these by default, so no extra header wiring is needed on the app side.
+
 With a reverse proxy in front, Islandr's own built-in TLS goes unused — plain HTTP on the loopback
 port is fine, since the proxy is the only thing that talks to it directly.
+
+### Cloudflare specifics
+
+If Cloudflare sits in front (orange-clouded DNS, with or without a reverse proxy behind it):
+
+- **DNS record**: an `A`/`AAAA` record for `islandr.yourdomain.com` pointing at the origin's
+  public IP, proxy status **on** (orange cloud) — this is what puts Cloudflare's edge, not the
+  origin, in the TLS path the browser talks to.
+- **SSL/TLS mode**: **Full (strict)** under SSL/TLS → Overview, not Flexible. Flexible terminates
+  TLS at Cloudflare's edge and speaks plain HTTP to the origin from there — the edge-to-browser
+  leg is still encrypted, but the edge-to-origin leg isn't, which defeats the point of running TLS
+  at all. Full (strict) needs a certificate at the origin that Cloudflare can validate: either a
+  **Cloudflare Origin Certificate** loaded via Path A's Managed mode (Settings → TLS), or a real
+  cert from ACME/your reverse proxy.
+- **Cookie-Secure rewrite**: Islandr's session cookie (`AuthResource.buildCookie`) intentionally
+  leaves the `Secure` flag unset at the app level — dev runs over plain HTTP, and the app has no
+  reliable way to know on its own that something in front of it is serving HTTPS. With Cloudflare
+  proxying, the browser-facing connection is HTTPS, so add a **Transform Rule** (Rules → Transform
+  Rules → Modify Response Header → Add) that appends `; Secure` to the `Set-Cookie` header for
+  `islandr.yourdomain.com`. Without it the cookie still functions, but nothing stops it from being
+  replayed over a plain-HTTP request if one ever reaches the origin — the rewrite is what actually
+  enforces HTTPS-only for the session.
 
 ## Trade-offs
 

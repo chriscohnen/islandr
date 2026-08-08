@@ -96,6 +96,41 @@ class DiscoveryResourceTest {
     }
 
     @Test
+    void import_setsDnsNameWhenProvided() {
+        String siteId = createSite("disco-dns", "10.96.0.0/29");
+        String body = "{\"hosts\":[{\"ip\":\"10.96.0.5\",\"name\":\"nas-1\",\"type\":\"nas\",\"dnsName\":\"nas-1\"}]}";
+
+        given().contentType("application/json").body(body)
+                .when().post("/api/v1/sites/" + siteId + "/discovery/import")
+                .then().statusCode(200).body("imported", equalTo(1));
+
+        given().when().get("/api/v1/sites/" + siteId + "/resources")
+                .then().statusCode(200)
+                .body("find { it.ip == '10.96.0.5' }.dnsName", equalTo("nas-1"));
+    }
+
+    @Test
+    void import_dropsDnsNameOnCollision_ratherThanFailingTheWholeBatch() {
+        String siteId = createSite("disco-dns-collide", "10.97.0.0/28");
+        // Two hosts in the same batch requesting the same dnsName — the second
+        // (and any tie) loses it silently rather than 409ing the whole import.
+        String body = "{\"hosts\":[" +
+                "{\"ip\":\"10.97.0.5\",\"name\":\"a\",\"type\":\"computer\",\"dnsName\":\"dup\"}," +
+                "{\"ip\":\"10.97.0.6\",\"name\":\"b\",\"type\":\"computer\",\"dnsName\":\"dup\"}" +
+                "]}";
+
+        given().contentType("application/json").body(body)
+                .when().post("/api/v1/sites/" + siteId + "/discovery/import")
+                .then().statusCode(200).body("imported", equalTo(2));
+
+        JsonPath res = given().when().get("/api/v1/sites/" + siteId + "/resources")
+                .then().statusCode(200).extract().jsonPath();
+        assertThat(res.getList("dnsName", String.class))
+                .as("exactly one of the two colliding rows keeps the dnsName")
+                .containsExactlyInAnyOrder("dup", null);
+    }
+
+    @Test
     void import_rejectsUnknownType_returns400() {
         String siteId = createSite("disco-badtype", "10.92.0.0/29");
         given().contentType("application/json")

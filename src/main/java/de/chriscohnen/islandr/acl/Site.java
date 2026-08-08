@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import de.chriscohnen.islandr.validation.ValidCidr;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.List;
@@ -46,6 +47,16 @@ public class Site extends PanacheEntityBase {
      */
     @Column(name = "gateway_peer_id", length = 36)
     public String gatewayPeerId;
+
+    /** Explicit DNS label for this network in the resource-name resolver
+     *  (ADR-0023) — e.g. resources resolve as {@code <resource>.<subdomain>.<zone>}.
+     *  Null/blank = derived live from {@code name} (DnsQueryHandler.slugify)
+     *  every query, the original behavior; renaming the site then also renames
+     *  every resource's DNS name. Setting this decouples the two. */
+    @Pattern(regexp = "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+            message = "must be a lowercase DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
+    @Column(name = "subdomain", length = 63)
+    public String subdomain;
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;

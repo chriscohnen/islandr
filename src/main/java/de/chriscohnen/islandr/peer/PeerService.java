@@ -577,8 +577,9 @@ public class PeerService {
         } else {
             sb.append("Address = ").append(assignedIp).append("/32\n");
         }
-        if (peerIncludeDns && settings.wgClientDns != null && !settings.wgClientDns.isBlank()) {
-            sb.append("DNS = ").append(settings.wgClientDns).append("\n");
+        String effectiveDns = settings.effectiveClientDns();
+        if (peerIncludeDns && effectiveDns != null && !effectiveDns.isBlank()) {
+            sb.append("DNS = ").append(effectiveDns).append("\n");
         }
         Integer effectiveMtu = peerMtu != null
                 ? peerMtu
@@ -592,7 +593,7 @@ public class PeerService {
                 settings.tunnelMode, settings.allowedIpsMode, settings.wgClientAllowedIps,
                 settings.wgSubnet, settings.wgSubnet6, settings.splitSupernet,
                 de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
-                settings.wgClientDns, peerIncludeDns);
+                effectiveDns, peerIncludeDns);
 
         sb.append("\n[Peer]\n");
         sb.append("PublicKey = ").append(settings.wgServerPublicKey).append("\n");

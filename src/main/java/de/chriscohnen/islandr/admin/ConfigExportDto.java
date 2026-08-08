@@ -69,7 +69,16 @@ public class ConfigExportDto {
         // Integer (not int) so a pre-existing export without this field imports as
         // null → the entity default (180), instead of primitive 0 (which would prune
         // the activity heatmap immediately).
-        Integer activityRetentionDays
+        Integer activityRetentionDays,
+        // Opt-in for the resource-name DNS resolver (ADR-0023) — persisted intent
+        // only, see Settings.java. Boolean (not primitive) so a pre-existing export
+        // without this field imports as null → the entity default (false), same
+        // "add-a-field, tolerate its absence" pattern as ironRdpEnabled above.
+        Boolean dnsResolverEnabled,
+        String dnsResolverZone,
+        // Where the resolver forwards non-zone queries — independent of
+        // wgClientDns, see Settings.java. Null on pre-existing exports.
+        String dnsResolverUpstream
     ) {}
 
     public record OidcProviderSnapshot(

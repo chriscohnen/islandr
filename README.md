@@ -48,6 +48,8 @@ Small teams, homelabs, and remote-first setups that want **sovereign WireGuard a
 - You want employees to self-service their own device configs, not email you for a `.conf` file
 - Data sovereignty matters — no connection metadata leaving your network
 
+Islandr configures the **native WireGuard client** on every device — no proprietary client app to install, trust, or audit. And it's **hub-and-spoke by design**: every peer connects through one central gateway, so access control is enforced in one place instead of punching holes between every pair of sites and hoping the firewall rules stay in sync.
+
 Islandr is **not** Zero Trust Network Access. It is managed VPN access with network segmentation — simpler, cheaper, fully under your control. If you need ZTNA, look at Teleport. If two devices and manual key files are enough, `wg-easy` is simpler. If a SaaS control plane is fine, Tailscale is excellent.
 
 ---

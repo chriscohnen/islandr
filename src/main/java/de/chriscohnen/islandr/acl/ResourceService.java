@@ -58,7 +58,11 @@ public class ResourceService {
                             .entity("a resource at " + ip + " already exists in this site")
                             .build());
         }
+        String dnsName = normalizeDnsName(req.dnsName());
+        checkDnsNameAvailable(siteId, dnsName, req.dnsFlat(), null);
         Resource r = Resource.createNew(siteId, req.name().strip(), ip, req.description(), req.type());
+        r.dnsName = dnsName;
+        r.dnsFlat = dnsName != null && req.dnsFlat();
         r.persist();
         return r;
     }
@@ -75,13 +79,48 @@ public class ResourceService {
                             .entity("a resource at " + ip + " already exists in this site")
                             .build());
         }
+        String dnsName = normalizeDnsName(req.dnsName());
+        boolean dnsFlat = dnsName != null && req.dnsFlat();
+        if (dnsName != null && (!dnsName.equals(r.dnsName) || dnsFlat != r.dnsFlat)) {
+            checkDnsNameAvailable(r.siteId, dnsName, dnsFlat, id);
+        }
         r.name = req.name().strip();
         r.ip = ip;
         r.description = req.description();
         if (req.type() != null && !req.type().isBlank()) {
             r.type = req.type();
         }
+        r.dnsName = dnsName;
+        r.dnsFlat = dnsFlat;
         return r;
+    }
+
+    /** Blank → null (never resolves); otherwise lowercased for a case-insensitive lookup key. */
+    private static String normalizeDnsName(String dnsName) {
+        return (dnsName == null || dnsName.isBlank()) ? null : dnsName.strip().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** A flat name has no site label to disambiguate it, so its uniqueness
+     *  domain is every flat-flagged resource in the whole install; a
+     *  non-flat name is only checked within its own site (unchanged from
+     *  before ADR-0023's flat option existed) — the two pools never collide
+     *  with each other since their resolved FQDN shapes differ. */
+    private static void checkDnsNameAvailable(String siteId, String dnsName, boolean dnsFlat, String excludeId) {
+        if (dnsName == null) return;
+        boolean conflict = dnsFlat
+                ? (excludeId == null
+                    ? Resource.count("dnsFlat = true and lower(dnsName) = ?1", dnsName) > 0
+                    : Resource.count("dnsFlat = true and lower(dnsName) = ?1 and id <> ?2", dnsName, excludeId) > 0)
+                : (excludeId == null
+                    ? Resource.count("siteId = ?1 and dnsFlat = false and lower(dnsName) = ?2", siteId, dnsName) > 0
+                    : Resource.count("siteId = ?1 and dnsFlat = false and lower(dnsName) = ?2 and id <> ?3", siteId, dnsName, excludeId) > 0);
+        if (conflict) {
+            String scope = dnsFlat ? "already exists" : "already exists in this site";
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("a resource named '" + dnsName + "' " + scope)
+                            .build());
+        }
     }
 
     @Transactional

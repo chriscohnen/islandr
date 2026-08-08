@@ -170,7 +170,8 @@ class ConfigImportRoundTripTest {
                 orig.selfServicePeerCreation(), orig.wgMtu(), orig.wgIncludeMtuInConf(),
                 orig.wgPersistentKeepalive(),
                 null, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null,
+                null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
                 original.version(), original.exportedAt(), original.privateKeysIncluded(),
@@ -277,7 +278,8 @@ class ConfigImportRoundTripTest {
                 orig.selfServicePeerCreation(), orig.wgMtu(), orig.wgIncludeMtuInConf(),
                 orig.wgPersistentKeepalive(),
                 orig.tunnelMode(), orig.allowedIpsMode(), orig.splitSupernet(),
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null,
+                null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
                 original.version(), original.exportedAt(), original.privateKeysIncluded(),

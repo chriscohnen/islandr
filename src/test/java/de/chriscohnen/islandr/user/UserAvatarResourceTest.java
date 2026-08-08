@@ -136,7 +136,8 @@ class UserAvatarResourceTest {
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
-                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet
+                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsResolverUpstream
         ), "test");
     }
 

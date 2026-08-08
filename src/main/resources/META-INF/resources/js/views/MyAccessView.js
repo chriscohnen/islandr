@@ -1036,19 +1036,20 @@ export default defineComponent({
                    :href="ippUrl(r, p)"
                    class="myaccess-port-link myaccess-port-print"
                    :title="t('myaccess.print_title', { ip: r.ip, port: p.port })">
-                  <!-- Printer icon -->
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                  <!-- Printer icon + install badge (same corner-badge convention as RDP/VNC above) -->
+                  <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
                        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
                        style="flex-shrink:0" aria-hidden="true">
-                    <rect x="3" y="1" width="10" height="4" rx="1"/>
-                    <path d="M3 5H1.5A.5.5 0 0 0 1 5.5v5A.5.5 0 0 0 1.5 11H3"/>
-                    <path d="M13 5h1.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5H13"/>
-                    <rect x="3" y="8" width="10" height="7" rx="1"/>
-                    <line x1="5" x2="11" y1="11" y2="11"/>
-                    <line x1="5" x2="11" y1="13" y2="13"/>
+                    <rect x="1" y="2" width="12" height="3.5" rx="1"/>
+                    <rect x="1" y="7" width="12" height="8" rx="1.2"/>
+                    <line x1="3.5" x2="9" y1="10" y2="10"/>
+                    <line x1="3.5" x2="9" y1="12.5" y2="12.5"/>
+                    <circle cx="17" cy="15" r="4" fill="var(--accent,#0E97B8)" stroke="none"/>
+                    <line x1="17" y1="13" x2="17" y2="17" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
+                    <line x1="15" y1="15" x2="19" y2="15" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
                   </svg>
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
-                  <span>{{ p.label || p.protocol }}</span>
+                  <span>{{ p.label || t('myaccess.print_action') }}</span>
                 </a>
                 <span v-else class="myaccess-port-chip">
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>

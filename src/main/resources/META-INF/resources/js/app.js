@@ -17,6 +17,7 @@ import PortGroupsView from "/js/views/PortGroupsView.js";
 import RolesView from "/js/views/RolesView.js";
 import AclMatrixView from "/js/views/AclMatrixView.js";
 import FirewallView from "/js/views/FirewallView.js";
+import DnsView from "/js/views/DnsView.js";
 import StubView from "/js/views/StubView.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
@@ -91,6 +92,7 @@ const router = createRouter({
     { path: "/resources", name: "all-resources", component: AllResourcesView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/port-groups", name: "port-groups", component: PortGroupsView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/firewall", name: "firewall", component: FirewallView, meta: { requiresAuth: true, requiresAdmin: true } },
+    { path: "/dns", name: "dns", component: DnsView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/users", name: "users", component: UsersView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/identity", name: "identity", component: IdentityView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/audit", name: "audit", component: AuditView, meta: { requiresAuth: true, requiresAdmin: true } },
@@ -326,6 +328,7 @@ const App = defineComponent({
           <div class="section-label">{{ t('nav.system') }}</div>
           <router-link to="/identity" class="nav-item"><Icon name="identity" />{{ t('nav.identity') }}</router-link>
           <router-link to="/firewall" class="nav-item"><Icon name="firewall" />{{ t('nav.firewall') }}</router-link>
+          <router-link to="/dns" class="nav-item"><Icon name="dns" />{{ t('nav.dns') }}</router-link>
           <router-link to="/audit" class="nav-item"><Icon name="audit" />{{ t('nav.audit') }}</router-link>
 
           <div class="sidebar-footer">

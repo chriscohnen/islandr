@@ -2,6 +2,22 @@ import { defineComponent } from "vue";
 import { t, locale, formatDate } from "/js/i18n.js";
 import { Icon } from "/js/Icons.js";
 
+// Public resolvers offered as one-click fill-ins for the client-DNS field —
+// IPv4 and IPv6 addresses toggle independently, so dual-stack setups (wgSubnet6)
+// can add both, and v4-only setups can ignore the v6 row entirely.
+const DNS_PRESETS_V4 = [
+  { name: "Quad9", value: "9.9.9.9" },
+  { name: "Google", value: "8.8.8.8" },
+  { name: "Cloudflare", value: "1.1.1.1" },
+  { name: "AdGuard", value: "94.140.14.14" },
+];
+const DNS_PRESETS_V6 = [
+  { name: "Quad9", value: "2620:fe::fe" },
+  { name: "Google", value: "2001:4860:4860::8888" },
+  { name: "Cloudflare", value: "2606:4700:4700::1111" },
+  { name: "AdGuard", value: "2a10:50c0::ad1:ff" },
+];
+
 // Settings form. GET + PUT against /api/v1/settings (the singleton row).
 // All WireGuard topology that ends up in client .conf files lives here —
 // see docs/adr/0008-runtime-settings-in-db.md.
@@ -10,6 +26,12 @@ export default defineComponent({
   components: { Icon },
   data() {
     return {
+      dnsPresetsV4: DNS_PRESETS_V4,
+      dnsPresetsV6: DNS_PRESETS_V6,
+      // Page-level sub-tabs, so a first-time admin isn't handed all ~10 cards
+      // stacked at once. "network" (WireGuard/Hub location) is the natural
+      // landing tab — it's what a fresh install needs configured first.
+      settingsTab: "network",
       wgSetupOpen: false,
       wgSetupCopied: null,
       wgSetupCopyFailed: null,
@@ -49,6 +71,9 @@ export default defineComponent({
         hubLon: null,
         hubLocationLabel: "",
         activityRetentionDays: 180,
+        dnsResolverEnabled: false,
+        dnsResolverZone: "",
+        dnsResolverUpstream: "",
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
@@ -108,6 +133,12 @@ export default defineComponent({
     };
   },
   async mounted() {
+    // Deep links from elsewhere (e.g. FirewallView's dry-run banner) land on
+    // a specific tab via ?tab=... instead of always the network default.
+    const requestedTab = this.$route.query.tab;
+    if (["network", "tls", "access", "users", "advanced"].includes(requestedTab)) {
+      this.settingsTab = requestedTab;
+    }
     await this.load();
     if (this.tlsMode === "managed") this.tlsTab = "origin";
     this.loadEnforcement();
@@ -217,6 +248,9 @@ export default defineComponent({
           hubLon: s.hubLon ?? null,
           hubLocationLabel: s.hubLocationLabel || "",
           activityRetentionDays: s.activityRetentionDays || 180,
+          dnsResolverEnabled: !!s.dnsResolverEnabled,
+          dnsResolverZone: s.dnsResolverZone || "",
+          dnsResolverUpstream: s.dnsResolverUpstream || "",
         };
         this.computedAllowedIpsPreview = s.computedAllowedIpsPreview || "";
         this.meta = {
@@ -262,6 +296,8 @@ export default defineComponent({
           hubLocationLabel: this.form.hubLocationLabel.trim() || null,
           activityRetentionDays: (this.form.activityRetentionDays === "" || this.form.activityRetentionDays == null
             || Number.isNaN(this.form.activityRetentionDays)) ? 180 : this.form.activityRetentionDays,
+          dnsResolverZone: this.form.dnsResolverZone.trim() === "" ? null : this.form.dnsResolverZone.trim(),
+          dnsResolverUpstream: this.form.dnsResolverUpstream.trim() === "" ? null : this.form.dnsResolverUpstream.trim(),
         };
         const res = await fetch("/api/v1/settings", {
           method: "PUT",
@@ -617,6 +653,25 @@ export default defineComponent({
       }
     },
 
+    dnsListEntries(field) {
+      return (this.form[field] || "").split(",").map((s) => s.trim()).filter(Boolean);
+    },
+
+    isDnsPresetActive(preset, field) {
+      return this.dnsListEntries(field).includes(preset.value);
+    },
+
+    toggleDnsPreset(preset, field) {
+      const entries = this.dnsListEntries(field);
+      const idx = entries.indexOf(preset.value);
+      if (idx >= 0) {
+        entries.splice(idx, 1);
+      } else {
+        entries.push(preset.value);
+      }
+      this.form[field] = entries.join(", ");
+    },
+
     formatDate(iso) { return formatDate(iso); },
 
     async exportConfig() {
@@ -730,8 +785,22 @@ export default defineComponent({
 
     <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
 
-    <form v-else @submit.prevent="save" style="display: flex; flex-direction: column; gap: var(--space-5)">
+    <div v-else style="display:flex; border:1px solid var(--border); border-radius:var(--radius-sm); width:fit-content; overflow:hidden; margin-bottom: var(--space-5); flex-wrap: wrap">
+      <button type="button" class="btn btn-sm" :class="settingsTab === 'network' ? 'btn-secondary' : 'btn-ghost'"
+              style="border:none; border-radius:0" @click="settingsTab = 'network'">{{ t('settings.tab_network') }}</button>
+      <button type="button" class="btn btn-sm" :class="settingsTab === 'tls' ? 'btn-secondary' : 'btn-ghost'"
+              style="border:none; border-radius:0" @click="settingsTab = 'tls'">{{ t('settings.tab_tls') }}</button>
+      <button type="button" class="btn btn-sm" :class="settingsTab === 'access' ? 'btn-secondary' : 'btn-ghost'"
+              style="border:none; border-radius:0" @click="settingsTab = 'access'">{{ t('settings.tab_access') }}</button>
+      <button type="button" class="btn btn-sm" :class="settingsTab === 'users' ? 'btn-secondary' : 'btn-ghost'"
+              style="border:none; border-radius:0" @click="settingsTab = 'users'">{{ t('settings.tab_users') }}</button>
+      <button type="button" class="btn btn-sm" :class="settingsTab === 'advanced' ? 'btn-secondary' : 'btn-ghost'"
+              style="border:none; border-radius:0" @click="settingsTab = 'advanced'">{{ t('settings.tab_advanced') }}</button>
+    </div>
 
+    <form v-if="!loading" @submit.prevent="save" style="display: flex; flex-direction: column; gap: var(--space-5)">
+
+      <template v-if="settingsTab === 'network'">
       <!-- WireGuard -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">WireGuard</h2>
@@ -873,7 +942,52 @@ export default defineComponent({
           <div class="field">
             <label for="wgClientDns">{{ t('settings.field_dns') }}</label>
             <input id="wgClientDns" class="input mono" v-model="form.wgClientDns" placeholder="10.8.0.1 (optional)" />
+            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v4') }}</span>
+              <button v-for="preset in dnsPresetsV4" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-secondary': isDnsPresetActive(preset, 'wgClientDns') }"
+                      @click="toggleDnsPreset(preset, 'wgClientDns')">{{ preset.name }}</button>
+            </div>
+            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v6') }}</span>
+              <button v-for="preset in dnsPresetsV6" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-secondary': isDnsPresetActive(preset, 'wgClientDns') }"
+                      @click="toggleDnsPreset(preset, 'wgClientDns')">{{ preset.name }}</button>
+            </div>
             <div class="field-hint">{{ t('settings.hint_dns') }}</div>
+            <div v-if="form.dnsResolverEnabled" class="field-hint">
+              {{ t('settings.hint_dns_resolver_prepends_hub') }}
+            </div>
+          </div>
+
+          <div class="field field-full">
+            <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+              <input type="checkbox" v-model="form.dnsResolverEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+              <span>{{ t('settings.dns_resolver_label') }}</span>
+            </label>
+            <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.dns_resolver_hint') }}</div>
+            <div v-if="form.dnsResolverEnabled" style="margin-top: var(--space-3); max-width: 320px">
+              <label for="dnsResolverZone">{{ t('settings.dns_resolver_zone_label') }}</label>
+              <input id="dnsResolverZone" class="input mono" v-model="form.dnsResolverZone" placeholder="islandr.internal" />
+              <div class="field-hint">{{ t('settings.dns_resolver_zone_hint') }}</div>
+            </div>
+            <div v-if="form.dnsResolverEnabled" style="margin-top: var(--space-4)">
+              <label for="dnsResolverUpstream">{{ t('settings.dns_resolver_upstream_label') }}</label>
+              <input id="dnsResolverUpstream" class="input mono" v-model="form.dnsResolverUpstream" placeholder="1.1.1.1, 8.8.8.8" />
+              <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+                <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v4') }}</span>
+                <button v-for="preset in dnsPresetsV4" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                        :class="{ 'btn-secondary': isDnsPresetActive(preset, 'dnsResolverUpstream') }"
+                        @click="toggleDnsPreset(preset, 'dnsResolverUpstream')">{{ preset.name }}</button>
+              </div>
+              <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+                <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v6') }}</span>
+                <button v-for="preset in dnsPresetsV6" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                        :class="{ 'btn-secondary': isDnsPresetActive(preset, 'dnsResolverUpstream') }"
+                        @click="toggleDnsPreset(preset, 'dnsResolverUpstream')">{{ preset.name }}</button>
+              </div>
+              <div class="field-hint">{{ t('settings.dns_resolver_upstream_hint') }}</div>
+            </div>
           </div>
 
           <div class="field">
@@ -938,7 +1052,9 @@ export default defineComponent({
           </div>
         </div>
       </div>
+      </template>
 
+      <template v-if="settingsTab === 'advanced'">
       <!-- Private Keys -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.field_retention') }}</h2>
@@ -980,7 +1096,9 @@ export default defineComponent({
           <span class="muted" style="font-size:var(--text-sm)">{{ t('settings.activity_retention_days_suffix') }}</span>
         </div>
       </div>
+      </template>
 
+      <template v-if="settingsTab === 'tls'">
       <!-- TLS / HTTPS (ADR-0015) -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_tls') }}</h2>
@@ -1178,7 +1296,9 @@ export default defineComponent({
           </div>
         </div>
       </div>
+      </template>
 
+      <template v-if="settingsTab === 'access'">
       <!-- Firewall -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_firewall') }}</h2>
@@ -1210,7 +1330,9 @@ export default defineComponent({
           <div class="field-hint" style="margin-top: 0">{{ t('settings.iron_rdp_hint') }}</div>
         </div>
       </div>
+      </template>
 
+      <template v-if="settingsTab === 'users'">
       <!-- Benutzer -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_users') }}</h2>
@@ -1231,6 +1353,7 @@ export default defineComponent({
           </div>
         </div>
       </div>
+      </template>
 
       <!-- Save + Meta + Version -->
       <div style="display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap">
@@ -1261,7 +1384,7 @@ export default defineComponent({
     </form>
 
     <!-- Deployment & enforcement mode -->
-    <div v-if="enforcement" style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
+    <div v-if="!loading && settingsTab === 'advanced' && enforcement" style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
       <h2 style="margin-bottom: var(--space-1); font-size: var(--text-md)">{{ t('settings.enforcement_title') }}</h2>
       <p class="field-hint" style="margin-bottom: var(--space-4)">{{ t('settings.enforcement_hint') }}</p>
 
@@ -1289,7 +1412,7 @@ export default defineComponent({
     </div>
 
     <!-- Config Export / Import -->
-    <div style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
+    <div v-if="!loading && settingsTab === 'advanced'" style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border)">
       <h2 style="margin-bottom: var(--space-1); font-size: var(--text-md)">{{ t('settings.section_config') }}</h2>
       <p class="field-hint" style="margin-bottom: var(--space-5)">{{ t('settings.config_hint') }}</p>
 
