@@ -24,6 +24,10 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -84,6 +88,65 @@ public class MyPeerResource {
         String userId = requireOrgUserId(a);
         return Peer.<Peer>list("userId = ?1", Sort.by("createdAt").descending(), userId)
                 .stream().map(PeerDto.Response::from).toList();
+    }
+
+    /**
+     * Own-activity heatmap (#43): same {@code peer_daily_activity} source and
+     * response shape as the admin's {@code GET /api/v1/peers/activity-heatmap},
+     * just constrained to the caller's own peers before building rows — no
+     * other user's device activity is ever visible here.
+     */
+    @GET
+    @Path("/activity-heatmap")
+    public PeerDto.ActivityHeatmapResponse activityHeatmap(
+            @Context ContainerRequestContext ctx,
+            @jakarta.ws.rs.QueryParam("days") Integer daysParam,
+            @jakarta.ws.rs.QueryParam("userId") String userIdParam) {
+        // Same admin-impersonation pattern as MyAccessResource.myResources —
+        // lets an admin's "view as" preview show that user's own activity
+        // instead of always the admin session's own (issue #43 follow-up:
+        // this endpoint originally only supported the caller's own peers,
+        // which broke "view as" for this one tab).
+        String userId;
+        if (userIdParam != null && !userIdParam.isBlank()) {
+            Auth.requireAdmin(ctx);
+            userId = userIdParam;
+        } else {
+            AuthContext a = Auth.require(ctx);
+            userId = requireOrgUserId(a);
+        }
+
+        int numDays = daysParam == null ? 30 : Math.max(1, Math.min(180, daysParam));
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate from = today.minusDays(numDays - 1);
+
+        List<String> days = new ArrayList<>();
+        for (LocalDate d = from; !d.isAfter(today); d = d.plusDays(1)) days.add(d.toString());
+
+        List<Peer> myPeers = Peer.<Peer>list("userId = ?1", Sort.by("name"), userId);
+        List<String> myPeerIds = myPeers.stream().map(p -> p.id).toList();
+        List<PeerDailyActivity> rows = myPeerIds.isEmpty()
+                ? List.of()
+                : PeerDailyActivity.find(
+                        "id.peerId in ?1 and id.day >= ?2", myPeerIds, from.toString()).list();
+        Map<String, Map<String, PeerDailyActivity>> byPeer = new HashMap<>();
+        for (PeerDailyActivity row : rows) {
+            byPeer.computeIfAbsent(row.id.peerId, k -> new HashMap<>()).put(row.id.day, row);
+        }
+
+        List<PeerDto.ActivityHeatmapRow> peerRows = myPeers.stream()
+                .map(p -> {
+                    Map<String, PeerDailyActivity> byDay = byPeer.getOrDefault(p.id, Map.of());
+                    List<Integer> sampleHits = days.stream()
+                            .map(d -> byDay.containsKey(d) ? byDay.get(d).sampleHits : 0).toList();
+                    List<Long> rxBytes = days.stream()
+                            .map(d -> byDay.containsKey(d) ? byDay.get(d).rxBytes : 0L).toList();
+                    List<Long> txBytes = days.stream()
+                            .map(d -> byDay.containsKey(d) ? byDay.get(d).txBytes : 0L).toList();
+                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, sampleHits, rxBytes, txBytes);
+                }).toList();
+
+        return new PeerDto.ActivityHeatmapResponse(days, peerRows);
     }
 
     @POST

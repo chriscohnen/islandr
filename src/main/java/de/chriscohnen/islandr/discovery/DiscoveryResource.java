@@ -61,7 +61,7 @@ public class DiscoveryResource {
         requireScanReachable(site, force);
         DiscoveryJobs.Job job;
         try {
-            job = jobs.start(siteId, site.cidr);   // supersedes any scan still running for this site
+            job = jobs.start(siteId, site.cidr, site.dnsServerIp);   // supersedes any scan still running for this site
         } catch (IllegalArgumentException e) {     // CIDR not IPv4-enumerable or over the cap
             throw conflict(e.getMessage());
         }
@@ -115,6 +115,9 @@ public class DiscoveryResource {
         int imported = 0;
         int skipped = 0;
         List<String> createdIps = new ArrayList<>();
+        // Tracks dnsNames claimed earlier in this same batch — a per-row DB check
+        // alone wouldn't see an uncommitted sibling created two iterations ago.
+        java.util.Set<String> claimedDnsNames = new java.util.HashSet<>();
         for (DiscoveryDto.ImportHost h : body.hosts()) {
             String ip = h.ip().strip();
             // Idempotent on (site, ip): re-importing an already-registered host is a no-op.
@@ -123,6 +126,10 @@ public class DiscoveryResource {
                 continue;
             }
             Resource r = Resource.createNew(siteId, h.name().strip(), ip, null, h.type());
+            // Best-effort — a collision (existing resource or another row already
+            // claimed it in this batch) just leaves this one nameless rather than
+            // failing the whole import; the admin can set it by hand afterwards.
+            r.dnsName = claimDnsName(siteId, h.dnsName(), claimedDnsNames);
             r.persist();
             // Optionally adopt the discovered open TCP ports as ResourcePorts, so the
             // admin doesn't re-enter them by hand. Protocol is a best-effort label
@@ -143,6 +150,17 @@ public class DiscoveryResource {
     }
 
     // -- helpers --------------------------------------------------------------
+
+    /** Normalizes (lowercase, blank -> null) and claims a dnsName for one row of
+     *  a bulk import — null if blank, already used by an existing resource in
+     *  the site, or already claimed by an earlier row in this same batch. */
+    private static String claimDnsName(String siteId, String dnsName, java.util.Set<String> claimedInBatch) {
+        if (dnsName == null || dnsName.isBlank()) return null;
+        String normalized = dnsName.strip().toLowerCase(java.util.Locale.ROOT);
+        if (!claimedInBatch.add(normalized)) return null; // already used earlier in this batch
+        if (Resource.count("siteId = ?1 and lower(dnsName) = ?2", siteId, normalized) > 0) return null;
+        return normalized;
+    }
 
     private Site requireSite(String siteId) {
         Site s = Site.findById(siteId);

@@ -143,11 +143,29 @@ WorkingDirectory=/var/lib/islandr
 EnvironmentFile=/etc/default/islandr
 ExecStart=/opt/islandr/islandr
 
-NoNewPrivileges=true
+# islandr calls nft/wg via sudo (ADR-0011). NoNewPrivileges=true blocks the
+# setuid bit that sudo relies on to become root, so it must stay off — leaving
+# it on fails silently until the first sudo call, e.g. "sudo: unable to
+# change to root gid: Operation not permitted".
+NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/islandr
 PrivateTmp=false
+
+# Needed for built-in TLS on ports 80/443 (if you switch off the loopback:8080
+# setup above) and for the optional resource DNS resolver on port 53
+# (Settings, ADR-0023) — both are privileged ports the unprivileged islandr
+# user can't bind without this. Harmless to leave in even if you use neither;
+# it grants nothing beyond "may bind ports <1024", not root.
+#
+# Deliberately NOT paired with CapabilityBoundingSet=CAP_NET_BIND_SERVICE:
+# the bounding set applies to the whole process tree, including `sudo`
+# children (ADR-0011). Restricting it there denies sudo the CAP_SETUID/
+# CAP_SETGID it needs to actually become root after its setuid-root exec,
+# breaking every sudo nft/wg call with "unable to change to root gid:
+# Operation not permitted" — confirmed the hard way 2026-08-08.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 Restart=on-failure
 RestartSec=3
@@ -366,8 +384,33 @@ This just hands `forward` traffic back to whatever else is on the host; islandr 
 - [ ] `wg0` interface up and WireGuard server keys configured in Islandr Settings
 - [ ] OIDC provider configured (Settings → Identity) — local admin is for recovery only
 - [ ] Firewall dry-run **disabled** once the generated ruleset looks correct (Settings → Firewall)
-- [ ] Backup job for `/var/lib/islandr/data/islandr.db` — contains OIDC client secrets, treat accordingly
+- [ ] Backup job for `/var/lib/islandr/data/islandr.db` — contains OIDC client secrets, treat
+      accordingly (`scripts/backup.sh`, see below)
 - [ ] `sudo journalctl -u islandr` shows no errors on first start
+
+---
+
+## Backups
+
+`scripts/backup.sh` writes a consistent, gzip-compressed, rotated backup of the SQLite database —
+via `sqlite3 .backup`, not a raw file copy, so a backup taken while the service is running can't
+end up torn or corrupt:
+
+```bash
+sudo bash scripts/backup.sh                 # → /var/backups/islandr, 14-day local retention
+sudo bash scripts/backup.sh /mnt/backups     # custom destination
+```
+
+Add it to cron for a daily run:
+
+```
+0 3 * * * root DB_PATH=/var/lib/islandr/data/islandr.db /opt/islandr/backup.sh
+```
+
+The database contains OIDC client secrets — encrypted at rest only if `ISLANDR_ENCRYPTION_KEY` is
+set (step 5 above). Backups inherit that same sensitivity: written `0600`, owned by the DB file's
+owner. The script only handles local rotation — for off-host retention, `rsync`/`scp` the `.gz`
+output elsewhere, or point `restic backup` at the destination directory instead.
 
 ---
 

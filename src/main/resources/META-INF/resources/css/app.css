@@ -1181,15 +1181,28 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .topo .hub-pulse { animation: none; opacity: 0.3; }
 }
+.topo .hub-mark {
+  fill: var(--fg-on-accent);
+  stroke: var(--fg-on-accent);
+}
 .topo .link {
   fill: none;
   stroke: var(--accent);
   stroke-width: 1.4;
   opacity: 0.5;
 }
-.topo .link-stale  { opacity: 0.2; stroke-dasharray: 3 4; }
-.topo .link-down   { opacity: 0.15; stroke-dasharray: 1 4; stroke: var(--fg3); }
+.topo .link-down   { opacity: 0.55; stroke-dasharray: 4 4; stroke: var(--fg3); }
 .topo .link-live   { fill: none; stroke: var(--accent); stroke-width: 1; opacity: 0.3; stroke-dasharray: 2 3; }
+/* Third link/node state (issue #34): a live peer whose byte counters moved
+   between the last two live-polls, distinct from "connected but idle". Line
+   thickness carries the traffic-volume signal — flowing-heavy is the
+   thicker of the two — so the diagram reads at a glance without needing the
+   byte-counter table underneath. No added motion — only color/weight/dash
+   change, per the one-ambient-motion rule (the hub pulse already owns that
+   budget). */
+.topo .link-flowing       { stroke-width: 1.8; opacity: 0.7;  stroke-dasharray: none; }
+.topo .link-flowing-heavy { stroke-width: 3;   opacity: 0.95; stroke-dasharray: none; }
+.topo .live-dot-flowing { opacity: 1; }
 .topo .node {
   cursor: pointer;
 }
@@ -1199,8 +1212,17 @@ body {
   stroke-width: 1;
 }
 .topo .node.live      .node-ring { stroke: var(--success, #16a34a); stroke-width: 2; }
-.topo .node.stale     .node-ring { stroke: var(--fg3);              stroke-width: 1.4; }
 .topo .node.disabled  .node-ring { stroke: var(--fg3);              stroke-width: 1.4; stroke-dasharray: 2 3; }
+/* Resource rows and network boxes don't carry a live/offline signal (unlike
+   gateways, which have a real WireGuard handshake to report) — coloring
+   their ring green would claim a status we don't actually know. Neutral
+   border for networks (a network is a CIDR grouping, not a device); same
+   accent/opacity as the connecting line for a resource's arc, so it reads
+   as part of the line rather than a separate status indicator. The
+   "expanded" accent highlight (networkRingStyle/gatewayRingStyle inline
+   style) still overrides both — that's a selection state, not a status. */
+.topo .node.network   .node-ring { stroke: var(--border); stroke-width: 1.4; }
+.topo .node.resource  .node-ring { stroke: var(--accent); stroke-width: 1.4; opacity: 0.55; }
 .topo .node-glyph {
   fill: none;
   stroke: var(--fg1);
@@ -1286,6 +1308,12 @@ body {
   stroke: var(--fg3);
   opacity: 0.35;
 }
+/* Traffic-tier reinforcement (issue #34) — stroke-width itself is set
+   inline by linkStyle() (see the comment above .worldmap-link), scaled by
+   1/zoom; these two only lift opacity so a flowing/heavy link also reads
+   brighter, not just thicker. */
+.worldmap-link-flowing       { opacity: 0.8; }
+.worldmap-link-flowing-heavy { opacity: 1; }
 /* One square per network under a multi-network gateway's pin (see GRID_*
    in TopologyWorldMap.js) — same accent as the topology diagram's network
    count text, not a new color. Filled (not just outlined) so it reads as a
@@ -1309,9 +1337,13 @@ body {
 }
 
 /* --- connection activity heatmap (#32) ----------------------------------- */
-/* 5 intensity levels off the existing accent ramp, GitHub-contribution-graph
-   style. Level is relative to that day's max across peers, not an absolute
-   scale — see ActivityHeatmap.js. */
+/* 6 intensity levels off the existing accent ramp, GitHub-contribution-graph
+   style. For the "hits" (connections) metric, level is an absolute duration
+   bucket (0-3h/4-7h/8-11h/12-15h/16-19h/20-24h) so a peer connected 22h
+   always reads as the brightest color, not just "more than today's other
+   peers"; the "bytes" (traffic) metric still uses 5 levels relative to that
+   day's max, since traffic volume has no natural absolute scale — see
+   ActivityHeatmap.js's level(). */
 /* `.table td { height: var(--row-height) }` (components.css) outranks a bare
    `.heatmap-cell` on specificity (class+element beats class alone), so every
    day cell rendered at the shared ~44px row height while staying 18px wide —
@@ -1339,11 +1371,13 @@ td.heatmap-cell.heatmap-l2 { background: var(--accent-200); }
 td.heatmap-cell.heatmap-l3 { background: var(--accent-300); }
 td.heatmap-cell.heatmap-l4 { background: var(--accent-400); }
 td.heatmap-cell.heatmap-l5 { background: var(--accent-500); }
+td.heatmap-cell.heatmap-l6 { background: var(--accent-600); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l1 { background: var(--accent-900); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l2 { background: var(--accent-800); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l3 { background: var(--accent-700); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l4 { background: var(--accent-600); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l5 { background: var(--accent-500); }
+[data-theme="dark"] td.heatmap-cell.heatmap-l6 { background: var(--accent-400); }
 
 /* ============================================================================
    ResourcesView — card grid

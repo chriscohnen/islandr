@@ -31,6 +31,12 @@ public final class SettingsDto {
             String hubLocationLabel,
             boolean ironRdpEnabled,
             int activityRetentionDays,
+            // Resource-name DNS resolver (ADR-0023).
+            boolean dnsResolverEnabled,
+            String dnsResolverZone,
+            // Where the resolver forwards non-zone queries — independent of
+            // wgClientDns, see Settings.java for why.
+            String dnsResolverUpstream,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete,
@@ -88,6 +94,9 @@ public final class SettingsDto {
                     s.hubLat, s.hubLon, s.hubLocationLabel,
                     s.ironRdpEnabled,
                     s.activityRetentionDays,
+                    s.dnsResolverEnabled,
+                    s.dnsResolverZone,
+                    s.dnsResolverUpstream,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                     version,
@@ -115,7 +124,7 @@ public final class SettingsDto {
                             s.tunnelMode, s.allowedIpsMode, s.wgClientAllowedIps,
                             s.wgSubnet, s.wgSubnet6, s.splitSupernet,
                             de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
-                            s.wgClientDns, true));
+                            s.effectiveClientDns(), true));
         }
     }
 
@@ -232,7 +241,22 @@ public final class SettingsDto {
             // optional — admin-declared CIDR sized to cover current and future site
             // networks. Only meaningful when tunnelMode=SPLIT and allowedIpsMode=AUTO.
             @ValidCidr
-            String splitSupernet
+            String splitSupernet,
+
+            // optional — opt-in for the resource-name DNS resolver (ADR-0023).
+            // Persisted intent only; the resolver service itself is a later addition.
+            boolean dnsResolverEnabled,
+
+            // optional — base domain for the managed zone, e.g. "islandr.internal".
+            // Blank while enabling defaults to "islandr.internal" (SettingsService).
+            @Pattern(regexp = "^$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+                    message = "must be a valid domain name")
+            String dnsResolverZone,
+
+            // optional — where the resolver forwards non-zone queries. Blank →
+            // DnsQueryHandler falls back to a hardcoded default (1.1.1.1, 8.8.8.8).
+            // Independent of wgClientDns — see Settings.java.
+            String dnsResolverUpstream
     ) {}
 
     private SettingsDto() {}

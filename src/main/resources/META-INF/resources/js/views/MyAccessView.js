@@ -1,6 +1,9 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate } from "/js/i18n.js";
+import TopologyDiagram from "/js/TopologyDiagram.js";
+import TopologyWorldMap from "/js/TopologyWorldMap.js";
+import PortalActivityHeatmap from "/js/PortalActivityHeatmap.js";
 
 // Self-service view: an org user manages their own devices. No site peers,
 // no IP picker (the server chooses), no other user's data.
@@ -11,7 +14,7 @@ import { t, locale, formatDate } from "/js/i18n.js";
 //   PUT    /api/v1/peers/mine/{id}/public-key — rotate the public key
 export default defineComponent({
   name: "MyAccessView",
-  components: { Icon },
+  components: { Icon, TopologyDiagram, TopologyWorldMap, PortalActivityHeatmap },
   props: {
     retention: { type: String, default: "never" },
     selfServicePeerCreation: { type: Boolean, default: true },
@@ -24,6 +27,14 @@ export default defineComponent({
       grantsLoading: true,
       loading: true,
       error: null,
+      // Grants section tabs: "list" (default), "topology", "map", "activity" —
+      // topology/map/activity data is fetched lazily on first activation,
+      // not up front, since most users just want the plain resource list.
+      grantsTab: "list",
+      topology: null,        // portal-scoped DashboardDto.Topology, or null until loaded
+      topologyLoading: false,
+      topologyError: null,
+      activityLoaded: false, // PortalActivityHeatmap fetches its own data; just gate first mount
       // userId the view is scoped to (null = own, set = admin impersonation)
       viewAsUserId: null,
       viewAsUserName: null,
@@ -64,6 +75,14 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    // Same 2-geocoded-sites gate as the admin dashboard's map tab (ADR-0021)
+    // — a hub plus a single remote network already clears it.
+    worldMapAvailable() {
+      if (!this.topology) return false;
+      const hasHub = this.topology.hubLat != null && this.topology.hubLon != null;
+      const geocodedSites = this.topology.sites.filter((s) => s.gatewayLat != null && s.gatewayLng != null).length;
+      return hasHub && geocodedSites >= 1;
+    },
     groupedGrants() {
       const groups = {};
       for (const r of this.grants) {
@@ -133,6 +152,32 @@ export default defineComponent({
         // non-fatal — grants section simply stays empty
       } finally {
         this.grantsLoading = false;
+      }
+    },
+
+    // Topology/map/activity are lazy: fetched on first tab activation, not
+    // alongside load()/loadGrants() — most visits just want the plain list.
+    async selectGrantsTab(tab) {
+      this.grantsTab = tab;
+      if ((tab === "topology" || tab === "map") && !this.topology && !this.topologyLoading) {
+        await this.loadTopology();
+      }
+      if (tab === "activity") this.activityLoaded = true;
+    },
+    async loadTopology() {
+      this.topologyLoading = true;
+      this.topologyError = null;
+      try {
+        const url = this.viewAsUserId
+            ? "/api/v1/acl/my-resources/topology?userId=" + encodeURIComponent(this.viewAsUserId)
+            : "/api/v1/acl/my-resources/topology";
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.topology = await res.json();
+      } catch (e) {
+        this.topologyError = t("myaccess.topology_error", { error: e.message });
+      } finally {
+        this.topologyLoading = false;
       }
     },
 
@@ -823,6 +868,18 @@ export default defineComponent({
           <h2 style="margin: 0; font-size: var(--text-lg); font-weight: 600">{{ t('myaccess.grants_title') }}</h2>
         </div>
 
+        <div v-if="grants.length > 0" style="display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4)">
+          <button type="button" class="btn btn-sm" :class="grantsTab === 'list' ? 'btn-secondary' : 'btn-ghost'"
+                  @click="selectGrantsTab('list')">{{ t('myaccess.tab_list') }}</button>
+          <button type="button" class="btn btn-sm" :class="grantsTab === 'topology' ? 'btn-secondary' : 'btn-ghost'"
+                  @click="selectGrantsTab('topology')">{{ t('myaccess.tab_topology') }}</button>
+          <button type="button" class="btn btn-sm" :class="grantsTab === 'map' ? 'btn-secondary' : 'btn-ghost'"
+                  @click="selectGrantsTab('map')">{{ t('myaccess.tab_map') }}</button>
+          <button type="button" class="btn btn-sm" :class="grantsTab === 'activity' ? 'btn-secondary' : 'btn-ghost'"
+                  @click="selectGrantsTab('activity')">{{ t('myaccess.tab_activity') }}</button>
+        </div>
+
+      <template v-if="grantsTab === 'list'">
       <div v-if="grantsLoading" class="muted">{{ t('common.loading') }}</div>
 
       <div v-else-if="grants.length === 0" class="empty-state">
@@ -979,19 +1036,20 @@ export default defineComponent({
                    :href="ippUrl(r, p)"
                    class="myaccess-port-link myaccess-port-print"
                    :title="t('myaccess.print_title', { ip: r.ip, port: p.port })">
-                  <!-- Printer icon -->
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                  <!-- Printer icon + install badge (same corner-badge convention as RDP/VNC above) -->
+                  <svg width="18" height="16" viewBox="0 0 22 20" fill="none" stroke="currentColor"
                        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
                        style="flex-shrink:0" aria-hidden="true">
-                    <rect x="3" y="1" width="10" height="4" rx="1"/>
-                    <path d="M3 5H1.5A.5.5 0 0 0 1 5.5v5A.5.5 0 0 0 1.5 11H3"/>
-                    <path d="M13 5h1.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5H13"/>
-                    <rect x="3" y="8" width="10" height="7" rx="1"/>
-                    <line x1="5" x2="11" y1="11" y2="11"/>
-                    <line x1="5" x2="11" y1="13" y2="13"/>
+                    <rect x="1" y="2" width="12" height="3.5" rx="1"/>
+                    <rect x="1" y="7" width="12" height="8" rx="1.2"/>
+                    <line x1="3.5" x2="9" y1="10" y2="10"/>
+                    <line x1="3.5" x2="9" y1="12.5" y2="12.5"/>
+                    <circle cx="17" cy="15" r="4" fill="var(--accent,#0E97B8)" stroke="none"/>
+                    <line x1="17" y1="13" x2="17" y2="17" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
+                    <line x1="15" y1="15" x2="19" y2="15" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
                   </svg>
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
-                  <span>{{ p.label || p.protocol }}</span>
+                  <span>{{ p.label || t('myaccess.print_action') }}</span>
                 </a>
                 <span v-else class="myaccess-port-chip">
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
@@ -1003,6 +1061,42 @@ export default defineComponent({
           </div>
         </template>
         </div>
+      </template>
+
+      <!-- Topology: same radial diagram as the admin dashboard, scoped to
+           just the networks/resources this user has grants on (#43) —
+           a network with zero grants never appears here at all. -->
+      <template v-if="grantsTab === 'topology'">
+        <div v-if="topologyLoading" class="muted">{{ t('common.loading') }}</div>
+        <div v-else-if="topologyError" class="error-banner">{{ topologyError }}</div>
+        <div v-else-if="!topology || topology.sites.length === 0" class="empty-state">
+          <h2>{{ t('myaccess.grants_empty_title') }}</h2>
+          <p>{{ t('myaccess.grants_empty_desc', { user: viewAsUserName || 'dir' }) }}</p>
+        </div>
+        <TopologyDiagram v-else portal
+            :sites="topology.sites"
+            :resources="topology.resources"
+            :resource-overflow="topology.resourceOverflow"
+            :hub-label="topology.hubLabel" />
+      </template>
+
+      <!-- Geo map: same component/data as above, just the other of the two
+           admin-dashboard topology views. -->
+      <template v-if="grantsTab === 'map'">
+        <div v-if="topologyLoading" class="muted">{{ t('common.loading') }}</div>
+        <div v-else-if="topologyError" class="error-banner">{{ topologyError }}</div>
+        <div v-else-if="!topology || !worldMapAvailable" class="muted">{{ t('myaccess.map_unavailable') }}</div>
+        <TopologyWorldMap v-else portal
+            :sites="topology.sites"
+            :hub-lat="topology.hubLat"
+            :hub-lon="topology.hubLon"
+            :hub-label="topology.hubLabel" />
+      </template>
+
+      <!-- Own-activity heatmap: GitHub-contributions layout, own peer(s) only. -->
+      <template v-if="grantsTab === 'activity'">
+        <PortalActivityHeatmap v-if="activityLoaded" :user-id="viewAsUserId" />
+      </template>
       </section>
     </div>
 

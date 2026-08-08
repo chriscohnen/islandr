@@ -93,4 +93,33 @@ class PeerResourcePlaintextRetentionTest {
                 .body("conf", containsString(originalConf))
                 .body("qrPngBase64", notNullValue());
     }
+
+    @Test
+    void rotateKey_persistsNewPrivateKeyUnderPlaintextRetention() {
+        String userId = createUser();
+        var created = given().contentType("application/json")
+                .body("""
+                        { "name": "rotate-plaintext", "assignedIp": "10.8.0.21" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().response();
+
+        String peerId = created.path("peer.id");
+        String originalPriv = created.path("privateKey");
+
+        String rotatedPriv = given().contentType("application/json").when().post("/api/v1/peers/" + peerId + "/rotate-key")
+                .then().statusCode(200)
+                .body("privateKey", notNullValue())
+                .extract().path("privateKey");
+
+        // Rotated key must differ from the original one.
+        org.junit.jupiter.api.Assertions.assertNotEquals(originalPriv, rotatedPriv);
+
+        // Reshow must serve the *rotated* key, not the original — proves it was
+        // actually persisted under plaintext retention, not just returned once.
+        given().when().get("/api/v1/peers/" + peerId + "/conf")
+                .then().statusCode(200)
+                .body("privateKey", containsString(rotatedPriv));
+    }
 }

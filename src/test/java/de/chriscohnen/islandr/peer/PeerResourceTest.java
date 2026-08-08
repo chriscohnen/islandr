@@ -41,7 +41,28 @@ class PeerResourceTest {
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
-                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet
+                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsResolverUpstream
+        ), "test");
+    }
+
+    /** Mutates the shared settings singleton — callers must restore it (see the
+     *  resolver tests' try/finally) since the row is shared across the suite.
+     *  Goes through {@code SettingsService} directly (not the HTTP endpoint),
+     *  so it never triggers {@code DnsResolverService.reconcile()} — no socket
+     *  bind attempt from this test. */
+    @Transactional
+    void setDnsResolverEnabled(boolean enabled) {
+        var cur = settings.get();
+        settings.update(new SettingsDto.UpdateRequest(
+                cur.wgSubnet, cur.wgSubnet6, cur.wgServerPublicKey, cur.wgServerEndpoint,
+                cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
+                cur.gravatarEnabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
+                cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
+                cur.hubLat, cur.hubLon, cur.hubLocationLabel,
+                cur.ironRdpEnabled, cur.activityRetentionDays,
+                cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
+                enabled, cur.dnsResolverZone, cur.dnsResolverUpstream
         ), "test");
     }
 
@@ -718,6 +739,79 @@ class PeerResourceTest {
         }
     }
 
+    // ---- Resource-name DNS resolver opt-in (ADR-0023) ----------------------
+    //
+    // When the resolver is on, the hub's own tunnel IP (network+1 of wgSubnet,
+    // "10.8.0.1" for the test profile's default "10.8.0.0/24") becomes the
+    // peer's primary DNS server — it's the only way a peer can reach the
+    // resolver at all. Whatever's in wgClientDns is kept after it as a
+    // fallback, unchanged free-text/split-DNS syntax.
+
+    @Test
+    void create_confPrefixesHubIpWhenResolverEnabled_keepingFallback() {
+        setGlobalDns("10.9.0.1");
+        setDnsResolverEnabled(true);
+        try {
+            String userId = createUser();
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-on", "assignedIp": "10.8.0.74" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .body("conf", containsString("DNS = 10.8.0.1, 10.9.0.1"));
+        } finally {
+            setDnsResolverEnabled(false);
+            setGlobalDns(null);
+        }
+    }
+
+    @Test
+    void create_confHasHubIpOnly_whenResolverEnabledWithNoFallbackConfigured() {
+        setGlobalDns(null);
+        setDnsResolverEnabled(true);
+        try {
+            String userId = createUser();
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-no-fallback", "assignedIp": "10.8.0.75" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .body("conf", containsString("DNS = 10.8.0.1"))
+                    .body("conf", not(containsString("DNS = 10.8.0.1,")));
+        } finally {
+            setDnsResolverEnabled(false);
+        }
+    }
+
+    @Test
+    void create_perPeerIncludeDnsFalseOmitsHubIpToo() {
+        setGlobalDns("10.9.0.1");
+        setDnsResolverEnabled(true);
+        try {
+            String userId = createUser();
+            String peerId = given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-opt-out", "assignedIp": "10.8.0.76" }
+                            """)
+                    .when().post("/api/v1/users/" + userId + "/peers")
+                    .then().statusCode(201)
+                    .extract().path("peer.id");
+
+            given().contentType("application/json")
+                    .body("""
+                            { "name": "dns-resolver-opt-out", "assignedIp": "10.8.0.76", "includeDns": false }
+                            """)
+                    .when().put("/api/v1/peers/" + peerId)
+                    .then().statusCode(200)
+                    .body("conf", not(containsString("DNS =")));
+        } finally {
+            setDnsResolverEnabled(false);
+            setGlobalDns(null);
+        }
+    }
+
     @Test
     void update_rejectsDuplicateIp() {
         String userId = createUser();
@@ -855,5 +949,117 @@ class PeerResourceTest {
                         """)
                 .when().put("/api/v1/peers/does-not-exist")
                 .then().statusCode(404);
+    }
+
+    // ---- Admin key rotation (issue #46) ------------------------------------
+    //
+    // POST /{id}/rotate-key regenerates both halves of the keypair server-side
+    // and replaces the peer's identity on the hub — an alternative to
+    // delete-and-recreate for a suspected-compromised device.
+
+    @Test
+    void rotateKey_returnsNewKeyAndMarksRotatedAt() {
+        String userId = createUser();
+        var created = given().contentType("application/json")
+                .body("""
+                        { "name": "rotate-me", "assignedIp": "10.8.0.90" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().response();
+
+        String peerId = created.path("peer.id");
+        String originalPublicKey = created.path("peer.publicKey");
+        org.junit.jupiter.api.Assertions.assertNull(created.path("peer.keyRotatedAt"));
+
+        given().contentType("application/json").when().post("/api/v1/peers/" + peerId + "/rotate-key")
+                .then().statusCode(200)
+                .body("peer.id", equalTo(peerId))
+                .body("peer.publicKey", not(equalTo(originalPublicKey)))
+                .body("peer.keyRotatedAt", notNullValue())
+                .body("privateKey", notNullValue());
+    }
+
+    @Test
+    void rotateKey_preservesPresharedKey() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "rotate-with-psk", "assignedIp": "10.8.0.91", "generatePresharedKey": true }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .body("peer.hasPresharedKey", equalTo(true))
+                .extract().path("peer.id");
+
+        given().contentType("application/json").when().post("/api/v1/peers/" + peerId + "/rotate-key")
+                .then().statusCode(200)
+                .body("peer.hasPresharedKey", equalTo(true));
+    }
+
+    @Test
+    void rotateKey_unknownPeerReturns404() {
+        given().contentType("application/json").when().post("/api/v1/peers/does-not-exist/rotate-key")
+                .then().statusCode(404);
+    }
+
+    // ---- Admin PSK rotation (issue #46) ------------------------------------
+    //
+    // PUT /{id} with presharedKeyAction="rotate" stamps pskRotatedAt independently
+    // of keyRotatedAt (the two rotations are unrelated product operations).
+
+    @Test
+    void update_presharedKeyActionRotateStampsPskRotatedAtIndependently() {
+        String userId = createUser();
+        var created = given().contentType("application/json")
+                .body("""
+                        { "name": "psk-rotate-me", "assignedIp": "10.8.0.92", "generatePresharedKey": true }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().response();
+
+        String peerId = created.path("peer.id");
+        org.junit.jupiter.api.Assertions.assertNull(created.path("peer.pskRotatedAt"));
+        org.junit.jupiter.api.Assertions.assertNull(created.path("peer.keyRotatedAt"));
+
+        given().contentType("application/json")
+                .body("""
+                        {
+                          "name": "psk-rotate-me",
+                          "assignedIp": "10.8.0.92",
+                          "presharedKeyAction": "rotate"
+                        }
+                        """)
+                .when().put("/api/v1/peers/" + peerId)
+                .then().statusCode(200)
+                .body("peer.id", equalTo(peerId))
+                .body("peer.pskRotatedAt", notNullValue())
+                .body("peer.keyRotatedAt", nullValue());
+    }
+
+    @Test
+    void update_presharedKeyActionRemoveDoesNotStampPskRotatedAt() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "psk-remove-me", "assignedIp": "10.8.0.93", "generatePresharedKey": true }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        {
+                          "name": "psk-remove-me",
+                          "assignedIp": "10.8.0.93",
+                          "presharedKeyAction": "remove"
+                        }
+                        """)
+                .when().put("/api/v1/peers/" + peerId)
+                .then().statusCode(200)
+                .body("peer.hasPresharedKey", equalTo(false))
+                .body("peer.pskRotatedAt", nullValue());
     }
 }

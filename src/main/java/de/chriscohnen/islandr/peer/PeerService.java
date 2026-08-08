@@ -266,6 +266,7 @@ public class PeerService {
         if ("rotate".equals(req.presharedKeyAction())) {
             String newPsk = wg.genPsk();
             peer.presharedKey = newPsk;
+            peer.pskRotatedAt = java.time.Instant.now();
             pskForWg = newPsk;
             pskChanged = true;
         } else if ("remove".equals(req.presharedKeyAction())) {
@@ -362,6 +363,61 @@ public class PeerService {
             throw new WebApplicationException("could not rotate key on wg: " + e.getMessage(), 500);
         }
         return PeerDto.Response.from(peer);
+    }
+
+    /**
+     * Generates a fresh keypair server-side and replaces this peer's identity
+     * on the hub (issue #46) — an admin-triggered alternative to delete-and-
+     * recreate for a suspected-compromised device. Unlike the self-service
+     * {@link #rotatePublicKey}, the server generates *both* halves of the
+     * keypair (mirroring peer creation) and returns the private key once, so
+     * the caller can show a fresh .conf/QR immediately. Respects the
+     * configured retention mode exactly like {@link #createForUser} does.
+     */
+    @Transactional
+    public PeerDto.CreateResponse rotateAdminKey(String peerId) {
+        Settings settings = settingsSvc.get();
+        Peer peer = Peer.findById(peerId);
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
+
+        WgAdapter.Keypair kp = wg.genKeypair();
+        String oldKey = peer.publicKey;
+        peer.publicKey = kp.publicKey();
+        peer.privateKeyPem = null;
+        if (settings.isPlaintextRetention()) {
+            peer.privateKeyPem = kp.privateKey();
+        } else if (settings.isEncryptedRetention()) {
+            if (!encSvc.isConfigured()) {
+                throw new WebApplicationException(
+                        "Encrypted retention is configured but no encryption key is loaded — " +
+                        "set ISLANDR_ENCRYPTION_KEY_PATH or ISLANDR_ENCRYPTION_KEY", 500);
+            }
+            peer.privateKeyPem = encSvc.encrypt(kp.privateKey());
+        }
+        peer.keyRotatedAt = java.time.Instant.now();
+        peer.updatedAt = peer.keyRotatedAt;
+        peer.persist();
+
+        try {
+            wg.removePeer(wgInterface, oldKey);
+            if (peer.enabled) {
+                // Unlike rotatePublicKey, pass the peer's existing PSK through —
+                // removing+re-adding the wg entry must not silently drop it.
+                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+            }
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "wg admin key rotation failed for peer %s", peer.id);
+            throw new WebApplicationException("could not rotate key on wg: " + e.getMessage(), 500);
+        }
+
+        String conf = renderConf(kp.privateKey(), peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
+        String qrPng = qr.toDataUrl(conf);
+        return new PeerDto.CreateResponse(
+                PeerDto.Response.from(peer),
+                kp.privateKey(),
+                conf,
+                qrPng,
+                peer.presharedKey);
     }
 
     @Transactional
@@ -577,8 +633,9 @@ public class PeerService {
         } else {
             sb.append("Address = ").append(assignedIp).append("/32\n");
         }
-        if (peerIncludeDns && settings.wgClientDns != null && !settings.wgClientDns.isBlank()) {
-            sb.append("DNS = ").append(settings.wgClientDns).append("\n");
+        String effectiveDns = settings.effectiveClientDns();
+        if (peerIncludeDns && effectiveDns != null && !effectiveDns.isBlank()) {
+            sb.append("DNS = ").append(effectiveDns).append("\n");
         }
         Integer effectiveMtu = peerMtu != null
                 ? peerMtu
@@ -592,7 +649,7 @@ public class PeerService {
                 settings.tunnelMode, settings.allowedIpsMode, settings.wgClientAllowedIps,
                 settings.wgSubnet, settings.wgSubnet6, settings.splitSupernet,
                 de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
-                settings.wgClientDns, peerIncludeDns);
+                effectiveDns, peerIncludeDns);
 
         sb.append("\n[Peer]\n");
         sb.append("PublicKey = ").append(settings.wgServerPublicKey).append("\n");

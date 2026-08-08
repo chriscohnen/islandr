@@ -54,6 +54,7 @@ architecture/diagrams/*.puml
 
 # Internal — planning notes (not for the public repo)
 TODO.md
+DONE.md
 
 EUPL-1.2
 
@@ -69,3 +70,6 @@ architecture/docs/03-prd.md
 
 # Internal design/brainstorming docs — not for the public repo
 docs/superpowers/
+
+# Local git worktrees for isolated feature work
+.worktrees/

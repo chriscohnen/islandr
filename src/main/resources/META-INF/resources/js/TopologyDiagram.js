@@ -81,6 +81,21 @@ function polar(angle, dist) {
   return { x: CX + dist * Math.cos(angle), y: CY + dist * Math.sin(angle) };
 }
 
+// Quadratic-bezier path between two points, bowed to one side — gives the
+// hub's spokes a mindmap-style swoop instead of ruler-straight lines. The
+// resource list below a network stays straight-line "netzplan" style on
+// purpose (see RESOURCE_* comment); this is only for the radial hub/gateway/
+// network spokes and the live-peer lines fanning off the hub.
+const CURVE_BOW = 0.24;
+function curvePath(x1, y1, x2, y2, bow = CURVE_BOW) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy) || 1;
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const cx = mx + (-dy / dist) * dist * bow;
+  const cy = my + (dx / dist) * dist * bow;
+  return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+}
+
 export default defineComponent({
   name: "TopologyDiagram",
   props: {
@@ -90,6 +105,12 @@ export default defineComponent({
     resourceOverflow: { type: Number, default: 0 },
     endpoint:         { type: String, default: "" },
     hubLabel:         { type: String, default: "" },
+    // Portal (self-service) reuse of this component (#43): gateway tunnel IP
+    // and raw handshake timestamp are Admin-register technical detail the
+    // backend already omits for portal callers — this only swaps the
+    // *wording* of the connected/disconnected fallback text so "Handshake"
+    // never appears in the end-user-facing tooltip.
+    portal:           { type: Boolean, default: false },
   },
   emits: ["site", "resource"],
   data() {
@@ -118,6 +139,18 @@ export default defineComponent({
     presentTypes() {
       const seen = new Set(this.resources.map((r) => r.type || "computer"));
       return ALL_TYPES.filter((ty) => seen.has(ty.key));
+    },
+    // Per-type counts for the filter chips (icon + count, Unifi Site
+    // Manager-style) — same `resources` list/cap caveat as filteredResourceCount
+    // below: undercounts a type once any of its resources fall outside the
+    // diagram-wide TOPOLOGY_RESOURCE_CAP, fine for a filter-bar hint.
+    typeCounts() {
+      const counts = new Map();
+      for (const r of this.resources) {
+        const key = r.type || "computer";
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      return counts;
     },
     filteredResources() {
       if (this.activeTypes.size === 0) return this.resources;
@@ -325,6 +358,27 @@ export default defineComponent({
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+    linkPath(x1, y1, x2, y2, bow) { return curvePath(x1, y1, x2, y2, bow); },
+    // A resource row's ring is a ~160° arc, not a full circle: solid on the
+    // side the branch line enters from (reads as the line flowing straight
+    // into the arc), open on the side the label sits on (so icon + text sit
+    // flush together instead of a ring boundary between them).
+    resourceRingPath(dir) {
+      const r = RESOURCE_ICON_R;
+      // Icon sits further from the hub than the spine it branches off, so
+      // the line always enters from the spine side — opposite the label's
+      // outward direction (dir).
+      const center = dir > 0 ? 180 : 0; // degrees — the line-entry side
+      const steps = 16;
+      const startDeg = center - 80, endDeg = center + 80;
+      let d = "";
+      for (let i = 0; i <= steps; i++) {
+        const deg = startDeg + ((endDeg - startDeg) * i) / steps;
+        const rad = (deg * Math.PI) / 180;
+        d += (i === 0 ? "M" : "L") + (r * Math.cos(rad)).toFixed(2) + "," + (r * Math.sin(rad)).toFixed(2);
+      }
+      return d;
+    },
     // Drag-to-pan, mouse and touch alike via Pointer Events. Only does
     // anything once the content no longer fits the capped viewBox
     // (needsPan) — otherwise everything's already visible and there's
@@ -494,14 +548,19 @@ export default defineComponent({
            style="display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); font-family: var(--font-sans)">
         <button @click="clearTypes"
           :class="['btn','btn-sm', activeTypes.size === 0 ? 'btn-secondary' : 'btn-ghost']"
-          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
+          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
           {{ t('topology.filter_all') }}
+          <span style="font-family: var(--font-mono); opacity: 0.6">{{ resources.length }}</span>
         </button>
         <button v-for="tp in presentTypes" :key="tp.key"
           @click="toggleType(tp.key)"
           :class="['btn','btn-sm', activeTypes.has(tp.key) ? 'btn-secondary' : 'btn-ghost']"
-          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px">
+          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               style="flex-shrink: 0; opacity: 0.75" v-html="resourceIconMarkup(tp.key)" />
           {{ t(tp.labelKey) }}
+          <span style="font-family: var(--font-mono); opacity: 0.6">{{ typeCounts.get(tp.key) || 0 }}</span>
         </button>
       </div>
 
@@ -528,17 +587,18 @@ export default defineComponent({
            @pointercancel="onPointerUp"
            role="img" aria-label="Netzwerk-Topologie">
 
-        <!-- Hub-to-gateway / hub-to-direct-network links -->
-        <line v-for="item in gatewayLayout" :key="'gl-'+item.gateway.gatewayPeerId"
-              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y"
-              :style="item.gateway.gatewayOnline ? '' : 'stroke-dasharray: 4 4; opacity: 0.55'" />
-        <line v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
-              class="link" :x1="CX" :y1="CY" :x2="item.x" :y2="item.y" />
+        <!-- Hub-to-gateway / hub-to-direct-network links, swept into a gentle
+             mindmap-style curve rather than a ruler-straight radius. -->
+        <path v-for="item in gatewayLayout" :key="'gl-'+item.gateway.gatewayPeerId"
+              :class="['link', item.gateway.gatewayOnline ? '' : 'link-down']"
+              :d="linkPath(CX, CY, item.x, item.y)" />
+        <path v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
+              class="link" :d="linkPath(CX, CY, item.x, item.y)" />
 
         <!-- Gateway-to-network links (expanded gateway only) -->
-        <line v-for="item in expandedGatewayNetworkLayout" :key="'gnl-'+item.site.id"
+        <path v-for="item in expandedGatewayNetworkLayout" :key="'gnl-'+item.site.id"
               class="link" style="opacity:0.45"
-              :x1="item.parentX" :y1="item.parentY" :x2="item.x" :y2="item.y" />
+              :d="linkPath(item.parentX, item.parentY, item.x, item.y)" />
 
         <!-- Network-to-resource tree (expanded network only): a short trunk
              from the network box to a vertical spine, then one horizontal
@@ -556,6 +616,21 @@ export default defineComponent({
         <!-- Hub -->
         <circle class="hub-pulse" :cx="CX" :cy="CY" :r="HUB_R" />
         <circle class="hub-core"  :cx="CX" :cy="CY" :r="HUB_R - 6" />
+
+        <!-- Brand mark (constellation), knocked out in --fg-on-accent so it
+             reads on the accent-filled hub circle in both themes — same mark
+             as favicon.svg/islandr-mark.svg, flattened and scaled to fit the
+             hub-core radius. Purely decorative: no title/pointer-events, the
+             hub-core circle underneath still carries any future interaction. -->
+        <g class="hub-mark" :transform="'translate('+(CX-22.68)+','+(CY-22.68)+') scale(0.36)'" style="pointer-events:none">
+          <path d="M27 102 L53 90 L71 64 L99 46 M71 64 L65 33" fill="none" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" />
+          <circle cx="27" cy="102" r="5" />
+          <circle cx="53" cy="90" r="4.5" />
+          <circle cx="71" cy="64" r="6" />
+          <circle cx="99" cy="46" r="5" />
+          <circle cx="65" cy="33" r="9" />
+        </g>
+
         <text   class="hub-label" :x="CX" :y="CY + HUB_R + 16">{{ hubLabel || 'Hub' }}</text>
         <text v-if="endpoint" class="hub-endpoint" :x="CX" :y="CY + HUB_R + 30">{{ endpoint }}</text>
 
@@ -563,11 +638,12 @@ export default defineComponent({
              these come and go with recent handshake activity, so the link is
              thin/dashed and the dot small — but the name + IP are printed
              right on the diagram, not hidden behind a hover-only tooltip. -->
-        <line v-for="d in livePeerLayout" :key="'ll-'+d.peer.id"
-              class="link-live" :x1="CX" :y1="CY" :x2="d.x" :y2="d.y" />
+        <path v-for="d in livePeerLayout" :key="'ll-'+d.peer.id"
+              :class="['link-live', d.peer.trafficTier === 'flowing' ? 'link-flowing' : '', d.peer.trafficTier === 'flowing-heavy' ? 'link-flowing-heavy' : '']"
+              :d="linkPath(CX, CY, d.x, d.y, 0.1)" />
         <g v-for="d in livePeerLayout" :key="'lp-'+d.peer.id">
-          <circle :cx="d.x" :cy="d.y" :r="LIVE_DOT_R" class="hub-core" style="opacity:0.85">
-            <title>{{ d.peer.name || t('topology.unknown_peer') }} · {{ d.peer.assignedIp }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
+          <circle :cx="d.x" :cy="d.y" :r="LIVE_DOT_R" :class="['hub-core', d.peer.trafficTier !== 'idle' ? 'live-dot-flowing' : '']" style="opacity:0.85">
+            <title>{{ d.peer.name || t('topology.unknown_peer') }} · {{ d.peer.assignedIp }} · {{ t('topology.traffic_' + (d.peer.trafficTier === 'flowing-heavy' ? 'flowing_heavy' : d.peer.trafficTier || 'idle')) }} · {{ relativeTime(d.peer.lastSeenAt) }}</title>
           </circle>
           <text class="live-label" :x="d.x" :y="d.y + LIVE_DOT_R + 12">{{ d.peer.name || t('topology.unknown_peer') }}</text>
           <text v-if="d.peer.assignedIp" class="live-ip" :x="d.x" :y="d.y + LIVE_DOT_R + 24">{{ d.peer.assignedIp }}</text>
@@ -577,14 +653,14 @@ export default defineComponent({
              list style. Hover still surfaces IP/ports via the same tooltip
              as before, just triggered off a row instead of a circle. -->
         <g v-for="item in resourceLayout" :key="item.resource.id"
-           class="node live"
+           class="node resource"
            @click="onResourceClick(item.resource.siteId, item.resource.id)"
            @mouseenter="showTooltip($event, item.resource)"
            @mousemove="moveTooltip($event)"
            @mouseleave="hideTooltip"
            :transform="'translate('+item.x+','+item.y+')'">
-          <circle class="node-ring" :r="RESOURCE_ICON_R" />
-          <circle class="node-bg"   :r="RESOURCE_ICON_R - 2" />
+          <circle class="node-bg" :r="RESOURCE_ICON_R - 2" />
+          <path class="node-ring" fill="none" :d="resourceRingPath(item.dir)" />
           <g class="node-icon" transform="translate(-6,-6) scale(0.5)"
              fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round"
@@ -598,7 +674,7 @@ export default defineComponent({
         <!-- Gateway-peer nodes — router silhouette (box, not circle): a shared
              site router groups every network routed through it into one spoke. -->
         <g v-for="item in gatewayLayout" :key="item.gateway.gatewayPeerId"
-           class="node live"
+           :class="['node', item.gateway.gatewayOnline ? 'live' : 'disabled']"
            @click="onGatewayClick(item.gateway.gatewayPeerId)"
            @mouseenter="showGatewayTooltip($event, item.gateway)"
            @mousemove="moveGatewayTooltip($event)"
@@ -622,7 +698,8 @@ export default defineComponent({
 
         <!-- Network boxes — direct hub spokes, plus whichever gateway's group is expanded -->
         <g v-for="item in visibleNetworks" :key="item.site.id"
-           class="node live"
+           class="node network"
+           :style="!item.expanded && item.count === 0 ? 'opacity: 0.55' : ''"
            @click="onNetworkClick(item.site)"
            @mouseenter="showNetworkTooltip($event, item.site)"
            @mousemove="moveNetworkTooltip($event)"
@@ -639,9 +716,7 @@ export default defineComponent({
                fill="none" stroke="currentColor" stroke-width="2.5"
                stroke-linecap="round" stroke-linejoin="round"
                v-html="networkIconMarkup()" />
-            <text style="font-family: var(--font-mono); font-size: 12px; font-weight: 700;
-                         fill: var(--accent); text-anchor: middle; dominant-baseline: central;
-                         user-select: none"
+            <text :style="'font-family: var(--font-mono); font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: central; user-select: none; fill: ' + (item.count === 0 ? 'var(--fg3)' : 'var(--accent)')"
                   y="6">{{ item.count }}</text>
           </g>
           <g v-else-if="item.site.id === expandedSiteId && siteResourceLoading !== item.site.id && resourceLayout.length === 0 && item.count > 0">
@@ -691,12 +766,17 @@ export default defineComponent({
           {{ gatewayTooltip.gateway.gatewayPeerName }}
         </div>
         <div style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
-          <div style="margin-bottom: 2px">
+          <div v-if="!portal && gatewayTooltip.gateway.gatewayIp" style="margin-bottom: 2px">
             <span :style="gatewayTooltip.gateway.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
                   style="font-size:9px">{{ gatewayTooltip.gateway.gatewayOnline ? '●' : '○' }}</span>
             <span style="font-family: var(--font-mono); color: var(--fg2)">{{ gatewayTooltip.gateway.gatewayIp }}</span>
           </div>
-          <div>{{ gatewayTooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(gatewayTooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
+          <div v-if="portal">
+            <span :style="gatewayTooltip.gateway.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                  style="font-size:9px">{{ gatewayTooltip.gateway.gatewayOnline ? '●' : '○' }}</span>
+            {{ gatewayTooltip.gateway.gatewayOnline ? t('topology.portal_connected') : t('topology.portal_disconnected') }}
+          </div>
+          <div v-else>{{ gatewayTooltip.gateway.gatewayLastSeenAt ? t('topology.handshake', { when: relativeTime(gatewayTooltip.gateway.gatewayLastSeenAt) }) : t('topology.no_handshake') }}</div>
           <div style="margin-top: 2px">{{ gatewayTooltip.gateway.sites.length }} {{ t('topology.networks_short') }}</div>
         </div>
       </div>
@@ -718,7 +798,7 @@ export default defineComponent({
         <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
           {{ networkTooltip.site.name }}
         </div>
-        <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
+        <div v-if="networkTooltip.site.cidr" style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
           {{ networkTooltip.site.cidr }}
         </div>
       </div>

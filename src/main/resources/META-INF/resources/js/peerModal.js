@@ -11,9 +11,11 @@
 //
 // The peer-create modal has three key-import modes (generate / public-only /
 // both). The edit modal does NOT show the key import block — type and key are
-// not editable, only name/IP/site-CIDRs. The public key is shown read-only for
-// reference. To rotate a key, delete the peer and recreate.
-import { t } from "/js/i18n.js";
+// not editable at creation time, only name/IP/site-CIDRs. The public key is
+// shown read-only for reference; to actually rotate it, use the "Rotate key"
+// control (issue #46) — server-generates a fresh keypair, replaces it on the
+// hub immediately, and shows the new .conf/QR once, same shape as create.
+import { t, formatDate } from "/js/i18n.js";
 
 export const peerModalMixin = {
   data() {
@@ -30,6 +32,10 @@ export const peerModalMixin = {
       editMtu: null,
       editKeepalive: null,
       editIncludeDns: true,
+      editPeerKeyRotatedAt: null,
+      editPeerPskRotatedAt: null,
+      keyRotateArmed: false,
+      keyRotating: false,
 
       newPeer: { name: "", assignedIp: "", assignedIpv6: "" },
       // Peer kind: "client" (single device) or "site" (gateway exposing a
@@ -203,6 +209,9 @@ export const peerModalMixin = {
       this.editOriginalIp = peer.assignedIp;
       this.editOriginalCidrs = peer.siteAllowedCidrs || null;
       this.editPeerPublicKey = peer.publicKey;
+      this.editPeerKeyRotatedAt = peer.keyRotatedAt || null;
+      this.editPeerPskRotatedAt = peer.pskRotatedAt || null;
+      this.keyRotateArmed = false;
       this.newPeer = { name: peer.name, assignedIp: peer.assignedIp, assignedIpv6: peer.assignedIpv6 || "" };
       this.peerType = peer.type || "client";
       this.deviceType = peer.deviceType || "laptop";
@@ -286,6 +295,11 @@ export const peerModalMixin = {
           this.secret = updated;
           this.secretIsReshow = true;
           this.modalMode = "secret";
+          // This transition bypasses closeModal(), so any armed-but-unconfirmed
+          // rotate-key state from the edit modal must be cleared here too —
+          // otherwise it leaks into the secret modal's own rotate-key callout.
+          this.keyRotateArmed = false;
+          this.keyRotating = false;
         } else {
           this.closeModal();
         }
@@ -344,6 +358,31 @@ export const peerModalMixin = {
       }
     },
 
+    async rotateKey(peerId) {
+      this.keyRotating = true;
+      this.peerError = null;
+      try {
+        const res = await fetch(`/api/v1/peers/${peerId}/rotate-key`, { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+        }
+        const updated = await res.json();
+        if (typeof this.onPeerUpdated === "function") this.onPeerUpdated({ peer: updated.peer });
+        this.$emit("peer-updated", { peer: updated.peer });
+        // A genuinely new keypair — show it once, same as a fresh create,
+        // not as a reshow (the old one is now permanently gone).
+        this.secret = updated;
+        this.secretIsReshow = false;
+        this.modalMode = "secret";
+        this.keyRotateArmed = false;
+      } catch (e) {
+        this.peerError = t("peer.key_rotate_error", { error: e.message });
+      } finally {
+        this.keyRotating = false;
+      }
+    },
+
     closeModal() {
       this.modalMode = null;
       this.secret = null;
@@ -353,6 +392,7 @@ export const peerModalMixin = {
       this.editOriginalIp = null;
       this.editOriginalCidrs = null;
       this.editPeerPublicKey = null;
+      this.keyRotateArmed = false;
     },
 
     async copyConf() {
@@ -654,6 +694,29 @@ export const peerModalTemplate = `
           </div>
 
           <div class="field" style="margin-top: var(--space-4)">
+            <label>{{ t('peer.field_key_rotate') }}</label>
+            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
+              <span v-if="editPeerKeyRotatedAt" class="muted" style="font-size: var(--text-sm)">{{ t('peer.key_rotated_at', { date: formatDate(editPeerKeyRotatedAt) }) }}</span>
+              <span v-else class="muted" style="font-size: var(--text-sm)">{{ t('peer.key_never_rotated') }}</span>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-secondary': keyRotateArmed }"
+                      @click="keyRotateArmed = true">{{ t('peer.key_rotate_btn') }}</button>
+            </div>
+            <div v-if="keyRotateArmed" class="callout callout-warning" style="margin-top: var(--space-2)">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3)">
+                <div>{{ t('peer.key_rotate_warn') }}</div>
+                <div style="display:flex; gap: var(--space-2); flex-shrink:0">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="keyRotateArmed = false">{{ t('peer.psk_cancel') }}</button>
+                  <button type="button" class="btn btn-danger btn-sm" :disabled="keyRotating" @click="rotateKey(editPeerId)">
+                    {{ keyRotating ? t('peer.secret_applying') : t('peer.key_rotate_confirm') }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="field-hint">{{ t('peer.key_rotate_hint') }}</div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
             <label>Preshared Key</label>
             <div v-if="editHasPsk" style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
               <span class="badge badge-success" style="flex-shrink:0">{{ t('peer.psk_active') }}</span>
@@ -688,6 +751,7 @@ export const peerModalTemplate = `
               </div>
             </div>
             <div class="field-hint">{{ t('peer.psk_hint') }}</div>
+            <div v-if="editPeerPskRotatedAt" class="field-hint">{{ t('peer.psk_rotated_at', { date: formatDate(editPeerPskRotatedAt) }) }}</div>
           </div>
 
           <div class="field" style="margin-top: var(--space-4)">
@@ -770,6 +834,18 @@ export const peerModalTemplate = `
           <div>
             <strong>{{ t('peer.warn_no_key') }}</strong>
             {{ t('peer.secret_no_key_a') }}<strong>never</strong>{{ t('peer.secret_no_key_b') }}<code>PrivateKey</code>{{ t('peer.secret_no_key_c') }}
+          </div>
+          <div v-if="!keyRotateArmed" style="margin-top: var(--space-3)">
+            <button type="button" class="btn btn-secondary btn-sm" @click="keyRotateArmed = true">{{ t('peer.key_rotate_btn') }}</button>
+          </div>
+          <div v-else style="margin-top: var(--space-3); display:flex; align-items:center; justify-content:space-between; gap: var(--space-3)">
+            <div>{{ t('peer.key_rotate_warn') }}</div>
+            <div style="display:flex; gap: var(--space-2); flex-shrink:0">
+              <button type="button" class="btn btn-ghost btn-sm" @click="keyRotateArmed = false">{{ t('peer.psk_cancel') }}</button>
+              <button type="button" class="btn btn-danger btn-sm" :disabled="keyRotating" @click="rotateKey(secret.peer?.id)">
+                {{ keyRotating ? t('peer.secret_applying') : t('peer.key_rotate_confirm') }}
+              </button>
+            </div>
           </div>
         </div>
 

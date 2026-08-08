@@ -6,6 +6,7 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.crypto.EncryptionService;
+import de.chriscohnen.islandr.dns.DnsResolverService;
 import de.chriscohnen.islandr.tls.TlsService;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import jakarta.inject.Inject;
@@ -38,6 +39,7 @@ public class SettingsResource {
     @Inject EncryptionService encSvc;
     @Inject TlsService tlsSvc;
     @Inject AcmeService acmeSvc;
+    @Inject DnsResolverService dnsResolverSvc;
 
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
     String wgInterface;
@@ -59,6 +61,10 @@ public class SettingsResource {
         Settings after = settings.update(body, actor.principal());
         audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
                 before, settingsSnapshot(after));
+        // Starts/stops the DNS resolver listener (ADR-0023) to match the just-saved
+        // dnsResolverEnabled flag — no CDI "settings changed" event bus exists yet,
+        // this is the simplest hook that keeps the two in sync without polling.
+        dnsResolverSvc.reconcile();
         return toResponse(after);
     }
 
@@ -194,7 +200,7 @@ public class SettingsResource {
         String preview = de.chriscohnen.islandr.peer.AllowedIpsCalculator.compute(
                 effectiveTunnelMode, effectiveAllowedIpsMode, effectiveManualValue,
                 s.wgSubnet, s.wgSubnet6, splitSupernet, siteCidrs,
-                s.wgClientDns, true);
+                s.effectiveClientDns(), true);
 
         int outsideCount = 0;
         if ("SPLIT".equals(effectiveTunnelMode) && "AUTO".equals(effectiveAllowedIpsMode)

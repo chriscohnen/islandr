@@ -28,7 +28,7 @@ export default defineComponent({
       sortDir: 1,        // -1 = desc, 1 = asc
       // Create/edit resource modal
       modal: null,
-      form: { name: "", ip: "", description: "", type: "computer" },
+      form: { name: "", ip: "", description: "", type: "computer", dnsName: "" },
       editId: null,
       submitting: false,
       formError: null,
@@ -88,6 +88,12 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    // Never written into form.dnsName automatically — shown as a placeholder/
+    // accept-chip only, so doing nothing before Save leaves the field exactly
+    // as empty as it was, instead of silently keeping a value nobody chose.
+    dnsNameSuggestion() {
+      return this.form.dnsName ? "" : this.slugifyDnsName(this.form.name);
+    },
     filteredResources() {
       const q = this.quickFilter.trim().toLowerCase();
       if (!q) return this.resources;
@@ -202,14 +208,33 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", ip: "", description: "" };
+      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false };
       this.formError = null;
     },
     openEdit(r) {
       this.modal = "edit";
       this.editId = r.id;
-      this.form = { name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer" };
+      // dnsName stays exactly what's on the resource — empty stays empty.
+      // dnsNameSuggestion (computed) offers a suggestion without writing it
+      // in; accepting it is one explicit click (acceptDnsNameSuggestion).
+      this.form = {
+        name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer",
+        dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat,
+      };
       this.formError = null;
+    },
+    acceptDnsNameSuggestion() {
+      this.form.dnsName = this.dnsNameSuggestion;
+    },
+    // Mirrors the backend's DNS-label rule (Resource.dnsName / ResourceDto):
+    // lowercase, non [a-z0-9] runs collapsed to a hyphen, no leading/trailing
+    // hyphen, max 63 chars. A pure suggestion — the admin can still type
+    // anything else (server-side validation is the actual source of truth).
+    slugifyDnsName(name) {
+      const slug = (name || "").trim().toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return slug.slice(0, 63).replace(/-+$/g, "");
     },
     closeModal() {
       this.modal = null;
@@ -425,12 +450,16 @@ export default defineComponent({
           return;
         }
         if (s.state === "done") {
-          this.scanHosts = s.hosts.map((h) => ({
-            ...h,
-            _selected: !h.alreadyRegistered,
-            _name: this.suggestName(h),
-            _type: (h.typeGuess && h.typeGuess !== "unknown") ? h.typeGuess : "computer",
-          }));
+          this.scanHosts = s.hosts.map((h) => {
+            const name = this.suggestName(h);
+            return {
+              ...h,
+              _selected: !h.alreadyRegistered,
+              _name: name,
+              _dnsName: this.slugifyDnsName(name),
+              _type: (h.typeGuess && h.typeGuess !== "unknown") ? h.typeGuess : "computer",
+            };
+          });
           this.scanState = "done";
         } else {
           this.scanState = "error";
@@ -469,7 +498,7 @@ export default defineComponent({
         const res = await fetch("/api/v1/sites/" + this.siteId + "/discovery/import", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ hosts: chosen.map((h) => ({
-            ip: h.ip, name: h._name, type: h._type,
+            ip: h.ip, name: h._name, type: h._type, dnsName: h._dnsName || "",
             ports: this.adoptPorts ? (h.openPorts || []) : [],
           })) }),
         });
@@ -768,6 +797,22 @@ export default defineComponent({
               <label for="resDesc">{{ t('resources.field_desc') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
               <textarea id="resDesc" class="textarea" rows="2" v-model="form.description" :placeholder="t('resources.field_desc_ph')"></textarea>
             </div>
+
+            <div class="field" style="margin: var(--space-4) 0 0">
+              <label for="resDnsName">{{ t('resources.field_dns_name') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <input id="resDnsName" class="input mono" v-model="form.dnsName" :placeholder="dnsNameSuggestion || t('resources.field_dns_name_ph')" />
+              <div v-if="dnsNameSuggestion" class="field-hint" style="display:flex; align-items:center; gap: var(--space-2)">
+                <span>{{ t('resources.field_dns_name_suggestion', { name: dnsNameSuggestion }) }}</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding: 0 var(--space-2); height: auto; min-height: 0; line-height: 1.6"
+                        @click="acceptDnsNameSuggestion">{{ t('resources.field_dns_name_accept') }}</button>
+              </div>
+              <div class="field-hint">{{ t('resources.field_dns_name_hint') }}</div>
+              <label v-if="form.dnsName" style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; margin-top: var(--space-2); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                <input type="checkbox" v-model="form.dnsFlat" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                <span>{{ t('resources.field_dns_flat_label') }}</span>
+              </label>
+              <div v-if="form.dnsName" class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_dns_flat_hint') }}</div>
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('common.cancel') }}</button>
@@ -827,6 +872,7 @@ export default defineComponent({
                     <th>{{ t('discovery.th_ports') }}</th>
                     <th>{{ t('discovery.th_type') }}</th>
                     <th>{{ t('discovery.th_name') }}</th>
+                    <th>{{ t('resources.field_dns_name') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -844,6 +890,7 @@ export default defineComponent({
                       </select>
                     </td>
                     <td><input class="input" v-model="h._name" :disabled="h.alreadyRegistered" style="width: 170px" /></td>
+                    <td><input class="input mono" v-model="h._dnsName" :disabled="h.alreadyRegistered" style="width: 150px" :placeholder="t('resources.field_dns_name_ph')" /></td>
                   </tr>
                 </tbody>
               </table>

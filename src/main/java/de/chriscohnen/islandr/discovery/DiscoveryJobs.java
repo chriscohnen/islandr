@@ -109,7 +109,7 @@ public class DiscoveryJobs {
      *
      * @throws IllegalArgumentException the CIDR is not an enumerable IPv4 range or exceeds the cap
      */
-    public Job start(String siteId, String cidr) {
+    public Job start(String siteId, String cidr, String dnsServerIp) {
         sweep();
         for (Job j : jobs.values()) {
             if (j.siteId.equals(siteId) && j.state == State.RUNNING) {
@@ -119,14 +119,14 @@ public class DiscoveryJobs {
         List<String> hostIps = CidrHosts.hosts(cidr);   // may throw IllegalArgumentException
         Job job = new Job(UUID.randomUUID().toString(), siteId, cidr, hostIps.size());
         jobs.put(job.id, job);
-        job.future = pool.submit(() -> run(job, hostIps));
+        job.future = pool.submit(() -> run(job, hostIps, dnsServerIp));
         return job;
     }
 
-    private void run(Job job, List<String> hostIps) {
+    private void run(Job job, List<String> hostIps, String dnsServerIp) {
         try {
             List<DiscoveredHost> found = "real".equalsIgnoreCase(mode)
-                    ? realScan(hostIps, job.doneCount, job.foundCount)
+                    ? realScan(hostIps, job.doneCount, job.foundCount, dnsServerIp)
                     : mockScan(hostIps, job.doneCount, job.foundCount);
             job.hosts = found;
             if (job.state != State.CANCELLED) job.state = State.DONE;
@@ -136,8 +136,8 @@ public class DiscoveryJobs {
         }
     }
 
-    private List<DiscoveredHost> realScan(List<String> hostIps, AtomicInteger done, AtomicInteger found) {
-        HostProbe probe = new HostProbe(HostProbe.DEFAULT_TCP_PORTS, HostProbe.DEFAULT_UDP_PROBE_PORT, hostTimeout);
+    private List<DiscoveredHost> realScan(List<String> hostIps, AtomicInteger done, AtomicInteger found, String dnsServerIp) {
+        HostProbe probe = new HostProbe(HostProbe.DEFAULT_TCP_PORTS, HostProbe.DEFAULT_UDP_PROBE_PORT, hostTimeout, dnsServerIp);
         return new DiscoveryScanner(concurrency)
                 .scan(hostIps, probe::probe, done::incrementAndGet, found::incrementAndGet);
     }

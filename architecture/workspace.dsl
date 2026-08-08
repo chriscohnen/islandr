@@ -17,6 +17,7 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
         reverseProxy = softwareSystem "Cloudflare / Reverse Proxy"  "Fully optional edge layer — Cloudflare, or a self-hosted reverse proxy (Caddy, nginx, Traefik). Islandr terminates TLS itself (dummy cert until an admin uploads one, hot-swapped at runtime) and can be reached directly with no proxy of any kind in front of it (ADR-0015)." "External"
         letsEncrypt  = softwareSystem "Let's Encrypt (ACME CA)" "Fully optional — only contacted when an admin sets a domain and enables ACME in Settings. Islandr's own hand-rolled RFC 8555 client requests, validates (HTTP-01), and renews a certificate directly; no certificate library, no external ACME client (ADR-0019)." "External"
         resourceHost = softwareSystem "Resource Host" "A machine behind the VPN inside a site (e.g. an RDP server). For browser-based RDP the hub connects to it directly over TLS and relays to the browser." "External"
+        dnsUpstream  = softwareSystem "DNS Upstream" "Fully optional — only reached when the resource DNS resolver is enabled in Settings. Public or admin-configured recursive resolver(s) (default 1.1.1.1 / 8.8.8.8, Settings.dnsResolverUpstream) the hub forwards any query outside its own managed resource zone to, verbatim and unparsed (ADR-0023)." "External"
 
         // ── Islandr ───────────────────────────────────────────────────────
         islandr = softwareSystem "Islandr" "Self-hosted WireGuard management platform. Peer lifecycle, RBAC access control, nftables enforcement." {
@@ -43,6 +44,7 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
                 auditPkg     = component "audit"     "Immutable append-only audit log. Written on every mutating action across all packages." "CDI"
                 settingsPkg  = component "settings"  "Runtime instance settings (WG config, private key retention, OIDC providers). Stored in DB, audited." "JAX-RS + CDI"
                 dashboardPkg = component "dashboard" "Dashboard aggregation: online peer count, audit summary, firewall status." "JAX-RS + CDI"
+                dnsPkg       = component "dns"       "Minimal DNS resolver (UDP/best-effort TCP :53), opt-in in Settings. Authoritative for the managed resource zone (Resource.dnsName), ACL-filtered answers (NXDOMAIN for resources the querying peer has no grant on); everything else forwarded upstream byte-for-byte, unparsed. Hand-rolled RFC 1035 wire format, no library (ADR-0023)." "CDI"
             }
 
             database = container "Database" "Persists peers, users, roles, resources, ACLs, audit log, activity samples, and runtime settings." "SQLite (default) or PostgreSQL" "Database"
@@ -62,6 +64,7 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
         islandr  -> letsEncrypt  "Requests, validates (HTTP-01), and renews a certificate (optional, ACME mode only)" "HTTPS"
         letsEncrypt -> islandr   "Validates domain control via HTTP-01 challenge callback" "HTTP"
         islandr  -> resourceHost "Proxies browser RDP over TLS (RDCleanPath)" "TCP/TLS"
+        islandr  -> dnsUpstream  "Forwards non-zone DNS queries verbatim (optional, resolver enabled only)" "UDP/TCP 53"
 
         // ── Container relationships ───────────────────────────────────────
         // Same "two valid paths" shape as the context view: the backend
@@ -86,6 +89,7 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
         backend          -> letsEncrypt        "ACME directory, order, and challenge requests (optional, ACME mode only)" "HTTPS"
         letsEncrypt      -> backend            "HTTP-01 challenge callback" "HTTP"
         backend          -> resourceHost       "Browser-RDP: TCP connect + TLS relay" "TCP/TLS"
+        backend          -> dnsUpstream        "Forwards non-zone DNS queries verbatim (optional, resolver enabled only)" "UDP/TCP 53"
 
         // ── Component relationships ───────────────────────────────────────
         authPkg     -> identityPkg  "Delegates OIDC token verification"
@@ -103,6 +107,8 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
         firewallPkg -> nftables     "nft CLI calls"  "ProcessBuilder"
         wgPkg       -> wireguard    "wg CLI calls"   "ProcessBuilder"
         identityPkg -> oidcProvider "JWKS fetch"     "HTTPS"
+        dnsPkg      -> aclPkg       "ACL-scoped grant check for filtered zone answers" "AclService.hasAnyGrant"
+        dnsPkg      -> dnsUpstream  "Forwards non-zone queries verbatim" "UDP/TCP 53"
 
         // ── Deployment 1: native binary on the Hub VM (production) ─────────
         native = deploymentEnvironment "Native (systemd)" {
@@ -122,6 +128,7 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
                 deploymentNode "systemd service" "islandr.service — single native binary, unprivileged user islandr, scoped sudo for wg/nft" "" {
                     nativeBackend = containerInstance backend
                     builtinTls    = infrastructureNode "Built-in TLS" "HTTPS :8443 — dummy cert until an admin uploads one, hot-swapped at runtime, no proxy required (ADR-0015)" "Quarkus TLS registry"
+                    dnsResolverInfra = infrastructureNode "DNS Resolver" "UDP/TCP :53, opt-in in Settings — needs CAP_NET_BIND_SERVICE (outside ADR-0011's sudoers scope); bind failure is caught and logged, resolver stays off rather than crashing (ADR-0023)" ""
                     sqliteFile    = infrastructureNode "SQLite File" "/var/lib/islandr/islandr.db" "Durable file"
                 }
             }

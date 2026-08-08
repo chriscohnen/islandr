@@ -425,3 +425,173 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # ── Stage 5: E2E proxy enforcement (tags only, after release exists) ──────
+  e2e-proxy:
+    name: E2E — install-proxy.sh + real wg/nft enforcement
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Install wireguard-tools + nftables
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wireguard-tools nftables
+
+      # Undetermined statically whether ubuntu-latest's kernel has WireGuard
+      # loadable — this is the first real-world check of that assumption.
+      - name: Create a real wg0 interface
+        run: |
+          set -euo pipefail
+          sudo modprobe wireguard
+          sudo ip link add wg0 type wireguard
+          umask 077
+          wg genkey > /tmp/wg0.key
+          sudo wg set wg0 private-key /tmp/wg0.key listen-port 51820
+          rm -f /tmp/wg0.key
+          sudo ip addr add 10.8.0.1/24 dev wg0
+          sudo ip link set wg0 up
+          ip link show wg0
+
+      # ISLANDR_PROXY_VERSION must be this exact tag — install-proxy.sh
+      # defaults to the newest non-prerelease GitHub Release ("latest") when
+      # unset, which for an RC tag would silently install the WRONG (older)
+      # binary instead of the one release.yml just built for this tag.
+      - name: Install islandr-proxy from this tag's just-published release
+        run: |
+          set -euo pipefail
+          sudo ISLANDR_PROXY_VERSION="${{ github.ref_name }}" bash islandr-proxy/install-proxy.sh
+
+      - name: Assert islandr-proxy.socket is active and listening
+        run: |
+          set -euo pipefail
+          systemctl is-active islandr-proxy.socket
+          systemctl status islandr-proxy.socket --no-pager
+          # /run/islandr is 0700 islandr:islandr (tmpfiles.d entry in
+          # install-proxy.sh) — the unprivileged runner user can't even
+          # traverse into it to stat the socket, so this check needs sudo.
+          sudo test -S /run/islandr/proxy.sock || { echo "::error::proxy.sock not present after install"; exit 1; }
+          echo "✓ islandr-proxy.socket installed and listening"
+
+      - name: Build JVM application (fast-jar — nothing here needs native-image)
+        run: ./gradlew quarkusBuild -x test --no-daemon
+
+      # install-proxy.sh creates the islandr user with --home-dir /var/lib/islandr
+      # but no -m flag, so the directory itself doesn't exist yet. The app writes
+      # its nftables-ruleset staging file there (islandr.proxy.ruleset-path).
+      #
+      # The fast-jar is copied here (rather than run in place from
+      # $GITHUB_WORKSPACE, chmod'd o+rX) because `sudo -u islandr` also needs
+      # every *ancestor* directory of the jar to be traversable
+      # (/home/runner/work/islandr/islandr/...), not just the jar's own
+      # permissions -- chmod on the workspace alone doesn't reach those
+      # ancestors. Copying into a directory already owned by islandr sidesteps
+      # the whole ancestor-permission chain. (Found on the first two real
+      # runs of this job, v0.16.0-rc.3/rc.4.)
+      - name: Prepare /var/lib/islandr for the islandr user
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /var/lib/islandr
+          sudo chown islandr:islandr /var/lib/islandr
+          sudo cp -r build/quarkus-app /var/lib/islandr/quarkus-app
+          sudo chown -R islandr:islandr /var/lib/islandr/quarkus-app
+
+      # Boots the app as the islandr user (required: the proxy socket is 0600
+      # islandr:islandr, zero group bits) in real socket-proxy mode, drives a
+      # full site → resource → port → role → user → peer → grant → membership
+      # flow through the REST API, then asserts the resulting WireGuard peer
+      # and nftables accept rule actually exist on the host — i.e. that
+      # App → islandr-proxy → sudo wg/nft really reaches the kernel, not a
+      # mock. Everything lives in one step so the EXIT trap can clean up the
+      # backgrounded app process (see Global Constraints: steps don't share a
+      # shell, so a trap in an earlier step would never fire).
+      - name: "E2E: boot app in socket mode, real ACL grant, assert wg/nft enforcement"
+        run: |
+          set -euo pipefail
+          BASE=http://localhost:8083
+          JAVA_BIN="$(command -v java)"
+
+          sudo -u islandr env \
+            ISLANDR_ADMIN_PASSWORD=ci-e2e-pw \
+            QUARKUS_HTTP_PORT=8083 \
+            QUARKUS_DATASOURCE_JDBC_URL="jdbc:sqlite:/tmp/islandr-e2e.db" \
+            ISLANDR_WG_MODE=socket \
+            ISLANDR_NFT_MODE=socket \
+            "$JAVA_BIN" -jar /var/lib/islandr/quarkus-app/quarkus-run.jar \
+            > /tmp/islandr-e2e.log 2>&1 &
+          APP_PID=$!
+          trap 'sudo kill "$APP_PID" 2>/dev/null || true' EXIT
+
+          code=000
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/peers/next-ip" || true)
+            [ "$code" != "000" ] && break
+            sleep 1
+          done
+          [ "$code" != "000" ] || { echo "::error::app did not start"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          login=$(curl -s -c /tmp/cj.txt -o /dev/null -w '%{http_code}' \
+            -X POST "$BASE/api/v1/auth/login" \
+            -H 'content-type: application/json' \
+            -d '{"username":"admin","password":"ci-e2e-pw"}')
+          [ "$login" = "200" ] || { echo "::error::admin login failed (HTTP $login)"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          CJ="-b /tmp/cj.txt -c /tmp/cj.txt"
+
+          SITE_ID=$(curl -s $CJ -X POST "$BASE/api/v1/sites" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-site","cidr":"10.20.0.0/24","description":"","gatewayPeerId":null,"dnsLabel":""}' | jq -r .id)
+          [ -n "$SITE_ID" ] && [ "$SITE_ID" != "null" ] || { echo "::error::site creation failed"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          RESOURCE_ID=$(curl -s $CJ -X POST "$BASE/api/v1/sites/$SITE_ID/resources" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-target","ip":"10.20.0.50","description":"","type":"","dnsName":"","dnsFlat":false}' | jq -r .id)
+          [ -n "$RESOURCE_ID" ] && [ "$RESOURCE_ID" != "null" ] || { echo "::error::resource creation failed"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          curl -s $CJ -X POST "$BASE/api/v1/resources/$RESOURCE_ID/ports" \
+            -H 'content-type: application/json' \
+            -d '{"port":3389,"portEnd":null,"transport":"tcp","protocol":"tcp","label":"","pathPrefix":"","rdpClipboard":false,"rdpFileTransfer":false,"rdpAccessMode":"native"}' > /dev/null
+
+          ROLE_ID=$(curl -s $CJ -X POST "$BASE/api/v1/roles" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-role","description":""}' | jq -r .id)
+          [ -n "$ROLE_ID" ] && [ "$ROLE_ID" != "null" ] || { echo "::error::role creation failed"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          USER_ID=$(curl -s $CJ -X POST "$BASE/api/v1/users" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-user","email":"e2e@example.com"}' | jq -r .id)
+          [ -n "$USER_ID" ] && [ "$USER_ID" != "null" ] || { echo "::error::user creation failed"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          PEER_IP=$(curl -s $CJ "$BASE/api/v1/peers/next-ip" | jq -r .assignedIp)
+          PEER=$(curl -s $CJ -X POST "$BASE/api/v1/users/$USER_ID/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"e2e-peer\",\"assignedIp\":\"$PEER_IP\",\"assignedIpv6\":\"\",\"publicKey\":\"\",\"privateKey\":\"\",\"type\":\"client\"}")
+          PEER_PUBKEY=$(echo "$PEER" | jq -r .peer.publicKey)
+          [ -n "$PEER_PUBKEY" ] && [ "$PEER_PUBKEY" != "null" ] || { echo "::error::peer creation failed"; echo "$PEER"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          curl -s $CJ -X PUT "$BASE/api/v1/acl/matrix" \
+            -H 'content-type: application/json' \
+            -d "{\"grants\":[{\"roleId\":\"$ROLE_ID\",\"resourceId\":\"$RESOURCE_ID\",\"allPorts\":true,\"portIds\":[]}]}" > /dev/null
+
+          curl -s $CJ -X PUT "$BASE/api/v1/roles/$ROLE_ID/users" \
+            -H 'content-type: application/json' \
+            -d "{\"userIds\":[\"$USER_ID\"]}" > /dev/null
+
+          echo "→ Asserting real WireGuard peer config (App → islandr-proxy → wg)"
+          sudo wg show wg0 | grep -F "$PEER_PUBKEY" \
+            || { echo "::error::peer public key not found in 'wg show wg0' — proxy path did not reach the kernel"; sudo wg show wg0; cat /tmp/islandr-e2e.log; exit 1; }
+
+          echo "→ Asserting real nftables accept rule (App → islandr-proxy → nft)"
+          NFT_OUT=$(sudo nft list table inet islandr)
+          echo "$NFT_OUT" | grep -F "ip saddr $PEER_IP" | grep -F "ip daddr 10.20.0.50" | grep -F "tcp dport 3389" | grep -q accept \
+            || { echo "::error::expected accept rule not found in nftables ruleset"; echo "$NFT_OUT"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          echo "✓ install-proxy.sh + real App→islandr-proxy→wg/nft enforcement verified end-to-end"

@@ -242,11 +242,59 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "activity_retention_days", nullable = false)
     public int activityRetentionDays = 180;
 
+    // Opt-in for the resource-name DNS resolver (ADR-0023). When true,
+    // DnsResolverService binds a listener on the hub's own tunnel IP, and
+    // PeerService.renderConf injects that same IP as every peer's primary
+    // DNS server, ahead of whatever's in wgClientDns (see effectiveClientDns)
+    // — wgClientDns itself keeps meaning exactly what it always has (written
+    // into the client .conf verbatim, split-DNS syntax and all); it is never
+    // repurposed. Where the resolver forwards non-zone queries is a fully
+    // separate concern — see dnsResolverUpstream below.
+    @Column(name = "dns_resolver_enabled", nullable = false, columnDefinition = "INTEGER")
+    public boolean dnsResolverEnabled = false;
+
+    // Base domain for the managed zone, e.g. "islandr.internal" — resources
+    // resolve as <resource-slug>.<network-slug>.<dnsResolverZone>. Defaulted by
+    // SettingsService when enabling without an explicit value.
+    @Column(name = "dns_resolver_zone", length = 255)
+    public String dnsResolverZone;
+
+    // Where the resolver forwards queries outside the managed zone — its own
+    // server-side concern, deliberately independent of wgClientDns (which is
+    // what the *client* writes into its DNS line, e.g. split-DNS "~domain"
+    // tokens that mean nothing as a forward target). Comma-separated IPs,
+    // same free-text convention as wgClientDns. Blank → DnsQueryHandler falls
+    // back to a hardcoded default (1.1.1.1, 8.8.8.8), never silently drops
+    // every non-zone query.
+    @Column(name = "dns_resolver_upstream", length = 255)
+    public String dnsResolverUpstream;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }
 
     public boolean isEncryptedRetention() {
         return "encrypted".equalsIgnoreCase(privateKeyRetention);
+    }
+
+    /** What actually belongs in a client's {@code DNS =} line (ADR-0023).
+     *  Resolver off → {@code wgClientDns} verbatim, exactly as before this
+     *  feature existed. Resolver on → the hub's own tunnel IP first (the only
+     *  way a peer can reach the resolver at all), with whatever's in
+     *  {@code wgClientDns} kept after it as a fallback — same free-text/
+     *  split-DNS syntax as always. Used by both the real {@code .conf}
+     *  generation ({@code PeerService.renderConf}) and the Settings UI's
+     *  live AllowedIPs preview, so the two never disagree. */
+    public String effectiveClientDns() {
+        if (!dnsResolverEnabled) return wgClientDns;
+        String hubIp;
+        try {
+            hubIp = de.chriscohnen.islandr.peer.IpSubnet.parse(wgSubnet).networkAddress();
+        } catch (RuntimeException e) {
+            // Unparseable wgSubnet shouldn't be possible (it's @ValidCidr-enforced
+            // on save) but conf generation must never throw over it — fall back.
+            return wgClientDns;
+        }
+        return (wgClientDns == null || wgClientDns.isBlank()) ? hubIp : hubIp + ", " + wgClientDns;
     }
 }

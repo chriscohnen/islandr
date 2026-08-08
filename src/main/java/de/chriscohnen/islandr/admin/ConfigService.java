@@ -33,7 +33,8 @@ public class ConfigService {
                 s.tunnelMode, s.allowedIpsMode, s.splitSupernet,
                 s.wgSubnet6,
                 s.hubLat, s.hubLon, s.hubLocationLabel,
-                s.nominatimUrl, s.ironRdpEnabled, s.activityRetentionDays);
+                s.nominatimUrl, s.ironRdpEnabled, s.activityRetentionDays,
+                s.dnsResolverEnabled, s.dnsResolverZone, s.dnsResolverUpstream);
 
         List<ConfigExportDto.OidcProviderSnapshot> providers = OidcProvider.<OidcProvider>listAll()
                 .stream().map(p -> new ConfigExportDto.OidcProviderSnapshot(
@@ -349,6 +350,10 @@ public class ConfigService {
             s.nominatimUrl = snap.nominatimUrl();
             s.ironRdpEnabled = snap.ironRdpEnabled() != null ? snap.ironRdpEnabled() : false;
             s.activityRetentionDays = snap.activityRetentionDays() != null ? snap.activityRetentionDays() : 180;
+            // Pre-ADR-0023 exports lack these fields → keep the entity default (false/null).
+            s.dnsResolverEnabled = snap.dnsResolverEnabled() != null ? snap.dnsResolverEnabled() : false;
+            s.dnsResolverZone = snap.dnsResolverZone();
+            s.dnsResolverUpstream = snap.dnsResolverUpstream();
             // wgServerPublicKey + wgServerEndpoint: keep the target hub's own values
             s.updatedAt = Instant.now();
             s.updatedBy = "config-import";

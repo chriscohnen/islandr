@@ -13,6 +13,10 @@ import java.util.List;
 @ApplicationScoped
 public class SettingsService {
 
+    // ADR-0023 — fallback zone when the resolver is enabled without an explicit
+    // domain typed in.
+    static final String DEFAULT_DNS_RESOLVER_ZONE = "islandr.internal";
+
     @Inject EncryptionService encSvc;
 
     /**
@@ -69,6 +73,12 @@ public class SettingsService {
         s.ironRdpEnabled = req.ironRdpEnabled();
         s.activityRetentionDays = (req.activityRetentionDays() != null && req.activityRetentionDays() > 0)
                 ? req.activityRetentionDays() : 180;
+        s.dnsResolverEnabled = req.dnsResolverEnabled();
+        s.dnsResolverZone = (req.dnsResolverZone() == null || req.dnsResolverZone().isBlank())
+                ? (s.dnsResolverEnabled ? DEFAULT_DNS_RESOLVER_ZONE : null)
+                : req.dnsResolverZone().strip();
+        s.dnsResolverUpstream = (req.dnsResolverUpstream() == null || req.dnsResolverUpstream().isBlank())
+                ? null : req.dnsResolverUpstream().strip();
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
 

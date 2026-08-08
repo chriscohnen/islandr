@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import de.chriscohnen.islandr.validation.ValidIpAddress;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -45,6 +46,23 @@ public class Resource extends PanacheEntityBase {
     @NotBlank
     @Column(name = "type", nullable = false, length = 16)
     public String type;
+
+    /** Optional DNS label for the resource-name resolver (ADR-0023, MVP —
+     *  admin-typed, no automatic discovery yet). Lowercase DNS label syntax
+     *  (letters/digits/hyphens, not starting or ending with a hyphen), matched
+     *  against the standalone-label RFC 1035 rule. Null = never resolves. */
+    @Pattern(regexp = "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+            message = "must be a lowercase DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
+    @Column(name = "dns_name", length = 63)
+    public String dnsName;
+
+    /** When true, this resource resolves as {@code <dnsName>.<zone>} directly —
+     *  no site subdomain layer — instead of {@code <dnsName>.<site>.<zone>}
+     *  (ADR-0023 follow-up). Meaningless unless {@code dnsName} is also set.
+     *  Uniqueness for a flat name is checked globally (no site label left to
+     *  disambiguate it), unlike the per-site check for non-flat names. */
+    @Column(name = "dns_flat", nullable = false, columnDefinition = "INTEGER")
+    public boolean dnsFlat = false;
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
