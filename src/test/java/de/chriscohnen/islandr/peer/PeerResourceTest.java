@@ -1002,4 +1002,64 @@ class PeerResourceTest {
         given().contentType("application/json").when().post("/api/v1/peers/does-not-exist/rotate-key")
                 .then().statusCode(404);
     }
+
+    // ---- Admin PSK rotation (issue #46) ------------------------------------
+    //
+    // PUT /{id} with presharedKeyAction="rotate" stamps pskRotatedAt independently
+    // of keyRotatedAt (the two rotations are unrelated product operations).
+
+    @Test
+    void update_presharedKeyActionRotateStampsPskRotatedAtIndependently() {
+        String userId = createUser();
+        var created = given().contentType("application/json")
+                .body("""
+                        { "name": "psk-rotate-me", "assignedIp": "10.8.0.92", "generatePresharedKey": true }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().response();
+
+        String peerId = created.path("peer.id");
+        org.junit.jupiter.api.Assertions.assertNull(created.path("peer.pskRotatedAt"));
+        org.junit.jupiter.api.Assertions.assertNull(created.path("peer.keyRotatedAt"));
+
+        given().contentType("application/json")
+                .body("""
+                        {
+                          "name": "psk-rotate-me",
+                          "assignedIp": "10.8.0.92",
+                          "presharedKeyAction": "rotate"
+                        }
+                        """)
+                .when().put("/api/v1/peers/" + peerId)
+                .then().statusCode(200)
+                .body("peer.id", equalTo(peerId))
+                .body("peer.pskRotatedAt", notNullValue())
+                .body("peer.keyRotatedAt", nullValue());
+    }
+
+    @Test
+    void update_presharedKeyActionRemoveDoesNotStampPskRotatedAt() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "psk-remove-me", "assignedIp": "10.8.0.93", "generatePresharedKey": true }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        {
+                          "name": "psk-remove-me",
+                          "assignedIp": "10.8.0.93",
+                          "presharedKeyAction": "remove"
+                        }
+                        """)
+                .when().put("/api/v1/peers/" + peerId)
+                .then().statusCode(200)
+                .body("peer.hasPresharedKey", equalTo(false))
+                .body("peer.pskRotatedAt", nullValue());
+    }
 }

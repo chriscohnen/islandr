@@ -842,7 +842,7 @@ export const peerModalTemplate = `
             <div>{{ t('peer.key_rotate_warn') }}</div>
             <div style="display:flex; gap: var(--space-2); flex-shrink:0">
               <button type="button" class="btn btn-ghost btn-sm" @click="keyRotateArmed = false">{{ t('peer.psk_cancel') }}</button>
-              <button type="button" class="btn btn-danger btn-sm" :disabled="keyRotating" @click="rotateKey(secret.peer.id)">
+              <button type="button" class="btn btn-danger btn-sm" :disabled="keyRotating" @click="rotateKey(secret.peer?.id)">
                 {{ keyRotating ? t('peer.secret_applying') : t('peer.key_rotate_confirm') }}
               </button>
             </div>
