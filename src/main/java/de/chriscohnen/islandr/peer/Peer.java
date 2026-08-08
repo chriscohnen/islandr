@@ -47,6 +47,12 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "private_key_pem", length = 128)
     public String privateKeyPem;
 
+    /** Set the first time this peer's WireGuard keypair is rotated post-creation
+     *  (issue #46's admin-triggered rotation, or the pre-existing self-service
+     *  rotation) — null means never rotated since creation. */
+    @Column(name = "key_rotated_at")
+    public Instant keyRotatedAt;
+
     @Column(name = "last_seen_at")
     public Instant lastSeenAt;
 
@@ -106,6 +112,12 @@ public class Peer extends PanacheEntityBase {
      */
     @Column(name = "preshared_key", length = 44)
     public String presharedKey;
+
+    /** Set the first time this peer's PSK is rotated post-creation — null means
+     *  never rotated (including a peer that has never had a PSK at all, or one
+     *  whose PSK was only ever set once at creation, never rotated since). */
+    @Column(name = "psk_rotated_at")
+    public Instant pskRotatedAt;
 
     /** Per-peer MTU written into the client .conf [Interface] section.
      *  null = defer to global setting (Settings.wgMtu / wgIncludeMtuInConf). */

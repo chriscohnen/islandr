@@ -30,6 +30,9 @@ public final class PeerDto {
             String siteAllowedCidrs,    // null for client peers
             String deviceType,          // laptop | desktop | mobile | tablet | server | other | null
             boolean hasPresharedKey,    // true when a PSK is stored for this peer
+            // Null = never rotated since creation (issue #46).
+            Instant keyRotatedAt,
+            Instant pskRotatedAt,
             Integer mtu,                // null = no per-peer override; use global setting
             Integer persistentKeepalive,// null = no per-peer override; 0 = off; else interval (s)
             boolean includeDns,         // false = never write the DNS line for this peer
@@ -45,6 +48,7 @@ public final class PeerDto {
                     p.totalRxBytes, p.totalTxBytes, p.createdAt, p.updatedAt,
                     p.type, p.siteAllowedCidrs, p.deviceType,
                     p.presharedKey != null && !p.presharedKey.isBlank(),
+                    p.keyRotatedAt, p.pskRotatedAt,
                     p.mtu, p.persistentKeepalive, p.includeDns,
                     p.lat, p.lng, p.locationLabel);
         }

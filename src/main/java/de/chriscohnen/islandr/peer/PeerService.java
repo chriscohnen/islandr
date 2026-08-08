@@ -266,6 +266,7 @@ public class PeerService {
         if ("rotate".equals(req.presharedKeyAction())) {
             String newPsk = wg.genPsk();
             peer.presharedKey = newPsk;
+            peer.pskRotatedAt = java.time.Instant.now();
             pskForWg = newPsk;
             pskChanged = true;
         } else if ("remove".equals(req.presharedKeyAction())) {
