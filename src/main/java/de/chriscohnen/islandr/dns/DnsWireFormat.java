@@ -26,6 +26,7 @@ final class DnsWireFormat {
 
     static final int TYPE_A = 1;
     static final int TYPE_AAAA = 28;
+    static final int TYPE_PTR = 12;
     static final int CLASS_IN = 1;
 
     static final int RCODE_NO_ERROR = 0;
@@ -184,6 +185,66 @@ final class DnsWireFormat {
             // answer, not a crash.
             return null;
         }
+    }
+
+    /** Extracts the first PTR answer's target domain name from a raw
+     *  response — used only by {@link PtrLookup}, the discovery-scan
+     *  reverse-DNS lookup against a site's configured local DNS server,
+     *  never by the resolver's own forward path. Same fail-safe posture as
+     *  {@link #parseFirstAnswerAddress}: malformed/attacker-reachable bytes
+     *  return null, never throw. */
+    static String parseFirstPtrName(byte[] data) {
+        try {
+            if (data.length < 12) return null;
+            int qdcount = u16(data, 4);
+            int ancount = u16(data, 6);
+            if (ancount < 1) return null;
+            int pos = 12;
+            for (int i = 0; i < qdcount; i++) {
+                pos = skipName(data, pos);
+                pos += 4; // QTYPE + QCLASS
+            }
+            for (int i = 0; i < ancount; i++) {
+                pos = skipName(data, pos);
+                int type = u16(data, pos); pos += 2;
+                pos += 2; // CLASS
+                pos += 4; // TTL
+                int rdlength = u16(data, pos); pos += 2;
+                if (type == TYPE_PTR) {
+                    return readName(data, pos);
+                }
+                pos += rdlength; // some other record type — skip and keep looking
+            }
+            return null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Reads a (possibly compressed) NAME field starting at {@code pos} and
+     *  returns its dotted string form, following at most one compression
+     *  pointer — sufficient for the simple single-answer responses a home
+     *  router's DNS server sends; a longer pointer chain is treated as
+     *  malformed, matching this class's fail-safe-return-null posture. */
+    private static String readName(byte[] data, int pos) {
+        StringBuilder name = new StringBuilder();
+        boolean jumped = false;
+        int guard = 0;
+        while (guard++ < 128) {
+            int len = data[pos] & 0xff;
+            if (len == 0) break;
+            if ((len & 0xC0) == 0xC0) {
+                if (jumped) return null; // more than one pointer — treat as malformed
+                pos = ((len & 0x3F) << 8) | (data[pos + 1] & 0xff);
+                jumped = true;
+                continue;
+            }
+            pos++;
+            if (name.length() > 0) name.append('.');
+            name.append(new String(data, pos, len, StandardCharsets.US_ASCII));
+            pos += len;
+        }
+        return name.length() > 0 ? name.toString() : null;
     }
 
     /** Advances past one (possibly compressed) NAME field, returning the

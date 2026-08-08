@@ -135,6 +135,81 @@ class DnsWireFormatTest {
         assertThat(DnsWireFormat.parseFirstAnswerAddress(new byte[0])).isNull();
     }
 
+    @Test
+    void buildQuery_supportsPtrType() throws Exception {
+        byte[] q = DnsWireFormat.buildQuery(0x55, "23.178.168.192.in-addr.arpa", DnsWireFormat.TYPE_PTR);
+        DnsWireFormat.Query parsed = DnsWireFormat.parseQuery(q, q.length);
+
+        assertThat(parsed.name()).isEqualTo("23.178.168.192.in-addr.arpa");
+        assertThat(parsed.qtype()).isEqualTo(DnsWireFormat.TYPE_PTR);
+    }
+
+    @Test
+    void parseFirstPtrName_extractsAnUncompressedName() throws Exception {
+        byte[] resp = rawPtrResponse("23.178.168.192.in-addr.arpa", "fritzbox-device.fritz.box", false);
+
+        assertThat(DnsWireFormat.parseFirstPtrName(resp)).isEqualTo("fritzbox-device.fritz.box");
+    }
+
+    @Test
+    void parseFirstPtrName_followsOneCompressionPointer() throws Exception {
+        // Real routers commonly point the PTR answer's NAME field back at the
+        // question name via compression rather than repeating it literally.
+        byte[] resp = rawPtrResponse("23.178.168.192.in-addr.arpa", "23.178.168.192.in-addr.arpa", true);
+
+        assertThat(DnsWireFormat.parseFirstPtrName(resp)).isEqualTo("23.178.168.192.in-addr.arpa");
+    }
+
+    @Test
+    void parseFirstPtrName_returnsNull_whenThereAreNoAnswers() throws Exception {
+        byte[] q = rawQuery(1, true, "23.178.168.192.in-addr.arpa", DnsWireFormat.TYPE_PTR);
+        assertThat(DnsWireFormat.parseFirstPtrName(q)).isNull();
+    }
+
+    @Test
+    void parseFirstPtrName_returnsNull_ratherThanThrowing_onGarbageInput() {
+        assertThat(DnsWireFormat.parseFirstPtrName(new byte[]{1, 2, 3})).isNull();
+        assertThat(DnsWireFormat.parseFirstPtrName(new byte[0])).isNull();
+    }
+
+    /** Builds a synthetic PTR response: the given query's question section
+     *  echoed back, plus one PTR answer RR whose RDATA is either the literal
+     *  target name (compressed=false) or a compression pointer back to the
+     *  question name at offset 12 (compressed=true, mirroring how a real
+     *  router commonly answers when the target equals the queried name). */
+    private static byte[] rawPtrResponse(String queryName, String targetName, boolean compressed) throws Exception {
+        byte[] q = rawQuery(1, true, queryName, DnsWireFormat.TYPE_PTR);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writeU16(out, 1); // ID
+        writeU16(out, 0x8180); // QR=1, RD=1, RA=1, no error
+        writeU16(out, 1); // QDCOUNT
+        writeU16(out, 1); // ANCOUNT
+        writeU16(out, 0);
+        writeU16(out, 0);
+        out.write(q, 12, q.length - 12); // question section verbatim
+        writeU16(out, 0xC00C); // answer NAME: pointer to the question name
+        writeU16(out, DnsWireFormat.TYPE_PTR);
+        writeU16(out, DnsWireFormat.CLASS_IN);
+        out.write(0); out.write(0); out.write(0); out.write(30); // TTL
+
+        if (compressed) {
+            writeU16(out, 2); // RDLENGTH: one compression pointer, 2 bytes
+            writeU16(out, 0xC00C); // RDATA: pointer back to the question name
+        } else {
+            ByteArrayOutputStream rdata = new ByteArrayOutputStream();
+            for (String label : targetName.split("\\.")) {
+                byte[] l = label.getBytes(StandardCharsets.US_ASCII);
+                rdata.write(l.length);
+                rdata.write(l);
+            }
+            rdata.write(0); // root label
+            byte[] rdataBytes = rdata.toByteArray();
+            writeU16(out, rdataBytes.length);
+            out.write(rdataBytes);
+        }
+        return out.toByteArray();
+    }
+
     /** Builds a synthetic upstream-style response: the given query's question
      *  section echoed back, plus one answer RR of the given type/address. */
     private static byte[] rawResponseWithAnswer(String name, int type, byte[] address) throws Exception {
