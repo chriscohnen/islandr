@@ -24,10 +24,11 @@ export default defineComponent({
     await this.load();
   },
   computed: {
-    // Per-day max across all peers — intensity levels are relative to this,
-    // per the issue spec ("4-5 intensity levels based on sample_hits share
-    // of that day's max"), not an absolute scale. Same relative-to-day-max
-    // approach applies to the bytes metric.
+    // Per-day max across all peers — used only by the "bytes" metric, whose
+    // intensity levels are relative to this (traffic volume has no natural
+    // absolute scale). The "hits" metric uses absolute duration buckets
+    // instead (see level()) so a peer connected 22h always reads as "heavily
+    // connected", not just "connected more than today's other peers".
     dailyMax() {
       if (!this.result) return [];
       return this.result.days.map((_, i) =>
@@ -77,6 +78,20 @@ export default defineComponent({
     },
     level(value, dayIndex) {
       if (!value) return 0;
+      if (this.metric === "hits") {
+        // Absolute duration buckets (0-3h/4-7h/8-11h/12-15h/16-19h/20-24h),
+        // not relative to the day's max — a single connected peer (or several
+        // peers connected similarly long) would otherwise always read as the
+        // brightest color, since it'd always be ~100% of that day's max.
+        // hits are 30s poll ticks: hours = hits*30/3600 = hits/120.
+        const hours = value / 120;
+        if (hours < 4) return 1;
+        if (hours < 8) return 2;
+        if (hours < 12) return 3;
+        if (hours < 16) return 4;
+        if (hours < 20) return 5;
+        return 6;
+      }
       const max = this.dailyMax[dayIndex];
       if (!max) return 0;
       return Math.max(1, Math.min(5, Math.ceil((value / max) * 5)));

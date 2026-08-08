@@ -1337,9 +1337,13 @@ body {
 }
 
 /* --- connection activity heatmap (#32) ----------------------------------- */
-/* 5 intensity levels off the existing accent ramp, GitHub-contribution-graph
-   style. Level is relative to that day's max across peers, not an absolute
-   scale — see ActivityHeatmap.js. */
+/* 6 intensity levels off the existing accent ramp, GitHub-contribution-graph
+   style. For the "hits" (connections) metric, level is an absolute duration
+   bucket (0-3h/4-7h/8-11h/12-15h/16-19h/20-24h) so a peer connected 22h
+   always reads as the brightest color, not just "more than today's other
+   peers"; the "bytes" (traffic) metric still uses 5 levels relative to that
+   day's max, since traffic volume has no natural absolute scale — see
+   ActivityHeatmap.js's level(). */
 /* `.table td { height: var(--row-height) }` (components.css) outranks a bare
    `.heatmap-cell` on specificity (class+element beats class alone), so every
    day cell rendered at the shared ~44px row height while staying 18px wide —
@@ -1367,11 +1371,13 @@ td.heatmap-cell.heatmap-l2 { background: var(--accent-200); }
 td.heatmap-cell.heatmap-l3 { background: var(--accent-300); }
 td.heatmap-cell.heatmap-l4 { background: var(--accent-400); }
 td.heatmap-cell.heatmap-l5 { background: var(--accent-500); }
+td.heatmap-cell.heatmap-l6 { background: var(--accent-600); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l1 { background: var(--accent-900); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l2 { background: var(--accent-800); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l3 { background: var(--accent-700); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l4 { background: var(--accent-600); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l5 { background: var(--accent-500); }
+[data-theme="dark"] td.heatmap-cell.heatmap-l6 { background: var(--accent-400); }
 
 /* ============================================================================
    ResourcesView — card grid
