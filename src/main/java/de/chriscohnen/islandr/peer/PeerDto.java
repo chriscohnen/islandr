@@ -21,6 +21,7 @@ public final class PeerDto {
             boolean enabled,
             Instant lastSeenAt,
             String lastSeenEndpoint,
+            String connectionStatus,    // "CONNECTED" | "STALE" | "DISCONNECTED" — see PeerConnectionStatus
             long totalRxBytes,
             long totalTxBytes,
             Instant createdAt,
@@ -40,6 +41,7 @@ public final class PeerDto {
             return new Response(
                     p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.assignedIpv6,
                     p.enabled, p.lastSeenAt, p.lastSeenEndpoint,
+                    p.connectionStatus(Instant.now()).name(),
                     p.totalRxBytes, p.totalTxBytes, p.createdAt, p.updatedAt,
                     p.type, p.siteAllowedCidrs, p.deviceType,
                     p.presharedKey != null && !p.presharedKey.isBlank(),
