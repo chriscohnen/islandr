@@ -107,4 +107,38 @@ class PeerResourceEncryptedRetentionTest {
 
         assertThat(reshownKey).isEqualTo(originalPriv);
     }
+
+    @Test
+    void rotateKey_persistsNewEncryptedPrivateKey() {
+        String userId = createUser();
+        var created = given().contentType("application/json")
+                .body("""
+                        { "name": "rotate-encrypted", "assignedIp": "10.8.0.152" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().response();
+
+        String peerId = created.path("peer.id");
+        String originalPriv = created.path("privateKey");
+
+        String rotatedPriv = given().contentType("application/json").when().post("/api/v1/peers/" + peerId + "/rotate-key")
+                .then().statusCode(200)
+                .body("privateKey", notNullValue())
+                .body("privateKey", not(startsWith("enc$")))
+                .extract().path("privateKey");
+
+        assertThat(rotatedPriv).isNotEqualTo(originalPriv);
+
+        // Reshow must decrypt to the *rotated* key, not the original — proves
+        // the rotated key was actually persisted encrypted-at-rest, not just
+        // returned once and discarded.
+        String reshownKey = given().when().get("/api/v1/peers/" + peerId + "/conf")
+                .then().statusCode(200)
+                .body("privateKey", notNullValue())
+                .body("privateKey", not(startsWith("enc$")))
+                .extract().path("privateKey");
+
+        assertThat(reshownKey).isEqualTo(rotatedPriv);
+    }
 }

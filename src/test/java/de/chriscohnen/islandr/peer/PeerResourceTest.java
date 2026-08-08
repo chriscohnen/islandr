@@ -950,4 +950,56 @@ class PeerResourceTest {
                 .when().put("/api/v1/peers/does-not-exist")
                 .then().statusCode(404);
     }
+
+    // ---- Admin key rotation (issue #46) ------------------------------------
+    //
+    // POST /{id}/rotate-key regenerates both halves of the keypair server-side
+    // and replaces the peer's identity on the hub — an alternative to
+    // delete-and-recreate for a suspected-compromised device.
+
+    @Test
+    void rotateKey_returnsNewKeyAndMarksRotatedAt() {
+        String userId = createUser();
+        var created = given().contentType("application/json")
+                .body("""
+                        { "name": "rotate-me", "assignedIp": "10.8.0.90" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().response();
+
+        String peerId = created.path("peer.id");
+        String originalPublicKey = created.path("peer.publicKey");
+        org.junit.jupiter.api.Assertions.assertNull(created.path("peer.keyRotatedAt"));
+
+        given().contentType("application/json").when().post("/api/v1/peers/" + peerId + "/rotate-key")
+                .then().statusCode(200)
+                .body("peer.id", equalTo(peerId))
+                .body("peer.publicKey", not(equalTo(originalPublicKey)))
+                .body("peer.keyRotatedAt", notNullValue())
+                .body("privateKey", notNullValue());
+    }
+
+    @Test
+    void rotateKey_preservesPresharedKey() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "rotate-with-psk", "assignedIp": "10.8.0.91", "generatePresharedKey": true }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .body("peer.hasPresharedKey", equalTo(true))
+                .extract().path("peer.id");
+
+        given().contentType("application/json").when().post("/api/v1/peers/" + peerId + "/rotate-key")
+                .then().statusCode(200)
+                .body("peer.hasPresharedKey", equalTo(true));
+    }
+
+    @Test
+    void rotateKey_unknownPeerReturns404() {
+        given().contentType("application/json").when().post("/api/v1/peers/does-not-exist/rotate-key")
+                .then().statusCode(404);
+    }
 }

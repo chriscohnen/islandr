@@ -213,6 +213,28 @@ public class PeerResource {
     }
 
     /**
+     * Generate a fresh WireGuard keypair for this peer, replacing the old one
+     * on the hub immediately (issue #46 — lets an admin respond to a
+     * suspected compromise by rotating instead of delete+recreate). Returns
+     * the new private key once, like peer creation — under retention mode
+     * "never" there is no way to retrieve it again afterwards.
+     */
+    @POST
+    @Path("/{id}/rotate-key")
+    public PeerDto.CreateResponse rotateKey(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Peer before = Peer.findById(id);
+        String oldKey = before == null ? null : before.publicKey;
+        PeerDto.CreateResponse out = peers.rotateAdminKey(id);
+        audit.logUpdate(a.principal(), "peer.admin_key_rotate",
+                "Peer:" + out.peer().name() + " (" + id + ")",
+                Map.of("publicKey", oldKey == null ? "" : oldKey),
+                Map.of("publicKey", out.peer().publicKey()));
+        rulesets.recomputeFromHook();
+        return out;
+    }
+
+    /**
      * Read the preshared key for this peer from the live wg interface and store it.
      * Returns 200 with {"imported": true} when a PSK was found and saved,
      * or {"imported": false} when the peer has no PSK in wg.
