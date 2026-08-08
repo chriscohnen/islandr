@@ -146,6 +146,11 @@ public class Peer extends PanacheEntityBase {
         return "site".equals(type);
     }
 
+    /** Derived connection state — see {@link PeerConnectionStatus}. */
+    public PeerConnectionStatus connectionStatus(Instant now) {
+        return PeerConnectionStatus.of(lastSeenAt, now);
+    }
+
     public static Peer createNew(String userId, String name, String publicKey, String assignedIp) {
         Peer p = new Peer();
         p.id = UUID.randomUUID().toString();
