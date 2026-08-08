@@ -27,7 +27,7 @@ class SiteServiceSubdomainTest {
     void create_persistsAnExplicitSubdomain() {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         Site site = siteSvc.create(new SiteDto.UpsertRequest(
-                "Site-" + suffix, "10.30.0.0/24", null, null, "custom-" + suffix));
+                "Site-" + suffix, "10.30.0.0/24", null, null, "custom-" + suffix, null));
 
         assertThat(site.subdomain).isEqualTo("custom-" + suffix);
     }
@@ -37,7 +37,7 @@ class SiteServiceSubdomainTest {
     void create_blankSubdomainStaysNull_derivedLiveInstead() {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         Site site = siteSvc.create(new SiteDto.UpsertRequest(
-                "Site-" + suffix, "10.31.0.0/24", null, null, ""));
+                "Site-" + suffix, "10.31.0.0/24", null, null, "", null));
 
         assertThat(site.subdomain).isNull();
     }
@@ -47,10 +47,10 @@ class SiteServiceSubdomainTest {
     void create_rejectsADuplicateSubdomain_globallyAcrossSites() {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String subdomain = "shared-" + suffix;
-        siteSvc.create(new SiteDto.UpsertRequest("First-" + suffix, "10.32.0.0/24", null, null, subdomain));
+        siteSvc.create(new SiteDto.UpsertRequest("First-" + suffix, "10.32.0.0/24", null, null, subdomain, null));
 
         assertThatThrownBy(() -> siteSvc.create(new SiteDto.UpsertRequest(
-                "Second-" + suffix, "10.33.0.0/24", null, null, subdomain)))
+                "Second-" + suffix, "10.33.0.0/24", null, null, subdomain, null)))
                 .isInstanceOf(WebApplicationException.class);
     }
 
@@ -59,10 +59,10 @@ class SiteServiceSubdomainTest {
     void update_keepingItsOwnSubdomain_doesNotSelfConflict() {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String subdomain = "stable-" + suffix;
-        Site site = siteSvc.create(new SiteDto.UpsertRequest("Site-" + suffix, "10.34.0.0/24", null, null, subdomain));
+        Site site = siteSvc.create(new SiteDto.UpsertRequest("Site-" + suffix, "10.34.0.0/24", null, null, subdomain, null));
 
         Site updated = siteSvc.update(site.id, new SiteDto.UpsertRequest(
-                "Renamed-" + suffix, "10.34.0.0/24", "now with a description", null, subdomain));
+                "Renamed-" + suffix, "10.34.0.0/24", "now with a description", null, subdomain, null));
 
         assertThat(updated.subdomain).isEqualTo(subdomain);
     }

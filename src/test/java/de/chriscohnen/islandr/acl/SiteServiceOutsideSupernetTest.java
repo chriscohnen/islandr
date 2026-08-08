@@ -36,9 +36,9 @@ class SiteServiceOutsideSupernetTest {
         gw.persistAndFlush();
 
         Site inside = siteSvc.create(new SiteDto.UpsertRequest(
-                "inside-" + suffix, "10.20.0.0/16", null, gw.id, null));
+                "inside-" + suffix, "10.20.0.0/16", null, gw.id, null, null));
         Site outside = siteSvc.create(new SiteDto.UpsertRequest(
-                "outside-" + suffix, "192.168.1.0/24", null, gw.id, null));
+                "outside-" + suffix, "192.168.1.0/24", null, gw.id, null, null));
 
         assertThat(siteSvc.toResponse(inside, 0).outsideSplitSupernet()).isFalse();
         assertThat(siteSvc.toResponse(outside, 0).outsideSplitSupernet()).isTrue();
@@ -59,7 +59,7 @@ class SiteServiceOutsideSupernetTest {
         gw.persistAndFlush();
 
         Site site = siteSvc.create(new SiteDto.UpsertRequest(
-                "site-" + suffix, "192.168.1.0/24", null, gw.id, null));
+                "site-" + suffix, "192.168.1.0/24", null, gw.id, null, null));
 
         assertThat(siteSvc.toResponse(site, 0).outsideSplitSupernet()).isNull();
     }
@@ -74,7 +74,7 @@ class SiteServiceOutsideSupernetTest {
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         Site site = siteSvc.create(new SiteDto.UpsertRequest(
-                "site-" + suffix, "192.168.1.0/24", null, null, null));
+                "site-" + suffix, "192.168.1.0/24", null, null, null, null));
 
         assertThat(siteSvc.toResponse(site, 0).outsideSplitSupernet()).isNull();
     }

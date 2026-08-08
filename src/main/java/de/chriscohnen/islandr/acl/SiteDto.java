@@ -28,7 +28,10 @@ public final class SiteDto {
             // supernet configured).
             Boolean outsideSplitSupernet,
             // Explicit DNS label (ADR-0023) — null = derived live from `name`.
-            String subdomain
+            String subdomain,
+            // Optional local DNS server for the discovery-scan PTR-lookup
+            // suggestion (issue #45). Null = system-resolver fallback.
+            String dnsServerIp
     ) {
         public static Response from(Site s, int resourceCount,
                                     String gatewayPeerName, Boolean gatewayOnline,
@@ -36,7 +39,7 @@ public final class SiteDto {
             return new Response(s.id, s.name, s.cidr, s.description,
                     resourceCount, s.createdAt, s.updatedAt,
                     s.gatewayPeerId, gatewayPeerName, gatewayOnline, outsideSplitSupernet,
-                    s.subdomain);
+                    s.subdomain, s.dnsServerIp);
         }
     }
 
@@ -51,7 +54,11 @@ public final class SiteDto {
             // it live from `name` (DnsResolverService's original behavior).
             @Pattern(regexp = "^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
                     message = "must be a lowercase DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
-            String subdomain
+            String subdomain,
+            // Optional — local DNS server for the discovery-scan PTR-lookup
+            // suggestion. Blank/null = fall back to the system resolver.
+            @de.chriscohnen.islandr.validation.ValidIpAddress
+            String dnsServerIp
     ) {}
 
     private SiteDto() {}

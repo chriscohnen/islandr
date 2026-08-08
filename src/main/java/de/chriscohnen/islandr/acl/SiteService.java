@@ -85,6 +85,7 @@ public class SiteService {
         Site s = Site.createNew(req.name(), req.cidr(), req.description());
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         s.subdomain = subdomain;
+        s.dnsServerIp = normalizeBlank(req.dnsServerIp());
         s.persist();
         return s;
     }
@@ -111,6 +112,7 @@ public class SiteService {
         s.description = req.description();
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         s.subdomain = subdomain;
+        s.dnsServerIp = normalizeBlank(req.dnsServerIp());
         s.updatedAt = Instant.now();
         return s;
     }
@@ -120,6 +122,12 @@ public class SiteService {
     private static String normalizeSubdomain(String subdomain) {
         return (subdomain == null || subdomain.isBlank())
                 ? null : subdomain.strip().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** Blank → null; otherwise the value as-is (unlike subdomain, this isn't
+     *  a case-insensitive lookup key, so no lowercasing). */
+    private static String normalizeBlank(String value) {
+        return (value == null || value.isBlank()) ? null : value.strip();
     }
 
     private String validatedGatewayPeerId(String peerId) {

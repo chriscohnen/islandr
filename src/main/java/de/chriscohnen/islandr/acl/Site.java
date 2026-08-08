@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import de.chriscohnen.islandr.validation.ValidCidr;
+import de.chriscohnen.islandr.validation.ValidIpAddress;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
@@ -57,6 +58,14 @@ public class Site extends PanacheEntityBase {
             message = "must be a lowercase DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
     @Column(name = "subdomain", length = 63)
     public String subdomain;
+
+    /** Optional local DNS server (usually the LAN router, e.g. a FRITZ!Box)
+     *  that device discovery queries with a targeted reverse-DNS (PTR)
+     *  lookup to suggest a resource name (issue #45). Null = discovery falls
+     *  back to the JVM system resolver, the original behavior. */
+    @ValidIpAddress
+    @Column(name = "dns_server_ip", length = 45)
+    public String dnsServerIp;
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
