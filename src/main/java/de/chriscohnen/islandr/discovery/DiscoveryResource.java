@@ -61,7 +61,7 @@ public class DiscoveryResource {
         requireScanReachable(site, force);
         DiscoveryJobs.Job job;
         try {
-            job = jobs.start(siteId, site.cidr);   // supersedes any scan still running for this site
+            job = jobs.start(siteId, site.cidr, site.dnsServerIp);   // supersedes any scan still running for this site
         } catch (IllegalArgumentException e) {     // CIDR not IPv4-enumerable or over the cap
             throw conflict(e.getMessage());
         }

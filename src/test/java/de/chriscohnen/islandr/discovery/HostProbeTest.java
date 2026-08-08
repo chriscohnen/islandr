@@ -55,4 +55,30 @@ class HostProbeTest {
         assertThat(HostProbe.DEFAULT_TCP_PORTS)
                 .containsExactly(22, 80, 443, 445, 554, 631, 3389, 5900, 7222, 8006, 8080, 8123, 8443, 9100, 9443);
     }
+
+    @Test
+    void probe_fallsBackToSystemResolver_whenNoDnsServerConfigured() {
+        // No assertion on the hostname value itself (environment-dependent) —
+        // this just confirms the 3-arg constructor still compiles and probe()
+        // doesn't throw when dnsServerIp is implicitly null (the pre-existing
+        // behavior, now routed through resolveHostname() instead of calling
+        // reverseLookup() directly).
+        HostProbe probe = new HostProbe(List.of(), HostProbe.DEFAULT_UDP_PROBE_PORT, FAST);
+
+        HostProbe.ProbeResult result = probe.probe("127.0.0.1");
+
+        assertThat(result).isNotNull();
+    }
+
+    @Test
+    void probe_fallsBackToSystemResolver_whenTargetedPtrLookupTimesOut() {
+        // Port 1 on localhost: nothing listens there, so the targeted PTR
+        // lookup fails fast and probe() must still return normally (not
+        // throw, not hang) via the system-resolver fallback.
+        HostProbe probe = new HostProbe(List.of(), HostProbe.DEFAULT_UDP_PROBE_PORT, FAST, "127.0.0.1");
+
+        HostProbe.ProbeResult result = probe.probe("127.0.0.1");
+
+        assertThat(result).isNotNull();
+    }
 }

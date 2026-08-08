@@ -1,5 +1,7 @@
 package de.chriscohnen.islandr.discovery;
 
+import de.chriscohnen.islandr.dns.PtrLookup;
+
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.DatagramPacket;
@@ -11,6 +13,7 @@ import java.net.Socket;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -56,11 +59,20 @@ public class HostProbe {
     private final List<Integer> tcpPorts;
     private final int udpProbePort;
     private final int timeoutMillis;
+    private final String dnsServerIp;
 
     public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout) {
+        this(tcpPorts, udpProbePort, timeout, null);
+    }
+
+    /** @param dnsServerIp optional site-configured local DNS server (issue
+     *         #45) for a targeted PTR lookup, tried before the system
+     *         resolver; null = original system-resolver-only behavior. */
+    public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout, String dnsServerIp) {
         this.tcpPorts = List.copyOf(tcpPorts);
         this.udpProbePort = udpProbePort;
         this.timeoutMillis = (int) Math.max(1, timeout.toMillis());
+        this.dnsServerIp = dnsServerIp;
     }
 
     /**
@@ -88,8 +100,19 @@ public class HostProbe {
             live = true;
         }
         // Name only live hosts (bounded count), so a slow resolver never taxes a dead sweep.
-        String hostname = live ? reverseLookup(ip) : null;
+        String hostname = live ? resolveHostname(ip) : null;
         return new ProbeResult(ip, live, List.copyOf(open), hostname);
+    }
+
+    /** Prefers a targeted PTR query against the site's configured local DNS
+     *  server (issue #45) — falls back to the system resolver when no site
+     *  DNS server is configured, or the targeted query comes back empty. */
+    private String resolveHostname(String ip) {
+        if (dnsServerIp != null && !dnsServerIp.isBlank()) {
+            Optional<String> targeted = PtrLookup.lookup(ip, dnsServerIp, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
+            if (targeted.isPresent()) return targeted.get();
+        }
+        return reverseLookup(ip);
     }
 
     /** Bounded reverse-DNS (PTR) lookup; returns the name, or null if none / on timeout. */
