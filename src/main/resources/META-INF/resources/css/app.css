@@ -1181,6 +1181,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .topo .hub-pulse { animation: none; opacity: 0.3; }
 }
+.topo .hub-mark {
+  fill: var(--fg-on-accent);
+  stroke: var(--fg-on-accent);
+}
 .topo .link {
   fill: none;
   stroke: var(--accent);

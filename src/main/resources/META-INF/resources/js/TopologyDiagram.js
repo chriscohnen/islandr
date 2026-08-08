@@ -616,6 +616,21 @@ export default defineComponent({
         <!-- Hub -->
         <circle class="hub-pulse" :cx="CX" :cy="CY" :r="HUB_R" />
         <circle class="hub-core"  :cx="CX" :cy="CY" :r="HUB_R - 6" />
+
+        <!-- Brand mark (constellation), knocked out in --fg-on-accent so it
+             reads on the accent-filled hub circle in both themes — same mark
+             as favicon.svg/islandr-mark.svg, flattened and scaled to fit the
+             hub-core radius. Purely decorative: no title/pointer-events, the
+             hub-core circle underneath still carries any future interaction. -->
+        <g class="hub-mark" :transform="'translate('+(CX-28.35)+','+(CY-28.35)+') scale(0.45)'" style="pointer-events:none">
+          <path d="M27 102 L53 90 L71 64 L99 46 M71 64 L65 33" fill="none" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" />
+          <circle cx="27" cy="102" r="5" />
+          <circle cx="53" cy="90" r="4.5" />
+          <circle cx="71" cy="64" r="6" />
+          <circle cx="99" cy="46" r="5" />
+          <circle cx="65" cy="33" r="9" />
+        </g>
+
         <text   class="hub-label" :x="CX" :y="CY + HUB_R + 16">{{ hubLabel || 'Hub' }}</text>
         <text v-if="endpoint" class="hub-endpoint" :x="CX" :y="CY + HUB_R + 30">{{ endpoint }}</text>
 
