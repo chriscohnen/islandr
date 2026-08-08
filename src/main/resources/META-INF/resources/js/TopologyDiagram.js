@@ -622,7 +622,7 @@ export default defineComponent({
              as favicon.svg/islandr-mark.svg, flattened and scaled to fit the
              hub-core radius. Purely decorative: no title/pointer-events, the
              hub-core circle underneath still carries any future interaction. -->
-        <g class="hub-mark" :transform="'translate('+(CX-28.35)+','+(CY-28.35)+') scale(0.45)'" style="pointer-events:none">
+        <g class="hub-mark" :transform="'translate('+(CX-22.68)+','+(CY-22.68)+') scale(0.36)'" style="pointer-events:none">
           <path d="M27 102 L53 90 L71 64 L99 46 M71 64 L65 33" fill="none" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" />
           <circle cx="27" cy="102" r="5" />
           <circle cx="53" cy="90" r="4.5" />
