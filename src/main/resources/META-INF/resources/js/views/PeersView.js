@@ -208,6 +208,8 @@ export default defineComponent({
       return this.sortDir === 1 ? "↑" : "↓";
     },
     formatDate(iso) { return formatDate(iso); },
+    connectionBadgeClass(p) { return connectionBadgeClass(p); },
+    connectionLabelKey(p) { return connectionLabelKey(p); },
   },
   template: `
     <div class="page-header">

@@ -112,6 +112,8 @@ export default defineComponent({
     },
     relativeTime(iso) { return relativeTime(iso); },
     formatDate(iso) { return formatDate(iso); },
+    connectionBadgeClass(p) { return connectionBadgeClass(p); },
+    connectionLabelKey(p) { return connectionLabelKey(p); },
     actionBadgeClass(action) {
       if (!action) return "badge-info";
       if (action.includes("delete") || action.includes("disable") || action.includes("revoke")) return "badge-neutral";
