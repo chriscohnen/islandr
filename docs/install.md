@@ -149,6 +149,14 @@ ProtectHome=true
 ReadWritePaths=/var/lib/islandr
 PrivateTmp=false
 
+# Needed for built-in TLS on ports 80/443 (if you switch off the loopback:8080
+# setup above) and for the optional resource DNS resolver on port 53
+# (Settings, ADR-0023) — both are privileged ports the unprivileged islandr
+# user can't bind without this. Harmless to leave in even if you use neither;
+# it grants nothing beyond "may bind ports <1024", not root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
 Restart=on-failure
 RestartSec=3
 

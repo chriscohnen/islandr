@@ -176,9 +176,10 @@ ReadWritePaths=/var/lib/islandr
 # Temp files for nft -c -f / nft -f live under /tmp.
 PrivateTmp=false
 
-# Binding ports 80/443 as the unprivileged islandr user needs this one narrow
-# capability — same scoped-privilege principle as the sudoers rules above
-# (islandr never runs as root, never gets CAP_NET_ADMIN or a setuid binary).
+# Binding ports 80/443 (built-in TLS) and 53 (optional resource DNS resolver,
+# ADR-0023) as the unprivileged islandr user needs this one narrow capability
+# — same scoped-privilege principle as the sudoers rules above (islandr never
+# runs as root, never gets CAP_NET_ADMIN or a setuid binary).
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
