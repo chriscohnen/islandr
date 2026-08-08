@@ -54,6 +54,7 @@ architecture/diagrams/*.puml
 
 # Internal — planning notes (not for the public repo)
 TODO.md
+DONE.md
 
 EUPL-1.2
 
