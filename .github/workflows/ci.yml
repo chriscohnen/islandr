@@ -475,7 +475,10 @@ jobs:
           set -euo pipefail
           systemctl is-active islandr-proxy.socket
           systemctl status islandr-proxy.socket --no-pager
-          [ -S /run/islandr/proxy.sock ] || { echo "::error::proxy.sock not present after install"; exit 1; }
+          # /run/islandr is 0700 islandr:islandr (tmpfiles.d entry in
+          # install-proxy.sh) — the unprivileged runner user can't even
+          # traverse into it to stat the socket, so this check needs sudo.
+          sudo test -S /run/islandr/proxy.sock || { echo "::error::proxy.sock not present after install"; exit 1; }
           echo "✓ islandr-proxy.socket installed and listening"
 
       - name: Build JVM application (fast-jar — nothing here needs native-image)
