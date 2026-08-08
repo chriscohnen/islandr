@@ -8,6 +8,17 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 ---
 
+## 0.16.0
+
+- **Admin-triggered key rotation** — an admin can now regenerate a peer's WireGuard keypair in place for compromised-device incident response, instead of deleting and recreating the peer. A fresh keypair is generated server-side, persisted per the peer's existing private-key retention mode, and shown once via the same QR/`.conf` flow as peer creation. This is a distinct, explicitly-confirmed action — it never fires as a side effect of an unrelated edit — and key/PSK rotation are tracked and triggered independently, each with its own "last rotated" timestamp ([#46](https://github.com/chriscohnen/islandr/issues/46)).
+- **DNS resolver for resource names** — an opt-in hand-rolled DNS resolver (UDP, best-effort TCP) that's authoritative for the managed resource zone: resources get a name under their site's subdomain, and the querying peer's ACL grants determine whether a name resolves or returns NXDOMAIN. Everything outside the managed zone is forwarded upstream byte-for-byte, unparsed. No DNS library — hand-rolled RFC 1035 wire format, consistent with this project's privilege-minimization approach ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md)).
+- **Tri-state peer connection status** — the Peers view and dashboard now show Connected / Stale / Disconnected, using absolute time thresholds against the last handshake, instead of a binary online/offline read that made a peer look "online" long after it had actually gone quiet.
+- **Self-service portal gets its own topology, geo-map, and activity heatmap** — the same visualisations already on the admin dashboard, reused and scoped to only what the logged-in user can see via their existing ACL grants. The portal's own-activity heatmap uses a GitHub-contributions layout (weekday × week) rather than the admin heatmap's peers × days table, since it's a single user's activity ([#43](https://github.com/chriscohnen/islandr/issues/43)).
+- **Dashboard topology and geo-map links now colour by traffic volume**, not just handshake recency, so an idle-but-technically-connected peer no longer looks the same as an actively-transferring one.
+- **Reverse-proxy vs. built-in TLS install guide** — a side-by-side decision guide for choosing between Islandr's built-in TLS termination and fronting it with Caddy/Traefik/nginx or a CDN, including Cloudflare-specific SSL-mode and cookie-`Secure` guidance ([docs/install/reverse-proxy.md](docs/install/reverse-proxy.md)).
+- Per-site DNS subdomains and a local DNS-server-IP field for sites, underpinning the new resolver.
+- An SQLite backup script (`scripts/backup.sh`) for operators running the default database.
+
 ## 0.15.1
 
 - **Config export/import no longer drops the hub's map location** — `hubLat`/`hubLon`/`hubLocationLabel` (the dashboard topology map pin), the optional IPv6 `wgSubnet6`, the Nominatim geocoding URL, the IronRDP toggle and the activity-heatmap retention setting were added to Settings across several releases but never wired into the config export/import round trip, so migrating a hub silently lost them ([#44](https://github.com/chriscohnen/islandr/issues/44)).

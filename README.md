@@ -196,7 +196,8 @@ islandr/
 │       ├── 0019-acme-hand-rolled-client.md
 │       ├── 0020-dns01-challenge-with-manual-mode.md
 │       ├── 0021-topology-world-map.md
-│       └── 0022-acl-type-grants.md
+│       ├── 0022-acl-type-grants.md
+│       └── 0023-resource-dns-resolver-hand-rolled.md
 ├── architecture/
 │   ├── workspace.dsl                        # C4 model (Structurizr DSL) — source of diagrams
 │   ├── docs/                                # Markdown pages rendered into the interactive C4 site
@@ -213,6 +214,7 @@ islandr/
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
 │   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014)
+│   │   ├── dns/         # hand-rolled DNS resolver for resource names, opt-in (ADR-0023)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── identity/    # OidcProvider, JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
 │   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
@@ -225,13 +227,13 @@ islandr/
 │   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V52, portable SQL
+│   │   ├── db/migration/                    # Flyway migrations V1–V59, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 380+ tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 540+ tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -251,6 +253,8 @@ islandr/
 - Peers: client and site types, IPv4 with optional **IPv6 dual-stack**, IP suggestion, CIDR-overlap validation, per-peer MTU
 - Server-side keypairs or admin-imported public keys; **private-key retention** in three modes — `never` (default), `plaintext`, `encrypted` (AES-256-GCM)
 - QR code + `.conf` download as a one-time secret; **import existing peers** from a live `wg0`
+- **Admin-triggered key rotation** — regenerate a peer's keypair in place for compromised-device response, instead of deleting and recreating the peer; explicit confirmation required, rotation timestamps tracked separately for key and PSK ([#46](https://github.com/chriscohnen/islandr/issues/46))
+- **Tri-state connection status** — Connected / Stale / Disconnected badges with absolute time thresholds, instead of a binary online/offline read of the last handshake
 - Approximate peer location from the endpoint IP; hub location editable in Settings
 
 **Networks, resources & firewall**
@@ -259,6 +263,8 @@ islandr/
 - Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
 - **Resource-type ACL grants** — roles → every resource of a type at a site (e.g. "all printers in the home office"), additive to individual grants ([ADR-0022](docs/adr/0022-acl-type-grants.md))
 - **World-map topology view** — sites, gateways and live tunnels on a geocoded map, alongside the existing network diagram ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md))
+- **DNS resolver for resource names** — opt-in, hand-rolled UDP/TCP resolver authoritative for the managed resource zone (per-site subdomains), ACL-filtered per querying peer, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
+- **Dashboard traffic-tier topology** — network/topology links colour by actual traffic volume, not just handshake recency
 - nftables ruleset generation with atomic, cold-start-safe reload
 - **Docker without `NET_ADMIN`** — unprivileged container plus a host-side socket proxy ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
 - Enforcement state is always visible — direct, via proxy, or degraded. Nothing is ever silently unenforced
@@ -266,6 +272,7 @@ islandr/
 
 **Self-service portal**
 - Users enrol their own devices: platform → QR + `.conf` → first handshake. Key rotation, device list, access overview. Admins can switch it off
+- **Own topology, geo-map, and activity heatmap** — the same visualisations the admin dashboard has, scoped to what the logged-in user can actually see; the heatmap uses a GitHub-contributions layout (weekday × week) instead of the admin's peers × days table ([#43](https://github.com/chriscohnen/islandr/issues/43))
 - **Quicklaunch** on granted resources: HTTP/HTTPS (with optional path prefix), RDP, VNC, SSH, SFTP, SMB, and IPP printer install via native URI handlers
 - **Browser-based RDP** (IronRDP WASM) — no client to install, ACL-gated, with per-port clipboard and file-transfer toggles and an optional `web-only` mode
 - Platform-detected WireGuard client setup guide on first visit
@@ -286,6 +293,15 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.16.0**
+- **Admin-triggered key rotation** — regenerate a peer's keypair for compromised-device response instead of deleting and recreating the peer; explicit confirmation required, key and PSK rotation timestamps tracked independently ([#46](https://github.com/chriscohnen/islandr/issues/46))
+- **DNS resolver for resource names** — opt-in resolver authoritative for the managed resource zone, per-site subdomains, ACL-filtered answers, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
+- **Tri-state peer connection status** — Connected / Stale / Disconnected with absolute time thresholds, replacing the binary online/offline read
+- **Self-service portal gets its own topology, geo-map, and activity heatmap**, scoped to what the logged-in user can see ([#43](https://github.com/chriscohnen/islandr/issues/43))
+- **Dashboard topology and geo-map links now colour by traffic volume**, not just handshake recency
+- **Reverse-proxy vs. built-in TLS install guide** — side-by-side decision guide for picking between Islandr's built-in TLS and fronting it with Caddy/Traefik/nginx/a CDN ([docs/install/reverse-proxy.md](docs/install/reverse-proxy.md))
+- SQLite backup script
 
 **0.15.1**
 - **Config export/import no longer drops the hub's map location** — the dashboard topology map pin, the optional IPv6 `wgSubnet6`, the Nominatim geocoding URL, the IronRDP toggle and the activity-heatmap retention setting were added to Settings across several releases but never wired into the config export/import round trip, so migrating a hub silently lost them ([#44](https://github.com/chriscohnen/islandr/issues/44)).
