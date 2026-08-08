@@ -425,3 +425,55 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # ── Stage 5: E2E proxy enforcement (tags only, after release exists) ──────
+  e2e-proxy:
+    name: E2E — install-proxy.sh + real wg/nft enforcement
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Install wireguard-tools + nftables
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wireguard-tools nftables
+
+      # Undetermined statically whether ubuntu-latest's kernel has WireGuard
+      # loadable — this is the first real-world check of that assumption.
+      - name: Create a real wg0 interface
+        run: |
+          set -euo pipefail
+          sudo modprobe wireguard
+          sudo ip link add wg0 type wireguard
+          umask 077
+          wg genkey > /tmp/wg0.key
+          sudo wg set wg0 private-key /tmp/wg0.key listen-port 51820
+          rm -f /tmp/wg0.key
+          sudo ip addr add 10.8.0.1/24 dev wg0
+          sudo ip link set wg0 up
+          ip link show wg0
+
+      # ISLANDR_PROXY_VERSION must be this exact tag — install-proxy.sh
+      # defaults to the newest non-prerelease GitHub Release ("latest") when
+      # unset, which for an RC tag would silently install the WRONG (older)
+      # binary instead of the one release.yml just built for this tag.
+      - name: Install islandr-proxy from this tag's just-published release
+        run: |
+          set -euo pipefail
+          sudo ISLANDR_PROXY_VERSION="${{ github.ref_name }}" bash islandr-proxy/install-proxy.sh
+
+      - name: Assert islandr-proxy.socket is active and listening
+        run: |
+          set -euo pipefail
+          systemctl is-active islandr-proxy.socket
+          systemctl status islandr-proxy.socket --no-pager
+          [ -S /run/islandr/proxy.sock ] || { echo "::error::proxy.sock not present after install"; exit 1; }
+          echo "✓ islandr-proxy.socket installed and listening"
