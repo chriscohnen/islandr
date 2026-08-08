@@ -4,6 +4,7 @@ import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import ActivityHeatmap from "/js/ActivityHeatmap.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
+import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
 
 const LIVE_POLL_MS = 10000;
 // Sustained throughput above this reads as an active transfer (a big
@@ -420,8 +421,11 @@ export default defineComponent({
                 <td class="mono muted" style="font-size: var(--text-xs)">{{ p.assignedIp }}</td>
                 <td style="font-size: var(--text-sm)">{{ p.userName }}</td>
                 <td>
-                  <span :class="['badge', p.enabled ? 'badge-success' : 'badge-neutral']" style="font-size: var(--text-xs)">
-                    {{ p.enabled ? t('peers.status_active') : t('peers.status_disabled') }}
+                  <span v-if="!p.enabled" class="badge badge-neutral" style="font-size: var(--text-xs)">
+                    <span class="dot"></span>{{ t('peers.status_disabled') }}
+                  </span>
+                  <span v-else :class="['badge', connectionBadgeClass(p)]" style="font-size: var(--text-xs)">
+                    <span class="dot"></span>{{ t(connectionLabelKey(p)) }}
                   </span>
                 </td>
                 <td class="muted" style="white-space: nowrap; font-size: var(--text-xs)" :title="formatDate(p.lastSeenAt)">
