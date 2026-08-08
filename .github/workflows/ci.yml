@@ -487,14 +487,22 @@ jobs:
       # install-proxy.sh creates the islandr user with --home-dir /var/lib/islandr
       # but no -m flag, so the directory itself doesn't exist yet. The app writes
       # its nftables-ruleset staging file there (islandr.proxy.ruleset-path).
+      #
+      # The fast-jar is copied here (rather than run in place from
+      # $GITHUB_WORKSPACE, chmod'd o+rX) because `sudo -u islandr` also needs
+      # every *ancestor* directory of the jar to be traversable
+      # (/home/runner/work/islandr/islandr/...), not just the jar's own
+      # permissions -- chmod on the workspace alone doesn't reach those
+      # ancestors. Copying into a directory already owned by islandr sidesteps
+      # the whole ancestor-permission chain. (Found on the first two real
+      # runs of this job, v0.16.0-rc.3/rc.4.)
       - name: Prepare /var/lib/islandr for the islandr user
         run: |
           set -euo pipefail
           sudo mkdir -p /var/lib/islandr
           sudo chown islandr:islandr /var/lib/islandr
-          # Defensive: let the islandr system user read+execute the checked-out
-          # workspace and build output when the app runs as `sudo -u islandr`.
-          sudo chmod -R o+rX "$GITHUB_WORKSPACE"
+          sudo cp -r build/quarkus-app /var/lib/islandr/quarkus-app
+          sudo chown -R islandr:islandr /var/lib/islandr/quarkus-app
 
       # Boots the app as the islandr user (required: the proxy socket is 0600
       # islandr:islandr, zero group bits) in real socket-proxy mode, drives a
@@ -517,7 +525,7 @@ jobs:
             QUARKUS_DATASOURCE_JDBC_URL="jdbc:sqlite:/tmp/islandr-e2e.db" \
             ISLANDR_WG_MODE=socket \
             ISLANDR_NFT_MODE=socket \
-            "$JAVA_BIN" -jar "$GITHUB_WORKSPACE/build/quarkus-app/quarkus-run.jar" \
+            "$JAVA_BIN" -jar /var/lib/islandr/quarkus-app/quarkus-run.jar \
             > /tmp/islandr-e2e.log 2>&1 &
           APP_PID=$!
           trap 'sudo kill "$APP_PID" 2>/dev/null || true' EXIT
