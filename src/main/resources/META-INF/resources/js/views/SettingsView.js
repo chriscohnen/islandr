@@ -962,7 +962,7 @@ export default defineComponent({
 
           <div class="field field-full">
             <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
-              <input type="checkbox" v-model="form.dnsResolverEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+              <input id="dnsResolverEnabled" type="checkbox" v-model="form.dnsResolverEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
               <span>{{ t('settings.dns_resolver_label') }}</span>
             </label>
             <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.dns_resolver_hint') }}</div>
