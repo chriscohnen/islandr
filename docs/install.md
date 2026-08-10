@@ -416,7 +416,21 @@ output elsewhere, or point `restic backup` at the destination directory instead.
 
 ## Upgrading
 
-**Native binary:**
+**Native binary:** [`scripts/update.sh`](../scripts/update.sh) downloads the target release (latest
+by default, or a specific version/RC), verifies its checksum, stops the service, swaps the binary,
+and restarts it — the same steps as the manual sequence below, scripted. It assumes the standard
+layout from this page: binary at `/opt/islandr/islandr`, service `islandr.service`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/scripts/update.sh -o update.sh
+sudo bash update.sh                 # latest release (including RC)
+sudo bash update.sh v0.16.0         # pin a specific version
+```
+
+Read it before piping straight to `sudo bash` if you'd rather not fetch-and-run blind.
+
+<details>
+<summary>Or by hand</summary>
 
 ```bash
 # 1. Download the new binary
@@ -437,6 +451,8 @@ sudo systemctl start islandr
 # 4. Confirm startup
 sudo journalctl -u islandr -n 30
 ```
+
+</details>
 
 **Docker:**
 

@@ -98,7 +98,7 @@ Both share the same design tokens. UI is bilingual DE/EN, switchable at runtime.
 | Auth | ENV-bootstrapped local admin + OIDC (Microsoft 365 / Google), custom JDK-HttpClient flow with JWKS + RS256 verification, no `quarkus-oidc` |
 | Avatar pipeline | MS Graph `/me/photo` → Google `picture` claim → optional Gravatar (cached in DB) |
 | WireGuard mgmt | `wg` / `wg-quick` CLI via Java `ProcessBuilder` (real adapter) + in-memory mock adapter for dev/CI |
-| QR codes | zxing-core / zxing-javase (PNG in-memory, no AWT display) |
+| QR codes | zxing-core only (PNG in-memory, no AWT dependency, native-image-safe) |
 | Firewall | nftables via `nft` CLI — RuleBuilder + atomic reload + mock adapter for dev/CI |
 | Deployment | systemd + Quarkus native binary (GraalVM), optional Docker Compose |
 | TLS | Built-in termination (dummy cert until you upload your own, hot-swapped at runtime) — Caddy/Let's Encrypt at the edge remains an option |
@@ -204,6 +204,9 @@ islandr/
 │   │   ├── 01-overview.md                   # home / entry point of the architecture portal
 │   │   └── 02-roadmap.md                    # roadmap page
 │   └── diagrams/                            # generated C4 PNGs + .puml, embedded in arc42
+├── scripts/
+│   ├── update.sh                            # download, verify, swap the binary, restart the service
+│   └── backup.sh                            # gzip-compressed, rotated SQLite backup via `sqlite3 .backup`
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
 │   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang"
