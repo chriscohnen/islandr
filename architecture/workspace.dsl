@@ -45,6 +45,11 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
                 settingsPkg  = component "settings"  "Runtime instance settings (WG config, private key retention, OIDC providers). Stored in DB, audited." "JAX-RS + CDI"
                 dashboardPkg = component "dashboard" "Dashboard aggregation: online peer count, audit summary, firewall status." "JAX-RS + CDI"
                 dnsPkg       = component "dns"       "Minimal DNS resolver (UDP/best-effort TCP :53), opt-in in Settings. Authoritative for the managed resource zone (Resource.dnsName), ACL-filtered answers (NXDOMAIN for resources the querying peer has no grant on); everything else forwarded upstream byte-for-byte, unparsed. Hand-rolled RFC 1035 wire format, no library (ADR-0023)." "CDI"
+                tlsPkg       = component "tls"       "TLS keystore management. Hot-swaps between dummy self-signed cert and an admin-uploaded or ACME-issued cert at runtime, no restart (ADR-0015)." "CDI"
+                acmePkg      = component "acme"      "Hand-rolled RFC 8555 ACME client. Requests, validates (HTTP-01 or DNS-01 manual mode), and renews a certificate when ACME is enabled in Settings; no certificate library (ADR-0019, ADR-0020)." "JAX-RS + CDI + @Scheduled"
+                proxyPkg     = component "proxy"     "Host-side Unix-socket-proxy channel for wg/nft when the backend runs unprivileged in a container. Adapter-mode resolution (explicit > container-detected > mock), degraded 'enforcement unavailable' status (ADR-0012)." "CDI"
+                discoveryPkg = component "discovery" "Admin-triggered device discovery: enumerates a site's CIDR, probes host liveness with unprivileged sockets, fingerprints a resource type from open ports, bulk-imports the reviewed selection as Resource rows (ADR-0014)." "JAX-RS + CDI"
+                adminPkg     = component "admin"     "Instance config export/import, seeded-data timestamp repair on import, version/update-check endpoint." "JAX-RS + CDI"
             }
 
             database = container "Database" "Persists peers, users, roles, resources, ACLs, audit log, activity samples, and runtime settings." "SQLite (default) or PostgreSQL" "Database"
@@ -104,11 +109,22 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
         userPkg     -> auditPkg     "Logs user mutations"
         settingsPkg -> auditPkg     "Logs settings changes"
         settingsPkg -> firewallPkg  "Triggers recompute on site-CIDR or resource change"
+        settingsPkg -> tlsPkg       "Uploads/replaces certificate PEM, reads certificate info"
         firewallPkg -> nftables     "nft CLI calls"  "ProcessBuilder"
+        firewallPkg -> proxyPkg     "Delegates nft calls when containerized (socket mode)" "islandr.nft.mode=socket"
         wgPkg       -> wireguard    "wg CLI calls"   "ProcessBuilder"
+        wgPkg       -> proxyPkg     "Delegates wg calls when containerized (socket mode)" "islandr.wg.mode=socket"
+        proxyPkg    -> auditPkg     "Logs enforcement mode changes"
         identityPkg -> oidcProvider "JWKS fetch"     "HTTPS"
         dnsPkg      -> aclPkg       "ACL-scoped grant check for filtered zone answers" "AclService.hasAnyGrant"
         dnsPkg      -> dnsUpstream  "Forwards non-zone queries verbatim" "UDP/TCP 53"
+        acmePkg     -> letsEncrypt  "ACME directory, order, and HTTP-01/DNS-01 challenge requests" "HTTPS"
+        letsEncrypt -> acmePkg      "HTTP-01 challenge callback" "HTTP"
+        acmePkg     -> tlsPkg       "Installs renewed certificate into the keystore"
+        acmePkg     -> auditPkg     "Logs renewal attempts and outcomes"
+        discoveryPkg -> resourceHost "Unprivileged liveness/port probes over the existing WireGuard route" "TCP/UDP"
+        discoveryPkg -> aclPkg      "Bulk-imports reviewed hosts as Resource rows"
+        adminPkg    -> auditPkg     "Logs config import/export"
 
         // ── Deployment 1: native binary on the Hub VM (production) ─────────
         native = deploymentEnvironment "Native (systemd)" {
@@ -134,21 +150,27 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
             }
         }
 
-        // ── Deployment 2: Docker (0.10.0 = evaluation only) ────────────────
-        // The 0.10.0 image runs the mock wg/nft adapters: the full configuration
-        // plane works and persists, but nothing is enforced on a host kernel.
-        // Production Docker via the host-side socket proxy (ADR-0012) lands in
-        // 0.11.0; there is no wg0 / nftables node here on purpose.
-        docker = deploymentEnvironment "Docker (evaluation)" {
+        // ── Deployment 2: Docker (production-capable via socket proxy, ADR-0012) ──
+        // A bare `docker run`/compose boots the full GUI unprivileged: config is
+        // saved but enforcement is degraded ("enforcement unavailable", mock-like)
+        // until the host-side islandr-proxy is attached. Attaching it (this view)
+        // makes wg/nft calls real without granting the container NET_ADMIN,
+        // --network host, or the Docker socket — see ADR-0012.
+        docker = deploymentEnvironment "Docker (host socket proxy)" {
             deploymentNode "Internet" "" "Public network" {
                 adminBrowserD = infrastructureNode "Admin Browser"     "" "Chrome / Firefox"
                 userBrowserD  = infrastructureNode "End User Browser"  "" "Chrome / Firefox"
             }
-            deploymentNode "Docker Host" "Any host with Docker (Linux / macOS)" "Docker" {
+            deploymentNode "Docker Host" "Linux host with Docker + wg + nft installed" "Docker" {
+                deploymentNode "Linux Kernel" "" "" {
+                    wgInterfaceD    = infrastructureNode "wg0"      "WireGuard interface" "UDP 51820"
+                    nftablesKernelD = infrastructureNode "nftables" "inet islandr table" "Packet filter"
+                }
                 deploymentNode "Reverse Proxy (fully optional)" "Cloudflare or self-hosted, in front of 8080/8443 — the container terminates TLS itself, see Built-in TLS below" "" {
                     proxyInstanceD = infrastructureNode "TLS Termination" "TCP 443 → 8080/8443" ""
                 }
-                deploymentNode "islandr container" "ghcr.io/chriscohnen/islandr:0.10.0 — demo/eval, mock wg + nft adapters (no host enforcement)" "Docker container" {
+                islandrProxy = infrastructureNode "islandr-proxy.service" "systemd service, unprivileged user, socket-activated on /run/islandr/proxy.sock, scoped sudoers for wg/nft — allowlisted JSON protocol (ADR-0012)" ""
+                deploymentNode "islandr container" "ghcr.io/chriscohnen/islandr:latest — ISLANDR_WG_MODE=socket, ISLANDR_NFT_MODE=socket" "Docker container" {
                     dockerBackend = containerInstance backend
                     builtinTlsD   = infrastructureNode "Built-in TLS" "HTTPS :8443 — dummy cert until an admin uploads one, no proxy required (ADR-0015)" "Quarkus TLS registry"
                 }
