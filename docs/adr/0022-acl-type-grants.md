@@ -1,7 +1,7 @@
 # ADR-0022 — ACL grants by resource type within a site, additive-only, always all-ports
 
 **Status:** Accepted
-**Date:** 2026-07-28
+**Date:** 2026-07-26
 **Deciders:** Christian Cohnen
 **Relates to:** [ADR-0006](0006-resource-level-acl.md) (the per-resource grant model this extends)
 

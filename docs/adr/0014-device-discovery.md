@@ -1,7 +1,7 @@
 # ADR-0014 — Device discovery by unprivileged TCP-connect scan of a site's own CIDR (0.12.0)
 
 **Status:** Accepted (implemented in 0.12.0)
-**Date:** 2026-07-10 (accepted 2026-07-12)
+**Date:** 2026-07-11 (accepted 2026-07-12)
 **Deciders:** Christian Cohnen
 **Relates to:** [ADR-0011](0011-process-privilege-model.md) (privilege model this must not widen), [ADR-0005](0005-hub-only-firewall.md) (hub is the only vantage point into a site), [ADR-0006](0006-resource-level-acl.md) (`Resource`/`Site` model this populates), [ADR-0012](0012-docker-socket-proxy.md) (enforcement path this is deliberately independent of), R-052 (the manual-maintenance gap this closes).
 
