@@ -23,9 +23,7 @@ function curvePath(x1, y1, x2, y2, bow = 0.18) {
   return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
 }
 
-// One circle's radius grows with its node count so nodes don't overlap —
-// same idea as TopologyDiagram.js's fan-angle spacing, but for a ring instead
-// of a fan.
+// One circle's radius grows with its node count so nodes don't overlap.
 function circleRadiusFor(nodeCount) {
   if (nodeCount <= 1) return MIN_CIRCLE_RADIUS;
   const ringCircumferenceNeeded = nodeCount * (NODE_RADIUS * 2 + 10);
@@ -33,24 +31,30 @@ function circleRadiusFor(nodeCount) {
   return Math.max(MIN_CIRCLE_RADIUS, ringRadius + NODE_RING_MARGIN);
 }
 
+const MIN_SCALE = 0.15;
+const MAX_SCALE = 4;
+const ZOOM_STEP = 1.1;
+const FIT_PADDING = 0.9;
+
 export default defineComponent({
   name: "AtlasDiagram",
   props: {
-    graph: { type: Object, required: true }, // { peers, resources, edges, roles }
+    graph: { type: Object, required: true }, // { users, resources, edges, roles }
     tool: { type: String, default: "grant" }, // "grant" | "revoke"
+    highlightedUserIds: { type: Array, default: () => [] }, // user ids for the active role filter
   },
   emits: ["drag-grant", "revoke-edge"],
   data() {
     return {
-      dragFromPeerId: null,
-      dragPointer: null, // { x, y } in SVG coords, while dragging
+      dragFromUserId: null,
+      dragPointer: null, // { x, y } in content coords, while dragging
+      view: { scale: 1, tx: 0, ty: 0 },
+      panning: false,
+      panStart: null,
     };
   },
   computed: {
-    // One entry per site + one synthetic "mobile" entry for the user's peers.
-    // Order: mobile circle first (it's always present when there are peers),
-    // then sites in the order resources arrived (already site-name-sorted by
-    // the backend query).
+    // One entry per site + one synthetic "mobile" entry for every User.
     circles() {
       const bySite = new Map();
       for (const r of this.graph.resources) {
@@ -58,16 +62,14 @@ export default defineComponent({
         bySite.get(r.siteId).resources.push(r);
       }
       const out = [];
-      if (this.graph.peers.length > 0) {
-        out.push({ id: "__mobile__", name: t("atlas.circle_mobile"), kind: "mobile", nodes: this.graph.peers });
+      if (this.graph.users.length > 0) {
+        out.push({ id: "__mobile__", name: t("atlas.circle_mobile"), kind: "mobile", nodes: this.graph.users });
       }
       for (const site of bySite.values()) {
         out.push({ id: site.id, name: site.name, kind: "site", nodes: site.resources });
       }
       return out;
     },
-    // Layout: circles placed left-to-right, vertically centered, each sized
-    // by its own node count.
     layout() {
       const circles = this.circles;
       const radii = circles.map((c) => circleRadiusFor(c.nodes.length));
@@ -84,7 +86,7 @@ export default defineComponent({
           const angle = (2 * Math.PI * ni) / Math.max(1, c.nodes.length) - Math.PI / 2;
           const dist = c.nodes.length <= 1 ? 0 : r - NODE_RING_MARGIN;
           const pos = polar(cx, cy, angle, dist);
-          return { ...n, x: pos.x, y: pos.y, circleId: c.id, isPeer: c.kind === "mobile" };
+          return { ...n, x: pos.x, y: pos.y, circleId: c.id, isUser: c.kind === "mobile" };
         });
         placed.push({ ...c, cx, cy, r, color, nodes });
       });
@@ -97,15 +99,38 @@ export default defineComponent({
     },
     edgeLines() {
       return this.graph.edges
-          .filter((e) => this.nodesById.has(e.peerId) && this.nodesById.has(e.resourceId))
+          .filter((e) => this.nodesById.has(e.userId) && this.nodesById.has(e.resourceId))
           .map((e) => {
-            const from = this.nodesById.get(e.peerId);
+            const from = this.nodesById.get(e.userId);
             const to = this.nodesById.get(e.resourceId);
-            return { edge: e, path: curvePath(from.x, from.y, to.x, to.y), key: e.peerId + "|" + e.resourceId + "|" + e.roleId };
+            return { edge: e, path: curvePath(from.x, from.y, to.x, to.y), key: e.userId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || "") };
           });
     },
+    contentBounds() {
+      if (this.layout.length === 0) return { minX: 0, minY: 0, maxX: W, maxY: H };
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const circle of this.layout) {
+        minX = Math.min(minX, circle.cx - circle.r);
+        maxX = Math.max(maxX, circle.cx + circle.r);
+        minY = Math.min(minY, circle.cy - circle.r - 24);
+        maxY = Math.max(maxY, circle.cy + circle.r);
+      }
+      return { minX, minY, maxX, maxY };
+    },
+    contentTransform() {
+      return "translate(" + this.view.tx + "," + this.view.ty + ") scale(" + this.view.scale + ")";
+    },
+  },
+  watch: {
+    graph() {
+      this.$nextTick(() => this.fitToContent());
+    },
+  },
+  mounted() {
+    this.fitToContent();
   },
   methods: {
+    t(key, vars) { return t(key, vars); },
     svgPoint(evt) {
       const svg = this.$refs.svg;
       const pt = svg.createSVGPoint();
@@ -115,34 +140,79 @@ export default defineComponent({
       const local = pt.matrixTransform(ctm.inverse());
       return { x: local.x, y: local.y };
     },
+    screenToContent(evt) {
+      const p = this.svgPoint(evt);
+      return { x: (p.x - this.view.tx) / this.view.scale, y: (p.y - this.view.ty) / this.view.scale };
+    },
+    clientDeltaToViewBox(dxClient, dyClient) {
+      const rect = this.$refs.svg.getBoundingClientRect();
+      return { dx: dxClient * (W / rect.width), dy: dyClient * (H / rect.height) };
+    },
+    fitToContent() {
+      const b = this.contentBounds;
+      const contentW = Math.max(1, b.maxX - b.minX);
+      const contentH = Math.max(1, b.maxY - b.minY);
+      const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE,
+          Math.min(W / contentW, H / contentH) * FIT_PADDING));
+      const cx = (b.minX + b.maxX) / 2;
+      const cy = (b.minY + b.maxY) / 2;
+      this.view = { scale, tx: W / 2 - cx * scale, ty: H / 2 - cy * scale };
+    },
+    onBackgroundPointerDown(evt) {
+      this.panning = true;
+      this.panStart = { clientX: evt.clientX, clientY: evt.clientY, tx: this.view.tx, ty: this.view.ty };
+      window.addEventListener("pointermove", this.onBackgroundPointerMove);
+      window.addEventListener("pointerup", this.onBackgroundPointerUp, { once: true });
+    },
+    onBackgroundPointerMove(evt) {
+      if (!this.panning || !this.panStart) return;
+      const { dx, dy } = this.clientDeltaToViewBox(
+          evt.clientX - this.panStart.clientX, evt.clientY - this.panStart.clientY);
+      this.view = { ...this.view, tx: this.panStart.tx + dx, ty: this.panStart.ty + dy };
+    },
+    onBackgroundPointerUp() {
+      this.panning = false;
+      this.panStart = null;
+      window.removeEventListener("pointermove", this.onBackgroundPointerMove);
+    },
+    onWheelZoom(evt) {
+      const rect = this.$refs.svg.getBoundingClientRect();
+      const cursorX = (evt.clientX - rect.left) * (W / rect.width);
+      const cursorY = (evt.clientY - rect.top) * (H / rect.height);
+      const contentX = (cursorX - this.view.tx) / this.view.scale;
+      const contentY = (cursorY - this.view.ty) / this.view.scale;
+      const factor = evt.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+      const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, this.view.scale * factor));
+      this.view = { scale, tx: cursorX - contentX * scale, ty: cursorY - contentY * scale };
+    },
     onNodePointerDown(node, evt) {
-      if (this.tool !== "grant" || !node.isPeer) return;
+      if (this.tool !== "grant" || !node.isUser) return;
       evt.preventDefault();
-      this.dragFromPeerId = node.id;
-      this.dragPointer = this.svgPoint(evt);
+      this.dragFromUserId = node.id;
+      this.dragPointer = this.screenToContent(evt);
       window.addEventListener("pointermove", this.onWindowPointerMove);
       window.addEventListener("pointerup", this.onWindowPointerUp, { once: true });
       window.addEventListener("pointercancel", this.onWindowPointerCancel, { once: true });
     },
     onWindowPointerMove(evt) {
-      this.dragPointer = this.svgPoint(evt);
+      this.dragPointer = this.screenToContent(evt);
     },
     endDrag() {
       window.removeEventListener("pointermove", this.onWindowPointerMove);
       window.removeEventListener("pointerup", this.onWindowPointerUp);
       window.removeEventListener("pointercancel", this.onWindowPointerCancel);
-      this.dragFromPeerId = null;
+      this.dragFromUserId = null;
       this.dragPointer = null;
     },
     onWindowPointerUp(evt) {
-      const fromPeerId = this.dragFromPeerId;
+      const fromUserId = this.dragFromUserId;
       const target = document.elementFromPoint(evt.clientX, evt.clientY);
       const resourceId = target && target.closest("[data-resource-id]")
           ? target.closest("[data-resource-id]").getAttribute("data-resource-id")
           : null;
       this.endDrag();
-      if (resourceId && fromPeerId) {
-        this.$emit("drag-grant", { peerId: fromPeerId, resourceId });
+      if (resourceId && fromUserId) {
+        this.$emit("drag-grant", { userId: fromUserId, resourceId });
       }
     },
     onWindowPointerCancel() {
@@ -154,46 +224,60 @@ export default defineComponent({
     },
   },
   template: `
-    <svg ref="svg" :viewBox="'0 0 ' + ${W} + ' ' + ${H}" style="width: 100%; height: auto; max-height: 70vh" @pointerleave="dragPointer = null">
-      <g v-for="circle in layout" :key="circle.id">
-        <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
-                :fill="circle.color" fill-opacity="0.07"
-                :stroke="circle.color" stroke-width="1.5" />
-        <text :x="circle.cx" :y="circle.cy - circle.r - 10" text-anchor="middle"
-              :fill="circle.color" font-size="13" font-weight="600"
-              style="text-transform: uppercase; letter-spacing: 0.06em">{{ circle.name }}</text>
-      </g>
+    <div>
+      <div class="muted" style="font-size: var(--text-xs); margin-bottom: var(--space-2)">{{ t('atlas.pan_zoom_hint') }}</div>
+      <svg ref="svg" :viewBox="'0 0 ' + ${W} + ' ' + ${H}"
+           style="width: 100%; height: auto; max-height: 70vh; touch-action: none"
+           :style="panning ? 'cursor: grabbing' : ''"
+           @pointerleave="dragPointer = null"
+           @wheel.prevent="onWheelZoom"
+           @dblclick="fitToContent">
+        <rect x="0" y="0" :width="${W}" :height="${H}" fill="transparent"
+              :style="panning ? 'cursor: grabbing' : 'cursor: grab'"
+              @pointerdown="onBackgroundPointerDown" />
 
-      <path v-for="line in edgeLines" :key="line.key" :d="line.path"
-            fill="none" stroke="var(--accent)" stroke-width="1.5"
-            :stroke-opacity="tool === 'revoke' ? 0.85 : 0.55"
-            :style="tool === 'revoke' ? 'cursor: pointer' : ''"
-            marker-end="url(#atlas-arrow)"
-            @click="onEdgeClick(line.edge)" />
+        <defs>
+          <marker id="atlas-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="var(--accent)" />
+          </marker>
+        </defs>
 
-      <line v-if="dragFromPeerId && dragPointer" :x1="nodesById.get(dragFromPeerId).x" :y1="nodesById.get(dragFromPeerId).y"
-            :x2="dragPointer.x" :y2="dragPointer.y"
-            stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3" />
+        <g :transform="contentTransform">
+          <g v-for="circle in layout" :key="circle.id">
+            <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
+                    :fill="circle.color" fill-opacity="0.07"
+                    :stroke="circle.color" stroke-width="1.5" />
+            <text :x="circle.cx" :y="circle.cy - circle.r - 10" text-anchor="middle"
+                  :fill="circle.color" font-size="13" font-weight="600"
+                  style="text-transform: uppercase; letter-spacing: 0.06em">{{ circle.name }}</text>
+          </g>
 
-      <defs>
-        <marker id="atlas-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-          <path d="M0,0 L8,4 L0,8 Z" fill="var(--accent)" />
-        </marker>
-      </defs>
+          <path v-for="line in edgeLines" :key="line.key" :d="line.path"
+                fill="none" stroke="var(--accent)" stroke-width="1.5"
+                :stroke-opacity="tool === 'revoke' ? 0.85 : 0.55"
+                :style="tool === 'revoke' ? 'cursor: pointer' : ''"
+                marker-end="url(#atlas-arrow)"
+                @click="onEdgeClick(line.edge)" />
 
-      <g v-for="circle in layout" :key="'nodes-' + circle.id">
-        <g v-for="node in circle.nodes" :key="node.id"
-           :data-resource-id="!node.isPeer ? node.id : null"
-           :style="node.isPeer ? 'cursor: grab' : ''"
-           @pointerdown="onNodePointerDown(node, $event)">
-          <circle :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
-                  :fill="node.isPeer ? 'var(--accent)' : (node.reachable ? circle.color : 'var(--neutral-300)')"
-                  :fill-opacity="node.isPeer || node.reachable ? 1 : 0.35"
-                  stroke="var(--surface)" stroke-width="2" />
-          <text :x="node.x" :y="node.y + ${NODE_RADIUS} + 14" text-anchor="middle"
-                fill="var(--fg2)" font-size="11">{{ node.name }}</text>
+          <line v-if="dragFromUserId && dragPointer" :x1="nodesById.get(dragFromUserId).x" :y1="nodesById.get(dragFromUserId).y"
+                :x2="dragPointer.x" :y2="dragPointer.y"
+                stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3" />
+
+          <g v-for="circle in layout" :key="'nodes-' + circle.id">
+            <g v-for="node in circle.nodes" :key="node.id"
+               :data-resource-id="!node.isUser ? node.id : null"
+               :style="node.isUser ? 'cursor: grab' : ''"
+               @pointerdown="onNodePointerDown(node, $event)">
+              <circle :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
+                      :fill="node.isUser ? 'var(--accent)' : circle.color"
+                      :stroke="node.isUser && highlightedUserIds.includes(node.id) ? 'var(--fg1)' : 'var(--surface)'"
+                      :stroke-width="node.isUser && highlightedUserIds.includes(node.id) ? 3 : 2" />
+              <text :x="node.x" :y="node.y + ${NODE_RADIUS} + 14" text-anchor="middle"
+                    fill="var(--fg2)" font-size="11">{{ node.name }}</text>
+            </g>
+          </g>
         </g>
-      </g>
-    </svg>
+      </svg>
+    </div>
   `,
 });
