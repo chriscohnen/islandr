@@ -123,21 +123,31 @@ export default defineComponent({
       this.dragPointer = this.svgPoint(evt);
       window.addEventListener("pointermove", this.onWindowPointerMove);
       window.addEventListener("pointerup", this.onWindowPointerUp, { once: true });
+      window.addEventListener("pointercancel", this.onWindowPointerCancel, { once: true });
     },
     onWindowPointerMove(evt) {
       this.dragPointer = this.svgPoint(evt);
     },
-    onWindowPointerUp(evt) {
+    endDrag() {
       window.removeEventListener("pointermove", this.onWindowPointerMove);
+      window.removeEventListener("pointerup", this.onWindowPointerUp);
+      window.removeEventListener("pointercancel", this.onWindowPointerCancel);
+      this.dragFromPeerId = null;
+      this.dragPointer = null;
+    },
+    onWindowPointerUp(evt) {
+      const fromPeerId = this.dragFromPeerId;
       const target = document.elementFromPoint(evt.clientX, evt.clientY);
       const resourceId = target && target.closest("[data-resource-id]")
           ? target.closest("[data-resource-id]").getAttribute("data-resource-id")
           : null;
-      if (resourceId && this.dragFromPeerId) {
-        this.$emit("drag-grant", { peerId: this.dragFromPeerId, resourceId });
+      this.endDrag();
+      if (resourceId && fromPeerId) {
+        this.$emit("drag-grant", { peerId: fromPeerId, resourceId });
       }
-      this.dragFromPeerId = null;
-      this.dragPointer = null;
+    },
+    onWindowPointerCancel() {
+      this.endDrag();
     },
     onEdgeClick(edge) {
       if (this.tool !== "revoke") return;
