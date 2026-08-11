@@ -1,6 +1,6 @@
 package de.chriscohnen.islandr.acl;
 
-import de.chriscohnen.islandr.peer.Peer;
+import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -205,52 +205,71 @@ public class AclResolutionService {
     }
 
     /**
-     * Graph payload for the admin Atlas view: the user's peers, every
-     * resource in the site(s) those peers can partially or fully reach
-     * (reachable ones flagged, unreachable siblings included as drag
-     * targets), and one edge per (peer, resource, contributing role) —
-     * deliberately NOT merged across roles like {@link #resolveMyAccess},
-     * since Atlas draws a separate line per role.
+     * Global graph for the admin Atlas view (reframed 2026-08-11 from a
+     * per-user view to this global one — see the Atlas user-grants design
+     * spec): every User, every Resource across every Site, and one edge per
+     * contributing grant. Role/type-grants fan out to every user holding
+     * that role; direct user-grants (ADR-0024) are already user-scoped, no
+     * fan-out needed.
      */
-    public AtlasDto.Graph buildAtlasGraph(String userId) {
-        List<Peer> peers = Peer.list("userId = ?1 order by name", userId);
-        List<AtlasDto.PeerNode> peerNodes = peers.stream()
-                .map(p -> new AtlasDto.PeerNode(p.id, p.name, p.type))
+    public AtlasDto.Graph buildAtlasGraph() {
+        List<de.chriscohnen.islandr.user.User> users =
+                de.chriscohnen.islandr.user.User.<de.chriscohnen.islandr.user.User>listAll(Sort.by("name"));
+        List<AtlasDto.UserNode> userNodes = users.stream()
+                .map(u -> new AtlasDto.UserNode(u.id, u.name))
                 .toList();
-        if (peerNodes.isEmpty()) {
-            return new AtlasDto.Graph(peerNodes, List.of(), List.of(), List.of());
-        }
 
-        // Roles the user explicitly belongs to (not auto_all) — the grant
-        // dialog's choices. An auto_all role is implicit for everyone and not
-        // a meaningful "grant under this role" choice for one specific user.
+        List<AtlasDto.RoleOption> roleOptions = Role.<Role>listAll(Sort.by("name")).stream()
+                .map(r -> new AtlasDto.RoleOption(r.id, r.name))
+                .toList();
+
         @SuppressWarnings("unchecked")
-        List<Object[]> userRoleRows = em.createNativeQuery(
-                        "SELECT r.id, r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id "
-                                + "WHERE ur.user_id = ?1 ORDER BY r.name")
-                .setParameter(1, userId)
+        List<Object[]> allResRows = em.createNativeQuery(
+                        "SELECT r.id, r.site_id, s.name, r.name, r.type "
+                                + "FROM resources r JOIN sites s ON s.id = r.site_id "
+                                + "ORDER BY s.name, r.name")
                 .getResultList();
-        List<AtlasDto.RoleOption> roleOptions = userRoleRows.stream()
-                .map(r -> new AtlasDto.RoleOption((String) r[0], (String) r[1]))
+        List<AtlasDto.ResourceNode> resourceNodes = allResRows.stream()
+                .map(r -> new AtlasDto.ResourceNode(
+                        (String) r[0], (String) r[3], (String) r[4], (String) r[1], (String) r[2]))
                 .toList();
 
-        List<String> roleIds = resolveRoleIds(userId);
-        if (roleIds.isEmpty()) {
-            return new AtlasDto.Graph(peerNodes, List.of(), List.of(), roleOptions);
+        if (userNodes.isEmpty() || resourceNodes.isEmpty()) {
+            return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions);
         }
 
-        // Concrete grants, kept per-role (not merged).
+        // Every user's effective role set: explicit user_roles membership
+        // plus every auto_all role (Everyone, ADR-0013) — same rule
+        // resolveRoleIds applies per-user, computed here for all users at
+        // once so role-grants/type-grants can fan out without N+1 queries.
+        @SuppressWarnings("unchecked")
+        List<Object[]> membershipRows = em.createNativeQuery(
+                        "SELECT user_id, role_id FROM user_roles").getResultList();
+        Map<String, Set<String>> roleIdsByUser = new HashMap<>();
+        for (Object[] row : membershipRows) {
+            roleIdsByUser.computeIfAbsent((String) row[0], k -> new HashSet<>()).add((String) row[1]);
+        }
+        List<String> autoAllRoleIds = Role.<Role>list("autoAll", true).stream().map(r -> r.id).toList();
+        for (de.chriscohnen.islandr.user.User u : users) {
+            roleIdsByUser.computeIfAbsent(u.id, k -> new HashSet<>()).addAll(autoAllRoleIds);
+        }
+        Map<String, List<String>> usersByRole = new HashMap<>();
+        for (Map.Entry<String, Set<String>> e : roleIdsByUser.entrySet()) {
+            for (String roleId : e.getValue()) {
+                usersByRole.computeIfAbsent(roleId, k -> new ArrayList<>()).add(e.getKey());
+            }
+        }
+
+        List<AtlasDto.Edge> edges = new ArrayList<>();
+
+        // Role grants, fanned out to every user holding that role.
         @SuppressWarnings("unchecked")
         List<Object[]> grantRows = em.createNativeQuery(
-                        "SELECT g.id, g.role_id, r.name, g.resource_id, g.all_ports "
-                                + "FROM role_resource_grants g JOIN roles r ON r.id = g.role_id "
-                                + "WHERE g.role_id IN ?1")
-                .setParameter(1, roleIds)
+                        "SELECT g.id, g.role_id, rl.name, g.resource_id, g.all_ports "
+                                + "FROM role_resource_grants g JOIN roles rl ON rl.id = g.role_id")
                 .getResultList();
-
         Set<String> limitedGrantIds = new HashSet<>();
         for (Object[] row : grantRows) if (!(Boolean) row[4]) limitedGrantIds.add((String) row[0]);
-
         Map<String, List<String>> portLabelsByGrant = new HashMap<>();
         if (!limitedGrantIds.isEmpty()) {
             @SuppressWarnings("unchecked")
@@ -268,80 +287,62 @@ public class AclResolutionService {
                         .add(formatPortLabel(((Number) p[1]).intValue(), portEnd, (String) p[3]));
             }
         }
-
-        // Resources reachable via a type-grant — always all-ports, tagged
-        // separately since they can't be revoked through role_resource_grants
-        // (ADR-0022, "all printers in site X" has no per-resource row).
-        @SuppressWarnings("unchecked")
-        List<Object[]> typeGrantRows = em.createNativeQuery(
-                        "SELECT g.role_id, rl.name, r.id FROM resources r "
-                                + "JOIN role_resource_type_grants g ON g.site_id = r.site_id AND g.resource_type = r.type "
-                                + "JOIN roles rl ON rl.id = g.role_id "
-                                + "WHERE g.role_id IN ?1")
-                .setParameter(1, roleIds)
-                .getResultList();
-
-        Set<String> grantResourceIds = new HashSet<>();
-        for (Object[] row : grantRows) grantResourceIds.add((String) row[3]);
-        Set<String> typeGrantResourceIds = new HashSet<>();
-        for (Object[] row : typeGrantRows) typeGrantResourceIds.add((String) row[2]);
-
-        Set<String> reachableResourceIds = new HashSet<>(grantResourceIds);
-        reachableResourceIds.addAll(typeGrantResourceIds);
-        if (reachableResourceIds.isEmpty()) {
-            return new AtlasDto.Graph(peerNodes, List.of(), List.of(), roleOptions);
-        }
-
-        // Site(s) that own at least one reachable resource — Atlas shows every
-        // resource in those sites (reachable + unreachable), not just reachable
-        // ones, so an admin can drag a grant onto an unreachable sibling.
-        @SuppressWarnings("unchecked")
-        List<Object> reachableSiteRows = em.createNativeQuery(
-                        "SELECT DISTINCT site_id FROM resources WHERE id IN ?1")
-                .setParameter(1, new ArrayList<>(reachableResourceIds))
-                .getResultList();
-        List<String> siteIds = reachableSiteRows.stream().map(o -> (String) o).toList();
-
-        @SuppressWarnings("unchecked")
-        List<Object[]> allResRows = em.createNativeQuery(
-                        "SELECT r.id, r.site_id, s.name, r.name, r.type "
-                                + "FROM resources r JOIN sites s ON s.id = r.site_id "
-                                + "WHERE r.site_id IN ?1 ORDER BY s.name, r.name")
-                .setParameter(1, siteIds)
-                .getResultList();
-
-        List<AtlasDto.ResourceNode> resourceNodes = new ArrayList<>(allResRows.size());
-        for (Object[] r : allResRows) {
-            String rid = (String) r[0];
-            boolean reachable = reachableResourceIds.contains(rid);
-            String ownership = !reachable ? null
-                    : grantResourceIds.contains(rid) ? "grant" : "type-grant";
-            resourceNodes.add(new AtlasDto.ResourceNode(
-                    rid, (String) r[3], (String) r[4], (String) r[1], (String) r[2], reachable, ownership));
-        }
-
-        List<AtlasDto.Edge> edges = new ArrayList<>();
         for (Object[] g : grantRows) {
-            String grantId = (String) g[0];
-            String roleId = (String) g[1];
-            String roleName = (String) g[2];
-            String resourceId = (String) g[3];
+            String grantId = (String) g[0], roleId = (String) g[1], roleName = (String) g[2],
+                   resourceId = (String) g[3];
             boolean allPorts = (Boolean) g[4];
             List<String> portLabels = allPorts ? List.of() : portLabelsByGrant.getOrDefault(grantId, List.of());
-            for (AtlasDto.PeerNode peer : peerNodes) {
-                edges.add(new AtlasDto.Edge(peer.id(), resourceId, roleId, roleName, allPorts, portLabels));
-            }
-        }
-        for (Object[] g : typeGrantRows) {
-            String roleId = (String) g[0];
-            String roleName = (String) g[1];
-            String resourceId = (String) g[2];
-            for (AtlasDto.PeerNode peer : peerNodes) {
-                edges.add(new AtlasDto.Edge(peer.id(), resourceId, roleId, roleName, true, List.of()));
+            for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
+                edges.add(new AtlasDto.Edge(userId, resourceId, "role", roleId, roleName, allPorts, portLabels));
             }
         }
 
-        return new AtlasDto.Graph(peerNodes, resourceNodes, edges, roleOptions);
+        // Type grants, same fan-out, always all-ports.
+        @SuppressWarnings("unchecked")
+        List<Object[]> typeGrantRows = em.createNativeQuery(
+                        "SELECT g.role_id, rl.name, r.id FROM role_resource_type_grants g "
+                                + "JOIN roles rl ON rl.id = g.role_id "
+                                + "JOIN resources r ON r.site_id = g.site_id AND r.type = g.resource_type")
+                .getResultList();
+        for (Object[] g : typeGrantRows) {
+            String roleId = (String) g[0], roleName = (String) g[1], resourceId = (String) g[2];
+            for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
+                edges.add(new AtlasDto.Edge(userId, resourceId, "type-grant", roleId, roleName, true, List.of()));
+            }
+        }
+
+        // Direct user grants (ADR-0024) — already user-scoped, no fan-out.
+        @SuppressWarnings("unchecked")
+        List<Object[]> userGrantRows = em.createNativeQuery(
+                        "SELECT id, user_id, resource_id, all_ports FROM user_resource_grants")
+                .getResultList();
+        Set<String> limitedUserGrantIds = new HashSet<>();
+        for (Object[] row : userGrantRows) if (!(Boolean) row[3]) limitedUserGrantIds.add((String) row[0]);
+        Map<String, List<String>> portLabelsByUserGrant = new HashMap<>();
+        if (!limitedUserGrantIds.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            List<Object[]> portRows = em.createNativeQuery(
+                            "SELECT gp.grant_id, p.port, p.port_end, p.protocol "
+                                    + "FROM user_resource_grant_ports gp "
+                                    + "JOIN resource_ports p ON p.id = gp.port_id "
+                                    + "WHERE gp.grant_id IN ?1")
+                    .setParameter(1, limitedUserGrantIds)
+                    .getResultList();
+            for (Object[] p : portRows) {
+                String gid = (String) p[0];
+                Integer portEnd = p[2] == null ? null : ((Number) p[2]).intValue();
+                portLabelsByUserGrant.computeIfAbsent(gid, k -> new ArrayList<>())
+                        .add(formatPortLabel(((Number) p[1]).intValue(), portEnd, (String) p[3]));
+            }
+        }
+        for (Object[] g : userGrantRows) {
+            String grantId = (String) g[0], userId = (String) g[1], resourceId = (String) g[2];
+            boolean allPorts = (Boolean) g[3];
+            List<String> portLabels = allPorts ? List.of() : portLabelsByUserGrant.getOrDefault(grantId, List.of());
+            edges.add(new AtlasDto.Edge(userId, resourceId, "user-direct", null, null, allPorts, portLabels));
+        }
+
+        return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions);
     }
 
     private static String formatPortLabel(int port, Integer portEnd, String protocol) {
