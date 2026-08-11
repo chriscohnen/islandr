@@ -30,6 +30,7 @@ const messages = {
     "nav.port_groups": "Port groups",
     "nav.roles":       "Roles",
     "nav.roles_acl":   "Roles & ACL",
+    "nav.atlas":       "Atlas",
     "nav.users":       "Users",
     "nav.system":      "System",
     "nav.identity":    "Identity",
@@ -338,6 +339,21 @@ const messages = {
     "acl.error_load":         "Could not load matrix: {error}",
     "acl.error_apply":        "Could not apply changes: {error}",
     "acl.confirm_discard":    "Discard all {n} unsaved changes?",
+
+    // ── Atlas ────────────────────────────────────────────────────────────────
+    "atlas.title":            "Atlas",
+    "atlas.pick_user":        "Select a user…",
+    "atlas.empty_no_user":    "Select a user to see what they can reach.",
+    "atlas.empty_no_peers":   "This user has no peers yet.",
+    "atlas.empty_no_site":    "None of this user's peers reach any site yet.",
+    "atlas.circle_mobile":    "Mobile / Roaming",
+    "atlas.tool_grant":       "Grant",
+    "atlas.tool_revoke":      "Revoke",
+    "atlas.grants_table_title": "Grants",
+    "atlas.th_role":          "Role",
+    "atlas.th_resource":      "Resource",
+    "atlas.th_ports":         "Ports",
+    "atlas.error_load":       "Could not load the atlas: {error}",
 
     // ── Networks / Sites ─────────────────────────────────────────────────────
     "sites.title":        "Networks",
@@ -1178,6 +1194,7 @@ const messages = {
     "nav.port_groups": "Port-Gruppen",
     "nav.roles":       "Rollen",
     "nav.roles_acl":   "Rollen & ACL",
+    "nav.atlas":       "Atlas",
     "nav.users":       "Benutzer",
     "nav.system":      "System",
     "nav.identity":    "Identity",
@@ -1486,6 +1503,21 @@ const messages = {
     "acl.error_load":         "Konnte Matrix nicht laden: {error}",
     "acl.error_apply":        "Konnte Änderungen nicht anwenden: {error}",
     "acl.confirm_discard":    "Alle {n} ungespeicherten Änderungen verwerfen?",
+
+    // ── Atlas ────────────────────────────────────────────────────────────────
+    "atlas.title":            "Atlas",
+    "atlas.pick_user":        "Nutzer auswählen…",
+    "atlas.empty_no_user":    "Wähle einen Nutzer, um zu sehen, was er erreichen kann.",
+    "atlas.empty_no_peers":   "Dieser Nutzer hat noch keine Peers.",
+    "atlas.empty_no_site":    "Keiner der Peers dieses Nutzers erreicht bisher eine Site.",
+    "atlas.circle_mobile":    "Mobil / Roaming",
+    "atlas.tool_grant":       "Freigeben",
+    "atlas.tool_revoke":      "Entziehen",
+    "atlas.grants_table_title": "Freigaben",
+    "atlas.th_role":          "Rolle",
+    "atlas.th_resource":      "Resource",
+    "atlas.th_ports":         "Ports",
+    "atlas.error_load":       "Konnte Atlas nicht laden: {error}",
 
     // ── Networks / Sites ─────────────────────────────────────────────────────
     "sites.title":        "Netzwerke",
