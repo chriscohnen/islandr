@@ -13,8 +13,10 @@ export default defineComponent({
       graph: null,       // AtlasDto.Graph | null
       loading: false,
       error: null,
-      tool: "grant",      // "grant" | "revoke" — extended with real handlers in Task 6
+      tool: "grant",      // "grant" | "revoke"
       lang: locale.current,
+      grantDialog: null, // { peerId, resourceId, resourceName, roleId, portIds, allPorts, ports }
+      grantSaving: false,
     };
   },
   computed: {
@@ -65,12 +67,96 @@ export default defineComponent({
       }
     },
 
-    onDragGrant(_payload) {
-      // Wired up in Task 6 — currently a no-op so the diagram is drag-interactive
-      // but doesn't yet open a dialog.
+    async onDragGrant({ peerId, resourceId }) {
+      const resource = this.graph.resources.find((r) => r.id === resourceId);
+      if (!resource) return;
+      const defaultRoleId = this.graph.roles.length > 0 ? this.graph.roles[0].id : "";
+      // A resource already fully granted (allPorts=true) to the default role
+      // needs no new grant — surface that instead of firing a no-op request.
+      const existingFull = this.graph.edges.some(
+          (e) => e.resourceId === resourceId && e.roleId === defaultRoleId && e.allPorts);
+      if (existingFull) {
+        this.error = t("atlas.grant_already_full", { resource: resource.name });
+        return;
+      }
+      let ports = [];
+      try {
+        const res = await fetch("/api/v1/resources/" + resourceId);
+        if (res.ok) {
+          const full = await res.json();
+          ports = full.ports || [];
+        }
+      } catch { /* dialog still opens, port list just stays empty */ }
+      this.grantDialog = {
+        peerId, resourceId,
+        resourceName: resource.name,
+        roleId: defaultRoleId,
+        allPorts: true,
+        portIds: [],
+        ports,
+      };
     },
-    onRevokeEdge(_edge) {
-      // Wired up in Task 6.
+
+    cancelGrantDialog() {
+      this.grantDialog = null;
+    },
+
+    async confirmGrantDialog() {
+      if (!this.grantDialog || !this.grantDialog.roleId) return;
+      this.grantSaving = true;
+      this.error = null;
+      try {
+        const res = await fetch("/api/v1/acl/matrix", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            grants: [{
+              roleId: this.grantDialog.roleId,
+              resourceId: this.grantDialog.resourceId,
+              allPorts: this.grantDialog.allPorts,
+              portIds: this.grantDialog.allPorts ? [] : this.grantDialog.portIds,
+            }],
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+        }
+        this.grantDialog = null;
+        await this.onUserChange();
+      } catch (e) {
+        this.error = t("atlas.error_grant", { error: e.message });
+      } finally {
+        this.grantSaving = false;
+      }
+    },
+
+    async onRevokeEdge(edge) {
+      const resource = this.graph.resources.find((r) => r.id === edge.resourceId);
+      const resourceName = resource ? resource.name : edge.resourceId;
+      if (resource && resource.ownership === "type-grant") {
+        this.error = t("atlas.revoke_type_grant_blocked");
+        return;
+      }
+      const confirmed = confirm(t("atlas.revoke_confirm", { role: edge.roleName, resource: resourceName }));
+      if (!confirmed) return;
+      this.error = null;
+      try {
+        const res = await fetch("/api/v1/acl/matrix", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            grants: [{ roleId: edge.roleId, resourceId: edge.resourceId, allPorts: false, portIds: [] }],
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+        }
+        await this.onUserChange();
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+      }
     },
   },
   template: `
@@ -138,5 +224,42 @@ export default defineComponent({
         <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.type_grants_empty') }}</p>
       </div>
     </template>
+
+    <div v-if="grantDialog" class="modal-backdrop" @click.self="cancelGrantDialog">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>{{ t('atlas.grant_dialog_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="cancelGrantDialog">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="label">{{ t('atlas.grant_dialog_role') }}</label>
+          <select class="select" v-model="grantDialog.roleId" style="width: 100%; margin-bottom: var(--space-3)">
+            <option v-for="r in graph.roles" :key="r.id" :value="r.id">{{ r.name }}</option>
+          </select>
+
+          <label style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; margin-bottom: var(--space-2)">
+            <input type="radio" :value="true" v-model="grantDialog.allPorts" style="width: 16px; height: 16px; accent-color: var(--accent)" />
+            {{ t('atlas.grant_dialog_all_ports') }}
+          </label>
+          <label v-if="grantDialog.ports.length > 0" style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer">
+            <input type="radio" :value="false" v-model="grantDialog.allPorts" style="width: 16px; height: 16px; accent-color: var(--accent)" />
+            {{ t('atlas.grant_dialog_ports') }}
+          </label>
+          <div v-if="!grantDialog.allPorts" style="margin-left: var(--space-6); margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2)">
+            <label v-for="p in grantDialog.ports" :key="p.id" style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer">
+              <input type="checkbox" :value="p.id" v-model="grantDialog.portIds" style="width: 16px; height: 16px; accent-color: var(--accent)" />
+              <span class="mono">{{ p.port }}/{{ p.transport }}</span>
+              <span>{{ p.protocol }}</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" @click="cancelGrantDialog">{{ t('atlas.grant_dialog_cancel') }}</button>
+          <button type="button" class="btn btn-primary" :disabled="grantSaving || !grantDialog.roleId" @click="confirmGrantDialog">
+            {{ grantSaving ? t('common.loading') : t('atlas.grant_dialog_confirm') }}
+          </button>
+        </div>
+      </div>
+    </div>
   `,
 });
