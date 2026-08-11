@@ -30,18 +30,30 @@ class AclUserGrantResourceTest {
     void wipeAll() {
         em.createNativeQuery("DELETE FROM user_resource_grant_ports").executeUpdate();
         UserResourceGrant.deleteAll();
+        em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
         ResourcePort.deleteAll();
         Resource.deleteAll();
         Site.deleteAll();
+        Role.delete("name", "Grant User Role");
         User.delete("email", "usergrant-test@example.test");
     }
 
     private record Seed(String userId, String resourceId, String portId) {}
 
+    // Deliberately creates its own role + membership rather than relying on
+    // the shared auto_all "Everyone" role: sibling test classes in this
+    // package delete all roles in their own teardown, and RoleBootstrap only
+    // reseeds "Everyone" once at application startup — so depending on it
+    // here made this test's pass/fail order-dependent on which other test
+    // classes ran first in the same @QuarkusTest JVM.
     @Transactional
     Seed seed() {
         User user = User.createNew("Grant User", "usergrant-test@example.test");
         user.persist();
+        Role role = Role.createNew("Grant User Role", null);
+        role.persist();
+        em.createNativeQuery("INSERT INTO user_roles (user_id, role_id) VALUES (?1, ?2)")
+                .setParameter(1, user.id).setParameter(2, role.id).executeUpdate();
         Site site = Site.createNew("Homeoffice", "10.33.0.0/16", null);
         site.persist();
         Resource res = Resource.createNew(site.id, "NAS", "10.33.0.5", null, "nas");
