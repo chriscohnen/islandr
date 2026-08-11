@@ -8,56 +8,56 @@ export default defineComponent({
   components: { AtlasDiagram, Icon },
   data() {
     return {
-      users: [],
-      selectedUserId: "",
-      graph: null,       // AtlasDto.Graph | null
+      graph: null,
       loading: false,
       error: null,
-      tool: "grant",      // "grant" | "revoke"
+      tool: "grant",
+      selectedRoleId: "", // "" = direct user-grant mode
       lang: locale.current,
-      grantDialog: null, // { peerId, resourceId, resourceName, roleId, portIds, allPorts, ports }
+      grantDialog: null, // { userId, resourceId, resourceName, kind, allPorts, portIds, ports }
       grantSaving: false,
     };
   },
   computed: {
     _lang() { return locale.current; },
+    grantModeLabel() {
+      void this.lang;
+      if (!this.selectedRoleId) return t("atlas.mode_direct");
+      const role = (this.graph && this.graph.roles || []).find((r) => r.id === this.selectedRoleId);
+      return t("atlas.mode_role", { role: role ? role.name : this.selectedRoleId });
+    },
+    highlightedUserIds() {
+      if (!this.selectedRoleId || !this.graph) return [];
+      const ids = new Set();
+      for (const e of this.graph.edges) {
+        if (e.kind === "role" && e.roleId === this.selectedRoleId) ids.add(e.userId);
+      }
+      return Array.from(ids);
+    },
     grantsForTable() {
       if (!this.graph) return [];
-      // One row per edge, resolving peer/resource names for display.
-      const peersById = Object.fromEntries(this.graph.peers.map((p) => [p.id, p]));
+      const usersById = Object.fromEntries(this.graph.users.map((u) => [u.id, u]));
       const resById = Object.fromEntries(this.graph.resources.map((r) => [r.id, r]));
       return this.graph.edges.map((e) => ({
-        key: e.peerId + "|" + e.resourceId + "|" + e.roleId,
-        peerName: (peersById[e.peerId] || {}).name || e.peerId,
+        key: e.userId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || ""),
+        userName: (usersById[e.userId] || {}).name || e.userId,
         resourceName: (resById[e.resourceId] || {}).name || e.resourceId,
-        roleName: e.roleName,
+        roleName: e.kind === "user-direct" ? t("atlas.mode_direct") : e.roleName,
         portsLabel: e.allPorts ? t("acl.picker_all") : e.portLabels.join(", "),
       }));
     },
   },
   async mounted() {
-    await this.loadUsers();
+    await this.load();
   },
   methods: {
     t(key, vars) { return t(key, vars); },
 
-    async loadUsers() {
-      try {
-        const res = await fetch("/api/v1/users");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        this.users = await res.json();
-      } catch (e) {
-        this.error = t("atlas.error_load", { error: e.message });
-      }
-    },
-
-    async onUserChange() {
-      this.graph = null;
-      this.error = null;
-      if (!this.selectedUserId) return;
+    async load() {
       this.loading = true;
+      this.error = null;
       try {
-        const res = await fetch("/api/v1/acl/atlas/" + this.selectedUserId);
+        const res = await fetch("/api/v1/acl/atlas");
         if (!res.ok) throw new Error("HTTP " + res.status);
         this.graph = await res.json();
       } catch (e) {
@@ -67,16 +67,16 @@ export default defineComponent({
       }
     },
 
-    async onDragGrant({ peerId, resourceId }) {
+    async onDragGrant({ userId, resourceId }) {
       const resource = this.graph.resources.find((r) => r.id === resourceId);
-      if (!resource) return;
-      const defaultRoleId = this.graph.roles.length > 0 ? this.graph.roles[0].id : "";
-      // A resource already fully granted (allPorts=true) to the default role
-      // needs no new grant — surface that instead of firing a no-op request.
-      const existingFull = this.graph.edges.some(
-          (e) => e.resourceId === resourceId && e.roleId === defaultRoleId && e.allPorts);
+      const user = this.graph.users.find((u) => u.id === userId);
+      if (!resource || !user) return;
+      const kind = this.selectedRoleId ? "role" : "user-direct";
+      const existingFull = this.graph.edges.some((e) =>
+          e.userId === userId && e.resourceId === resourceId && e.allPorts &&
+          (kind === "role" ? (e.kind === "role" && e.roleId === this.selectedRoleId) : e.kind === "user-direct"));
       if (existingFull) {
-        this.error = t("atlas.grant_already_full", { resource: resource.name });
+        this.error = t("atlas.grant_already_full", { user: user.name, resource: resource.name });
         return;
       }
       let ports = [];
@@ -88,9 +88,10 @@ export default defineComponent({
         }
       } catch { /* dialog still opens, port list just stays empty */ }
       this.grantDialog = {
-        peerId, resourceId,
+        userId, resourceId,
+        userName: user.name,
         resourceName: resource.name,
-        roleId: defaultRoleId,
+        kind,
         allPorts: true,
         portIds: [],
         ports,
@@ -102,28 +103,26 @@ export default defineComponent({
     },
 
     async confirmGrantDialog() {
-      if (!this.grantDialog || !this.grantDialog.roleId) return;
+      if (!this.grantDialog) return;
       this.grantSaving = true;
       this.error = null;
       try {
-        const res = await fetch("/api/v1/acl/matrix", {
+        const d = this.grantDialog;
+        const url = d.kind === "role" ? "/api/v1/acl/matrix" : "/api/v1/acl/user-grants";
+        const body = d.kind === "role"
+            ? { grants: [{ roleId: this.selectedRoleId, resourceId: d.resourceId, allPorts: d.allPorts, portIds: d.allPorts ? [] : d.portIds }] }
+            : { userId: d.userId, resourceId: d.resourceId, allPorts: d.allPorts, portIds: d.allPorts ? [] : d.portIds };
+        const res = await fetch(url, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            grants: [{
-              roleId: this.grantDialog.roleId,
-              resourceId: this.grantDialog.resourceId,
-              allPorts: this.grantDialog.allPorts,
-              portIds: this.grantDialog.allPorts ? [] : this.grantDialog.portIds,
-            }],
-          }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const body = await res.text();
-          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+          const errBody = await res.text();
+          throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
         }
         this.grantDialog = null;
-        await this.onUserChange();
+        await this.load();
       } catch (e) {
         this.error = t("atlas.error_grant", { error: e.message });
       } finally {
@@ -133,27 +132,32 @@ export default defineComponent({
 
     async onRevokeEdge(edge) {
       const resource = this.graph.resources.find((r) => r.id === edge.resourceId);
+      const user = this.graph.users.find((u) => u.id === edge.userId);
       const resourceName = resource ? resource.name : edge.resourceId;
-      if (resource && resource.ownership === "type-grant") {
+      const userName = user ? user.name : edge.userId;
+      if (edge.kind === "type-grant") {
         this.error = t("atlas.revoke_type_grant_blocked");
         return;
       }
-      const confirmed = confirm(t("atlas.revoke_confirm", { role: edge.roleName, resource: resourceName }));
+      const roleLabel = edge.kind === "role" ? edge.roleName : t("atlas.mode_direct");
+      const confirmed = confirm(t("atlas.revoke_confirm", { user: userName, role: roleLabel, resource: resourceName }));
       if (!confirmed) return;
       this.error = null;
       try {
-        const res = await fetch("/api/v1/acl/matrix", {
+        const url = edge.kind === "role" ? "/api/v1/acl/matrix" : "/api/v1/acl/user-grants";
+        const body = edge.kind === "role"
+            ? { grants: [{ roleId: edge.roleId, resourceId: edge.resourceId, allPorts: false, portIds: [] }] }
+            : { userId: edge.userId, resourceId: edge.resourceId, allPorts: false, portIds: [] };
+        const res = await fetch(url, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            grants: [{ roleId: edge.roleId, resourceId: edge.resourceId, allPorts: false, portIds: [] }],
-          }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const body = await res.text();
-          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+          const errBody = await res.text();
+          throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
         }
-        await this.onUserChange();
+        await this.load();
       } catch (e) {
         this.error = t("atlas.error_revoke", { error: e.message });
       }
@@ -167,12 +171,13 @@ export default defineComponent({
     <div v-if="error" class="error-banner">{{ error }}</div>
 
     <div style="display: flex; gap: var(--space-3); align-items: center; margin-bottom: var(--space-4); flex-wrap: wrap">
-      <select class="select" v-model="selectedUserId" @change="onUserChange" style="max-width: 280px">
-        <option value="" disabled>{{ t('atlas.pick_user') }}</option>
-        <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
+      <select class="select" v-model="selectedRoleId" style="max-width: 260px">
+        <option value="">{{ t('atlas.pick_role') }}</option>
+        <option v-for="r in (graph ? graph.roles : [])" :key="r.id" :value="r.id">{{ r.name }}</option>
       </select>
+      <span class="muted" style="font-size: var(--text-sm)">{{ grantModeLabel }}</span>
 
-      <div v-if="graph" style="display: flex; gap: var(--space-2)">
+      <div style="display: flex; gap: var(--space-2); margin-left: auto">
         <button class="btn btn-sm" :class="tool === 'grant' ? 'btn-primary' : 'btn-ghost'" @click="tool = 'grant'">
           <Icon name="link" :size="14" /> {{ t('atlas.tool_grant') }}
         </button>
@@ -184,21 +189,18 @@ export default defineComponent({
 
     <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
 
-    <div v-else-if="!selectedUserId" class="empty-state">
-      <p>{{ t('atlas.empty_no_user') }}</p>
-    </div>
-
-    <div v-else-if="graph && graph.peers.length === 0" class="empty-state">
-      <p>{{ t('atlas.empty_no_peers') }}</p>
+    <div v-else-if="graph && graph.users.length === 0" class="empty-state">
+      <p>{{ t('atlas.empty_no_users') }}</p>
     </div>
 
     <div v-else-if="graph && graph.resources.length === 0" class="empty-state">
-      <p>{{ t('atlas.empty_no_site') }}</p>
+      <p>{{ t('atlas.empty_no_resources') }}</p>
     </div>
 
     <template v-else-if="graph">
       <div class="card card-pad">
-        <AtlasDiagram :graph="graph" :tool="tool" @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" />
+        <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds"
+                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" />
       </div>
 
       <div class="card card-pad" style="margin-top: var(--space-4)">
@@ -208,6 +210,7 @@ export default defineComponent({
         <table v-if="grantsForTable.length > 0" class="table">
           <thead>
             <tr>
+              <th>{{ t('atlas.th_user') }}</th>
               <th>{{ t('atlas.th_role') }}</th>
               <th>{{ t('atlas.th_resource') }}</th>
               <th>{{ t('atlas.th_ports') }}</th>
@@ -215,6 +218,7 @@ export default defineComponent({
           </thead>
           <tbody>
             <tr v-for="row in grantsForTable" :key="row.key">
+              <td>{{ row.userName }}</td>
               <td>{{ row.roleName }}</td>
               <td>{{ row.resourceName }}</td>
               <td class="mono">{{ row.portsLabel }}</td>
@@ -232,10 +236,9 @@ export default defineComponent({
           <button class="btn btn-ghost btn-sm" @click="cancelGrantDialog">✕</button>
         </div>
         <div class="modal-body">
-          <label class="label">{{ t('atlas.grant_dialog_role') }}</label>
-          <select class="select" v-model="grantDialog.roleId" style="width: 100%; margin-bottom: var(--space-3)">
-            <option v-for="r in graph.roles" :key="r.id" :value="r.id">{{ r.name }}</option>
-          </select>
+          <p style="margin: 0 0 var(--space-3)">
+            <strong>{{ t('atlas.grant_dialog_mode') }}</strong> {{ grantModeLabel }} → {{ grantDialog.userName }} → {{ grantDialog.resourceName }}
+          </p>
 
           <label style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; margin-bottom: var(--space-2)">
             <input type="radio" :value="true" v-model="grantDialog.allPorts" style="width: 16px; height: 16px; accent-color: var(--accent)" />
@@ -255,7 +258,7 @@ export default defineComponent({
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" @click="cancelGrantDialog">{{ t('atlas.grant_dialog_cancel') }}</button>
-          <button type="button" class="btn btn-primary" :disabled="grantSaving || !grantDialog.roleId" @click="confirmGrantDialog">
+          <button type="button" class="btn btn-primary" :disabled="grantSaving" @click="confirmGrantDialog">
             {{ grantSaving ? t('common.loading') : t('atlas.grant_dialog_confirm') }}
           </button>
         </div>
