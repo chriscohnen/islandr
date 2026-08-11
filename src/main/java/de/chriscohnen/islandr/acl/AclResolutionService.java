@@ -59,7 +59,15 @@ public class AclResolutionService {
                 .setParameter(1, roleIds)
                 .getResultList();
 
-        if (grantRows.isEmpty() && typeGrantResourceIds.isEmpty()) return List.of();
+        // Direct user grants (ADR-0024) — bypass the role model entirely,
+        // so they're keyed on userId directly, not roleIds.
+        @SuppressWarnings("unchecked")
+        List<Object[]> userGrantRows = em.createNativeQuery(
+                        "SELECT id, resource_id, all_ports FROM user_resource_grants WHERE user_id = ?1")
+                .setParameter(1, userId)
+                .getResultList();
+
+        if (grantRows.isEmpty() && typeGrantResourceIds.isEmpty() && userGrantRows.isEmpty()) return List.of();
 
         Set<String> grantIds = new HashSet<>();
         for (Object[] row : grantRows) if (!(Boolean) row[2]) grantIds.add((String) row[0]);
@@ -73,6 +81,21 @@ public class AclResolutionService {
                     .getResultList();
             for (Object[] r : portRows) {
                 portsByGrant.computeIfAbsent((String) r[0], k -> new HashSet<>()).add((String) r[1]);
+            }
+        }
+
+        Set<String> userGrantIds = new HashSet<>();
+        for (Object[] row : userGrantRows) if (!(Boolean) row[2]) userGrantIds.add((String) row[0]);
+
+        Map<String, Set<String>> portsByUserGrant = new HashMap<>();
+        if (!userGrantIds.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            List<Object[]> portRows = em.createNativeQuery(
+                            "SELECT grant_id, port_id FROM user_resource_grant_ports WHERE grant_id IN ?1")
+                    .setParameter(1, userGrantIds)
+                    .getResultList();
+            for (Object[] r : portRows) {
+                portsByUserGrant.computeIfAbsent((String) r[0], k -> new HashSet<>()).add((String) r[1]);
             }
         }
 
@@ -95,6 +118,29 @@ public class AclResolutionService {
                 }
             }
         }
+        // Direct user grants merge the same way concrete role grants do —
+        // union of port sets, all-ports wins — just from a different table.
+        for (Object[] row : userGrantRows) {
+            String grantId    = (String)  row[0];
+            String resourceId = (String)  row[1];
+            boolean allPorts  = (Boolean) row[2];
+            EffectiveGrant existing = effective.get(resourceId);
+            if (existing != null && existing.allPorts()) continue;
+            if (allPorts) {
+                effective.put(resourceId, new EffectiveGrant(true, Set.of()));
+            } else {
+                Set<String> ids = portsByUserGrant.getOrDefault(grantId, Set.of());
+                if (existing == null) {
+                    effective.put(resourceId, new EffectiveGrant(false, new HashSet<>(ids)));
+                } else {
+                    existing.portIds().addAll(ids);
+                }
+            }
+        }
+
+        // Type grants always widen to all-ports — unconditional overwrite is
+        // safe here (idempotent whether or not a narrower grant already set
+        // this resourceId; all-ports is always the correct, widest result).
         for (String resourceId : typeGrantResourceIds) {
             effective.put(resourceId, new EffectiveGrant(true, Set.of()));
         }
