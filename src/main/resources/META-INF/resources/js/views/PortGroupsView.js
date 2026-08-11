@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 
 // Port-group templates (admin-managed). A group is a named bundle of
 // (port, transport, protocol, label) tuples that the admin can apply to a
@@ -25,6 +26,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._offEscape = onEscape(() => { if (this.modal) this.closeModal(); });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
   },
   computed: { _lang() { return locale.current; } },
   methods: {

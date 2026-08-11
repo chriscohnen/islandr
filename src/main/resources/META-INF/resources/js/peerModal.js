@@ -16,6 +16,7 @@
 // control (issue #46) — server-generates a fresh keypair, replaces it on the
 // hub immediately, and shows the new .conf/QR once, same shape as create.
 import { t, formatDate } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 
 export const peerModalMixin = {
   data() {
@@ -72,6 +73,17 @@ export const peerModalMixin = {
       secretApplyError: null,
       copyState: "idle",
     };
+  },
+  // Mixin lifecycle hooks merge with the host view's own (Vue calls both),
+  // so this covers PeersView and UsersView from one place.
+  mounted() {
+    this._offPeerModalEscape = onEscape(() => {
+      if (this.pskAction) { this.pskAction = null; return; }
+      if (this.modalMode) this.closeModal();
+    });
+  },
+  beforeUnmount() {
+    if (this._offPeerModalEscape) this._offPeerModalEscape();
   },
   watch: {
     // Reseed the reveal-dialog option fields whenever a new secret is shown —

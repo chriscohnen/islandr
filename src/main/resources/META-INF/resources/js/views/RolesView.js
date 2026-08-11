@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 
 // Roles list + per-role membership editor. Grants for a role live in the
 // matrix view; this view focuses on "what is this role and who is in it".
@@ -28,6 +29,13 @@ export default defineComponent({
   },
   async mounted() {
     await Promise.all([this.loadRoles(), this.loadUsers()]);
+    this._offEscape = onEscape(() => {
+      if (this.membersModal) this.closeMembers();
+      else if (this.modal) this.closeModal();
+    });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
   },
   computed: { _lang() { return locale.current; } },
   methods: {

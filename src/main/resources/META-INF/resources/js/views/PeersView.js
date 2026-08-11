@@ -3,6 +3,7 @@ import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
+import { onEscape } from "/js/keyboard.js";
 
 // Flat list of every peer across every user. This is the main working surface
 // for sysadmins ("show me everything connected"). User-scoped peer creation
@@ -69,6 +70,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._offEscape = onEscape(() => { if (this.importModal) this.closeImport(); });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
   },
   methods: {
     t(key, vars) { return t(key, vars); },

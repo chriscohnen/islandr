@@ -3,6 +3,7 @@ import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate } from "/js/i18n.js";
+import { onEscape, onSlashFocus } from "/js/keyboard.js";
 
 // User management. Each row gets a "+ Peer" button that opens the shared
 // peer-create modal. The full peer list across all users lives in PeersView.
@@ -58,6 +59,12 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._offEscape = onEscape(() => { if (this.gwsOpen) this.closeGwsDialog(); });
+    this._offSlash = onSlashFocus(() => this.$refs.searchInput);
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
+    if (this._offSlash) this._offSlash();
   },
   methods: {
     t(key, vars) { return t(key, vars); },
@@ -292,7 +299,7 @@ export default defineComponent({
         </span>
       </h1>
       <div style="display: flex; gap: var(--space-2)">
-        <input class="input input-sm" type="search" v-model="quickFilter"
+        <input ref="searchInput" class="input input-sm" type="search" v-model="quickFilter"
                :placeholder="t('users.quickfilter_ph')" style="width: 220px" />
         <button v-if="googleWsAvailable" class="btn btn-ghost btn-sm" @click="openGwsDialog">
           <Icon name="users" :size="13" />{{ t('users.gws_btn') }}
