@@ -59,7 +59,8 @@ public class RdpGrantService {
             .setParameter(3, portId)
             .getResultList();
         if (!rows.isEmpty() && rows.get(0).intValue() > 0) return true;
-        return hasTypeGrant(userId, resourceId);
+        if (hasTypeGrant(userId, resourceId)) return true;
+        return hasDirectUserGrant(userId, resourceId, portId);
     }
 
     // Type grants ("all printers in Homeoffice") are always all-ports, so a
@@ -74,6 +75,25 @@ public class RdpGrantService {
                 "WHERE ur.user_id = ?1")
             .setParameter(1, userId)
             .setParameter(2, resourceId)
+            .getResultList();
+        return !rows.isEmpty() && rows.get(0).intValue() > 0;
+    }
+
+    // Direct user grants (ADR-0024) — same shape as the concrete role-grant
+    // check above, just against user_resource_grants directly (no
+    // user_roles join needed, the grant already names the user).
+    private boolean hasDirectUserGrant(String userId, String resourceId, String portId) {
+        @SuppressWarnings("unchecked")
+        List<Number> rows = em.createNativeQuery(
+                "SELECT COUNT(*) FROM user_resource_grants g " +
+                "WHERE g.user_id = ?1 AND g.resource_id = ?2 " +
+                "AND (g.all_ports = TRUE OR EXISTS (" +
+                "  SELECT 1 FROM user_resource_grant_ports ugp " +
+                "  WHERE ugp.grant_id = g.id AND ugp.port_id = ?3" +
+                "))")
+            .setParameter(1, userId)
+            .setParameter(2, resourceId)
+            .setParameter(3, portId)
             .getResultList();
         return !rows.isEmpty() && rows.get(0).intValue() > 0;
     }
