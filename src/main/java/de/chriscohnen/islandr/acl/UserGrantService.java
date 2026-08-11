@@ -6,8 +6,11 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.NotFoundException;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -25,6 +28,51 @@ public class UserGrantService {
     public record GrantDiff(String userId, String resourceId, String change,
                             Boolean fromAllPorts, Boolean toAllPorts,
                             List<String> fromPortIds, List<String> toPortIds) {}
+
+    /** All direct user grants, denormalized for the ACL page's list — same shape as the
+     * Atlas graph's "user-direct" edges, just without the fan-out/role machinery. */
+    public List<UserGrantDto.ListItem> list() {
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery(
+                        "SELECT g.id, g.user_id, u.name, g.resource_id, r.name, s.name, g.all_ports "
+                                + "FROM user_resource_grants g "
+                                + "JOIN users u ON u.id = g.user_id "
+                                + "JOIN resources r ON r.id = g.resource_id "
+                                + "JOIN sites s ON s.id = r.site_id "
+                                + "ORDER BY u.name, r.name")
+                .getResultList();
+        if (rows.isEmpty()) return List.of();
+
+        Set<String> limitedGrantIds = new LinkedHashSet<>();
+        for (Object[] row : rows) if (!(Boolean) row[6]) limitedGrantIds.add((String) row[0]);
+        Map<String, List<String>> portLabelsByGrant = new HashMap<>();
+        if (!limitedGrantIds.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            List<Object[]> portRows = em.createNativeQuery(
+                            "SELECT gp.grant_id, p.port, p.port_end, p.protocol "
+                                    + "FROM user_resource_grant_ports gp "
+                                    + "JOIN resource_ports p ON p.id = gp.port_id "
+                                    + "WHERE gp.grant_id IN ?1")
+                    .setParameter(1, limitedGrantIds)
+                    .getResultList();
+            for (Object[] p : portRows) {
+                String gid = (String) p[0];
+                Integer portEnd = p[2] == null ? null : ((Number) p[2]).intValue();
+                portLabelsByGrant.computeIfAbsent(gid, k -> new ArrayList<>())
+                        .add(AclResolutionService.formatPortLabel(((Number) p[1]).intValue(), portEnd, (String) p[3]));
+            }
+        }
+
+        List<UserGrantDto.ListItem> out = new ArrayList<>();
+        for (Object[] row : rows) {
+            String grantId = (String) row[0];
+            boolean allPorts = (Boolean) row[6];
+            out.add(new UserGrantDto.ListItem(
+                    (String) row[1], (String) row[2], (String) row[3], (String) row[4], (String) row[5],
+                    allPorts, allPorts ? List.of() : portLabelsByGrant.getOrDefault(grantId, List.of())));
+        }
+        return out;
+    }
 
     /** Returns null when the apply was a no-op (∅ -> ∅ or identical state). */
     @Transactional

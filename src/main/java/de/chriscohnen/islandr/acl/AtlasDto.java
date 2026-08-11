@@ -6,7 +6,9 @@ public class AtlasDto {
 
     public record UserNode(String id, String name) {}
 
-    public record ResourceNode(String id, String name, String type, String siteId, String siteName) {}
+    public record ResourceNode(
+            String id, String name, String type, String siteId, String siteName,
+            String siteCidr, String ip, String description) {}
 
     /** kind: "role" | "type-grant" | "user-direct". roleId/roleName are null for "user-direct". */
     public record Edge(

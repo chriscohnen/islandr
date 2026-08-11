@@ -225,13 +225,14 @@ public class AclResolutionService {
 
         @SuppressWarnings("unchecked")
         List<Object[]> allResRows = em.createNativeQuery(
-                        "SELECT r.id, r.site_id, s.name, r.name, r.type "
+                        "SELECT r.id, r.site_id, s.name, r.name, r.type, s.cidr, r.ip, r.description "
                                 + "FROM resources r JOIN sites s ON s.id = r.site_id "
                                 + "ORDER BY s.name, r.name")
                 .getResultList();
         List<AtlasDto.ResourceNode> resourceNodes = allResRows.stream()
                 .map(r -> new AtlasDto.ResourceNode(
-                        (String) r[0], (String) r[3], (String) r[4], (String) r[1], (String) r[2]))
+                        (String) r[0], (String) r[3], (String) r[4], (String) r[1], (String) r[2],
+                        (String) r[5], (String) r[6], (String) r[7]))
                 .toList();
 
         if (userNodes.isEmpty() || resourceNodes.isEmpty()) {
@@ -345,7 +346,7 @@ public class AclResolutionService {
         return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions);
     }
 
-    private static String formatPortLabel(int port, Integer portEnd, String protocol) {
+    static String formatPortLabel(int port, Integer portEnd, String protocol) {
         String range = portEnd == null ? String.valueOf(port) : port + "-" + portEnd;
         return (protocol == null || protocol.isBlank()) ? range : protocol + " " + range;
     }

@@ -9,6 +9,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -17,6 +18,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.util.List;
 import java.util.Map;
 
 @ApplicationScoped
@@ -28,6 +30,14 @@ public class AclUserGrantResource {
     @Inject UserGrantService grants;
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
+
+    /** Direct user grants (ADR-0024) for the ACL page's list — same data the Atlas
+     * view's drag-and-drop produces, so admins can manage it without the map. */
+    @GET
+    public List<UserGrantDto.ListItem> list(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        return grants.list();
+    }
 
     @PUT
     public Response apply(@Context ContainerRequestContext ctx, @Valid UserGrantDto.Update body) {
