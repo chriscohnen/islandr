@@ -5,6 +5,7 @@ import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.Site;
+import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.audit.AuditLog;
 import de.chriscohnen.islandr.auth.AdminSessionExtension;
 import de.chriscohnen.islandr.peer.Peer;
@@ -78,6 +79,8 @@ class FirewallTest {
 
     private void wipeAclRows() {
         // Wipe everything ACL-related so each test starts from a known state.
+        em.createNativeQuery("DELETE FROM user_resource_grant_ports").executeUpdate();
+        UserResourceGrant.deleteAll();
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         RoleResourceGrant.deleteAll();
         de.chriscohnen.islandr.acl.RoleResourceTypeGrant.deleteAll();
@@ -250,6 +253,50 @@ class FirewallTest {
         assertThat(snap.rulesetText())
                 .doesNotContain("flush ruleset")
                 .contains("flush table inet islandr");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directUserGrant_producesRuleForEveryPeerOfThatUser() {
+        User user = persistUser("dana@example.test", "Dana");
+        // Deliberately no role/membership — a direct grant must not depend on it.
+        Site site = persistSite("Direct", "10.41.0.0/16");
+        Resource res = persistResource(site.id, "FileShare", "10.41.0.7");
+        ResourcePort port = persistPort(res.id, 445, "tcp", "SMB");
+        de.chriscohnen.islandr.acl.UserResourceGrant grant =
+                de.chriscohnen.islandr.acl.UserResourceGrant.createNew(user.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO user_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+        persistPeer(user.id, "dana-laptop", "10.8.0.60");
+        persistPeer(user.id, "dana-phone", "10.8.0.61");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.8.0.60")
+                .contains("ip saddr 10.8.0.61")
+                .contains("ip daddr 10.41.0.7")
+                .contains("tcp dport 445")
+                .contains("resource=FileShare");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directUserGrant_allPorts_emitsOneRulePerResourcePort() {
+        User user = persistUser("frank@example.test", "Frank");
+        Site site = persistSite("DirectAllPorts", "10.42.0.0/16");
+        Resource res = persistResource(site.id, "Multi", "10.42.0.9");
+        persistPort(res.id, 80, "tcp", "HTTP");
+        persistPort(res.id, 443, "tcp", "HTTPS");
+        de.chriscohnen.islandr.acl.UserResourceGrant.createNew(user.id, res.id, true).persist();
+        persistPeer(user.id, "frank-desktop", "10.8.0.62");
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.rulesetText())
+                .contains("tcp dport 80")
+                .contains("tcp dport 443");
     }
 
     // -- RulesetService ------------------------------------------------------
@@ -534,8 +581,14 @@ class FirewallTest {
 
     @Transactional
     Peer persistPeer(String userId, String name, String assignedIp) {
-        Peer p = Peer.createNew(userId, name,
-                "k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1=", assignedIp);
+        // public_key has a unique index (V2__create_peers.sql) — generate a
+        // distinct WireGuard-shaped key per call so tests needing more than
+        // one peer per user (e.g. direct-user-grant "every peer" coverage)
+        // don't collide on a shared hardcoded key.
+        byte[] randomKeyBytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(randomKeyBytes);
+        String publicKey = java.util.Base64.getEncoder().encodeToString(randomKeyBytes);
+        Peer p = Peer.createNew(userId, name, publicKey, assignedIp);
         p.persist();
         return p;
     }

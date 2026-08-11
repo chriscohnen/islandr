@@ -5,6 +5,7 @@ import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.RoleResourceTypeGrant;
+import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.user.User;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -126,6 +127,20 @@ public class RuleBuilder {
                     .add((String) row[1]);
         }
 
+        Map<String, List<UserResourceGrant>> grantsByUser = new HashMap<>();
+        for (UserResourceGrant g : UserResourceGrant.<UserResourceGrant>listAll()) {
+            grantsByUser.computeIfAbsent(g.userId, k -> new ArrayList<>()).add(g);
+        }
+        Map<String, Set<String>> portsByUserGrant = new HashMap<>();
+        @SuppressWarnings("unchecked")
+        List<Object[]> userGrantPortRows = em.createNativeQuery(
+                        "SELECT grant_id, port_id FROM user_resource_grant_ports")
+                .getResultList();
+        for (Object[] row : userGrantPortRows) {
+            portsByUserGrant.computeIfAbsent((String) row[0], k -> new HashSet<>())
+                    .add((String) row[1]);
+        }
+
         Map<String, String> rulesByKey = new LinkedHashMap<>();
         // (peerIp, resource.ip) pairs with at least one grant — for implicit ICMP
         Set<String> icmpPairs = new HashSet<>();
@@ -135,7 +150,11 @@ public class RuleBuilder {
             // Everyone (auto_all) reaches every user-linked peer, present or future.
             // Site/gateway peers (userId=null) are routing, not users — excluded.
             if (peer.userId != null) userRoles.addAll(autoAllRoleIds);
-            if (userRoles.isEmpty()) continue;
+            List<UserResourceGrant> directGrants = grantsByUser.getOrDefault(peer.userId, List.of());
+            // A direct user-grant (ADR-0024) must render even for a user with
+            // zero roles — role membership and direct grants are independent
+            // sources, so only skip the peer when both are empty.
+            if (userRoles.isEmpty() && directGrants.isEmpty()) continue;
 
             // Collect all assigned IPs for this peer (IPv4 always present; IPv6 optional)
             List<String> peerIps = peerIpsOf(peer);
@@ -144,52 +163,20 @@ public class RuleBuilder {
                 Role role = roleById.get(roleId);
                 if (role == null) continue;
                 for (RoleResourceGrant g : grantsByRole.getOrDefault(roleId, List.of())) {
-                    Resource res = resourceById.get(g.resourceId);
-                    if (res == null) continue;
-                    List<ResourcePort> resPorts = portsByResource.getOrDefault(res.id, List.of());
-                    if (resPorts.isEmpty()) continue;
-                    List<ResourcePort> grantedPorts = g.allPorts
-                            ? resPorts
-                            : resPorts.stream()
-                                    .filter(rp -> portsByGrant.getOrDefault(g.id, Set.of()).contains(rp.id))
-                                    .toList();
-
-                    for (String peerIp : peerIps) {
-                        // Only emit rules for same-family (peerIp, res.ip) pairs
-                        if (isV6(peerIp) != isV6(res.ip)) continue;
-
-                        String family   = isV6(peerIp) ? "ip6" : "ip";
-                        String peerName = escape(peer.name);
-                        String uName    = escape(userName.getOrDefault(peer.userId, "?"));
-
-                        for (ResourcePort rp : grantedPorts) {
-                            // web-only RDP: direct peer access is blocked; traffic must go through the IronRDP proxy
-                            if ("web-only".equals(rp.rdpAccessMode)) continue;
-                            String comment = String.format(
-                                    "islandr:role=%s peer=%s user=%s resource=%s %s%s",
-                                    escape(role.name), peerName, uName,
-                                    escape(res.name), escape(rp.protocol),
-                                    rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label));
-                            for (String[] td : expandTransport(rp)) {
-                                String effectiveTransport = td[0];
-                                String dportClause = td[1];
-                                String key = peerIp + "|" + res.ip + "|"
-                                        + effectiveTransport + "|" + rp.port + "|"
-                                        + (rp.portEnd == null ? "" : rp.portEnd);
-                                if (rulesByKey.containsKey(key)) continue;
-                                String rule = dportClause.isEmpty()
-                                        ? String.format(
-                                                "    iifname \"%s\" %s saddr %s %s daddr %s %s accept comment \"%s\"",
-                                                wgInterface, family, peerIp, family, res.ip, effectiveTransport, comment)
-                                        : String.format(
-                                                "    iifname \"%s\" %s saddr %s %s daddr %s %s %s accept comment \"%s\"",
-                                                wgInterface, family, peerIp, family, res.ip, effectiveTransport, dportClause, comment);
-                                rulesByKey.put(key, rule);
-                            }
-                            icmpPairs.add(peerIp + "|" + res.ip + "|" + peerName + "|" + escape(res.name));
-                        }
-                    }
+                    Set<String> grantedPortIds = g.allPorts ? Set.of() : portsByGrant.getOrDefault(g.id, Set.of());
+                    emitRulesForGrant(peer, peerIps, g.resourceId, g.allPorts, grantedPortIds,
+                            escape(role.name), resourceById, portsByResource, userName, rulesByKey, icmpPairs);
                 }
+            }
+
+            // Direct user grants (ADR-0024) — independent of role membership
+            // entirely, so a user with zero roles (a defensive edge case;
+            // auto_all "Everyone" is normally always present per ADR-0013)
+            // still gets their direct grants rendered.
+            for (UserResourceGrant g : directGrants) {
+                Set<String> grantedPortIds = g.allPorts ? Set.of() : portsByUserGrant.getOrDefault(g.id, Set.of());
+                emitRulesForGrant(peer, peerIps, g.resourceId, g.allPorts, grantedPortIds,
+                        "(direct)", resourceById, portsByResource, userName, rulesByKey, icmpPairs);
             }
         }
 
@@ -231,6 +218,60 @@ public class RuleBuilder {
         sb.append("}\n");
 
         return new Snapshot(sb.toString(), rulesByKey.size());
+    }
+
+    /**
+     * Renders one grant (role-derived or direct-user, ADR-0024) into allow
+     * rules for one peer — the single place a (peer, resource, ports) triple
+     * becomes rule text, called once per role-grant and once per direct
+     * user-grant so both sources stay byte-for-byte consistent.
+     */
+    private void emitRulesForGrant(
+            Peer peer, List<String> peerIps, String resourceId, boolean allPorts,
+            Set<String> grantedPortIds, String roleLabel,
+            Map<String, Resource> resourceById, Map<String, List<ResourcePort>> portsByResource,
+            Map<String, String> userName, Map<String, String> rulesByKey, Set<String> icmpPairs) {
+        Resource res = resourceById.get(resourceId);
+        if (res == null) return;
+        List<ResourcePort> resPorts = portsByResource.getOrDefault(res.id, List.of());
+        if (resPorts.isEmpty()) return;
+        List<ResourcePort> grantedPorts = allPorts
+                ? resPorts
+                : resPorts.stream().filter(rp -> grantedPortIds.contains(rp.id)).toList();
+
+        for (String peerIp : peerIps) {
+            if (isV6(peerIp) != isV6(res.ip)) continue;
+
+            String family   = isV6(peerIp) ? "ip6" : "ip";
+            String peerName = escape(peer.name);
+            String uName    = escape(userName.getOrDefault(peer.userId, "?"));
+
+            for (ResourcePort rp : grantedPorts) {
+                if ("web-only".equals(rp.rdpAccessMode)) continue;
+                String comment = String.format(
+                        "islandr:role=%s peer=%s user=%s resource=%s %s%s",
+                        roleLabel, peerName, uName,
+                        escape(res.name), escape(rp.protocol),
+                        rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label));
+                for (String[] td : expandTransport(rp)) {
+                    String effectiveTransport = td[0];
+                    String dportClause = td[1];
+                    String key = peerIp + "|" + res.ip + "|"
+                            + effectiveTransport + "|" + rp.port + "|"
+                            + (rp.portEnd == null ? "" : rp.portEnd);
+                    if (rulesByKey.containsKey(key)) continue;
+                    String rule = dportClause.isEmpty()
+                            ? String.format(
+                                    "    iifname \"%s\" %s saddr %s %s daddr %s %s accept comment \"%s\"",
+                                    wgInterface, family, peerIp, family, res.ip, effectiveTransport, comment)
+                            : String.format(
+                                    "    iifname \"%s\" %s saddr %s %s daddr %s %s %s accept comment \"%s\"",
+                                    wgInterface, family, peerIp, family, res.ip, effectiveTransport, dportClause, comment);
+                    rulesByKey.put(key, rule);
+                }
+                icmpPairs.add(peerIp + "|" + res.ip + "|" + peerName + "|" + escape(res.name));
+            }
+        }
     }
 
     private String emptyTable() {
