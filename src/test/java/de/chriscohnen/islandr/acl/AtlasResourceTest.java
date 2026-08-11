@@ -67,16 +67,18 @@ class AtlasResourceTest {
 
     @Test
     void atlas_roleGrant_fansOutToEveryUserWithThatRole() {
-        seedTwoUsersOneRole();
+        String[] userIds = seedTwoUsersOneRole();
 
         given().when().get("/api/v1/acl/atlas")
                 .then().statusCode(200)
                 .body("edges.findAll { it.kind == 'role' }", hasSize(2))
-                .body("edges[0].roleName", is("Printing"));
+                .body("edges[0].roleName", is("Printing"))
+                .body("edges.findAll { it.kind == 'role' }.userId",
+                        org.hamcrest.Matchers.containsInAnyOrder(userIds[0], userIds[1]));
     }
 
     @Transactional
-    void seedTwoUsersOneRole() {
+    String[] seedTwoUsersOneRole() {
         User userA = User.createNew("atlas-test-a", "atlas-test-a@example.test");
         userA.persist();
         User userB = User.createNew("atlas-test-b", "atlas-test-b@example.test");
@@ -92,6 +94,42 @@ class AtlasResourceTest {
         Resource res = Resource.createNew(site.id, "LaserJet", "10.63.0.5", null, "printer");
         res.persist();
         RoleResourceGrant.createNew(role.id, res.id, true).persist();
+        return new String[] { userA.id, userB.id };
+    }
+
+    @Test
+    void atlas_autoAllRole_fansOutWithoutExplicitMembership() {
+        // Note: other real users (e.g. the bootstrap admin, not scoped by
+        // wipeAll's "atlas-test-%" email filter) are also implicit members
+        // of an autoAll role, so more than one edge to this resource may
+        // exist — this asserts the seeded user's edge is among them,
+        // proving the autoAll union fired for a user with zero explicit
+        // user_roles rows, rather than asserting an exact edge count.
+        String[] ids = seedAutoAllRoleGrant();
+        String userId = ids[0], resourceId = ids[1];
+
+        given().when().get("/api/v1/acl/atlas")
+                .then().statusCode(200)
+                .body("edges.findAll { it.resourceId == '" + resourceId + "' }.userId",
+                        org.hamcrest.Matchers.hasItem(userId))
+                .body("edges.find { it.userId == '" + userId + "' }.kind", is("role"))
+                .body("edges.find { it.userId == '" + userId + "' }.resourceId", is(resourceId));
+    }
+
+    @Transactional
+    String[] seedAutoAllRoleGrant() {
+        // No user_roles row at all — membership comes only from autoAll.
+        User user = User.createNew("atlas-test-autoall", "atlas-test-autoall@example.test");
+        user.persist();
+        Role role = Role.createNew("atlas-test-everyone", null);
+        role.autoAll = true;
+        role.persist();
+        Site site = Site.createNew("atlas-test-autoall-site", "10.66.0.0/16", null);
+        site.persist();
+        Resource res = Resource.createNew(site.id, "Scanner", "10.66.0.5", null, "printer");
+        res.persist();
+        RoleResourceGrant.createNew(role.id, res.id, true).persist();
+        return new String[] { user.id, res.id };
     }
 
     @Test
