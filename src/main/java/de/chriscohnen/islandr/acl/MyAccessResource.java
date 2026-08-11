@@ -7,8 +7,6 @@ import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.settings.SettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -35,7 +33,6 @@ import java.util.stream.Collectors;
 @Produces(MediaType.APPLICATION_JSON)
 public class MyAccessResource {
 
-    @PersistenceContext EntityManager em;
     @Inject SettingsService settings;
     @Inject AclResolutionService resolution;
 

@@ -6,7 +6,6 @@ import { t } from "/js/i18n.js";
 const W = 1000;
 const H = 560;
 const CIRCLE_GAP = 40;
-const CIRCLE_PADDING = 28;
 const NODE_RADIUS = 16;
 const NODE_RING_MARGIN = 26; // distance from circle edge to node centers
 const MIN_CIRCLE_RADIUS = 90;
