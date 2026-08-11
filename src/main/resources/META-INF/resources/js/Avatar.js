@@ -7,7 +7,7 @@ import { defineComponent } from "vue";
 // The color palette is the "cool set" from CLAUDE.md — same user always gets
 // the same swatch, never random brights. We pick the swatch with a tiny string
 // hash on the user's name.
-const COOL_PALETTE = [
+export const COOL_PALETTE = [
   "#2A6F7A", "#3A7691", "#3F8AA5", "#4A9DB8", "#3F7E8A",
   "#5B8FA6", "#34728C", "#487A95", "#2D6273", "#3B8095",
 ];
