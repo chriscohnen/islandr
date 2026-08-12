@@ -4,6 +4,8 @@ import AtlasDiagram from "/js/AtlasDiagram.js";
 import { Icon } from "/js/Icons.js";
 import { onEscape } from "/js/keyboard.js";
 
+const GRANTS_PAGE_SIZE = 20;
+
 export default defineComponent({
   name: "AtlasView",
   components: { AtlasDiagram, Icon },
@@ -21,6 +23,14 @@ export default defineComponent({
       grantSaving: false,
       revokeConfirm: null, // { edge, userName, resourceName, roleLabel }
       revokeSaving: false,
+      // Inclusive type filter, same semantics as the topology map's type
+      // chips: empty set = show everything; a non-empty set shows only the
+      // types in it (and, for edges, only what still touches a shown node).
+      activeTypes: new Set(),
+      // User filter is by role, not a per-user chip list — a chip per user
+      // doesn't scale once a tenant has dozens of them. "" = show everyone.
+      userFilterRoleId: "",
+      grantsPage: 1,
     };
   },
   computed: {
@@ -63,17 +73,81 @@ export default defineComponent({
         grants: this.graph.edges.length,
       };
     },
+    resourceTypeLabels() {
+      void this.lang;
+      return {
+        computer: t("resources.type_computer"),
+        router: t("resources.type_router"),
+        printer: t("resources.type_printer"),
+        nas: t("resources.type_nas"),
+        camera: t("resources.type_camera"),
+        iot: t("resources.type_iot"),
+        "virt-host": t("resources.type_virt"),
+        rackserver: t("resources.type_rackserver"),
+        kvm: t("resources.type_kvm"),
+        management: t("resources.type_mgmt"),
+        other: t("resources.type_other"),
+      };
+    },
+    // Every resource type actually present in the graph, with a count —
+    // same shape the topology map's type-filter chips use — so the filter
+    // never offers a type with nothing behind it.
+    resourceTypes() {
+      if (!this.graph) return [];
+      const counts = new Map();
+      for (const r of this.graph.resources) counts.set(r.type, (counts.get(r.type) || 0) + 1);
+      return Array.from(counts.entries())
+          .map(([key, count]) => ({ key, count, label: this.resourceTypeLabels[key] || key }))
+          .sort((a, b) => a.label.localeCompare(b.label));
+    },
+    // memberUserIds comes straight from the backend's role-membership
+    // resolution (same rule used for grant fan-out) — true membership, not
+    // "has a grant via this role", which would miss a role with no grant yet.
+    activeUserIds() {
+      if (!this.userFilterRoleId || !this.graph) return [];
+      const role = this.graph.roles.find((r) => r.id === this.userFilterRoleId);
+      return role ? role.memberUserIds : [];
+    },
+    filtersActive() {
+      return this.activeTypes.size > 0 || this.userFilterRoleId !== "";
+    },
+    // Same type/user-role filters as the diagram above, so the table below
+    // it never contradicts what's currently shown on the graph.
     grantsForTable() {
       if (!this.graph) return [];
       const usersById = Object.fromEntries(this.graph.users.map((u) => [u.id, u]));
       const resById = Object.fromEntries(this.graph.resources.map((r) => [r.id, r]));
-      return this.graph.edges.map((e) => ({
-        key: e.userId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || ""),
-        userName: (usersById[e.userId] || {}).name || e.userId,
-        resourceName: (resById[e.resourceId] || {}).name || e.resourceId,
-        roleName: e.kind === "user-direct" ? t("atlas.mode_direct") : e.roleName,
-        portsLabel: e.allPorts ? t("acl.picker_all") : e.portLabels.join(", "),
-      }));
+      const typeActive = this.activeTypes.size > 0;
+      const userSet = this.activeUserIds.length > 0 ? new Set(this.activeUserIds) : null;
+      return this.graph.edges
+          .filter((e) => {
+            if (typeActive) {
+              const res = resById[e.resourceId];
+              if (!res || !this.activeTypes.has(res.type)) return false;
+            }
+            if (userSet && !userSet.has(e.userId)) return false;
+            return true;
+          })
+          .map((e) => ({
+            key: e.userId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || ""),
+            userName: (usersById[e.userId] || {}).name || e.userId,
+            resourceName: (resById[e.resourceId] || {}).name || e.resourceId,
+            roleName: e.kind === "user-direct" ? t("atlas.mode_direct") : e.roleName,
+            portsLabel: e.allPorts ? t("acl.picker_all") : e.portLabels.join(", "),
+          }));
+    },
+    grantsPageCount() {
+      return Math.max(1, Math.ceil(this.grantsForTable.length / GRANTS_PAGE_SIZE));
+    },
+    grantsPageClamped() {
+      return Math.min(this.grantsPage, this.grantsPageCount);
+    },
+    pagedGrantsForTable() {
+      const start = (this.grantsPageClamped - 1) * GRANTS_PAGE_SIZE;
+      return this.grantsForTable.slice(start, start + GRANTS_PAGE_SIZE);
+    },
+    grantsPageInfo() {
+      return t("atlas.grants_page_info", { page: this.grantsPageClamped, total: this.grantsPageCount });
     },
   },
   watch: {
@@ -82,6 +156,10 @@ export default defineComponent({
     selectedRoleId(newVal) {
       if (newVal) { this.selectedUserId = null; this.selectedResourceId = null; }
     },
+    // A changed filter can shrink the result set below the current page —
+    // back to page 1 rather than landing on an empty page.
+    activeTypes() { this.grantsPage = 1; },
+    userFilterRoleId() { this.grantsPage = 1; },
   },
   async mounted() {
     await this.load();
@@ -128,6 +206,26 @@ export default defineComponent({
     clearFocus() {
       this.selectedUserId = null;
       this.selectedResourceId = null;
+    },
+
+    toggleTypeFilter(type) {
+      const next = new Set(this.activeTypes);
+      if (next.has(type)) next.delete(type); else next.add(type);
+      this.activeTypes = next;
+    },
+    clearTypeFilter() {
+      this.activeTypes = new Set();
+    },
+    clearAllFilters() {
+      this.activeTypes = new Set();
+      this.userFilterRoleId = "";
+    },
+
+    grantsPrevPage() {
+      if (this.grantsPageClamped > 1) this.grantsPage = this.grantsPageClamped - 1;
+    },
+    grantsNextPage() {
+      if (this.grantsPageClamped < this.grantsPageCount) this.grantsPage = this.grantsPageClamped + 1;
     },
 
     async load() {
@@ -260,8 +358,8 @@ export default defineComponent({
           { label: t('atlas.stat_sites'), value: stats.sites },
           { label: t('atlas.stat_devices'), value: stats.devices },
           { label: t('atlas.stat_users'), value: stats.users },
-          { label: t('atlas.stat_grants'), value: stats.grants },
-        ]" :key="s.label" style="text-align: center">
+          { label: t('atlas.stat_grants'), value: stats.grants, hint: t('atlas.stat_grants_hint') },
+        ]" :key="s.label" style="text-align: center" :title="s.hint || ''">
           <div style="font-size: var(--text-xl); font-weight: 700; line-height: 1">{{ s.value }}</div>
           <div class="muted" style="font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em">{{ s.label }}</div>
         </div>
@@ -269,6 +367,38 @@ export default defineComponent({
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+
+    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-3)">{{ t('atlas.legend_hint') }}</p>
+
+    <!-- Type/user filter chips — same inclusive-filter pattern as the topology
+         map's type row (empty selection = show everything; picking one or
+         more chips narrows to just those). Unlike the topology map, Atlas
+         also gets a user row, plus one combined reset once either is active. -->
+    <div v-if="graph && resourceTypes.length > 0" style="display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); font-family: var(--font-sans)">
+      <button @click="clearTypeFilter"
+              :class="['btn', 'btn-sm', activeTypes.size === 0 ? 'btn-secondary' : 'btn-ghost']"
+              style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
+        {{ t('topology.filter_all') }}
+        <span style="font-family: var(--font-mono); opacity: 0.6">{{ graph.resources.length }}</span>
+      </button>
+      <button v-for="ty in resourceTypes" :key="ty.key" @click="toggleTypeFilter(ty.key)"
+              :class="['btn', 'btn-sm', activeTypes.has(ty.key) ? 'btn-secondary' : 'btn-ghost']"
+              style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
+        <Icon :name="ty.key" :size="13" />
+        {{ ty.label }}
+        <span style="font-family: var(--font-mono); opacity: 0.6">{{ ty.count }}</span>
+      </button>
+    </div>
+
+    <div v-if="graph && graph.users.length > 0" style="display: flex; gap: var(--space-3); align-items: center; margin-bottom: var(--space-4); flex-wrap: wrap">
+      <select class="select" v-model="userFilterRoleId" style="max-width: 220px">
+        <option value="">{{ t('atlas.filter_all_users') }}</option>
+        <option v-for="r in graph.roles" :key="r.id" :value="r.id">{{ r.name }}</option>
+      </select>
+      <button v-if="filtersActive" class="btn btn-ghost btn-sm" @click="clearAllFilters">
+        <Icon name="trash" :size="13" /> {{ t('atlas.filters_clear') }}
+      </button>
+    </div>
 
     <div style="display: flex; gap: var(--space-3); align-items: center; margin-bottom: var(--space-4); flex-wrap: wrap">
       <select class="select" v-model="selectedRoleId" style="max-width: 260px">
@@ -312,6 +442,7 @@ export default defineComponent({
     <template v-else-if="graph">
       <div class="card card-pad">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
+                       :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" />
       </div>
 
@@ -329,7 +460,7 @@ export default defineComponent({
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in grantsForTable" :key="row.key">
+            <tr v-for="row in pagedGrantsForTable" :key="row.key">
               <td>{{ row.userName }}</td>
               <td>{{ row.roleName }}</td>
               <td>{{ row.resourceName }}</td>
@@ -337,6 +468,11 @@ export default defineComponent({
             </tr>
           </tbody>
         </table>
+        <div v-if="grantsForTable.length > 0" style="display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3)">
+          <button class="btn btn-ghost btn-sm" :disabled="grantsPageClamped <= 1" @click="grantsPrevPage">{{ t('atlas.grants_page_prev') }}</button>
+          <button class="btn btn-ghost btn-sm" :disabled="grantsPageClamped >= grantsPageCount" @click="grantsNextPage">{{ t('atlas.grants_page_next') }}</button>
+          <span class="muted" style="font-size: var(--text-sm)">{{ grantsPageInfo }}</span>
+        </div>
         <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.type_grants_empty') }}</p>
       </div>
     </template>

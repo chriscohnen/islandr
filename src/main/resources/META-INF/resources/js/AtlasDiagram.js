@@ -42,47 +42,71 @@ function circleRadiusFor(nodeCount) {
   return Math.max(MIN_CIRCLE_RADIUS, packedRadius + NODE_RING_MARGIN);
 }
 
-// Shelf packing: circles are laid out in rows (like a masonry/tag-cloud
-// layout), each row filled left-to-right up to targetWidth, wrapping to a
-// new row once the next circle would exceed it. Rows are then centered and
-// stacked. Unlike a tangent-circle blob, this fills a rectangular area
-// predictably even when radii vary hugely (one big site circle next to many
-// small ones) — the big circle just gets its own row instead of forcing an
-// irregular, corner-wasting cluster shape.
-function packCirclesIntoRows(items, targetAspect) {
+// Relaxation packing: seed every circle along an outward spiral (so nothing
+// starts stacked on top of anything else), then repeatedly (a) nudge every
+// circle a little toward the group's centroid, keeping the cluster compact
+// instead of drifting apart, (b) nudge same-groupKey circles toward each
+// other's own sub-centroid, harder than the global pull, so sites sharing a
+// gateway peer — physically the same location — end up next to each other
+// instead of scattered wherever the spiral seed happened to drop them, and
+// (c) push any pair that still overlaps apart along the line between their
+// centers. A few dozen passes converge on a tight, roughly circular cluster
+// that adapts naturally to wildly different radii (one huge site next to
+// several small ones) — nothing here assumes a fixed row/column structure
+// the way a shelf-pack layout would.
+function relaxCirclePositions(items, iterations = 200) {
   if (items.length === 0) return items;
-  const totalArea = items.reduce((sum, i) => sum + Math.PI * i.r * i.r, 0);
-  const targetWidth = Math.max(items[0].r * 2, Math.sqrt(totalArea * targetAspect) * 1.25);
-
-  const rows = [];
-  let row = [], x = 0;
-  for (const item of items) {
-    const d = item.r * 2;
-    const nextX = row.length === 0 ? d : x + CIRCLE_GAP + d;
-    if (row.length > 0 && nextX > targetWidth) {
-      rows.push(row);
-      row = [];
-      x = 0;
-    }
-    item.localX = (row.length === 0 ? 0 : x + CIRCLE_GAP) + item.r;
-    x = row.length === 0 ? d : x + CIRCLE_GAP + d;
-    row.push(item);
-  }
-  rows.push(row);
-
-  const rowWidths = rows.map((r) => Math.max(...r.map((i) => i.localX + i.r)));
-  const maxRowWidth = Math.max(...rowWidths);
-
-  let y = 0;
-  rows.forEach((r, ri) => {
-    const rowHeight = Math.max(...r.map((i) => i.r * 2));
-    const offset = (maxRowWidth - rowWidths[ri]) / 2;
-    for (const item of r) {
-      item.x = item.localX + offset;
-      item.y = y + rowHeight / 2;
-    }
-    y += rowHeight + CIRCLE_GAP;
+  const spiralStep = 2.4; // radians per item — golden-angle-ish spread, not a full turn each step
+  items.forEach((item, i) => {
+    const t = i * spiralStep;
+    const spiralR = 6 * Math.sqrt(i);
+    item.x = spiralR * Math.cos(t);
+    item.y = spiralR * Math.sin(t);
   });
+
+  const groups = new Map();
+  for (const item of items) {
+    if (!item.groupKey) continue;
+    if (!groups.has(item.groupKey)) groups.set(item.groupKey, []);
+    groups.get(item.groupKey).push(item);
+  }
+  const coLocatedGroups = Array.from(groups.values()).filter((g) => g.length > 1);
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const cx = items.reduce((sum, i) => sum + i.x, 0) / items.length;
+    const cy = items.reduce((sum, i) => sum + i.y, 0) / items.length;
+    for (const item of items) {
+      item.x += (cx - item.x) * 0.015;
+      item.y += (cy - item.y) * 0.015;
+    }
+
+    for (const group of coLocatedGroups) {
+      const gx = group.reduce((sum, i) => sum + i.x, 0) / group.length;
+      const gy = group.reduce((sum, i) => sum + i.y, 0) / group.length;
+      for (const item of group) {
+        item.x += (gx - item.x) * 0.06;
+        item.y += (gy - item.y) * 0.06;
+      }
+    }
+
+    let anyOverlap = false;
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 0.01;
+        const minDist = a.r + b.r + CIRCLE_GAP;
+        if (dist < minDist) {
+          anyOverlap = true;
+          const push = (minDist - dist) / 2;
+          const ux = dx / dist, uy = dy / dist;
+          a.x -= ux * push; a.y -= uy * push;
+          b.x += ux * push; b.y += uy * push;
+        }
+      }
+    }
+    if (!anyOverlap && iter > 10) break; // converged — stop early on easy layouts
+  }
   return items;
 }
 
@@ -103,6 +127,8 @@ export default defineComponent({
     highlightedUserIds: { type: Array, default: () => [] }, // user ids for the active role filter
     selectedUserId: { type: String, default: null }, // focused user (direct-grant mode) — only their edges render
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
+    activeTypes: { type: Array, default: () => [] }, // non-empty = show only resources of these types
+    activeUserIds: { type: Array, default: () => [] }, // non-empty = show only these users
   },
   emits: ["drag-grant", "revoke-edge", "user-click", "resource-click"],
   data() {
@@ -122,19 +148,38 @@ export default defineComponent({
     highlightedUserIdSet() {
       return new Set(this.highlightedUserIds);
     },
+    // Inclusive filter (empty = show everything), same as the topology
+    // map's type chips. Filtered-out nodes are dropped entirely, not just
+    // dimmed — their edges disappear for free, since edgeLines below only
+    // draws edges between nodes that made it into nodesById.
+    visibleResources() {
+      if (this.activeTypes.length === 0) return this.graph.resources;
+      const active = new Set(this.activeTypes);
+      return this.graph.resources.filter((r) => active.has(r.type));
+    },
+    visibleUsers() {
+      if (this.activeUserIds.length === 0) return this.graph.users;
+      const active = new Set(this.activeUserIds);
+      return this.graph.users.filter((u) => active.has(u.id));
+    },
     // One entry per site + one synthetic "mobile" entry for every User.
     circles() {
       const bySite = new Map();
-      for (const r of this.graph.resources) {
-        if (!bySite.has(r.siteId)) bySite.set(r.siteId, { id: r.siteId, name: r.siteName, cidr: r.siteCidr, resources: [] });
+      for (const r of this.visibleResources) {
+        if (!bySite.has(r.siteId)) {
+          bySite.set(r.siteId, {
+            id: r.siteId, name: r.siteName, cidr: r.siteCidr,
+            gatewayPeerId: r.siteGatewayPeerId, resources: [],
+          });
+        }
         bySite.get(r.siteId).resources.push(r);
       }
       const out = [];
-      if (this.graph.users.length > 0) {
-        out.push({ id: "__mobile__", name: t("atlas.circle_mobile"), kind: "mobile", nodes: this.graph.users });
+      if (this.visibleUsers.length > 0) {
+        out.push({ id: "__mobile__", name: t("atlas.circle_mobile"), kind: "mobile", nodes: this.visibleUsers });
       }
       for (const site of bySite.values()) {
-        out.push({ id: site.id, name: site.name, cidr: site.cidr, kind: "site", nodes: site.resources });
+        out.push({ id: site.id, name: site.name, cidr: site.cidr, gatewayPeerId: site.gatewayPeerId, kind: "site", nodes: site.resources });
       }
       return out;
     },
@@ -143,14 +188,16 @@ export default defineComponent({
       const mobileEntry = circles.find((c) => c.kind === "mobile");
       const siteEntries = circles.filter((c) => c.kind !== "mobile");
 
-      // Site circles are packed into rows (shelf packing) instead of lined
-      // up in a single strip, so busy layouts use the canvas area. Biasing
-      // the target width wider than the canvas compensates for the mobile
-      // row added below, which otherwise leaves the combined figure taller
-      // than the wide canvas wants.
-      const siteItems = siteEntries.map((c) => ({ ref: c, r: circleRadiusFor(c.nodes.length) }));
+      // Site circles are packed via relaxation (spiral seed + iterative
+      // overlap resolution) into a compact cluster, rather than lined up in
+      // a strip or forced into rows. Sites sharing a gateway peer are the
+      // same physical location, so they're tagged with a shared groupKey —
+      // the relaxation pulls them toward each other extra hard.
+      const siteItems = siteEntries.map((c) => ({
+        ref: c, r: circleRadiusFor(c.nodes.length), groupKey: c.gatewayPeerId || null,
+      }));
       siteItems.sort((a, b) => b.r - a.r);
-      packCirclesIntoRows(siteItems, (W / H) * 1.3);
+      relaxCirclePositions(siteItems);
 
       let mobileItem = null;
       if (mobileEntry) {
@@ -395,6 +442,12 @@ export default defineComponent({
       }
       return node.id === this.selectedResourceId;
     },
+    // True only for the one individually click-selected node (user or
+    // resource focus) — not the broader role-membership highlight, which can
+    // mark many nodes at once and would turn the animated ring into noise.
+    nodeFocused(node) {
+      return node.id === this.selectedUserId || node.id === this.selectedResourceId;
+    },
     onResourceNodeClick(node) {
       if (node.isUser) return;
       this.$emit("resource-click", node.id);
@@ -461,6 +514,15 @@ export default defineComponent({
                @pointerenter="!node.isUser && onResourceHover(node, $event)"
                @pointermove="!node.isUser && hoveredNode === node && updateHoverPos($event)"
                @pointerleave="!node.isUser && onResourceLeave()">
+              <circle v-if="nodeFocused(node)" :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
+                      fill="none" stroke="var(--fg1)" stroke-width="1.5">
+                <animate attributeName="r" values="${NODE_RADIUS + 3};${NODE_RADIUS + 9};${NODE_RADIUS + 3}"
+                         keyTimes="0;0.5;1" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"
+                         dur="2.2s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.55;0.05;0.55"
+                         keyTimes="0;0.5;1" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"
+                         dur="2.2s" repeatCount="indefinite" />
+              </circle>
               <circle :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
                       :fill="node.isUser ? 'var(--accent)' : circle.color"
                       :fill-opacity="nodeDimmed(node) ? 0.3 : 1"

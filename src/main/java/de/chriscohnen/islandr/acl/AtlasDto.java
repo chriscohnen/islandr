@@ -8,7 +8,7 @@ public class AtlasDto {
 
     public record ResourceNode(
             String id, String name, String type, String siteId, String siteName,
-            String siteCidr, String ip, String description) {}
+            String siteCidr, String ip, String description, String siteGatewayPeerId) {}
 
     /** kind: "role" | "type-grant" | "user-direct". roleId/roleName are null for "user-direct". */
     public record Edge(
@@ -16,7 +16,7 @@ public class AtlasDto {
             String roleId, String roleName,
             boolean allPorts, List<String> portLabels) {}
 
-    public record RoleOption(String id, String name) {}
+    public record RoleOption(String id, String name, List<String> memberUserIds) {}
 
     public record Graph(
             List<UserNode> users, List<ResourceNode> resources,

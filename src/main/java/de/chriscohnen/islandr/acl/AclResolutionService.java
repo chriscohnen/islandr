@@ -219,30 +219,13 @@ public class AclResolutionService {
                 .map(u -> new AtlasDto.UserNode(u.id, u.name))
                 .toList();
 
-        List<AtlasDto.RoleOption> roleOptions = Role.<Role>listAll(Sort.by("name")).stream()
-                .map(r -> new AtlasDto.RoleOption(r.id, r.name))
-                .toList();
-
-        @SuppressWarnings("unchecked")
-        List<Object[]> allResRows = em.createNativeQuery(
-                        "SELECT r.id, r.site_id, s.name, r.name, r.type, s.cidr, r.ip, r.description "
-                                + "FROM resources r JOIN sites s ON s.id = r.site_id "
-                                + "ORDER BY s.name, r.name")
-                .getResultList();
-        List<AtlasDto.ResourceNode> resourceNodes = allResRows.stream()
-                .map(r -> new AtlasDto.ResourceNode(
-                        (String) r[0], (String) r[3], (String) r[4], (String) r[1], (String) r[2],
-                        (String) r[5], (String) r[6], (String) r[7]))
-                .toList();
-
-        if (userNodes.isEmpty() || resourceNodes.isEmpty()) {
-            return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions);
-        }
-
         // Every user's effective role set: explicit user_roles membership
         // plus every auto_all role (Everyone, ADR-0013) — same rule
         // resolveRoleIds applies per-user, computed here for all users at
-        // once so role-grants/type-grants can fan out without N+1 queries.
+        // once so role-grants/type-grants can fan out without N+1 queries,
+        // and so the frontend's role filter can show true membership
+        // (not just "has a grant via this role", which misses roles that
+        // hold no resource grant yet).
         @SuppressWarnings("unchecked")
         List<Object[]> membershipRows = em.createNativeQuery(
                         "SELECT user_id, role_id FROM user_roles").getResultList();
@@ -259,6 +242,26 @@ public class AclResolutionService {
             for (String roleId : e.getValue()) {
                 usersByRole.computeIfAbsent(roleId, k -> new ArrayList<>()).add(e.getKey());
             }
+        }
+
+        List<AtlasDto.RoleOption> roleOptions = Role.<Role>listAll(Sort.by("name")).stream()
+                .map(r -> new AtlasDto.RoleOption(r.id, r.name, usersByRole.getOrDefault(r.id, List.of())))
+                .toList();
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> allResRows = em.createNativeQuery(
+                        "SELECT r.id, r.site_id, s.name, r.name, r.type, s.cidr, r.ip, r.description, s.gateway_peer_id "
+                                + "FROM resources r JOIN sites s ON s.id = r.site_id "
+                                + "ORDER BY s.name, r.name")
+                .getResultList();
+        List<AtlasDto.ResourceNode> resourceNodes = allResRows.stream()
+                .map(r -> new AtlasDto.ResourceNode(
+                        (String) r[0], (String) r[3], (String) r[4], (String) r[1], (String) r[2],
+                        (String) r[5], (String) r[6], (String) r[7], (String) r[8]))
+                .toList();
+
+        if (userNodes.isEmpty() || resourceNodes.isEmpty()) {
+            return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions);
         }
 
         List<AtlasDto.Edge> edges = new ArrayList<>();
