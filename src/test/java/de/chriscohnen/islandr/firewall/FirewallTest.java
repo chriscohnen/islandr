@@ -40,6 +40,7 @@ class FirewallTest {
     @Inject RuleBuilder builder;
     @Inject RulesetService rulesets;
     @Inject NftablesAdapter adapter;
+    @Inject de.chriscohnen.islandr.acl.RoleBootstrap roleBootstrap;
     @PersistenceContext EntityManager em;
 
     /**
@@ -75,6 +76,15 @@ class FirewallTest {
     @Transactional
     void teardown() {
         wipeAclRows();
+        // Role.deleteAll() above also removes the RoleBootstrap-seeded
+        // "Everyone" auto_all role. Reseed only here, after the class's own
+        // tests are done (some of them deliberately create their own
+        // "Everyone" role mid-test, which would collide with the unique
+        // roles.name index if this ran in @BeforeEach too) — so whichever
+        // test class runs next still finds the invariant "exactly one
+        // auto_all role always exists" holding. Its absence otherwise flakes
+        // ConfigImportRoundTripTest depending on suite execution order.
+        roleBootstrap.seedEveryoneRole();
     }
 
     private void wipeAclRows() {

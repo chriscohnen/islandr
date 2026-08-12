@@ -14,6 +14,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.path.json.JsonPath;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DashboardResourceTest {
 
     @Inject AuditService audit;
+    @Inject de.chriscohnen.islandr.acl.RoleBootstrap roleBootstrap;
 
     @BeforeEach
     @Transactional
@@ -48,6 +50,9 @@ class DashboardResourceTest {
         Resource.deleteAll();
         Site.deleteAll();
         Role.deleteAll();
+        // roles.total below must equal exactly the 2 roles this fixture creates,
+        // so the RoleBootstrap "Everyone" role is deliberately NOT reseeded here
+        // — only in @AfterEach, once this class is done asserting on the count.
 
         // Two users — one admin, one plain — so userStats.admins ends up non-zero.
         User admin = User.createNew("Alice Admin", "alice-" + UUID.randomUUID() + "@firma.de");
@@ -97,6 +102,17 @@ class DashboardResourceTest {
                 "k3k3k3k3k3k3k3k3k3k3k3k3k3k3k3k3k3k3k3k3k3=", "10.99.0.22");
         disabled.enabled = false;
         disabled.persist();
+    }
+
+    // Role.deleteAll() in seed() above removes the RoleBootstrap-seeded
+    // "Everyone" auto_all role. Reseed after this class's tests are done so
+    // whichever test class runs next still finds the invariant "exactly one
+    // auto_all role always exists" holding — its absence otherwise flakes
+    // ConfigImportRoundTripTest depending on suite execution order.
+    @AfterEach
+    @Transactional
+    void reseedEveryoneRole() {
+        roleBootstrap.seedEveryoneRole();
     }
 
     @Test

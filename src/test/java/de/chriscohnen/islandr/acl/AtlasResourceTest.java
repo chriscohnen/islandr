@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.acl;
 import de.chriscohnen.islandr.auth.AdminSessionExtension;
 import de.chriscohnen.islandr.user.User;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
@@ -26,6 +27,7 @@ import static org.hamcrest.Matchers.is;
 class AtlasResourceTest {
 
     @PersistenceContext EntityManager em;
+    @Inject RoleBootstrap roleBootstrap;
 
     @BeforeEach
     void wipe() { wipeAll(); }
@@ -46,6 +48,15 @@ class AtlasResourceTest {
         Site.deleteAll();
         Role.deleteAll();
         User.delete("email like ?1", "atlas-test-%");
+        // Role.deleteAll() also removes the RoleBootstrap-seeded "Everyone"
+        // auto_all role. Reseed it (empty, no grants — same as the real
+        // seed) so the invariant "exactly one auto_all role always exists"
+        // keeps holding for whatever test runs next; its absence otherwise
+        // flakes ConfigImportRoundTripTest depending on suite execution
+        // order. Safe here: no test in this class names its own role
+        // "Everyone" (they use "atlas-test-everyone"), and an inert
+        // grant-less role contributes zero edges to any assertion below.
+        roleBootstrap.seedEveryoneRole();
     }
 
     @Test
