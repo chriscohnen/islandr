@@ -19,7 +19,7 @@ export default defineComponent({
       selectedUserId: null, // focused user (click-select in direct mode) — only their edges render
       selectedResourceId: null, // focused resource (click-select) — only edges reaching it render
       lang: locale.current,
-      grantDialog: null, // { userId, resourceId, resourceName, kind, allPorts, portIds, ports }
+      grantDialog: null, // { subjectType, subjectId, resourceId, subjectName, resourceName, kind, allPorts, portIds, ports }
       grantSaving: false,
       revokeConfirm: null, // { edge, userName, resourceName, roleLabel }
       revokeSaving: false,
@@ -45,7 +45,7 @@ export default defineComponent({
       if (!this.selectedRoleId || !this.graph) return [];
       const ids = new Set();
       for (const e of this.graph.edges) {
-        if (e.kind === "role" && e.roleId === this.selectedRoleId) ids.add(e.userId);
+        if (e.kind === "role" && e.roleId === this.selectedRoleId) ids.add(e.subjectId);
       }
       return Array.from(ids);
     },
@@ -67,7 +67,7 @@ export default defineComponent({
     stats() {
       if (!this.graph) return { sites: 0, devices: 0, users: 0, grants: 0 };
       return {
-        sites: new Set(this.graph.resources.map((r) => r.siteId)).size,
+        sites: (this.graph.sites || []).length,
         devices: this.graph.resources.length,
         users: this.graph.users.length,
         grants: this.graph.edges.length,
@@ -116,8 +116,12 @@ export default defineComponent({
     grantsForTable() {
       if (!this.graph) return [];
       const usersById = Object.fromEntries(this.graph.users.map((u) => [u.id, u]));
+      const sitesById = Object.fromEntries((this.graph.sites || []).map((s) => [s.id, s]));
       const resById = Object.fromEntries(this.graph.resources.map((r) => [r.id, r]));
       const typeActive = this.activeTypes.size > 0;
+      // The user-role filter narrows which users' edges show — it has no
+      // meaning for a site subject, so a site-direct edge is never excluded
+      // by it (only the type filter applies to those).
       const userSet = this.activeUserIds.length > 0 ? new Set(this.activeUserIds) : null;
       return this.graph.edges
           .filter((e) => {
@@ -125,16 +129,23 @@ export default defineComponent({
               const res = resById[e.resourceId];
               if (!res || !this.activeTypes.has(res.type)) return false;
             }
-            if (userSet && !userSet.has(e.userId)) return false;
+            if (userSet && e.subjectType === "user" && !userSet.has(e.subjectId)) return false;
             return true;
           })
-          .map((e) => ({
-            key: e.userId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || ""),
-            userName: (usersById[e.userId] || {}).name || e.userId,
-            resourceName: (resById[e.resourceId] || {}).name || e.resourceId,
-            roleName: e.kind === "user-direct" ? t("atlas.mode_direct") : e.roleName,
-            portsLabel: e.allPorts ? t("acl.picker_all") : e.portLabels.join(", "),
-          }));
+          .map((e) => {
+            const subjectName = e.subjectType === "site"
+                ? t("atlas.subject_site", { site: (sitesById[e.subjectId] || {}).name || e.subjectId })
+                : (usersById[e.subjectId] || {}).name || e.subjectId;
+            return {
+              key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || ""),
+              userName: subjectName,
+              resourceName: (resById[e.resourceId] || {}).name || e.resourceId,
+              roleName: e.kind === "user-direct" ? t("atlas.mode_direct")
+                  : e.kind === "site-direct" ? t("atlas.mode_direct_site")
+                  : e.roleName,
+              portsLabel: e.allPorts ? t("acl.picker_all") : e.portLabels.join(", "),
+            };
+          });
     },
     grantsPageCount() {
       return Math.max(1, Math.ceil(this.grantsForTable.length / GRANTS_PAGE_SIZE));
@@ -242,13 +253,40 @@ export default defineComponent({
       }
     },
 
-    async onDragGrant({ userId, resourceId }) {
+    async onDragGrant({ subjectType, subjectId, resourceId }) {
       const resource = this.graph.resources.find((r) => r.id === resourceId);
-      const user = this.graph.users.find((u) => u.id === userId);
-      if (!resource || !user) return;
+      if (!resource) return;
+      // A site drag always creates a direct site-grant — sites don't hold
+      // roles in this design, so there's no role-mode equivalent for them
+      // the way a user drag has (role vs. direct, depending on selectedRoleId).
+      if (subjectType === "site") {
+        const site = (this.graph.sites || []).find((s) => s.id === subjectId);
+        if (!site) return;
+        const existingFull = this.graph.edges.some((e) =>
+            e.subjectType === "site" && e.subjectId === subjectId && e.resourceId === resourceId
+                && e.allPorts && e.kind === "site-direct");
+        if (existingFull) {
+          this.error = t("atlas.grant_already_full", { user: site.name, resource: resource.name });
+          return;
+        }
+        let ports = [];
+        try {
+          const res = await fetch("/api/v1/resources/" + resourceId);
+          if (res.ok) { const full = await res.json(); ports = full.ports || []; }
+        } catch { /* dialog still opens, port list just stays empty */ }
+        this.grantDialog = {
+          subjectType: "site", subjectId, resourceId,
+          subjectName: site.name, resourceName: resource.name,
+          kind: "site-direct", allPorts: true, portIds: [], ports,
+        };
+        return;
+      }
+
+      const user = this.graph.users.find((u) => u.id === subjectId);
+      if (!user) return;
       const kind = this.selectedRoleId ? "role" : "user-direct";
       const existingFull = this.graph.edges.some((e) =>
-          e.userId === userId && e.resourceId === resourceId && e.allPorts &&
+          e.subjectType === "user" && e.subjectId === subjectId && e.resourceId === resourceId && e.allPorts &&
           (kind === "role" ? (e.kind === "role" && e.roleId === this.selectedRoleId) : e.kind === "user-direct"));
       if (existingFull) {
         this.error = t("atlas.grant_already_full", { user: user.name, resource: resource.name });
@@ -263,8 +301,8 @@ export default defineComponent({
         }
       } catch { /* dialog still opens, port list just stays empty */ }
       this.grantDialog = {
-        userId, resourceId,
-        userName: user.name,
+        subjectType: "user", subjectId, resourceId,
+        subjectName: user.name,
         resourceName: resource.name,
         kind,
         allPorts: true,
@@ -283,10 +321,14 @@ export default defineComponent({
       this.error = null;
       try {
         const d = this.grantDialog;
-        const url = d.kind === "role" ? "/api/v1/acl/matrix" : "/api/v1/acl/user-grants";
+        const url = d.kind === "role" ? "/api/v1/acl/matrix"
+            : d.kind === "site-direct" ? "/api/v1/acl/site-grants"
+            : "/api/v1/acl/user-grants";
         const body = d.kind === "role"
             ? { grants: [{ roleId: this.selectedRoleId, resourceId: d.resourceId, allPorts: d.allPorts, portIds: d.allPorts ? [] : d.portIds }] }
-            : { userId: d.userId, resourceId: d.resourceId, allPorts: d.allPorts, portIds: d.allPorts ? [] : d.portIds };
+            : d.kind === "site-direct"
+            ? { siteId: d.subjectId, resourceId: d.resourceId, allPorts: d.allPorts, portIds: d.allPorts ? [] : d.portIds }
+            : { userId: d.subjectId, resourceId: d.resourceId, allPorts: d.allPorts, portIds: d.allPorts ? [] : d.portIds };
         const res = await fetch(url, {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -307,15 +349,23 @@ export default defineComponent({
 
     onRevokeEdge(edge) {
       const resource = this.graph.resources.find((r) => r.id === edge.resourceId);
-      const user = this.graph.users.find((u) => u.id === edge.userId);
       const resourceName = resource ? resource.name : edge.resourceId;
-      const userName = user ? user.name : edge.userId;
+      let subjectName;
+      if (edge.subjectType === "site") {
+        const site = (this.graph.sites || []).find((s) => s.id === edge.subjectId);
+        subjectName = t("atlas.subject_site", { site: site ? site.name : edge.subjectId });
+      } else {
+        const user = this.graph.users.find((u) => u.id === edge.subjectId);
+        subjectName = user ? user.name : edge.subjectId;
+      }
       if (edge.kind === "type-grant") {
         this.error = t("atlas.revoke_type_grant_blocked");
         return;
       }
-      const roleLabel = edge.kind === "role" ? edge.roleName : t("atlas.mode_direct");
-      this.revokeConfirm = { edge, userName, resourceName, roleLabel };
+      const roleLabel = edge.kind === "role" ? edge.roleName
+          : edge.kind === "site-direct" ? t("atlas.mode_direct_site")
+          : t("atlas.mode_direct");
+      this.revokeConfirm = { edge, userName: subjectName, resourceName, roleLabel };
     },
 
     cancelRevokeConfirm() {
@@ -328,10 +378,14 @@ export default defineComponent({
       this.revokeSaving = true;
       this.error = null;
       try {
-        const url = edge.kind === "role" ? "/api/v1/acl/matrix" : "/api/v1/acl/user-grants";
+        const url = edge.kind === "role" ? "/api/v1/acl/matrix"
+            : edge.kind === "site-direct" ? "/api/v1/acl/site-grants"
+            : "/api/v1/acl/user-grants";
         const body = edge.kind === "role"
             ? { grants: [{ roleId: edge.roleId, resourceId: edge.resourceId, allPorts: false, portIds: [] }] }
-            : { userId: edge.userId, resourceId: edge.resourceId, allPorts: false, portIds: [] };
+            : edge.kind === "site-direct"
+            ? { siteId: edge.subjectId, resourceId: edge.resourceId, allPorts: false, portIds: [] }
+            : { userId: edge.subjectId, resourceId: edge.resourceId, allPorts: false, portIds: [] };
         const res = await fetch(url, {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -485,7 +539,7 @@ export default defineComponent({
         </div>
         <div class="modal-body">
           <p style="margin: 0 0 var(--space-3)">
-            <strong>{{ t('atlas.grant_dialog_mode') }}</strong> {{ grantModeLabel }} → {{ grantDialog.userName }} → {{ grantDialog.resourceName }}
+            <strong>{{ t('atlas.grant_dialog_mode') }}</strong> {{ grantModeLabel }} → {{ grantDialog.subjectName }} → {{ grantDialog.resourceName }}
           </p>
 
           <label style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; margin-bottom: var(--space-2)">

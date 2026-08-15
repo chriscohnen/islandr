@@ -248,6 +248,10 @@ public class AclResolutionService {
                 .map(r -> new AtlasDto.RoleOption(r.id, r.name, usersByRole.getOrDefault(r.id, List.of())))
                 .toList();
 
+        List<AtlasDto.SiteNode> siteNodes = Site.<Site>listAll(Sort.by("name")).stream()
+                .map(s -> new AtlasDto.SiteNode(s.id, s.name, s.cidr, s.gatewayPeerId))
+                .toList();
+
         @SuppressWarnings("unchecked")
         List<Object[]> allResRows = em.createNativeQuery(
                         "SELECT r.id, r.site_id, s.name, r.name, r.type, s.cidr, r.ip, r.description, s.gateway_peer_id "
@@ -260,8 +264,12 @@ public class AclResolutionService {
                         (String) r[5], (String) r[6], (String) r[7], (String) r[8]))
                 .toList();
 
-        if (userNodes.isEmpty() || resourceNodes.isEmpty()) {
-            return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions);
+        // Only resources are a hard requirement for any edge to exist — site-direct
+        // grants don't need a single User row, so an empty userNodes list alone
+        // must not suppress them (the role/type/user-direct blocks below degrade
+        // to zero edges gracefully on their own when there are no users).
+        if (resourceNodes.isEmpty()) {
+            return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions, siteNodes);
         }
 
         List<AtlasDto.Edge> edges = new ArrayList<>();
@@ -297,7 +305,7 @@ public class AclResolutionService {
             boolean allPorts = (Boolean) g[4];
             List<String> portLabels = allPorts ? List.of() : portLabelsByGrant.getOrDefault(grantId, List.of());
             for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
-                edges.add(new AtlasDto.Edge(userId, resourceId, "role", roleId, roleName, allPorts, portLabels));
+                edges.add(new AtlasDto.Edge("user", userId, resourceId, "role", roleId, roleName, allPorts, portLabels));
             }
         }
 
@@ -311,7 +319,7 @@ public class AclResolutionService {
         for (Object[] g : typeGrantRows) {
             String roleId = (String) g[0], roleName = (String) g[1], resourceId = (String) g[2];
             for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
-                edges.add(new AtlasDto.Edge(userId, resourceId, "type-grant", roleId, roleName, true, List.of()));
+                edges.add(new AtlasDto.Edge("user", userId, resourceId, "type-grant", roleId, roleName, true, List.of()));
             }
         }
 
@@ -343,10 +351,42 @@ public class AclResolutionService {
             String grantId = (String) g[0], userId = (String) g[1], resourceId = (String) g[2];
             boolean allPorts = (Boolean) g[3];
             List<String> portLabels = allPorts ? List.of() : portLabelsByUserGrant.getOrDefault(grantId, List.of());
-            edges.add(new AtlasDto.Edge(userId, resourceId, "user-direct", null, null, allPorts, portLabels));
+            edges.add(new AtlasDto.Edge("user", userId, resourceId, "user-direct", null, null, allPorts, portLabels));
         }
 
-        return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions);
+        // Direct site grants — already site-scoped, no fan-out, symmetric to
+        // the user-direct block above but keyed by siteId instead of userId.
+        @SuppressWarnings("unchecked")
+        List<Object[]> siteGrantRows = em.createNativeQuery(
+                        "SELECT id, site_id, resource_id, all_ports FROM site_resource_grants")
+                .getResultList();
+        Set<String> limitedSiteGrantIds = new HashSet<>();
+        for (Object[] row : siteGrantRows) if (!(Boolean) row[3]) limitedSiteGrantIds.add((String) row[0]);
+        Map<String, List<String>> portLabelsBySiteGrant = new HashMap<>();
+        if (!limitedSiteGrantIds.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            List<Object[]> portRows = em.createNativeQuery(
+                            "SELECT gp.grant_id, p.port, p.port_end, p.protocol "
+                                    + "FROM site_resource_grant_ports gp "
+                                    + "JOIN resource_ports p ON p.id = gp.port_id "
+                                    + "WHERE gp.grant_id IN ?1")
+                    .setParameter(1, limitedSiteGrantIds)
+                    .getResultList();
+            for (Object[] p : portRows) {
+                String gid = (String) p[0];
+                Integer portEnd = p[2] == null ? null : ((Number) p[2]).intValue();
+                portLabelsBySiteGrant.computeIfAbsent(gid, k -> new ArrayList<>())
+                        .add(formatPortLabel(((Number) p[1]).intValue(), portEnd, (String) p[3]));
+            }
+        }
+        for (Object[] g : siteGrantRows) {
+            String grantId = (String) g[0], siteId = (String) g[1], resourceId = (String) g[2];
+            boolean allPorts = (Boolean) g[3];
+            List<String> portLabels = allPorts ? List.of() : portLabelsBySiteGrant.getOrDefault(grantId, List.of());
+            edges.add(new AtlasDto.Edge("site", siteId, resourceId, "site-direct", null, null, allPorts, portLabels));
+        }
+
+        return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions, siteNodes);
     }
 
     static String formatPortLabel(int port, Integer portEnd, String protocol) {

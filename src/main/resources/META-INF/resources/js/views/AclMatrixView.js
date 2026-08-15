@@ -48,6 +48,18 @@ export default defineComponent({
       userGrantPicker: null, // { resource } — port-picker for the grant being added
       userGrantSaving: false,
       userGrantError: null,
+      // Direct Site -> Resource grants — the site-subject counterpart to the
+      // direct user grants above, same shape and same PortPicker reuse. A
+      // granted site's *whole* CIDR gets access, not just its gateway peer's
+      // own IP (see RuleBuilder). Also site-independent, so not scoped to
+      // activeSiteId — and note the grantor site here can differ from the
+      // resource's own site (a cross-site grant is legal).
+      siteGrants: [],
+      newSiteGrantSiteId: "",
+      newSiteGrantResourceId: "",
+      siteGrantPicker: null, // { resource } — port-picker for the grant being added
+      siteGrantSaving: false,
+      siteGrantError: null,
     };
   },
   computed: {
@@ -106,12 +118,16 @@ export default defineComponent({
     newUserGrantResource() {
       return this.resources.find((r) => r.id === this.newUserGrantResourceId) || null;
     },
+    newSiteGrantResource() {
+      return this.resources.find((r) => r.id === this.newSiteGrantResourceId) || null;
+    },
   },
   async mounted() {
     await this.load();
     this._offEscape = onEscape(() => {
       if (this.picker) this.picker = null;
       else if (this.userGrantPicker) this.userGrantPicker = null;
+      else if (this.siteGrantPicker) this.siteGrantPicker = null;
     });
     this._offSave = onSaveShortcut(() => { if (this.dirty) this.applyAll(); });
   },
@@ -127,7 +143,7 @@ export default defineComponent({
       this.error = null;
       this.pending = {};
       try {
-        const [sitesRes, resRes, rolesRes, gRes, tgRes, usersRes, ugRes] = await Promise.all([
+        const [sitesRes, resRes, rolesRes, gRes, tgRes, usersRes, ugRes, sgRes] = await Promise.all([
           fetch("/api/v1/sites"),
           fetch("/api/v1/resources"),
           fetch("/api/v1/roles"),
@@ -135,8 +151,9 @@ export default defineComponent({
           fetch("/api/v1/acl/type-grants"),
           fetch("/api/v1/users"),
           fetch("/api/v1/acl/user-grants"),
+          fetch("/api/v1/acl/site-grants"),
         ]);
-        if (!sitesRes.ok || !resRes.ok || !rolesRes.ok || !gRes.ok || !tgRes.ok || !usersRes.ok || !ugRes.ok) {
+        if (!sitesRes.ok || !resRes.ok || !rolesRes.ok || !gRes.ok || !tgRes.ok || !usersRes.ok || !ugRes.ok || !sgRes.ok) {
           throw new Error(t("acl.err_load_matrix"));
         }
         this.sites = await sitesRes.json();
@@ -146,6 +163,7 @@ export default defineComponent({
         this.typeGrants = await tgRes.json();
         this.users = await usersRes.json();
         this.userGrants = await ugRes.json();
+        this.siteGrants = await sgRes.json();
         if (!this.activeSiteId && this.sites.length > 0) {
           this.activeSiteId = this.sites[0].id;
         }
@@ -370,6 +388,49 @@ export default defineComponent({
         this.userGrantSaving = false;
       }
     },
+
+    // Same pattern as the user-grant trio above, keyed by site instead of user.
+    onAddSiteGrantClick() {
+      if (!this.newSiteGrantSiteId || !this.newSiteGrantResource) return;
+      this.siteGrantPicker = { resource: this.newSiteGrantResource };
+    },
+
+    async siteGrantPickerApply(payload) {
+      // payload: { mode: 'none' | 'all' | 'limited', portIds: string[] }
+      if (payload.mode === "none") { this.siteGrantPicker = null; return; }
+      await this.applySiteGrant(
+          this.newSiteGrantSiteId, this.newSiteGrantResourceId,
+          payload.mode === "all", payload.mode === "all" ? [] : payload.portIds);
+      this.siteGrantPicker = null;
+    },
+
+    async removeSiteGrant(g) {
+      await this.applySiteGrant(g.siteId, g.resourceId, false, []);
+    },
+
+    async applySiteGrant(siteId, resourceId, allPorts, portIds) {
+      this.siteGrantSaving = true;
+      this.siteGrantError = null;
+      try {
+        const res = await fetch("/api/v1/acl/site-grants", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ siteId, resourceId, allPorts, portIds }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+        }
+        const sgRes = await fetch("/api/v1/acl/site-grants");
+        if (sgRes.ok) this.siteGrants = await sgRes.json();
+        this.newSiteGrantSiteId = "";
+        this.newSiteGrantResourceId = "";
+      } catch (e) {
+        this.siteGrantError = t("acl.site_grant_error", { error: e.message });
+      } finally {
+        this.siteGrantSaving = false;
+      }
+    },
   },
   template: `
     <div class="page-header">
@@ -558,6 +619,54 @@ export default defineComponent({
       </div>
     </div>
 
+    <!-- Direct Site -> Resource grants — site-subject counterpart to the
+         card above, same shape and same PortPicker reuse. Not scoped to
+         activeSiteId, same reasoning as the user-grants card: a grant can
+         name a resource in any site, and the grantor site can differ from
+         the resource's own site too (a cross-site grant is legal). -->
+    <div v-if="!loading && roles.length > 0 && sites.length > 0" class="card card-pad" style="margin-top: var(--space-5)">
+      <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.site_grants_title') }}</h2>
+      <div class="field-hint" style="margin-top: 0">{{ t('acl.site_grants_hint') }}</div>
+
+      <div v-if="siteGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ siteGrantError }}</div>
+
+      <table v-if="siteGrants.length > 0" class="table" style="margin-top: var(--space-3)">
+        <thead>
+          <tr>
+            <th>{{ t('acl.th_site') }}</th>
+            <th>{{ t('acl.th_resource') }}</th>
+            <th>{{ t('acl.th_ports') }}</th>
+            <th style="width: 40px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="g in siteGrants" :key="g.siteId + '|' + g.resourceId">
+            <td>{{ g.grantorSiteName }}</td>
+            <td>{{ g.resourceName }} <span class="muted">— {{ g.resourceSiteName }}</span></td>
+            <td class="mono">{{ g.allPorts ? t('acl.picker_all') : g.portLabels.join(', ') }}</td>
+            <td>
+              <button class="btn btn-ghost btn-sm" :disabled="siteGrantSaving" @click="removeSiteGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.site_grants_empty') }}</p>
+
+      <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
+        <select class="select" v-model="newSiteGrantSiteId" style="max-width: 220px">
+          <option value="" disabled>{{ t('acl.site_grant_pick_site') }}</option>
+          <option v-for="s in sites" :key="s.id" :value="s.id">{{ s.name }}</option>
+        </select>
+        <select class="select" v-model="newSiteGrantResourceId" style="max-width: 260px">
+          <option value="" disabled>{{ t('acl.site_grant_pick_resource') }}</option>
+          <option v-for="r in resources" :key="r.id" :value="r.id">{{ r.name }} — {{ (sitesById[r.siteId] || {}).name || r.siteId }}</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" :disabled="!newSiteGrantSiteId || !newSiteGrantResourceId || siteGrantSaving" @click="onAddSiteGrantClick">
+          {{ siteGrantSaving ? t('common.loading') : t('acl.site_grant_add_btn') }}
+        </button>
+      </div>
+    </div>
+
     <div v-if="userGrantPicker" class="modal-backdrop" @click.self="userGrantPicker = null">
       <div class="modal">
         <div class="modal-header">
@@ -565,6 +674,16 @@ export default defineComponent({
           <button class="btn btn-ghost btn-sm" @click="userGrantPicker = null">✕</button>
         </div>
         <PortPicker :ports="userGrantPicker.resource.ports" :current="null" @apply="userGrantPickerApply" @cancel="userGrantPicker = null" />
+      </div>
+    </div>
+
+    <div v-if="siteGrantPicker" class="modal-backdrop" @click.self="siteGrantPicker = null">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>{{ t('acl.picker_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="siteGrantPicker = null">✕</button>
+        </div>
+        <PortPicker :ports="siteGrantPicker.resource.ports" :current="null" @apply="siteGrantPickerApply" @cancel="siteGrantPicker = null" />
       </div>
     </div>
 

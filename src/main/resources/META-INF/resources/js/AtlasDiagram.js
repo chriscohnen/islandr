@@ -134,6 +134,7 @@ export default defineComponent({
   data() {
     return {
       dragFromUserId: null,
+      dragFromIsGateway: false, // true when dragFromUserId is a site's gateway node, not a user
       dragPointer: null, // { x, y } in content coords, while dragging
       dragStartClient: null, // { x, y } in raw client px, to distinguish a click from a drag
       dragMoved: false,
@@ -173,6 +174,22 @@ export default defineComponent({
           });
         }
         bySite.get(r.siteId).resources.push(r);
+      }
+      // A site that only ever grants (never receives) access has no
+      // ResourceNode of its own — without this, its gateway node would have
+      // no circle to attach to and the grant it holds would be invisible.
+      // Only add it if it actually holds a site-direct grant; otherwise an
+      // active resource-type filter would fill the canvas with empty
+      // circles for every site that merely has zero matching resources.
+      const grantingSiteIds = new Set(
+          this.graph.edges.filter((e) => e.subjectType === "site").map((e) => e.subjectId));
+      for (const site of (this.graph.sites || [])) {
+        if (!bySite.has(site.id) && grantingSiteIds.has(site.id)) {
+          bySite.set(site.id, {
+            id: site.id, name: site.name, cidr: site.cidr,
+            gatewayPeerId: site.gatewayPeerId, resources: [],
+          });
+        }
       }
       const out = [];
       if (this.visibleUsers.length > 0) {
@@ -246,6 +263,18 @@ export default defineComponent({
               : sunflowerPoint(item.x, item.y, ni, c.nodes.length, item.r - NODE_RING_MARGIN);
           return { ...n, x: pos.x, y: pos.y, circleId: c.id, isUser: c.kind === "mobile" };
         });
+        // One gateway (grant-subject) node per site circle, anchored at the
+        // top of the rim — outside the sunflower-packed radius
+        // (item.r - NODE_RING_MARGIN) so it never collides with a resource
+        // node, and below the external name/CIDR label so it never collides
+        // with that either.
+        if (c.kind === "site") {
+          nodes.push({
+            id: c.id, name: c.name, kind: "gateway",
+            x: item.x, y: item.y - (item.r - NODE_RADIUS - 4),
+            circleId: c.id, isUser: false, isGateway: true,
+          });
+        }
         return { ...c, cx: item.x, cy: item.y, r: item.r, color, nodes };
       });
     },
@@ -259,16 +288,18 @@ export default defineComponent({
       // that one node — every other edge is hidden entirely, not just
       // dimmed, so the graph reads as "what can this reach / be reached by"
       // without noise. The two focuses are mutually exclusive (see
-      // AtlasView's click handlers).
+      // AtlasView's click handlers). Site focus/filtering is out of scope
+      // for v1 (sites are grant subjects, not a filter mode), so only user
+      // focus needs a subjectType check here.
       let source = this.graph.edges;
-      if (this.selectedUserId) source = source.filter((e) => e.userId === this.selectedUserId);
+      if (this.selectedUserId) source = source.filter((e) => e.subjectType === "user" && e.subjectId === this.selectedUserId);
       else if (this.selectedResourceId) source = source.filter((e) => e.resourceId === this.selectedResourceId);
       return source
-          .filter((e) => this.nodesById.has(e.userId) && this.nodesById.has(e.resourceId))
+          .filter((e) => this.nodesById.has(e.subjectId) && this.nodesById.has(e.resourceId))
           .map((e) => {
-            const from = this.nodesById.get(e.userId);
+            const from = this.nodesById.get(e.subjectId);
             const to = this.nodesById.get(e.resourceId);
-            return { edge: e, path: curvePath(from.x, from.y, to.x, to.y), key: e.userId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || "") };
+            return { edge: e, path: curvePath(from.x, from.y, to.x, to.y), key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || "") };
           });
     },
     contentBounds() {
@@ -365,13 +396,14 @@ export default defineComponent({
     zoomInBtn() { this.zoomAt(W / 2, H / 2, BUTTON_ZOOM_STEP); },
     zoomOutBtn() { this.zoomAt(W / 2, H / 2, 1 / BUTTON_ZOOM_STEP); },
     onNodePointerDown(node, evt) {
-      // Every user node tracks pointer movement, regardless of tool — a
-      // click (no movement) always means select/mode-switch (emitted on
-      // pointerup below); only a real drag additionally requires
-      // tool==="grant" to attempt a grant.
-      if (!node.isUser) return;
+      // Every user or gateway (site) node tracks pointer movement, regardless
+      // of tool — a click (no movement) always means select/mode-switch
+      // (emitted on pointerup below, user nodes only — see onWindowPointerUp);
+      // only a real drag additionally requires tool==="grant" to attempt a grant.
+      if (!node.isUser && !node.isGateway) return;
       evt.preventDefault();
       this.dragFromUserId = node.id;
+      this.dragFromIsGateway = !!node.isGateway;
       this.dragStartClient = { x: evt.clientX, y: evt.clientY };
       this.dragMoved = false;
       this.dragPointer = this.screenToContent(evt);
@@ -392,12 +424,14 @@ export default defineComponent({
       window.removeEventListener("pointerup", this.onWindowPointerUp);
       window.removeEventListener("pointercancel", this.onWindowPointerCancel);
       this.dragFromUserId = null;
+      this.dragFromIsGateway = false;
       this.dragPointer = null;
       this.dragStartClient = null;
       this.dragMoved = false;
     },
     onWindowPointerUp(evt) {
       const fromUserId = this.dragFromUserId;
+      const fromIsGateway = this.dragFromIsGateway;
       const moved = this.dragMoved;
       let resourceId = null;
       if (moved && this.tool === "grant") {
@@ -409,9 +443,12 @@ export default defineComponent({
       this.endDrag();
       if (moved) {
         if (resourceId && fromUserId) {
-          this.$emit("drag-grant", { userId: fromUserId, resourceId });
+          this.$emit("drag-grant", { subjectType: fromIsGateway ? "site" : "user", subjectId: fromUserId, resourceId });
         }
-      } else if (fromUserId) {
+      } else if (fromUserId && !fromIsGateway) {
+        // A plain click on a gateway node is a no-op for now — sites are
+        // grant subjects (draggable), not a filter/focus mode like users
+        // (out of scope for v1).
         this.$emit("user-click", fromUserId);
       }
     },
@@ -427,7 +464,10 @@ export default defineComponent({
     // to one specific person regardless of which role is active. Resource
     // focus follows the same idea on the resource side — user and resource
     // focus are mutually exclusive (AtlasView clears one when the other is set).
+    // Gateway (site) nodes have no filter/focus mode of their own (out of
+    // scope for v1) — always shown at full opacity, never highlighted.
     nodeDimmed(node) {
+      if (node.isGateway) return false;
       if (node.isUser) {
         if (this.selectedUserId) return node.id !== this.selectedUserId;
         if (this.highlightedUserIds.length > 0) return !this.highlightedUserIdSet.has(node.id);
@@ -436,6 +476,7 @@ export default defineComponent({
       return this.selectedResourceId ? node.id !== this.selectedResourceId : false;
     },
     nodeHighlighted(node) {
+      if (node.isGateway) return false;
       if (node.isUser) {
         if (this.selectedUserId) return node.id === this.selectedUserId;
         return this.highlightedUserIdSet.has(node.id);
@@ -449,7 +490,7 @@ export default defineComponent({
       return node.id === this.selectedUserId || node.id === this.selectedResourceId;
     },
     onResourceNodeClick(node) {
-      if (node.isUser) return;
+      if (node.isUser || node.isGateway) return;
       this.$emit("resource-click", node.id);
     },
     onResourceHover(node, evt) {
@@ -462,6 +503,9 @@ export default defineComponent({
     },
     onResourceLeave() {
       this.hoveredNode = null;
+    },
+    diamondPath(cx, cy, r) {
+      return `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
     },
   },
   template: `
@@ -507,13 +551,14 @@ export default defineComponent({
 
           <g v-for="circle in layout" :key="'nodes-' + circle.id">
             <g v-for="node in circle.nodes" :key="node.id"
-               :data-resource-id="!node.isUser ? node.id : null"
-               :style="node.isUser ? 'cursor: grab' : 'cursor: pointer'"
+               :data-resource-id="(!node.isUser && !node.isGateway) ? node.id : null"
+               :style="(node.isUser || node.isGateway) ? 'cursor: grab' : 'cursor: pointer'"
                @pointerdown="onNodePointerDown(node, $event)"
                @click="onResourceNodeClick(node)"
-               @pointerenter="!node.isUser && onResourceHover(node, $event)"
-               @pointermove="!node.isUser && hoveredNode === node && updateHoverPos($event)"
-               @pointerleave="!node.isUser && onResourceLeave()">
+               @pointerenter="!node.isUser && !node.isGateway && onResourceHover(node, $event)"
+               @pointermove="!node.isUser && !node.isGateway && hoveredNode === node && updateHoverPos($event)"
+               @pointerleave="!node.isUser && !node.isGateway && onResourceLeave()">
+              <title v-if="node.isGateway">{{ t('atlas.tooltip_gateway', { site: node.name, cidr: circle.cidr }) }}</title>
               <circle v-if="nodeFocused(node)" :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
                       fill="none" stroke="var(--fg1)" stroke-width="1.5">
                 <animate attributeName="r" values="${NODE_RADIUS + 3};${NODE_RADIUS + 9};${NODE_RADIUS + 3}"
@@ -523,7 +568,16 @@ export default defineComponent({
                          keyTimes="0;0.5;1" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"
                          dur="2.2s" repeatCount="indefinite" />
               </circle>
-              <circle :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
+              <!-- A gateway (site) node is a diamond, never a circle — shape
+                   alone must tell it apart from a resource or user node,
+                   the same "never color-only" rule the rest of the system
+                   applies to status. -->
+              <path v-if="node.isGateway" :d="diamondPath(node.x, node.y, ${NODE_RADIUS})"
+                    fill="var(--accent)"
+                    :fill-opacity="nodeDimmed(node) ? 0.3 : 1"
+                    :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
+                    :stroke-width="nodeHighlighted(node) ? 3 : 2" />
+              <circle v-else :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
                       :fill="node.isUser ? 'var(--accent)' : circle.color"
                       :fill-opacity="nodeDimmed(node) ? 0.3 : 1"
                       :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"

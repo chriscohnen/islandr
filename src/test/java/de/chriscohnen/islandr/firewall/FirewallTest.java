@@ -91,6 +91,8 @@ class FirewallTest {
         // Wipe everything ACL-related so each test starts from a known state.
         em.createNativeQuery("DELETE FROM user_resource_grant_ports").executeUpdate();
         UserResourceGrant.deleteAll();
+        em.createNativeQuery("DELETE FROM site_resource_grant_ports").executeUpdate();
+        de.chriscohnen.islandr.acl.SiteResourceGrant.deleteAll();
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         RoleResourceGrant.deleteAll();
         de.chriscohnen.islandr.acl.RoleResourceTypeGrant.deleteAll();
@@ -307,6 +309,88 @@ class FirewallTest {
         assertThat(snap.rulesetText())
                 .contains("tcp dport 80")
                 .contains("tcp dport 443");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_producesRuleForSiteCidr() {
+        Site grantingSite = persistSite("BranchOffice", "10.60.0.0/16");
+        Site resourceSite = persistSite("HQ-Site", "10.61.0.0/16");
+        Resource res = persistResource(resourceSite.id, "FileShare", "10.61.0.7");
+        ResourcePort port = persistPort(res.id, 445, "tcp", "SMB");
+        de.chriscohnen.islandr.acl.SiteResourceGrant grant =
+                de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO site_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.60.0.0/16")
+                .contains("ip daddr 10.61.0.7")
+                .contains("tcp dport 445")
+                .contains("resource=FileShare");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_coversPeerInsideCidrWithNoOwnGrant() {
+        // The actual payoff of the feature: a peer with zero roles and zero
+        // direct grants of its own still gets covered, purely because its IP
+        // falls inside the granted site's CIDR — proven here by asserting the
+        // CIDR-wide accept rule exists while the peer's own /32 never appears
+        // anywhere in the ruleset (it produces no rule of its own at all).
+        Site grantingSite = persistSite("BranchOffice2", "10.62.0.0/16");
+        Site resourceSite = persistSite("HQ-Site2", "10.63.0.0/16");
+        Resource res = persistResource(resourceSite.id, "Printer", "10.63.0.9");
+        persistPort(res.id, 631, "tcp", "IPP");
+        de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
+        // userId=null and no role/direct grant of its own — the per-Peer loop
+        // skips this peer entirely (empty roles + empty direct grants).
+        persistPeer(null, "branch-laptop", "10.62.0.42");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.62.0.0/16")
+                .doesNotContain("ip saddr 10.62.0.42");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_allPorts_emitsOneRulePerResourcePort() {
+        Site grantingSite = persistSite("BranchOffice3", "10.64.0.0/16");
+        Site resourceSite = persistSite("HQ-Site3", "10.65.0.0/16");
+        Resource res = persistResource(resourceSite.id, "Multi", "10.65.0.9");
+        persistPort(res.id, 80, "tcp", "HTTP");
+        persistPort(res.id, 443, "tcp", "HTTPS");
+        de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.rulesetText())
+                .contains("tcp dport 80")
+                .contains("tcp dport 443");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_emitsIcmpForWholeSiteCidr() {
+        // Locked-in decision: ICMP is not narrowed to a single peer for a
+        // site-CIDR grant — it applies subnet-wide, same as the resource
+        // access rule it rides alongside.
+        Site grantingSite = persistSite("BranchOffice4", "10.66.0.0/16");
+        Site resourceSite = persistSite("HQ-Site4", "10.67.0.0/16");
+        Resource res = persistResource(resourceSite.id, "Terminal", "10.67.0.5");
+        persistPort(res.id, 3389, "tcp", "RDP");
+        de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.66.0.0/16")
+                .contains("icmp type echo-request");
     }
 
     // -- RulesetService ------------------------------------------------------

@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleBootstrap;
 import de.chriscohnen.islandr.acl.Site;
+import de.chriscohnen.islandr.acl.SiteResourceGrant;
 import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.user.User;
@@ -183,7 +184,8 @@ class ConfigImportRoundTripTest {
                 original.resources(), original.resourcePorts(), original.portGroups(),
                 original.portGroupMembers(), original.roleResourceGrants(),
                 original.grantPortLinks(), original.roleResourceTypeGrants(),
-                original.userResourceGrants(), original.userGrantPortLinks());
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -292,7 +294,8 @@ class ConfigImportRoundTripTest {
                 original.resources(), original.resourcePorts(), original.portGroups(),
                 original.portGroupMembers(), original.roleResourceGrants(),
                 original.grantPortLinks(), original.roleResourceTypeGrants(),
-                original.userResourceGrants(), original.userGrantPortLinks());
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -351,6 +354,44 @@ class ConfigImportRoundTripTest {
 
         assertThat(reloaded)
                 .as("the direct user-grant written by the import must be readable again")
+                .hasSize(1);
+    }
+
+    @Test
+    void roundTrip_preservesDirectSiteGrants() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        String siteId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RoundTripGrantingSite-" + suffix, "10.70.0.0/16", null);
+            site.persist();
+            return site.id;
+        });
+        String resourceId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RoundTripResourceSite-" + suffix, "10.71.0.0/16", null);
+            site.persist();
+            Resource res = Resource.createNew(site.id, "RoundTripRes2", "10.71.0.5", null, "computer");
+            res.persist();
+            return res.id;
+        });
+        QuarkusTransaction.requiringNew().run(() -> {
+            SiteResourceGrant.createNew(siteId, resourceId, true).persist();
+        });
+
+        ConfigExportDto.Export exported =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+
+        assertThat(exported.siteResourceGrants())
+                .filteredOn(g -> siteId.equals(g.siteId()) && resourceId.equals(g.resourceId()))
+                .singleElement()
+                .satisfies(g -> assertThat(g.allPorts()).isTrue());
+
+        configService.importConfig(exported);
+
+        List<SiteResourceGrant> reloaded = QuarkusTransaction.requiringNew().call(() ->
+                SiteResourceGrant.<SiteResourceGrant>list("siteId = ?1 and resourceId = ?2", siteId, resourceId));
+
+        assertThat(reloaded)
+                .as("the direct site-grant written by the import must be readable again")
                 .hasSize(1);
     }
 }

@@ -5,6 +5,8 @@ import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.RoleResourceTypeGrant;
+import de.chriscohnen.islandr.acl.Site;
+import de.chriscohnen.islandr.acl.SiteResourceGrant;
 import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.user.User;
@@ -65,10 +67,11 @@ public class RuleBuilder {
     @PersistenceContext EntityManager em;
 
     public Snapshot build() {
+        // No early return on an empty peer list: direct site grants have no
+        // Peer at all and must still render, so the per-peer loop below is
+        // simply a no-op when peers is empty rather than short-circuiting
+        // the whole method before the site-grant loop gets a chance to run.
         List<Peer> peers = Peer.<Peer>list("enabled", true);
-        if (peers.isEmpty()) {
-            return new Snapshot(emptyTable(), 0);
-        }
 
         Map<String, String> userName = new HashMap<>();
         for (User u : User.<User>list("id in ?1",
@@ -164,8 +167,9 @@ public class RuleBuilder {
                 if (role == null) continue;
                 for (RoleResourceGrant g : grantsByRole.getOrDefault(roleId, List.of())) {
                     Set<String> grantedPortIds = g.allPorts ? Set.of() : portsByGrant.getOrDefault(g.id, Set.of());
-                    emitRulesForGrant(peer, peerIps, g.resourceId, g.allPorts, grantedPortIds,
-                            escape(role.name), resourceById, portsByResource, userName, rulesByKey, icmpPairs);
+                    emitRulesForGrant(peer.name, userName.getOrDefault(peer.userId, "?"), peerIps,
+                            g.resourceId, g.allPorts, grantedPortIds,
+                            escape(role.name), resourceById, portsByResource, rulesByKey, icmpPairs);
                 }
             }
 
@@ -175,8 +179,40 @@ public class RuleBuilder {
             // still gets their direct grants rendered.
             for (UserResourceGrant g : directGrants) {
                 Set<String> grantedPortIds = g.allPorts ? Set.of() : portsByUserGrant.getOrDefault(g.id, Set.of());
-                emitRulesForGrant(peer, peerIps, g.resourceId, g.allPorts, grantedPortIds,
-                        "(direct)", resourceById, portsByResource, userName, rulesByKey, icmpPairs);
+                emitRulesForGrant(peer.name, userName.getOrDefault(peer.userId, "?"), peerIps,
+                        g.resourceId, g.allPorts, grantedPortIds,
+                        "(direct)", resourceById, portsByResource, rulesByKey, icmpPairs);
+            }
+        }
+
+        // Direct site grants — a site's whole gateway CIDR, not a single peer
+        // IP, so this runs once per Site rather than nested in the per-Peer
+        // loop above. Widens access to every host inside the site's subnet,
+        // a deliberate, narrow exception to Site.cidr otherwise never
+        // participating in nftables generation (ADR-0006) — see SiteResourceGrant.
+        Map<String, List<SiteResourceGrant>> grantsBySite = new HashMap<>();
+        for (SiteResourceGrant g : SiteResourceGrant.<SiteResourceGrant>listAll()) {
+            grantsBySite.computeIfAbsent(g.siteId, k -> new ArrayList<>()).add(g);
+        }
+        if (!grantsBySite.isEmpty()) {
+            Map<String, Set<String>> portsBySiteGrant = new HashMap<>();
+            @SuppressWarnings("unchecked")
+            List<Object[]> siteGrantPortRows = em.createNativeQuery(
+                            "SELECT grant_id, port_id FROM site_resource_grant_ports")
+                    .getResultList();
+            for (Object[] row : siteGrantPortRows) {
+                portsBySiteGrant.computeIfAbsent((String) row[0], k -> new HashSet<>())
+                        .add((String) row[1]);
+            }
+            for (Site site : Site.<Site>listAll()) {
+                List<SiteResourceGrant> siteGrants = grantsBySite.getOrDefault(site.id, List.of());
+                if (siteGrants.isEmpty()) continue;
+                List<String> siteCidrs = List.of(site.cidr);
+                for (SiteResourceGrant g : siteGrants) {
+                    Set<String> grantedPortIds = g.allPorts ? Set.of() : portsBySiteGrant.getOrDefault(g.id, Set.of());
+                    emitRulesForGrant(site.name, "(site)", siteCidrs, g.resourceId, g.allPorts, grantedPortIds,
+                            "(site-direct)", resourceById, portsByResource, rulesByKey, icmpPairs);
+                }
             }
         }
 
@@ -221,16 +257,21 @@ public class RuleBuilder {
     }
 
     /**
-     * Renders one grant (role-derived or direct-user, ADR-0024) into allow
-     * rules for one peer — the single place a (peer, resource, ports) triple
-     * becomes rule text, called once per role-grant and once per direct
-     * user-grant so both sources stay byte-for-byte consistent.
+     * Renders one grant (role-derived, direct-user ADR-0024, or direct-site)
+     * into allow rules for one subject — the single place a (subject IPs,
+     * resource, ports) triple becomes rule text, called once per role-grant,
+     * once per direct user-grant, and once per direct site-grant so all
+     * three sources stay byte-for-byte consistent. {@code subjectIps} is
+     * either a peer's assigned IP(s) or, for a site grant, the site's single
+     * CIDR — nftables {@code saddr} accepts a network the same as a host IP,
+     * so no template change is needed either way.
      */
     private void emitRulesForGrant(
-            Peer peer, List<String> peerIps, String resourceId, boolean allPorts,
+            String subjectLabel, String subjectUserLabel, List<String> subjectIps,
+            String resourceId, boolean allPorts,
             Set<String> grantedPortIds, String roleLabel,
             Map<String, Resource> resourceById, Map<String, List<ResourcePort>> portsByResource,
-            Map<String, String> userName, Map<String, String> rulesByKey, Set<String> icmpPairs) {
+            Map<String, String> rulesByKey, Set<String> icmpPairs) {
         Resource res = resourceById.get(resourceId);
         if (res == null) return;
         List<ResourcePort> resPorts = portsByResource.getOrDefault(res.id, List.of());
@@ -239,12 +280,12 @@ public class RuleBuilder {
                 ? resPorts
                 : resPorts.stream().filter(rp -> grantedPortIds.contains(rp.id)).toList();
 
-        for (String peerIp : peerIps) {
+        for (String peerIp : subjectIps) {
             if (isV6(peerIp) != isV6(res.ip)) continue;
 
             String family   = isV6(peerIp) ? "ip6" : "ip";
-            String peerName = escape(peer.name);
-            String uName    = escape(userName.getOrDefault(peer.userId, "?"));
+            String peerName = escape(subjectLabel);
+            String uName    = escape(subjectUserLabel);
 
             for (ResourcePort rp : grantedPorts) {
                 if ("web-only".equals(rp.rdpAccessMode)) continue;

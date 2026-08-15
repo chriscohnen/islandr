@@ -39,6 +39,8 @@ class AtlasResourceTest {
     void wipeAll() {
         em.createNativeQuery("DELETE FROM user_resource_grant_ports").executeUpdate();
         UserResourceGrant.deleteAll();
+        em.createNativeQuery("DELETE FROM site_resource_grant_ports").executeUpdate();
+        SiteResourceGrant.deleteAll();
         RoleResourceTypeGrant.deleteAll();
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         RoleResourceGrant.deleteAll();
@@ -84,7 +86,9 @@ class AtlasResourceTest {
                 .then().statusCode(200)
                 .body("edges.findAll { it.kind == 'role' }", hasSize(2))
                 .body("edges[0].roleName", is("Printing"))
-                .body("edges.findAll { it.kind == 'role' }.userId",
+                .body("edges.findAll { it.kind == 'role' }.subjectType",
+                        org.hamcrest.Matchers.everyItem(is("user")))
+                .body("edges.findAll { it.kind == 'role' }.subjectId",
                         org.hamcrest.Matchers.containsInAnyOrder(userIds[0], userIds[1]));
     }
 
@@ -121,10 +125,10 @@ class AtlasResourceTest {
 
         given().when().get("/api/v1/acl/atlas")
                 .then().statusCode(200)
-                .body("edges.findAll { it.resourceId == '" + resourceId + "' }.userId",
+                .body("edges.findAll { it.resourceId == '" + resourceId + "' }.subjectId",
                         org.hamcrest.Matchers.hasItem(userId))
-                .body("edges.find { it.userId == '" + userId + "' }.kind", is("role"))
-                .body("edges.find { it.userId == '" + userId + "' }.resourceId", is(resourceId));
+                .body("edges.find { it.subjectId == '" + userId + "' }.kind", is("role"))
+                .body("edges.find { it.subjectId == '" + userId + "' }.resourceId", is(resourceId));
     }
 
     @Transactional
@@ -151,7 +155,8 @@ class AtlasResourceTest {
                 .then().statusCode(200)
                 .body("edges", hasSize(1))
                 .body("edges[0].kind", is("user-direct"))
-                .body("edges[0].userId", is(userId))
+                .body("edges[0].subjectType", is("user"))
+                .body("edges[0].subjectId", is(userId))
                 .body("edges[0].roleId", org.hamcrest.Matchers.nullValue());
     }
 
@@ -191,5 +196,30 @@ class AtlasResourceTest {
         Resource res = Resource.createNew(site.id, "LaserJet2", "10.65.0.5", null, "printer");
         res.persist();
         RoleResourceTypeGrant.createNew(role.id, site.id, "printer").persist();
+    }
+
+    @Test
+    void atlas_directSiteGrant_taggedSiteDirect_subjectIsSite() {
+        String siteId = seedDirectSiteGrant();
+
+        given().when().get("/api/v1/acl/atlas")
+                .then().statusCode(200)
+                .body("edges", hasSize(1))
+                .body("edges[0].kind", is("site-direct"))
+                .body("edges[0].subjectType", is("site"))
+                .body("edges[0].subjectId", is(siteId))
+                .body("edges[0].roleId", org.hamcrest.Matchers.nullValue());
+    }
+
+    @Transactional
+    String seedDirectSiteGrant() {
+        Site grantingSite = Site.createNew("atlas-test-site-direct", "10.67.0.0/16", null);
+        grantingSite.persist();
+        Site resourceSite = Site.createNew("atlas-test-site-direct-res", "10.68.0.0/16", null);
+        resourceSite.persist();
+        Resource res = Resource.createNew(resourceSite.id, "NAS2", "10.68.0.5", null, "nas");
+        res.persist();
+        SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
+        return grantingSite.id;
     }
 }

@@ -128,11 +128,25 @@ public class ConfigService {
                 .map(r -> new ConfigExportDto.UserGrantPortLink((String) r[0], (String) r[1]))
                 .toList();
 
+        List<ConfigExportDto.SiteGrantSnapshot> siteGrants = SiteResourceGrant.<SiteResourceGrant>listAll()
+                .stream().map(g -> new ConfigExportDto.SiteGrantSnapshot(
+                        g.id, g.siteId, g.resourceId, g.allPorts, g.createdAt))
+                .toList();
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> siteGrantPortRows = em.createNativeQuery(
+                        "SELECT grant_id, port_id FROM site_resource_grant_ports")
+                .getResultList();
+        List<ConfigExportDto.SiteGrantPortLink> siteGrantPortLinks = siteGrantPortRows.stream()
+                .map(r -> new ConfigExportDto.SiteGrantPortLink((String) r[0], (String) r[1]))
+                .toList();
+
         return new ConfigExportDto.Export(
                 "1", Instant.now(), includePrivateKeys,
                 settings, providers, users, roles, memberships, peers,
                 sites, resources, ports, portGroups, portGroupMembers,
-                grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks);
+                grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
+                siteGrants, siteGrantPortLinks);
     }
 
     @Transactional
@@ -143,6 +157,8 @@ public class ConfigService {
         em.createNativeQuery("DELETE FROM role_resource_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_type_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM user_resource_grants").executeUpdate();
+        em.createNativeQuery("DELETE FROM site_resource_grant_ports").executeUpdate();
+        em.createNativeQuery("DELETE FROM site_resource_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM resource_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM resources").executeUpdate();
         // Break the sites ↔ peers FK cycle before deleting either table.
@@ -341,6 +357,20 @@ public class ConfigService {
                     .executeUpdate();
         }
 
+        // --- Direct site grants -----------------------------------------------
+        for (var g : safe(p.siteResourceGrants())) {
+            em.createNativeQuery(
+                            "INSERT INTO site_resource_grants" +
+                            " (id, site_id, resource_id, all_ports, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5)")
+                    .setParameter(1, g.id())
+                    .setParameter(2, g.siteId())
+                    .setParameter(3, g.resourceId())
+                    .setParameter(4, g.allPorts() ? 1 : 0)
+                    .setParameter(5, ts(g.createdAt()))
+                    .executeUpdate();
+        }
+
         // --- Grant-port links ------------------------------------------------
         for (var gpl : safe(p.grantPortLinks())) {
             em.createNativeQuery(
@@ -358,6 +388,16 @@ public class ConfigService {
                             " VALUES (?1,?2)")
                     .setParameter(1, ugpl.grantId())
                     .setParameter(2, ugpl.portId())
+                    .executeUpdate();
+        }
+
+        // --- Site-grant-port links ---------------------------------------------
+        for (var sgpl : safe(p.siteGrantPortLinks())) {
+            em.createNativeQuery(
+                            "INSERT INTO site_resource_grant_ports (grant_id, port_id)" +
+                            " VALUES (?1,?2)")
+                    .setParameter(1, sgpl.grantId())
+                    .setParameter(2, sgpl.portId())
                     .executeUpdate();
         }
 

@@ -28,7 +28,10 @@ public class ConfigExportDto {
         List<TypeGrantSnapshot> roleResourceTypeGrants,
         // Same tolerate-absence pattern, for direct user-grants (ADR-0024).
         List<UserGrantSnapshot> userResourceGrants,
-        List<UserGrantPortLink> userGrantPortLinks
+        List<UserGrantPortLink> userGrantPortLinks,
+        // Same tolerate-absence pattern, for direct site-grants.
+        List<SiteGrantSnapshot> siteResourceGrants,
+        List<SiteGrantPortLink> siteGrantPortLinks
     ) {}
 
     public record SettingsSnapshot(
@@ -215,6 +218,16 @@ public class ConfigExportDto {
     ) {}
 
     public record UserGrantPortLink(String grantId, String portId) {}
+
+    public record SiteGrantSnapshot(
+        String id,
+        String siteId,
+        String resourceId,
+        boolean allPorts,
+        Instant createdAt
+    ) {}
+
+    public record SiteGrantPortLink(String grantId, String portId) {}
 
     public record ImportResult(
         int users,
