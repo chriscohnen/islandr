@@ -35,6 +35,10 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
   <img src="https://islandr-gateway.net/screenshots/light/heatmap.png" width="49%" alt="Connection activity heatmap: peers × days, coloured by traffic volume">
   <img src="https://islandr-gateway.net/screenshots/light/self-service.png" width="49%" alt="Self-service portal: employees enrol their own devices">
 </p>
+<p align="center">
+  <img src="https://islandr-gateway.net/screenshots/light/atlas.png" width="49%" alt="Atlas view: global reachability graph, drag-to-grant access by role or by site">
+  <img src="https://islandr-gateway.net/screenshots/light/acl.png" width="49%" alt="ACL matrix: role × resource access, port-level">
+</p>
 
 ---
 
