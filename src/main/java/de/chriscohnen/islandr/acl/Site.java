@@ -16,9 +16,12 @@ import java.util.UUID;
 
 /**
  * Organisational grouping of resources (typically one remote network reachable
- * through the hub). The {@code cidr} is informational — the UI groups
- * resources by site and renders the CIDR next to the site name — it does not
- * participate in nftables rule generation (ADR-0006).
+ * through the hub). The {@code cidr} is informational by default — the UI groups
+ * resources by site and renders the CIDR next to the site name — and does not
+ * itself participate in nftables rule generation (ADR-0006). The one deliberate
+ * exception: a {@link SiteResourceGrant} on this site does use {@code cidr} as
+ * the {@code saddr} of its allow rules (see {@code RuleBuilder}), widening
+ * access to every host in the subnet rather than a single peer IP.
  */
 @Entity
 @Table(name = "sites")

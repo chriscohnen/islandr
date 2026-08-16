@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import { t, locale, formatDate } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 
 // Reverse-chronological audit log. Backend paginates via ?before=<iso>
 // — we keep a stack of cursors so "Zurück" can pop back to the previous page.
@@ -50,6 +51,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._offEscape = onEscape(() => { if (this.purgeModal) this.purgeModal = false; });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
   },
   methods: {
     t(key, vars) { return t(key, vars); },

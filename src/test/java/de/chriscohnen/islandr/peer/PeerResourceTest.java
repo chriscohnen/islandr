@@ -519,6 +519,121 @@ class PeerResourceTest {
                 .then().statusCode(404);
     }
 
+    @Test
+    void setEnabled_withReason_isAccepted() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "reasoned", "assignedIp": "10.8.0.11" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "enabled": false, "reason": "leave cover" }
+                        """)
+                .when().put("/api/v1/peers/" + peerId + "/enabled")
+                .then().statusCode(200)
+                .body("enabled", equalTo(false))
+                .body("enabledSource", equalTo("manual"));
+    }
+
+    // ---- Schedule (PUT/GET/DELETE /peers/{id}/schedule, #47) ---------------
+
+    @Test
+    void schedule_getReturns404WhenNoneSet() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "sched-none", "assignedIp": "10.8.0.12" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().when().get("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(404);
+    }
+
+    @Test
+    void schedule_createThenGetThenDelete_roundtrips() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "sched-crud", "assignedIp": "10.8.0.13" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "weekdayMask": 31, "activeFrom": "08:00", "activeTo": "18:00" }
+                        """)
+                .when().put("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(200)
+                .body("weekdayMask", equalTo(31))
+                .body("activeFrom", notNullValue())
+                .body("activeTo", notNullValue());
+
+        given().when().get("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(200)
+                .body("weekdayMask", equalTo(31));
+
+        given().when().delete("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(204);
+
+        given().when().get("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(404);
+    }
+
+    @Test
+    void schedule_deleteLeavesEnabledUntouched() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "sched-delete-noop", "assignedIp": "10.8.0.14" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "weekdayMask": 1, "activeFrom": "08:00", "activeTo": "18:00" }
+                        """)
+                .when().put("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(200);
+
+        given().when().delete("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(204);
+
+        given().when().get("/api/v1/peers/" + peerId)
+                .then().statusCode(200)
+                .body("enabled", equalTo(true));
+    }
+
+    @Test
+    void schedule_rejectsZeroWeekdayMask() {
+        String userId = createUser();
+        String peerId = given().contentType("application/json")
+                .body("""
+                        { "name": "sched-bad-mask", "assignedIp": "10.8.0.15" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("""
+                        { "weekdayMask": 0, "activeFrom": "08:00", "activeTo": "18:00" }
+                        """)
+                .when().put("/api/v1/peers/" + peerId + "/schedule")
+                .then().statusCode(400);
+    }
+
     // ---- Update (PUT /peers/{id}) ------------------------------------------
     //
     // IPs in the .50–.59 range are reserved for update tests so they don't

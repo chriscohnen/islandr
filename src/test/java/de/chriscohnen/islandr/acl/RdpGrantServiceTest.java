@@ -99,4 +99,25 @@ class RdpGrantServiceTest {
         assertThat(grants.isAdmin(normal.id)).isFalse();
         assertThat(grants.isAdmin(null)).isFalse();
     }
+
+    @Test
+    @Transactional
+    void resolveTarget_returnsTarget_whenUserHasDirectGrant_noRoleInvolved() {
+        String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
+        User user = User.createNew("Direct " + suffix, "direct-" + suffix + "@firma.de");
+        user.persist();
+        Site site = Site.createNew("DirectSite-" + suffix, "10.61.0.0/16", null);
+        site.persist();
+        Resource res = Resource.createNew(site.id, "DirectTerminal-" + suffix, "10.61.0.5", null, "computer");
+        res.persist();
+        ResourcePort rdp = ResourcePort.createNew(res.id, 3389, null, "tcp", "RDP", null, null, false, false, "native");
+        rdp.persist();
+        // No role, no user_roles row — direct grant only.
+        UserResourceGrant.createNew(user.id, res.id, true).persist();
+
+        RdpGrantService.RdpTarget target = grants.resolveTarget(rdp.id, user.id, false);
+        assertThat(target).isNotNull();
+        assertThat(target.host()).isEqualTo(res.ip);
+        assertThat(target.port()).isEqualTo(3389);
+    }
 }

@@ -31,6 +31,7 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0021](0021-topology-world-map.md) | World-map topology view: air-gapped SVG projection, manual geocoding only | Accepted | 2026-07-26 |
 | [0022](0022-acl-type-grants.md) | ACL grants by resource type within a site, additive-only, always all-ports | Accepted | 2026-07-28 |
 | [0023](0023-resource-dns-resolver-hand-rolled.md) | Resource-name DNS resolver: hand-rolled UDP/TCP server, not a library | Accepted | 2026-08-05 |
+| [0024](0024-direct-user-resource-grants.md) | Direct User-Resource grants, alongside Role-Resource grants | Accepted | 2026-08-11 |
 
 ## Status legend
 

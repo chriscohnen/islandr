@@ -25,7 +25,13 @@ public class ConfigExportDto {
         // Nullable: an export from before this field existed imports as if
         // this list were empty — same "add-a-field, tolerate its absence"
         // pattern as wgMtu above.
-        List<TypeGrantSnapshot> roleResourceTypeGrants
+        List<TypeGrantSnapshot> roleResourceTypeGrants,
+        // Same tolerate-absence pattern, for direct user-grants (ADR-0024).
+        List<UserGrantSnapshot> userResourceGrants,
+        List<UserGrantPortLink> userGrantPortLinks,
+        // Same tolerate-absence pattern, for direct site-grants.
+        List<SiteGrantSnapshot> siteResourceGrants,
+        List<SiteGrantPortLink> siteGrantPortLinks
     ) {}
 
     public record SettingsSnapshot(
@@ -202,6 +208,26 @@ public class ConfigExportDto {
         String resourceType,
         Instant createdAt
     ) {}
+
+    public record UserGrantSnapshot(
+        String id,
+        String userId,
+        String resourceId,
+        boolean allPorts,
+        Instant createdAt
+    ) {}
+
+    public record UserGrantPortLink(String grantId, String portId) {}
+
+    public record SiteGrantSnapshot(
+        String id,
+        String siteId,
+        String resourceId,
+        boolean allPorts,
+        Instant createdAt
+    ) {}
+
+    public record SiteGrantPortLink(String grantId, String portId) {}
 
     public record ImportResult(
         int users,

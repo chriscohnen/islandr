@@ -5,6 +5,7 @@ import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.Site;
+import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.audit.AuditLog;
 import de.chriscohnen.islandr.auth.AdminSessionExtension;
 import de.chriscohnen.islandr.peer.Peer;
@@ -39,6 +40,7 @@ class FirewallTest {
     @Inject RuleBuilder builder;
     @Inject RulesetService rulesets;
     @Inject NftablesAdapter adapter;
+    @Inject de.chriscohnen.islandr.acl.RoleBootstrap roleBootstrap;
     @PersistenceContext EntityManager em;
 
     /**
@@ -74,10 +76,23 @@ class FirewallTest {
     @Transactional
     void teardown() {
         wipeAclRows();
+        // Role.deleteAll() above also removes the RoleBootstrap-seeded
+        // "Everyone" auto_all role. Reseed only here, after the class's own
+        // tests are done (some of them deliberately create their own
+        // "Everyone" role mid-test, which would collide with the unique
+        // roles.name index if this ran in @BeforeEach too) — so whichever
+        // test class runs next still finds the invariant "exactly one
+        // auto_all role always exists" holding. Its absence otherwise flakes
+        // ConfigImportRoundTripTest depending on suite execution order.
+        roleBootstrap.seedEveryoneRole();
     }
 
     private void wipeAclRows() {
         // Wipe everything ACL-related so each test starts from a known state.
+        em.createNativeQuery("DELETE FROM user_resource_grant_ports").executeUpdate();
+        UserResourceGrant.deleteAll();
+        em.createNativeQuery("DELETE FROM site_resource_grant_ports").executeUpdate();
+        de.chriscohnen.islandr.acl.SiteResourceGrant.deleteAll();
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         RoleResourceGrant.deleteAll();
         de.chriscohnen.islandr.acl.RoleResourceTypeGrant.deleteAll();
@@ -250,6 +265,132 @@ class FirewallTest {
         assertThat(snap.rulesetText())
                 .doesNotContain("flush ruleset")
                 .contains("flush table inet islandr");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directUserGrant_producesRuleForEveryPeerOfThatUser() {
+        User user = persistUser("dana@example.test", "Dana");
+        // Deliberately no role/membership — a direct grant must not depend on it.
+        Site site = persistSite("Direct", "10.41.0.0/16");
+        Resource res = persistResource(site.id, "FileShare", "10.41.0.7");
+        ResourcePort port = persistPort(res.id, 445, "tcp", "SMB");
+        de.chriscohnen.islandr.acl.UserResourceGrant grant =
+                de.chriscohnen.islandr.acl.UserResourceGrant.createNew(user.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO user_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+        persistPeer(user.id, "dana-laptop", "10.8.0.60");
+        persistPeer(user.id, "dana-phone", "10.8.0.61");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.8.0.60")
+                .contains("ip saddr 10.8.0.61")
+                .contains("ip daddr 10.41.0.7")
+                .contains("tcp dport 445")
+                .contains("resource=FileShare");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directUserGrant_allPorts_emitsOneRulePerResourcePort() {
+        User user = persistUser("frank@example.test", "Frank");
+        Site site = persistSite("DirectAllPorts", "10.42.0.0/16");
+        Resource res = persistResource(site.id, "Multi", "10.42.0.9");
+        persistPort(res.id, 80, "tcp", "HTTP");
+        persistPort(res.id, 443, "tcp", "HTTPS");
+        de.chriscohnen.islandr.acl.UserResourceGrant.createNew(user.id, res.id, true).persist();
+        persistPeer(user.id, "frank-desktop", "10.8.0.62");
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.rulesetText())
+                .contains("tcp dport 80")
+                .contains("tcp dport 443");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_producesRuleForSiteCidr() {
+        Site grantingSite = persistSite("BranchOffice", "10.60.0.0/16");
+        Site resourceSite = persistSite("HQ-Site", "10.61.0.0/16");
+        Resource res = persistResource(resourceSite.id, "FileShare", "10.61.0.7");
+        ResourcePort port = persistPort(res.id, 445, "tcp", "SMB");
+        de.chriscohnen.islandr.acl.SiteResourceGrant grant =
+                de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, false);
+        grant.persist();
+        em.createNativeQuery("INSERT INTO site_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, grant.id).setParameter(2, port.id).executeUpdate();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.60.0.0/16")
+                .contains("ip daddr 10.61.0.7")
+                .contains("tcp dport 445")
+                .contains("resource=FileShare");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_coversPeerInsideCidrWithNoOwnGrant() {
+        // The actual payoff of the feature: a peer with zero roles and zero
+        // direct grants of its own still gets covered, purely because its IP
+        // falls inside the granted site's CIDR — proven here by asserting the
+        // CIDR-wide accept rule exists while the peer's own /32 never appears
+        // anywhere in the ruleset (it produces no rule of its own at all).
+        Site grantingSite = persistSite("BranchOffice2", "10.62.0.0/16");
+        Site resourceSite = persistSite("HQ-Site2", "10.63.0.0/16");
+        Resource res = persistResource(resourceSite.id, "Printer", "10.63.0.9");
+        persistPort(res.id, 631, "tcp", "IPP");
+        de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
+        // userId=null and no role/direct grant of its own — the per-Peer loop
+        // skips this peer entirely (empty roles + empty direct grants).
+        persistPeer(null, "branch-laptop", "10.62.0.42");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.62.0.0/16")
+                .doesNotContain("ip saddr 10.62.0.42");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_allPorts_emitsOneRulePerResourcePort() {
+        Site grantingSite = persistSite("BranchOffice3", "10.64.0.0/16");
+        Site resourceSite = persistSite("HQ-Site3", "10.65.0.0/16");
+        Resource res = persistResource(resourceSite.id, "Multi", "10.65.0.9");
+        persistPort(res.id, 80, "tcp", "HTTP");
+        persistPort(res.id, 443, "tcp", "HTTPS");
+        de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.rulesetText())
+                .contains("tcp dport 80")
+                .contains("tcp dport 443");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_directSiteGrant_emitsIcmpForWholeSiteCidr() {
+        // Locked-in decision: ICMP is not narrowed to a single peer for a
+        // site-CIDR grant — it applies subnet-wide, same as the resource
+        // access rule it rides alongside.
+        Site grantingSite = persistSite("BranchOffice4", "10.66.0.0/16");
+        Site resourceSite = persistSite("HQ-Site4", "10.67.0.0/16");
+        Resource res = persistResource(resourceSite.id, "Terminal", "10.67.0.5");
+        persistPort(res.id, 3389, "tcp", "RDP");
+        de.chriscohnen.islandr.acl.SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.66.0.0/16")
+                .contains("icmp type echo-request");
     }
 
     // -- RulesetService ------------------------------------------------------
@@ -534,8 +675,14 @@ class FirewallTest {
 
     @Transactional
     Peer persistPeer(String userId, String name, String assignedIp) {
-        Peer p = Peer.createNew(userId, name,
-                "k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1k1=", assignedIp);
+        // public_key has a unique index (V2__create_peers.sql) — generate a
+        // distinct WireGuard-shaped key per call so tests needing more than
+        // one peer per user (e.g. direct-user-grant "every peer" coverage)
+        // don't collide on a shared hardcoded key.
+        byte[] randomKeyBytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(randomKeyBytes);
+        String publicKey = java.util.Base64.getEncoder().encodeToString(randomKeyBytes);
+        Peer p = Peer.createNew(userId, name, publicKey, assignedIp);
         p.persist();
         return p;
     }

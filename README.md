@@ -35,6 +35,10 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
   <img src="https://islandr-gateway.net/screenshots/light/heatmap.png" width="49%" alt="Connection activity heatmap: peers × days, coloured by traffic volume">
   <img src="https://islandr-gateway.net/screenshots/light/self-service.png" width="49%" alt="Self-service portal: employees enrol their own devices">
 </p>
+<p align="center">
+  <img src="https://islandr-gateway.net/screenshots/light/atlas.png" width="49%" alt="Atlas view: global reachability graph, drag-to-grant access by role or by site">
+  <img src="https://islandr-gateway.net/screenshots/light/acl.png" width="49%" alt="ACL matrix: role × resource access, port-level">
+</p>
 
 ---
 
@@ -153,7 +157,7 @@ Dev server (Quarkus live coding):
 
 The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
 
-Tests (540+, runs in ~25 s after warm start):
+Tests (580+, runs in ~25 s after warm start):
 
 ```bash
 ./gradlew test
@@ -230,13 +234,13 @@ islandr/
 │   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V59, portable SQL
+│   │   ├── db/migration/                    # Flyway migrations V1–V62, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 540+ tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 580+ tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -257,6 +261,7 @@ islandr/
 - Server-side keypairs or admin-imported public keys; **private-key retention** in three modes — `never` (default), `plaintext`, `encrypted` (AES-256-GCM)
 - QR code + `.conf` download as a one-time secret; **import existing peers** from a live `wg0`
 - **Admin-triggered key rotation** — regenerate a peer's keypair in place for compromised-device response, instead of deleting and recreating the peer; explicit confirmation required, rotation timestamps tracked separately for key and PSK ([#46](https://github.com/chriscohnen/islandr/issues/46))
+- **Peer-Scheduler** — a recurring weekly time window that auto-enables/disables a peer, plus a terminal `validUntil` expiry that disables it for good regardless of any open window — closes the long-requested "contractor/trial device shouldn't need an admin to remember to remove it" ([#47](https://github.com/chriscohnen/islandr/issues/47), closes [#10](https://github.com/chriscohnen/islandr/issues/10))
 - **Tri-state connection status** — Connected / Stale / Disconnected badges with absolute time thresholds, instead of a binary online/offline read of the last handshake
 - Approximate peer location from the endpoint IP; hub location editable in Settings
 
@@ -265,6 +270,9 @@ islandr/
 - **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports and reverse DNS, and bulk-create resources from a reviewable list. Unprivileged sockets only, no new capabilities ([ADR-0014](docs/adr/0014-device-discovery.md))
 - Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
 - **Resource-type ACL grants** — roles → every resource of a type at a site (e.g. "all printers in the home office"), additive to individual grants ([ADR-0022](docs/adr/0022-acl-type-grants.md))
+- **Direct user→resource grants** — grant one specific user access to a resource without a role, for one-off exceptions that don't warrant a new role ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md))
+- **Site-to-site grants** — a site's gateway peer can itself be a grant subject, authorizing the whole site's CIDR (not just individual peers) to reach a resource, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52))
+- **Atlas view** — a global map of who/what can reach which resources across the whole tenant, with click-to-focus filtering and drag-to-grant creation (drag either end: user/site → resource or resource → site) ([#49](https://github.com/chriscohnen/islandr/issues/49))
 - **World-map topology view** — sites, gateways and live tunnels on a geocoded map, alongside the existing network diagram ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md))
 - **DNS resolver for resource names** — opt-in, hand-rolled UDP/TCP resolver authoritative for the managed resource zone (per-site subdomains), ACL-filtered per querying peer, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
 - **Dashboard traffic-tier topology** — network/topology links colour by actual traffic volume, not just handshake recency
@@ -297,6 +305,13 @@ islandr/
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
+**0.17.0**
+- **Peer-Scheduler** — recurring weekly time windows that auto-enable/disable a peer, plus a terminal `validUntil` expiry that disables it for good regardless of any open window; manual enable/disable holds until the next schedule transition instead of being silently overwritten ([#47](https://github.com/chriscohnen/islandr/issues/47), closes [#10](https://github.com/chriscohnen/islandr/issues/10))
+- **Site-to-site grants** — a site's gateway peer can itself be granted access to a resource, authorizing the whole site's CIDR at once instead of only individual peers, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52))
+- **Atlas view** — a global graph of who/what can reach which resources, with role/direct grant-mode toggling, click-to-focus filtering, and drag-to-grant creation (from a user or a site onto a resource, or a resource onto a site) ([#49](https://github.com/chriscohnen/islandr/issues/49))
+- **Direct user→resource grants** — bypass roles for a one-off exception grant to a single user ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md), [#50](https://github.com/chriscohnen/islandr/issues/50))
+- **Keyboard shortcuts** — Escape closes modals, `/` focuses search, Ctrl/Cmd+S applies pending ACL matrix changes ([#51](https://github.com/chriscohnen/islandr/issues/51))
+
 **0.16.0**
 - **Admin-triggered key rotation** — regenerate a peer's keypair for compromised-device response instead of deleting and recreating the peer; explicit confirmation required, key and PSK rotation timestamps tracked independently ([#46](https://github.com/chriscohnen/islandr/issues/46))
 - **DNS resolver for resource names** — opt-in resolver authoritative for the managed resource zone, per-site subdomains, ACL-filtered answers, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
@@ -306,14 +321,9 @@ binaries, checksums and every change: [GitHub releases](https://github.com/chris
 - **Reverse-proxy vs. built-in TLS install guide** — side-by-side decision guide for picking between Islandr's built-in TLS and fronting it with Caddy/Traefik/nginx/a CDN ([docs/install/reverse-proxy.md](docs/install/reverse-proxy.md))
 - SQLite backup script
 
-**0.15.1**
-- **Config export/import no longer drops the hub's map location** — the dashboard topology map pin, the optional IPv6 `wgSubnet6`, the Nominatim geocoding URL, the IronRDP toggle and the activity-heatmap retention setting were added to Settings across several releases but never wired into the config export/import round trip, so migrating a hub silently lost them ([#44](https://github.com/chriscohnen/islandr/issues/44)).
-
 Planned features are tracked as GitHub issues — 👍 or comment to signal what matters to you.
 
 **v2 — Usability & convenience** ([milestone](https://github.com/chriscohnen/islandr/milestone/1))
-- [Peer expiry / auto-disable](https://github.com/chriscohnen/islandr/issues/10)
-- [Multi-site map view](https://github.com/chriscohnen/islandr/issues/11) — sites and live tunnels on a map (Leaflet + OSM, no Google Maps)
 - [Entra ID user import](https://github.com/chriscohnen/islandr/issues/12) — browse org users and import selected; the Google Workspace half of this shipped in 0.9.1
 
 **v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))

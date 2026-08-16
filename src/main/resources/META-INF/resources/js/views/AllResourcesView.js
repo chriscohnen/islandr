@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
+import { onSlashFocus } from "/js/keyboard.js";
 
 // Tabelle ueber alle Resourcen quer ueber alle Sites. Liefert den schnellen
 // Drill-Down ("wo ist Drucker XY"); fuer das Bearbeiten leitet der Klick auf
@@ -25,6 +26,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._offSlash = onSlashFocus(() => this.$refs.searchInput);
+  },
+  beforeUnmount() {
+    if (this._offSlash) this._offSlash();
   },
   computed: {
     _lang() { return locale.current; },
@@ -119,7 +124,7 @@ export default defineComponent({
 
       <!-- Filter bar -->
       <div style="display: flex; gap: var(--space-3); margin-bottom: var(--space-5); align-items: center">
-        <input v-model="filter" type="search" :placeholder="t('allres.filter_ph')" class="input" style="max-width: 320px" />
+        <input ref="searchInput" v-model="filter" type="search" :placeholder="t('allres.filter_ph')" class="input" style="max-width: 320px" />
         <select v-model="typeFilter" class="select" style="width: 160px">
           <option value="">{{ t('allres.all_types') }}</option>
           <option v-for="type in types" :key="type" :value="type">{{ typeLabel(type) }}</option>

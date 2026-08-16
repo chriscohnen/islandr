@@ -38,7 +38,9 @@ public final class PeerDto {
             boolean includeDns,         // false = never write the DNS line for this peer
             Double lat,                 // site peers only — physical location of the gateway device
             Double lng,
-            String locationLabel
+            String locationLabel,
+            Instant validUntil,         // null = never expires (issue #10/#47)
+            String enabledSource        // "manual" | "schedule" | null (never toggled by either)
     ) {
         public static Response from(Peer p) {
             return new Response(
@@ -50,7 +52,8 @@ public final class PeerDto {
                     p.presharedKey != null && !p.presharedKey.isBlank(),
                     p.keyRotatedAt, p.pskRotatedAt,
                     p.mtu, p.persistentKeepalive, p.includeDns,
-                    p.lat, p.lng, p.locationLabel);
+                    p.lat, p.lng, p.locationLabel,
+                    p.validUntil, p.enabledSource);
         }
     }
 
@@ -138,7 +141,9 @@ public final class PeerDto {
             String presharedKey    // null when no PSK was generated for this peer
     ) {}
 
-    public record EnabledRequest(boolean enabled) {}
+    // reason: optional, only meaningful when disabling — stored in the audit
+    // log detail only (no persisted column, see #47 design notes).
+    public record EnabledRequest(boolean enabled, String reason) {}
 
     /**
      * Mutable subset of a peer's state. Type and public key are not editable —
@@ -182,7 +187,14 @@ public final class PeerDto {
             // Optional geocoding — meaningful for type='site' only.
             Double lat,
             Double lng,
-            String locationLabel
+            String locationLabel,
+
+            // One-time terminal expiry (issue #10/#47). null = leave unchanged
+            // is NOT the semantics here — omitting the field clears validUntil,
+            // same as every other nullable field in this record; the frontend
+            // always sends the peer's current value back unless the admin
+            // explicitly changed it.
+            Instant validUntil
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */

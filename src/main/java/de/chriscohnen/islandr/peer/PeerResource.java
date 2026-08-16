@@ -31,6 +31,7 @@ import java.util.Map;
 public class PeerResource {
 
     @Inject PeerService peers;
+    @Inject PeerScheduleService schedules;
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
     @Inject WgAdapter wg;
@@ -274,10 +275,80 @@ public class PeerResource {
         AuthContext a = Auth.requireAdmin(ctx);
         PeerDto.Response p = peers.setEnabled(id, body.enabled());
         String action = body.enabled() ? "peer.enable" : "peer.disable";
-        audit.logEvent(a.principal(), action, "Peer:" + p.name() + " (" + id + ")",
-                Map.of("name", p.name(), "assignedIp", p.assignedIp()));
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("name", p.name());
+        detail.put("assignedIp", p.assignedIp());
+        // reason is optional, admin-supplied context (e.g. "leave cover") —
+        // audit-log-only, never persisted on the peer itself (#47).
+        if (body.reason() != null && !body.reason().isBlank()) detail.put("reason", body.reason());
+        audit.logEvent(a.principal(), action, "Peer:" + p.name() + " (" + id + ")", detail);
         rulesets.recomputeFromHook();
         return p;
+    }
+
+    /** Every peer's schedule (#47) — for the peers list's schedule indicator,
+     *  fetched once instead of per-row. */
+    @GET
+    @Path("/schedules")
+    public List<PeerScheduleDto.Response> listSchedules(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        return schedules.list();
+    }
+
+    /** This peer's recurring schedule, if any (#47) — 404 when none is set. */
+    @GET
+    @Path("/{id}/schedule")
+    public Response getSchedule(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        Auth.requireAdmin(ctx);
+        PeerScheduleDto.Response s = schedules.find(id);
+        return s == null ? Response.status(Response.Status.NOT_FOUND).build() : Response.ok(s).build();
+    }
+
+    /** Recurring weekly enable window for this peer (#47). Upsert — creates or
+     *  replaces the peer's single schedule row. Does not itself change
+     *  {@code enabled}; PeerScheduleJob picks up the effect on its next tick
+     *  (up to ~60s lag), avoiding duplicated flip-decision logic here. */
+    @PUT
+    @Path("/{id}/schedule")
+    public PeerScheduleDto.Response setSchedule(@Context ContainerRequestContext ctx,
+                                                 @PathParam("id") String id,
+                                                 @jakarta.validation.Valid PeerScheduleDto.Request body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        PeerScheduleDto.Response before = schedules.find(id);
+        PeerScheduleDto.Response after = schedules.upsert(id, body);
+        Peer peer = Peer.findById(id);
+        String peerName = peer != null ? peer.name : id;
+        if (before == null) {
+            audit.logCreate(a.principal(), "peer.schedule.create", "Peer:" + peerName + " (" + id + ")",
+                    Map.of("weekdayMask", after.weekdayMask(), "activeFrom", after.activeFrom().toString(),
+                            "activeTo", after.activeTo().toString()));
+        } else {
+            audit.logUpdate(a.principal(), "peer.schedule.update", "Peer:" + peerName + " (" + id + ")",
+                    Map.of("weekdayMask", before.weekdayMask(), "activeFrom", before.activeFrom().toString(),
+                            "activeTo", before.activeTo().toString()),
+                    Map.of("weekdayMask", after.weekdayMask(), "activeFrom", after.activeFrom().toString(),
+                            "activeTo", after.activeTo().toString()));
+        }
+        return after;
+    }
+
+    /** Removes this peer's recurring schedule, if any. Leaves {@code enabled}
+     *  untouched — no surprise re-enable on delete (#47); an admin toggles
+     *  manually afterward if that's what's wanted. */
+    @DELETE
+    @Path("/{id}/schedule")
+    public Response deleteSchedule(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        PeerScheduleDto.Response before = schedules.find(id);
+        schedules.remove(id);
+        if (before != null) {
+            Peer peer = Peer.findById(id);
+            String peerName = peer != null ? peer.name : id;
+            audit.logDelete(a.principal(), "peer.schedule.delete", "Peer:" + peerName + " (" + id + ")",
+                    Map.of("weekdayMask", before.weekdayMask(), "activeFrom", before.activeFrom().toString(),
+                            "activeTo", before.activeTo().toString()));
+        }
+        return Response.noContent().build();
     }
 
     @DELETE

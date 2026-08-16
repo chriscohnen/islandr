@@ -1,7 +1,11 @@
 package de.chriscohnen.islandr.admin;
 
+import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleBootstrap;
+import de.chriscohnen.islandr.acl.Site;
+import de.chriscohnen.islandr.acl.SiteResourceGrant;
+import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.user.User;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -179,7 +183,9 @@ class ConfigImportRoundTripTest {
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
                 original.portGroupMembers(), original.roleResourceGrants(),
-                original.grantPortLinks(), original.roleResourceTypeGrants());
+                original.grantPortLinks(), original.roleResourceTypeGrants(),
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -287,7 +293,9 @@ class ConfigImportRoundTripTest {
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
                 original.portGroupMembers(), original.roleResourceGrants(),
-                original.grantPortLinks(), original.roleResourceTypeGrants());
+                original.grantPortLinks(), original.roleResourceTypeGrants(),
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -308,5 +316,82 @@ class ConfigImportRoundTripTest {
         assertThat(reloaded.hubLat)
                 .as("hubLat has no fallback — null is its own valid default")
                 .isNull();
+    }
+
+    @Test
+    void roundTrip_preservesDirectUserGrants() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String email = "roundtrip-usergrant-" + suffix + "@local";
+
+        String userId = QuarkusTransaction.requiringNew().call(() -> {
+            User u = User.createNew("Round Trip User " + suffix, email);
+            u.persist();
+            return u.id;
+        });
+        String resourceId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RoundTripSite-" + suffix, "10.66.0.0/16", null);
+            site.persist();
+            Resource res = Resource.createNew(site.id, "RoundTripRes", "10.66.0.5", null, "computer");
+            res.persist();
+            return res.id;
+        });
+        QuarkusTransaction.requiringNew().run(() -> {
+            UserResourceGrant.createNew(userId, resourceId, true).persist();
+        });
+
+        ConfigExportDto.Export exported =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+
+        assertThat(exported.userResourceGrants())
+                .filteredOn(g -> userId.equals(g.userId()) && resourceId.equals(g.resourceId()))
+                .singleElement()
+                .satisfies(g -> assertThat(g.allPorts()).isTrue());
+
+        configService.importConfig(exported);
+
+        List<UserResourceGrant> reloaded = QuarkusTransaction.requiringNew().call(() ->
+                UserResourceGrant.<UserResourceGrant>list("userId = ?1 and resourceId = ?2", userId, resourceId));
+
+        assertThat(reloaded)
+                .as("the direct user-grant written by the import must be readable again")
+                .hasSize(1);
+    }
+
+    @Test
+    void roundTrip_preservesDirectSiteGrants() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        String siteId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RoundTripGrantingSite-" + suffix, "10.70.0.0/16", null);
+            site.persist();
+            return site.id;
+        });
+        String resourceId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RoundTripResourceSite-" + suffix, "10.71.0.0/16", null);
+            site.persist();
+            Resource res = Resource.createNew(site.id, "RoundTripRes2", "10.71.0.5", null, "computer");
+            res.persist();
+            return res.id;
+        });
+        QuarkusTransaction.requiringNew().run(() -> {
+            SiteResourceGrant.createNew(siteId, resourceId, true).persist();
+        });
+
+        ConfigExportDto.Export exported =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+
+        assertThat(exported.siteResourceGrants())
+                .filteredOn(g -> siteId.equals(g.siteId()) && resourceId.equals(g.resourceId()))
+                .singleElement()
+                .satisfies(g -> assertThat(g.allPorts()).isTrue());
+
+        configService.importConfig(exported);
+
+        List<SiteResourceGrant> reloaded = QuarkusTransaction.requiringNew().call(() ->
+                SiteResourceGrant.<SiteResourceGrant>list("siteId = ?1 and resourceId = ?2", siteId, resourceId));
+
+        assertThat(reloaded)
+                .as("the direct site-grant written by the import must be readable again")
+                .hasSize(1);
     }
 }

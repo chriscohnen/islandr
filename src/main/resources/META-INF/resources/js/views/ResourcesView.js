@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
+import { onEscape, onSlashFocus } from "/js/keyboard.js";
 
 // Resources of a single site. The site is passed via route param :siteId.
 // Each resource has a list of ports (port + transport + protocol-label).
@@ -58,11 +59,18 @@ export default defineComponent({
   },
   async mounted() {
     await Promise.all([this.loadSite(), this.loadResources(), this.loadPortGroups()]);
+    this._offEscape = onEscape(() => {
+      if (this.scanOpen) this.closeScan();
+      else if (this.modal) this.closeModal();
+    });
+    this._offSlash = onSlashFocus(() => this.$refs.searchInput);
   },
   unmounted() {
     // Navigating away mid-scan must not leave a poll loop running or a scan
     // orphaned on the hub — closeScan clears the timer and cancels the job.
     if (this.scanOpen) this.closeScan();
+    if (this._offEscape) this._offEscape();
+    if (this._offSlash) this._offSlash();
   },
   watch: {
     siteId: {
@@ -528,7 +536,7 @@ export default defineComponent({
         </div>
       </div>
       <div style="display: flex; gap: var(--space-2)">
-        <input class="input input-sm" type="search" v-model="quickFilter"
+        <input ref="searchInput" class="input input-sm" type="search" v-model="quickFilter"
                :placeholder="t('resources.quickfilter_ph')" style="width: 180px" />
         <div style="display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden">
           <button class="btn btn-sm" :class="viewMode === 'cards' ? 'btn-secondary' : 'btn-ghost'"

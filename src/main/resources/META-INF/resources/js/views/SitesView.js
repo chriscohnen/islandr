@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 
 // Sites = organisational grouping for resources. The CIDR is informational,
 // rendered next to the name; it does NOT participate in nftables rules.
@@ -24,6 +25,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._offEscape = onEscape(() => { if (this.modal) this.closeModal(); });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
   },
   computed: {
     _lang() { return locale.current; },

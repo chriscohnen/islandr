@@ -3,6 +3,7 @@ import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
+import { onEscape } from "/js/keyboard.js";
 
 // Flat list of every peer across every user. This is the main working surface
 // for sysadmins ("show me everything connected"). User-scoped peer creation
@@ -19,6 +20,9 @@ export default defineComponent({
       peers: [],
       users: [],
       usersById: {},
+      // peerId -> true for every peer with a recurring schedule (#47) — one
+      // bulk fetch instead of a per-row request.
+      scheduledPeerIds: {},
       loading: true,
       error: null,
       // Pre-selected user for the create modal (sticky, so creating many peers
@@ -69,6 +73,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._offEscape = onEscape(() => { if (this.importModal) this.closeImport(); });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
   },
   methods: {
     t(key, vars) { return t(key, vars); },
@@ -77,15 +85,23 @@ export default defineComponent({
       this.loading = true;
       this.error = null;
       try {
-        const [peersRes, usersRes] = await Promise.all([
+        const [peersRes, usersRes, schedulesRes] = await Promise.all([
           fetch("/api/v1/peers"),
           fetch("/api/v1/users"),
+          fetch("/api/v1/peers/schedules"),
         ]);
         if (!peersRes.ok) throw new Error("Peers HTTP " + peersRes.status);
         if (!usersRes.ok) throw new Error("Users HTTP " + usersRes.status);
         this.peers = await peersRes.json();
         this.users = await usersRes.json();
         this.usersById = Object.fromEntries(this.users.map((u) => [u.id, u]));
+        // Best-effort — a failed schedules fetch just means no indicator dots,
+        // not a load failure for the whole page.
+        this.scheduledPeerIds = {};
+        if (schedulesRes.ok) {
+          const schedules = await schedulesRes.json();
+          this.scheduledPeerIds = Object.fromEntries(schedules.map((s) => [s.peerId, true]));
+        }
         if (!this.createUserId && this.users.length > 0) {
           this.createUserId = this.users[0].id;
         }
@@ -115,11 +131,15 @@ export default defineComponent({
     },
 
     async toggleEnabled(peer) {
+      const enabling = !peer.enabled;
+      // Reason is optional context for the audit log only (#47) — asked only
+      // when disabling; Cancel just skips it rather than aborting the toggle.
+      const reason = enabling ? null : window.prompt(t("peers.disable_reason_prompt"));
       try {
         const res = await fetch("/api/v1/peers/" + peer.id + "/enabled", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: !peer.enabled }),
+          body: JSON.stringify({ enabled: enabling, reason: reason || null }),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
         await this.load();
@@ -289,6 +309,14 @@ export default defineComponent({
             <span v-else :class="['badge', connectionBadgeClass(p)]">
               <span class="dot"></span>{{ t(connectionLabelKey(p)) }}
             </span>
+            <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 2px">
+              <span v-if="p.validUntil" class="muted" style="font-size: var(--text-xs)">
+                {{ t('peers.expires_label', { date: formatDate(p.validUntil) }) }}
+              </span>
+              <span v-if="scheduledPeerIds[p.id]" class="muted" style="font-size: var(--text-xs)">
+                {{ t('peers.has_schedule') }}
+              </span>
+            </div>
           </td>
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>
           <td class="muted">{{ formatDate(p.updatedAt) }}</td>

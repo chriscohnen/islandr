@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 
 // Identity-Seite mit Hierarchie: aktiver Provider als Hero oben, alle anderen
 // als kompakte "Strip"-Karten darunter. Genau einer kann aktiv sein — das wird
@@ -44,7 +45,13 @@ export default defineComponent({
       return this.providers.find((p) => p.providerKey === this.editing) || null;
     },
   },
-  async mounted() { await Promise.all([this.load(), this.loadGwsSettings()]); },
+  async mounted() {
+    await Promise.all([this.load(), this.loadGwsSettings()]);
+    this._offEscape = onEscape(() => { if (this.pendingSwitch) this.abortSwitch(); });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
+  },
   methods: {
     t(key, vars) { return t(key, vars); },
     async load() {

@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 import TopologyDiagram from "/js/TopologyDiagram.js";
 import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import PortalActivityHeatmap from "/js/PortalActivityHeatmap.js";
@@ -117,6 +118,16 @@ export default defineComponent({
       this.viewAsUserName = this.$route.query.asName || this.$route.query.as;
     }
     await Promise.all([this.load(), this.loadGrants()]);
+    // Guarded on modalMode/rdpDialog being set — both are already null while
+    // an RDP session's own canvas keydown forwarding is active, so this never
+    // competes with keys meant for the remote session.
+    this._offEscape = onEscape(() => {
+      if (this.rdpDialog) this.closeRdpDialog();
+      else if (this.modalMode) this.closeModal();
+    });
+  },
+  beforeUnmount() {
+    if (this._offEscape) this._offEscape();
   },
   methods: {
     t(key, vars) { return t(key, vars); },

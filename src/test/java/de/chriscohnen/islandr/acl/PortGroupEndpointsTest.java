@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.acl;
 import de.chriscohnen.islandr.auth.AdminSessionExtension;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.path.json.JsonPath;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(AdminSessionExtension.class)
 class PortGroupEndpointsTest {
 
+    @Inject RoleBootstrap roleBootstrap;
+
     @BeforeEach
     @Transactional
     void wipe() {
@@ -36,6 +39,12 @@ class PortGroupEndpointsTest {
         Resource.deleteAll();
         Site.deleteAll();
         Role.deleteAll();
+        // Reseed the RoleBootstrap "Everyone" auto_all role that Role.deleteAll()
+        // just removed (empty, no grants — same as the real seed) so the
+        // invariant "exactly one auto_all role always exists" keeps holding
+        // for whatever test runs next; its absence otherwise flakes
+        // ConfigImportRoundTripTest depending on suite execution order.
+        roleBootstrap.seedEveryoneRole();
         // Drop ONLY the user-created port groups by leaving the V10-seeded
         // IDs alone (they all start with '00000000-0000-0000-0000-port-group-').
         PortGroupMember.delete(

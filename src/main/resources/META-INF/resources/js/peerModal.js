@@ -16,6 +16,7 @@
 // control (issue #46) — server-generates a fresh keypair, replaces it on the
 // hub immediately, and shows the new .conf/QR once, same shape as create.
 import { t, formatDate } from "/js/i18n.js";
+import { onEscape } from "/js/keyboard.js";
 
 export const peerModalMixin = {
   data() {
@@ -36,6 +37,18 @@ export const peerModalMixin = {
       editPeerPskRotatedAt: null,
       keyRotateArmed: false,
       keyRotating: false,
+
+      // One-time expiry (#47/#10) — date-only <input type="date"> value
+      // ("YYYY-MM-DD") or "" for none. Expires at that date's end (23:59:59
+      // local) — see submitEditPeer.
+      editValidUntil: "",
+      // Recurring weekly enable window (#47). weekdayMask bit0=Mon...bit6=Sun.
+      editScheduleEnabled: false,
+      editScheduleWeekdayMask: 0,
+      editScheduleFrom: "08:00",
+      editScheduleTo: "18:00",
+      editScheduleLoading: false,
+      editScheduleError: null,
 
       newPeer: { name: "", assignedIp: "", assignedIpv6: "" },
       // Peer kind: "client" (single device) or "site" (gateway exposing a
@@ -72,6 +85,17 @@ export const peerModalMixin = {
       secretApplyError: null,
       copyState: "idle",
     };
+  },
+  // Mixin lifecycle hooks merge with the host view's own (Vue calls both),
+  // so this covers PeersView and UsersView from one place.
+  mounted() {
+    this._offPeerModalEscape = onEscape(() => {
+      if (this.pskAction) { this.pskAction = null; return; }
+      if (this.modalMode) this.closeModal();
+    });
+  },
+  beforeUnmount() {
+    if (this._offPeerModalEscape) this._offPeerModalEscape();
   },
   watch: {
     // Reseed the reveal-dialog option fields whenever a new secret is shown —
@@ -202,7 +226,7 @@ export const peerModalMixin = {
       }
     },
 
-    openEditPeer(peer) {
+    async openEditPeer(peer) {
       this.modalMode = "edit";
       this.modalUserId = peer.userId;
       this.editPeerId = peer.id;
@@ -230,6 +254,41 @@ export const peerModalMixin = {
       this.peerError = null;
       this.secret = null;
       this.secretIsReshow = false;
+
+      // validUntil (#10/#47): peer.validUntil is a full ISO instant; the date
+      // input only needs the YYYY-MM-DD part.
+      this.editValidUntil = peer.validUntil ? peer.validUntil.slice(0, 10) : "";
+
+      // Recurring schedule (#47) — separate resource, loaded best-effort so a
+      // slow/failed fetch doesn't block the rest of the edit form from opening.
+      this.editScheduleEnabled = false;
+      this.editScheduleWeekdayMask = 0;
+      this.editScheduleFrom = "08:00";
+      this.editScheduleTo = "18:00";
+      this.editScheduleError = null;
+      this.editScheduleLoading = true;
+      try {
+        const res = await fetch("/api/v1/peers/" + peer.id + "/schedule");
+        if (res.ok) {
+          const s = await res.json();
+          // Guard: the admin could have closed/switched peers before this resolved.
+          if (this.modalMode === "edit" && this.editPeerId === peer.id) {
+            this.editScheduleEnabled = true;
+            this.editScheduleWeekdayMask = s.weekdayMask;
+            this.editScheduleFrom = s.activeFrom.slice(0, 5);
+            this.editScheduleTo = s.activeTo.slice(0, 5);
+          }
+        }
+        // 404 = no schedule set — editScheduleEnabled stays false, already the default.
+      } catch {
+        // best-effort — admin can still set a new schedule even if the load failed
+      } finally {
+        this.editScheduleLoading = false;
+      }
+    },
+
+    toggleEditScheduleWeekday(bit) {
+      this.editScheduleWeekdayMask ^= bit;
     },
 
     async submitEditPeer() {
@@ -247,6 +306,12 @@ export const peerModalMixin = {
           || this.editKeepalive === undefined || Number.isNaN(this.editKeepalive))
           ? null : this.editKeepalive,
         includeDns: this.editIncludeDns,
+        // validUntil (#10/#47): the date input is date-only, expire at that
+        // day's end (23:59:59 browser-local) rather than midnight-start, so
+        // the whole selected day still counts as valid. `new Date("...")`
+        // with no zone suffix parses as browser-local time; toISOString()
+        // converts to the UTC instant the backend expects.
+        validUntil: this.editValidUntil ? new Date(this.editValidUntil + "T23:59:59").toISOString() : null,
       };
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
@@ -283,12 +348,44 @@ export const peerModalMixin = {
         }
         const updated = await res.json();
 
+        // Recurring schedule (#47) — separate resource from the peer itself,
+        // saved alongside in the same submit so the admin only sees one form.
+        this.editScheduleError = null;
+        try {
+          if (this.editScheduleEnabled) {
+            const schedRes = await fetch("/api/v1/peers/" + this.editPeerId + "/schedule", {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                weekdayMask: this.editScheduleWeekdayMask,
+                activeFrom: this.editScheduleFrom,
+                activeTo: this.editScheduleTo,
+              }),
+            });
+            if (!schedRes.ok) {
+              const body = await schedRes.text();
+              throw new Error("HTTP " + schedRes.status + (body ? " — " + body.slice(0, 200) : ""));
+            }
+          } else {
+            await fetch("/api/v1/peers/" + this.editPeerId + "/schedule", { method: "DELETE" });
+          }
+        } catch (e) {
+          // Peer itself already saved successfully — surface the schedule
+          // failure separately rather than rolling back or blocking the rest
+          // of the flow (e.g. the reshow dialog below).
+          this.editScheduleError = t("peer.schedule_error", { error: e.message });
+        }
+
         if (typeof this.onPeerUpdated === "function") {
           this.onPeerUpdated({ peer: updated.peer });
         }
         this.$emit("peer-updated", { peer: updated.peer });
 
-        if (shouldReshow) {
+        if (this.editScheduleError) {
+          // Stay on the edit form so the schedule error is visible rather
+          // than navigating away (reshow/close) over it — the peer fields
+          // themselves did save successfully, only the schedule call failed.
+        } else if (shouldReshow) {
           // Nudge the secret modal so the admin sees the new .conf for the
           // client to re-import. Treated as a reshow (no "key only visible
           // now" warning — the keypair didn't change).
@@ -787,6 +884,41 @@ export const peerModalTemplate = `
               <span>{{ t('peer.field_include_dns') }}</span>
             </label>
             <div class="field-hint">{{ t('peer.field_include_dns_hint') }}</div>
+          </div>
+
+          <!-- Peer-Scheduler (#47/#10): one-time expiry + recurring weekly window. -->
+          <div class="field" style="margin-top: var(--space-4)">
+            <label>{{ t('peer.field_valid_until') }}</label>
+            <input type="date" class="input mono" v-model="editValidUntil" style="width: 200px" />
+            <div class="field-hint">{{ t('peer.field_valid_until_hint') }}</div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label style="display:inline-flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none; font-family:var(--font-sans); font-size:var(--text-sm); color:var(--fg1); font-weight:500; text-transform:none; letter-spacing:0">
+              <input type="checkbox" v-model="editScheduleEnabled" :disabled="editScheduleLoading" style="width:16px; height:16px; accent-color:var(--accent); margin:0" />
+              <span>{{ t('peer.field_schedule_enable') }}</span>
+            </label>
+            <div class="field-hint">{{ t('peer.field_schedule_hint') }}</div>
+
+            <div v-if="editScheduleEnabled" style="margin-top: var(--space-3); display:flex; flex-direction:column; gap:var(--space-3)">
+              <div style="display:flex; gap:4px; flex-wrap:wrap">
+                <button v-for="d in [
+                    { bit: 1, key: 'peer.weekday_mon' }, { bit: 2, key: 'peer.weekday_tue' },
+                    { bit: 4, key: 'peer.weekday_wed' }, { bit: 8, key: 'peer.weekday_thu' },
+                    { bit: 16, key: 'peer.weekday_fri' }, { bit: 32, key: 'peer.weekday_sat' },
+                    { bit: 64, key: 'peer.weekday_sun' },
+                  ]" :key="d.bit" type="button" class="btn btn-sm"
+                  :class="(editScheduleWeekdayMask & d.bit) ? 'btn-secondary' : 'btn-ghost'"
+                  @click="toggleEditScheduleWeekday(d.bit)">{{ t(d.key) }}</button>
+              </div>
+              <div style="display:flex; gap:var(--space-3); align-items:center">
+                <input type="time" class="input mono" v-model="editScheduleFrom" style="width: 140px" />
+                <span class="muted">{{ t('peer.schedule_to') }}</span>
+                <input type="time" class="input mono" v-model="editScheduleTo" style="width: 140px" />
+              </div>
+              <div class="field-hint">{{ t('peer.field_schedule_time_hint') }}</div>
+            </div>
+            <div v-if="editScheduleError" class="error-banner" style="margin-top: var(--space-3)">{{ editScheduleError }}</div>
           </div>
         </div>
         <div class="modal-footer">

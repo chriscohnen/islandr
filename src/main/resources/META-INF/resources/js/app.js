@@ -16,6 +16,7 @@ import AllResourcesView from "/js/views/AllResourcesView.js";
 import PortGroupsView from "/js/views/PortGroupsView.js";
 import RolesView from "/js/views/RolesView.js";
 import AclMatrixView from "/js/views/AclMatrixView.js";
+import AtlasView from "/js/views/AtlasView.js";
 import FirewallView from "/js/views/FirewallView.js";
 import DnsView from "/js/views/DnsView.js";
 import StubView from "/js/views/StubView.js";
@@ -86,6 +87,7 @@ const router = createRouter({
     { path: "/dashboard", name: "dashboard", component: DashboardView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/peers", name: "peers", component: PeersView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/acl", name: "acl", component: AclMatrixView, meta: { requiresAuth: true, requiresAdmin: true } },
+    { path: "/atlas", name: "atlas", component: AtlasView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/roles-list", name: "roles-list", component: RolesView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/networks", name: "sites", component: SitesView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/networks/:siteId/resources", name: "resources", component: ResourcesView, props: true, meta: { requiresAuth: true, requiresAdmin: true } },
@@ -323,6 +325,7 @@ const App = defineComponent({
           <router-link to="/port-groups" class="nav-item"><Icon name="portGroups" />{{ t('nav.port_groups') }}</router-link>
           <router-link to="/roles-list" class="nav-item"><Icon name="roles" />{{ t('nav.roles') }}</router-link>
           <router-link to="/acl" class="nav-item"><Icon name="acl" />{{ t('nav.roles_acl') }}</router-link>
+          <router-link to="/atlas" class="nav-item"><Icon name="atlas" />{{ t('nav.atlas') }}</router-link>
           <router-link to="/users" class="nav-item"><Icon name="users" />{{ t('nav.users') }}</router-link>
 
           <div class="section-label">{{ t('nav.system') }}</div>
