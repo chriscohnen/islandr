@@ -135,6 +135,7 @@ export default defineComponent({
     return {
       dragFromUserId: null,
       dragFromIsGateway: false, // true when dragFromUserId is a site's gateway node, not a user
+      dragFromResourceId: null, // set instead of dragFromUserId when the drag starts on a resource node
       dragPointer: null, // { x, y } in content coords, while dragging
       dragStartClient: null, // { x, y } in raw client px, to distinguish a click from a drag
       dragMoved: false,
@@ -396,14 +397,24 @@ export default defineComponent({
     zoomInBtn() { this.zoomAt(W / 2, H / 2, BUTTON_ZOOM_STEP); },
     zoomOutBtn() { this.zoomAt(W / 2, H / 2, 1 / BUTTON_ZOOM_STEP); },
     onNodePointerDown(node, evt) {
-      // Every user or gateway (site) node tracks pointer movement, regardless
-      // of tool — a click (no movement) always means select/mode-switch
-      // (emitted on pointerup below, user nodes only — see onWindowPointerUp);
-      // only a real drag additionally requires tool==="grant" to attempt a grant.
-      if (!node.isUser && !node.isGateway) return;
+      // Every user, gateway (site), or resource node tracks pointer movement,
+      // regardless of tool — a click (no movement) always means
+      // select/mode-switch (emitted on pointerup below, user/resource nodes
+      // only — see onWindowPointerUp); only a real drag additionally
+      // requires tool==="grant" to attempt a grant. A resource-started drag
+      // is the mirror of the user/gateway-started one: same grant dialog and
+      // API call, just reached by grabbing the resource end of the line
+      // instead of the site's gateway diamond.
       evt.preventDefault();
-      this.dragFromUserId = node.id;
-      this.dragFromIsGateway = !!node.isGateway;
+      if (node.isUser || node.isGateway) {
+        this.dragFromUserId = node.id;
+        this.dragFromIsGateway = !!node.isGateway;
+        this.dragFromResourceId = null;
+      } else {
+        this.dragFromResourceId = node.id;
+        this.dragFromUserId = null;
+        this.dragFromIsGateway = false;
+      }
       this.dragStartClient = { x: evt.clientX, y: evt.clientY };
       this.dragMoved = false;
       this.dragPointer = this.screenToContent(evt);
@@ -425,6 +436,7 @@ export default defineComponent({
       window.removeEventListener("pointercancel", this.onWindowPointerCancel);
       this.dragFromUserId = null;
       this.dragFromIsGateway = false;
+      this.dragFromResourceId = null;
       this.dragPointer = null;
       this.dragStartClient = null;
       this.dragMoved = false;
@@ -432,18 +444,34 @@ export default defineComponent({
     onWindowPointerUp(evt) {
       const fromUserId = this.dragFromUserId;
       const fromIsGateway = this.dragFromIsGateway;
+      const fromResourceId = this.dragFromResourceId;
       const moved = this.dragMoved;
       let resourceId = null;
+      let gatewaySubjectId = null;
       if (moved && this.tool === "grant") {
         const target = document.elementFromPoint(evt.clientX, evt.clientY);
-        resourceId = target && target.closest("[data-resource-id]")
-            ? target.closest("[data-resource-id]").getAttribute("data-resource-id")
-            : null;
+        if (fromUserId) {
+          resourceId = target && target.closest("[data-resource-id]")
+              ? target.closest("[data-resource-id]").getAttribute("data-resource-id")
+              : null;
+        } else if (fromResourceId) {
+          // Mirror of the above: dropped on a gateway diamond instead of a
+          // resource circle. Only gateway (site) nodes are valid drop
+          // targets for a resource-started drag — dropping on a user node
+          // is a no-op, since a resource dragging onto a person would need
+          // the same role-vs-direct disambiguation the user-started drag
+          // gets from the toolbar's role picker, which a resource-started
+          // drag has no equivalent context for.
+          const gatewayEl = target && target.closest('[data-subject-kind="gateway"]');
+          gatewaySubjectId = gatewayEl ? gatewayEl.getAttribute("data-subject-id") : null;
+        }
       }
       this.endDrag();
       if (moved) {
         if (resourceId && fromUserId) {
           this.$emit("drag-grant", { subjectType: fromIsGateway ? "site" : "user", subjectId: fromUserId, resourceId });
+        } else if (gatewaySubjectId && fromResourceId) {
+          this.$emit("drag-grant", { subjectType: "site", subjectId: gatewaySubjectId, resourceId: fromResourceId });
         }
       } else if (fromUserId && !fromIsGateway) {
         // A plain click on a gateway node is a no-op for now — sites are
@@ -545,14 +573,17 @@ export default defineComponent({
                 marker-end="url(#atlas-arrow)"
                 @click="onEdgeClick(line.edge)" />
 
-          <line v-if="dragFromUserId && dragPointer" :x1="nodesById.get(dragFromUserId).x" :y1="nodesById.get(dragFromUserId).y"
+          <line v-if="(dragFromUserId || dragFromResourceId) && dragPointer"
+                :x1="nodesById.get(dragFromUserId || dragFromResourceId).x" :y1="nodesById.get(dragFromUserId || dragFromResourceId).y"
                 :x2="dragPointer.x" :y2="dragPointer.y"
                 stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3" />
 
           <g v-for="circle in layout" :key="'nodes-' + circle.id">
             <g v-for="node in circle.nodes" :key="node.id"
                :data-resource-id="(!node.isUser && !node.isGateway) ? node.id : null"
-               :style="(node.isUser || node.isGateway) ? 'cursor: grab' : 'cursor: pointer'"
+               :data-subject-id="(node.isUser || node.isGateway) ? node.id : null"
+               :data-subject-kind="node.isGateway ? 'gateway' : (node.isUser ? 'user' : null)"
+               :style="(node.isUser || node.isGateway || tool === 'grant') ? 'cursor: grab' : 'cursor: pointer'"
                @pointerdown="onNodePointerDown(node, $event)"
                @click="onResourceNodeClick(node)"
                @pointerenter="!node.isUser && !node.isGateway && onResourceHover(node, $event)"
