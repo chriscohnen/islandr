@@ -154,6 +154,21 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "location_label", length = 255)
     public String locationLabel;
 
+    /** One-time, terminal expiry (issue #10/#47) — null = never expires. Once
+     *  passed, PeerScheduleJob disables this peer and it stays disabled
+     *  regardless of any recurring {@link PeerSchedule}; it does not reactivate
+     *  by editing the schedule. Clear it (set null) to lift the expiry. */
+    @Column(name = "valid_until")
+    public Instant validUntil;
+
+    /** Who last changed {@link #enabled}: "manual" (admin via the API) or
+     *  "schedule" (PeerScheduleJob). Null = never toggled by either path since
+     *  creation. Lets the scheduler tell its own past flips apart from an
+     *  admin override, so a manual disable holds until the schedule's next
+     *  open&lt;-&gt;close transition instead of being undone by the next tick. */
+    @Column(name = "enabled_source", length = 16)
+    public String enabledSource;
+
     public boolean isSite() {
         return "site".equals(type);
     }

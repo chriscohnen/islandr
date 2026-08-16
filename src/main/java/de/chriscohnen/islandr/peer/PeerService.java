@@ -300,6 +300,7 @@ public class PeerService {
         // null (field omitted) keeps the current/default true; only an explicit
         // false turns off the DNS line for this peer.
         peer.includeDns = req.includeDns() == null || req.includeDns();
+        peer.validUntil = req.validUntil();
         peer.updatedAt = java.time.Instant.now();
         peer.persist();
 
@@ -435,12 +436,28 @@ public class PeerService {
         peer.delete();
     }
 
+    /** Admin-initiated enable/disable via the API — marks {@code enabledSource="manual"}
+     *  (#47) so PeerScheduleJob won't undo it until the schedule's next transition. */
     @Transactional
     public PeerDto.Response setEnabled(String peerId, boolean enabled) {
+        return setEnabled(peerId, enabled, "manual");
+    }
+
+    /** Scheduler-initiated enable/disable (#47) — marks {@code enabledSource="schedule"}. */
+    @Transactional
+    public PeerDto.Response setEnabledBySchedule(String peerId, boolean enabled) {
+        return setEnabled(peerId, enabled, "schedule");
+    }
+
+    private PeerDto.Response setEnabled(String peerId, boolean enabled, String source) {
         Peer peer = Peer.findById(peerId);
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
-        if (peer.enabled == enabled) return PeerDto.Response.from(peer);
+        if (peer.enabled == enabled) {
+            peer.enabledSource = source;
+            return PeerDto.Response.from(peer);
+        }
         peer.enabled = enabled;
+        peer.enabledSource = source;
         peer.updatedAt = java.time.Instant.now();
         if (enabled) {
             wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
