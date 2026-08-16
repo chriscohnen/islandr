@@ -8,6 +8,14 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 ---
 
+## 0.17.0
+
+- **Peer-Scheduler** — peers can now carry a recurring weekly time window (weekday mask + `active_from`/`active_to`) that auto-enables/disables them on a minute tick, and a terminal `validUntil` expiry that disables a peer for good regardless of any open window — closing the long-requested "contractor/trial device shouldn't need an admin to remember to remove it" ([#47](https://github.com/chriscohnen/islandr/issues/47), closes [#10](https://github.com/chriscohnen/islandr/issues/10)). A manual enable/disable (with optional reason, audit-logged) holds until the schedule's next open→close/close→open transition instead of being silently overwritten within a minute. Gated by `islandr.peer-schedule.enabled` for operators who want to switch the job off entirely.
+- **Site-to-site grants** — a site's gateway peer can itself be a grant subject: the whole site's CIDR (not just individual peers behind it) can be authorized to reach a resource, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52)). `RuleBuilder` now emits the allow-rule with the site's CIDR as `saddr` instead of a peer's `/32` tunnel IP.
+- **Atlas view** — a global graph of who/what can reach which resources across the whole tenant, replacing the earlier per-user variant. Role/direct grant-mode toggle, click-to-focus filtering by user or resource, type/role filter chips, and drag-to-grant creation — drag a user or a site's gateway diamond onto a resource, or (new) a resource onto a site's gateway diamond, either way opening a full-access/port-scoped confirmation dialog before anything is written ([#49](https://github.com/chriscohnen/islandr/issues/49)).
+- **Direct user→resource grants** — a specific user can be granted access to a resource without going through a role, for one-off exceptions that don't warrant creating a new role just for one person ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md), [#50](https://github.com/chriscohnen/islandr/issues/50)).
+- **Keyboard shortcuts** — Escape closes the open modal, `/` focuses the page's search field, Ctrl/Cmd+S applies pending ACL matrix changes ([#51](https://github.com/chriscohnen/islandr/issues/51)).
+
 ## 0.16.0
 
 - **Admin-triggered key rotation** — an admin can now regenerate a peer's WireGuard keypair in place for compromised-device incident response, instead of deleting and recreating the peer. A fresh keypair is generated server-side, persisted per the peer's existing private-key retention mode, and shown once via the same QR/`.conf` flow as peer creation. This is a distinct, explicitly-confirmed action — it never fires as a side effect of an unrelated edit — and key/PSK rotation are tracked and triggered independently, each with its own "last rotated" timestamp ([#46](https://github.com/chriscohnen/islandr/issues/46)).
