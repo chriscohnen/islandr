@@ -475,14 +475,14 @@ export default defineComponent({
       </aside>
 
       <!-- Matrix (detail) for the active site; scrolls horizontally on its own. -->
-      <div style="flex: 1 1 420px; min-width: 0">
+      <div style="flex: 1 1 0%; min-width: 0">
         <div v-if="activeResources.length === 0" class="empty-state" style="margin: 0">
           <h2>{{ t('acl.no_res_title') }}</h2>
           <p>{{ t('acl.no_res_desc') }}</p>
         </div>
 
         <div v-else style="overflow-x: auto">
-        <table class="table" style="width: auto; min-width: 100%">
+        <table class="table" style="width: 100%">
         <thead>
           <tr>
             <th style="position: sticky; left: 0; background: var(--surface-2); min-width: 220px">{{ t('acl.th_resource') }}</th>

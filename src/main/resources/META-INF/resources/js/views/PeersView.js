@@ -264,7 +264,7 @@ export default defineComponent({
     <table v-else class="table">
       <thead>
         <tr>
-          <th @click="sortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap">
+          <th @click="sortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap; width: 22%">
             {{ t('peers.th_name') }} <span class="muted" style="font-size: 10px">{{ sortIcon('name') }}</span>
           </th>
           <th>{{ t('peers.th_type') }}</th>
@@ -279,7 +279,7 @@ export default defineComponent({
           <th @click="sortBy('updatedAt')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_updated') }} <span class="muted" style="font-size: 10px">{{ sortIcon('updatedAt') }}</span>
           </th>
-          <th></th>
+          <th class="table-actions"></th>
         </tr>
       </thead>
       <tbody>
@@ -320,7 +320,7 @@ export default defineComponent({
           </td>
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>
           <td class="muted">{{ formatDate(p.updatedAt) }}</td>
-          <td style="text-align: right">
+          <td class="table-actions">
             <button class="btn btn-ghost btn-sm" @click="openEditPeer(p)"><Icon name="edit" :size="13" />{{ t('peers.btn_edit') }}</button>
             <button class="btn btn-ghost btn-sm" @click="openReshow(p.userId, p.id)"><Icon name="qr-code" :size="13" />{{ t('peers.btn_qr') }}</button>
             <button class="btn btn-ghost btn-sm" @click="toggleEnabled(p)">

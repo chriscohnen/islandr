@@ -45,6 +45,15 @@ const MAX_VIEW_W = 900;
 const MAX_VIEW_H = 620;
 const PAN_SLACK = 40; // a little overscroll room at the content's own edges
 const DRAG_THRESHOLD_PX = 4; // pointer movement before a press counts as a pan, not a click
+// contentBBox pads the tight content bounds by this much on all four sides —
+// also reused by the "click to expand" corner hint below, which used to sit
+// on its own tighter 12px inset. That mismatch (12 vs this 24) was the
+// diagram's actual "not centered" bug: the bbox math itself was already
+// symmetric (proven — see contentBBox), but the hint text hugged the
+// bottom-right corner closer than any real node/label ever could, making
+// the bottom of the canvas visibly more cramped than the top in the default
+// (nothing expanded) view where the hint is shown.
+const CONTENT_PAD = 24;
 
 const ALL_TYPES = [
   { key: "computer",   labelKey: "resources.type_computer" },
@@ -317,7 +326,7 @@ export default defineComponent({
         pts.push({ x: d.x + 40, y: d.y + LIVE_DOT_R + 26 });
       }
 
-      const PAD = 24;
+      const PAD = CONTENT_PAD;
       let minX = Math.min(...pts.map((p) => p.x)) - PAD;
       let maxX = Math.max(...pts.map((p) => p.x)) + PAD;
       let minY = Math.min(...pts.map((p) => p.y)) - PAD;
@@ -742,7 +751,7 @@ export default defineComponent({
         </g>
 
         <!-- Hint -->
-        <text v-if="!expandedGatewayId && !expandedSiteId" :x="viewBoxRect.x + viewBoxRect.w - 12" :y="viewBoxRect.y + viewBoxRect.h - 12"
+        <text v-if="!expandedGatewayId && !expandedSiteId" :x="viewBoxRect.x + viewBoxRect.w - CONTENT_PAD" :y="viewBoxRect.y + viewBoxRect.h - CONTENT_PAD"
               style="font-family:var(--font-sans);font-size:11px;fill:var(--fg3);text-anchor:end;pointer-events:none">
           {{ t('topology.expand_hint') }}
         </text>
@@ -839,5 +848,6 @@ export default defineComponent({
     this.HUB_R = HUB_R;
     this.NODE_HALF_W = NODE_HALF_W; this.NODE_HALF_H = NODE_HALF_H; this.NODE_RX = NODE_RX;
     this.RESOURCE_ICON_R = RESOURCE_ICON_R; this.LIVE_DOT_R = LIVE_DOT_R;
+    this.CONTENT_PAD = CONTENT_PAD;
   },
 });

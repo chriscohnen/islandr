@@ -13,6 +13,7 @@ export default defineComponent({
     return {
       sites: [],
       peers: [],   // site-type peers available as gateway candidates
+      allResources: [],  // all resources across all sites, for the type breakdown panel below the table
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
@@ -55,6 +56,18 @@ export default defineComponent({
       if (octets.length !== 4 || octets.some((o) => o === "" || isNaN(Number(o)))) return "";
       return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
     },
+    // Aggregates all resources (across every site) by type, for the
+    // breakdown panel below the table. Mirrors ResourcesView's typeLabels
+    // pattern — same label keys, so the vocabulary stays consistent between
+    // the Networks overview and the per-site Resources view.
+    resourceTypeCounts() {
+      const counts = {};
+      for (const r of this.allResources) {
+        const type = r.type || "computer";
+        counts[type] = (counts[type] || 0) + 1;
+      }
+      return counts;
+    },
   },
   methods: {
     useRange(cidr) { this.form.cidr = cidr; },
@@ -64,9 +77,10 @@ export default defineComponent({
       this.loading = true;
       this.error = null;
       try {
-        const [sitesRes, peersRes] = await Promise.all([
+        const [sitesRes, peersRes, resourcesRes] = await Promise.all([
           fetch("/api/v1/sites"),
           fetch("/api/v1/peers"),
+          fetch("/api/v1/resources"),
         ]);
         if (!sitesRes.ok) throw new Error("HTTP " + sitesRes.status);
         this.sites = await sitesRes.json();
@@ -75,6 +89,9 @@ export default defineComponent({
           // only site-type peers make sense as gateways
           this.peers = all.filter(p => p.type === "site");
         }
+        // Used only for the resource-type breakdown panel below the table;
+        // the per-site RESOURCES column count comes from site.resourceCount.
+        if (resourcesRes.ok) this.allResources = await resourcesRes.json();
       } catch (e) {
         this.error = t("sites.error_load", { error: e.message });
       } finally {
@@ -165,6 +182,31 @@ export default defineComponent({
     goToResources(site) {
       this.$router.push({ name: "resources", params: { siteId: site.id } });
     },
+    // Icon name = resource type, same convention ResourcesView uses directly
+    // on its cards (`<Icon :name="r.type || 'computer'" />`) — kept identical
+    // so a given type always renders the same glyph in both views.
+    resourceTypeIcon(type) {
+      return type || "computer";
+    },
+    // Mirrors ResourcesView's `typeLabels` computed (same i18n keys), so the
+    // wording for a given resource type matches between the Networks
+    // overview and the per-site Resources view.
+    resourceTypeLabel(type) {
+      const labels = {
+        computer: t("resources.type_computer"),
+        router: t("resources.type_router"),
+        printer: t("resources.type_printer"),
+        nas: t("resources.type_nas"),
+        camera: t("resources.type_camera"),
+        iot: t("resources.type_iot"),
+        "virt-host": t("resources.type_virt"),
+        rackserver: t("resources.type_rackserver"),
+        kvm: t("resources.type_kvm"),
+        management: t("resources.type_mgmt"),
+        other: t("resources.type_other"),
+      };
+      return labels[type] || type;
+    },
   },
   template: `
     <div class="page-header">
@@ -222,6 +264,18 @@ export default defineComponent({
         </tr>
       </tbody>
     </table>
+
+    <div v-if="sites.length > 0 && Object.keys(resourceTypeCounts).length > 0" class="card" style="margin-top: var(--space-6); padding: var(--space-5)">
+      <h3 style="margin: 0 0 var(--space-4) 0; font-size: var(--text-base)">{{ t('sites.resource_breakdown_title') }}</h3>
+      <div style="display: flex; flex-wrap: wrap; gap: var(--space-3)">
+        <div v-for="(count, type) in resourceTypeCounts" :key="type"
+             style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md)">
+          <Icon :name="resourceTypeIcon(type)" :size="16" />
+          <span>{{ resourceTypeLabel(type) }}</span>
+          <span class="mono muted">{{ count }}</span>
+        </div>
+      </div>
+    </div>
 
     <div v-if="modal" class="modal-backdrop" @click.self="closeModal">
       <div class="modal">

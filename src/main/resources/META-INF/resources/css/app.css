@@ -218,13 +218,19 @@ body {
 .main {
   grid-area: main;
   padding: var(--space-8);
-  max-width: 1200px;
+  max-width: 1600px;
   width: 100%;
   margin: 0 auto;
   /* Grid items default to min-width:auto and won't shrink below their content's
      min-content width, so any wide/unbreakable content could stretch the track
      past the viewport. Let the track win; inner scroll boxes handle the rest. */
   min-width: 0;
+}
+
+@media (min-width: 1800px) {
+  .main {
+    max-width: 1760px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1716,12 +1722,14 @@ td.heatmap-cell.heatmap-l6 { background: var(--accent-600); }
    ============================================================================ */
 
 .myaccess-grants {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
 }
 
 .myaccess-site-label {
+  grid-column: 1 / -1;
   font-size: var(--text-xs);
   font-weight: 600;
   color: var(--fg3);

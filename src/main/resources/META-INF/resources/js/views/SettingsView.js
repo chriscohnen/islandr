@@ -939,20 +939,27 @@ export default defineComponent({
             </div>
           </div>
 
-          <div class="field">
+          <div class="field field-full">
             <label for="wgClientDns">{{ t('settings.field_dns') }}</label>
             <input id="wgClientDns" class="input mono" v-model="form.wgClientDns" placeholder="10.8.0.1 (optional)" />
-            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
-              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v4') }}</span>
-              <button v-for="preset in dnsPresetsV4" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
-                      :class="{ 'btn-secondary': isDnsPresetActive(preset, 'wgClientDns') }"
-                      @click="toggleDnsPreset(preset, 'wgClientDns')">{{ preset.name }}</button>
-            </div>
-            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
-              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v6') }}</span>
-              <button v-for="preset in dnsPresetsV6" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
-                      :class="{ 'btn-secondary': isDnsPresetActive(preset, 'wgClientDns') }"
-                      @click="toggleDnsPreset(preset, 'wgClientDns')">{{ preset.name }}</button>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-6)">
+              <div>
+                <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+                  <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v4') }}</span>
+                  <button v-for="preset in dnsPresetsV4" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                          :class="{ 'btn-secondary': isDnsPresetActive(preset, 'wgClientDns') }"
+                          @click="toggleDnsPreset(preset, 'wgClientDns')">{{ preset.name }}</button>
+                </div>
+                <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+                  <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v6') }}</span>
+                  <button v-for="preset in dnsPresetsV6" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                          :class="{ 'btn-secondary': isDnsPresetActive(preset, 'wgClientDns') }"
+                          @click="toggleDnsPreset(preset, 'wgClientDns')">{{ preset.name }}</button>
+                </div>
+              </div>
+              <div class="mono muted" style="font-size: var(--text-xs); white-space: nowrap; padding-top: 2px">
+                DNS = {{ form.wgClientDns || t('settings.dns_empty_preview') }}
+              </div>
             </div>
             <div class="field-hint">{{ t('settings.hint_dns') }}</div>
             <div v-if="form.dnsResolverEnabled" class="field-hint">
@@ -966,28 +973,30 @@ export default defineComponent({
               <span>{{ t('settings.dns_resolver_label') }}</span>
             </label>
             <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.dns_resolver_hint') }}</div>
-            <div v-if="form.dnsResolverEnabled" style="margin-top: var(--space-3); max-width: 320px">
-              <label for="dnsResolverZone">{{ t('settings.dns_resolver_zone_label') }}</label>
-              <input id="dnsResolverZone" class="input mono" v-model="form.dnsResolverZone" placeholder="islandr.internal" />
-              <div class="field-hint">{{ t('settings.dns_resolver_zone_hint') }}</div>
+          </div>
+
+          <div v-if="form.dnsResolverEnabled" class="field">
+            <label for="dnsResolverZone">{{ t('settings.dns_resolver_zone_label') }}</label>
+            <input id="dnsResolverZone" class="input mono" v-model="form.dnsResolverZone" placeholder="islandr.internal" />
+            <div class="field-hint">{{ t('settings.dns_resolver_zone_hint') }}</div>
+          </div>
+
+          <div v-if="form.dnsResolverEnabled" class="field">
+            <label for="dnsResolverUpstream">{{ t('settings.dns_resolver_upstream_label') }}</label>
+            <input id="dnsResolverUpstream" class="input mono" v-model="form.dnsResolverUpstream" placeholder="1.1.1.1, 8.8.8.8" />
+            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v4') }}</span>
+              <button v-for="preset in dnsPresetsV4" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-secondary': isDnsPresetActive(preset, 'dnsResolverUpstream') }"
+                      @click="toggleDnsPreset(preset, 'dnsResolverUpstream')">{{ preset.name }}</button>
             </div>
-            <div v-if="form.dnsResolverEnabled" style="margin-top: var(--space-4)">
-              <label for="dnsResolverUpstream">{{ t('settings.dns_resolver_upstream_label') }}</label>
-              <input id="dnsResolverUpstream" class="input mono" v-model="form.dnsResolverUpstream" placeholder="1.1.1.1, 8.8.8.8" />
-              <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
-                <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v4') }}</span>
-                <button v-for="preset in dnsPresetsV4" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
-                        :class="{ 'btn-secondary': isDnsPresetActive(preset, 'dnsResolverUpstream') }"
-                        @click="toggleDnsPreset(preset, 'dnsResolverUpstream')">{{ preset.name }}</button>
-              </div>
-              <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
-                <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v6') }}</span>
-                <button v-for="preset in dnsPresetsV6" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
-                        :class="{ 'btn-secondary': isDnsPresetActive(preset, 'dnsResolverUpstream') }"
-                        @click="toggleDnsPreset(preset, 'dnsResolverUpstream')">{{ preset.name }}</button>
-              </div>
-              <div class="field-hint">{{ t('settings.dns_resolver_upstream_hint') }}</div>
+            <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
+              <span style="font-size:var(--text-sm); color:var(--fg3)">{{ t('settings.dns_preset_label_v6') }}</span>
+              <button v-for="preset in dnsPresetsV6" :key="preset.name" type="button" class="btn btn-ghost btn-sm"
+                      :class="{ 'btn-secondary': isDnsPresetActive(preset, 'dnsResolverUpstream') }"
+                      @click="toggleDnsPreset(preset, 'dnsResolverUpstream')">{{ preset.name }}</button>
             </div>
+            <div class="field-hint">{{ t('settings.dns_resolver_upstream_hint') }}</div>
           </div>
 
           <div class="field">

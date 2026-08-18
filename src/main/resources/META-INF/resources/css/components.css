@@ -133,6 +133,12 @@
 .table tbody tr { transition: background var(--dur-fast) var(--ease-standard); }
 .table tbody tr:hover { background: var(--surface-2); }
 .table .mono { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg2); }
+.table th.table-actions,
+.table td.table-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
 
 /* ---- Misc ---------------------------------------------------------------- */
 .divider { height: 1px; background: var(--border); border: 0; margin: 0; }
