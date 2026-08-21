@@ -406,6 +406,15 @@ public class PeerService {
                 // removing+re-adding the wg entry must not silently drop it.
                 wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
             }
+        } catch (ProxyUnavailableException e) {
+            // Same graceful-degradation contract as createForUser/update/delete
+            // (design §5): the new keypair is already persisted above, so an
+            // unreachable proxy must not discard it — this is precisely the
+            // incident-response case (issue #46) where the admin needs the
+            // fresh .conf/QR regardless of whether the hub can apply it right
+            // now; the reconciler pushes it once the proxy is back.
+            LOG.warnf("enforcement unavailable during admin key rotation for peer %s — persisted, not enforced: %s", peer.id, e.getMessage());
+            enforcement.markUnavailable(e.getMessage());
         } catch (RuntimeException e) {
             LOG.errorf(e, "wg admin key rotation failed for peer %s", peer.id);
             throw new WebApplicationException("could not rotate key on wg: " + e.getMessage(), 500);
