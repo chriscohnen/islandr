@@ -80,8 +80,14 @@ public class DnsResource {
      *  zone-append/bare-name shortcuts mean it can differ from what was typed.
      *  {@code upstream} is which configured upstream server actually answered
      *  a "not-managed" lookup — null for "answer"/"nxdomain" (those never
-     *  leave the zone) and also null if every upstream timed out. */
-    public record LookupResponse(String result, String ip, String fqdn, String upstream) {}
+     *  leave the zone) and also null if every upstream timed out.
+     *  {@code grantedUsers} is only populated for "answer": this preview
+     *  itself skips the ACL check (see {@link DnsQueryHandler#resolveForAdminPreview}),
+     *  so it resolving a name here says nothing about which real peer, if
+     *  any, would actually get an answer on the wire — this lists them so
+     *  the admin doesn't have to separately cross-check the ACL matrix. */
+    public record LookupResponse(String result, String ip, String fqdn, String upstream,
+                                  java.util.List<String> grantedUsers) {}
 
     @POST
     @Path("/lookup")
@@ -89,18 +95,18 @@ public class DnsResource {
         Auth.requireAdmin(ctx);
         DnsQueryHandler.Resolution r = queryHandler.resolveForAdminPreview(body.name());
         if (r instanceof DnsQueryHandler.Resolution.Answer a) {
-            return new LookupResponse("answer", a.ip(), a.fqdn(), null);
+            return new LookupResponse("answer", a.ip(), a.fqdn(), null, queryHandler.grantedUserLabels(a.resourceId()));
         }
         if (r instanceof DnsQueryHandler.Resolution.NxDomain) {
-            return new LookupResponse("nxdomain", null, null, null);
+            return new LookupResponse("nxdomain", null, null, null, null);
         }
         // Outside the managed zone — actually ask the configured upstream(s)
         // instead of just reporting "would be forwarded" (a live, on-demand,
         // admin-triggered query; never part of the resolver's own hot path).
         DnsResolverService.UpstreamAnswer up = resolverSvc.queryUpstreamForPreview(body.name());
         if (up != null) {
-            return new LookupResponse("not-managed", up.ip(), null, up.upstream());
+            return new LookupResponse("not-managed", up.ip(), null, up.upstream(), null);
         }
-        return new LookupResponse("not-managed", null, null, null);
+        return new LookupResponse("not-managed", null, null, null, null);
     }
 }

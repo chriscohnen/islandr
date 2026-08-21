@@ -147,8 +147,20 @@ export default defineComponent({
 
         <div v-if="lookupResult" style="margin-top: var(--space-4)">
           <div v-if="lookupResult.result === 'answer'" class="callout callout-success">
-            <div>{{ t('dns.lookup_result_answer', { ip: lookupResult.ip }) }}</div>
-            <div class="mono" style="font-size: var(--text-sm); margin-top: 2px; opacity: 0.85">{{ lookupResult.fqdn }}</div>
+            <div>
+              <div>{{ t('dns.lookup_result_answer', { ip: lookupResult.ip }) }}</div>
+              <div class="mono" style="font-size: var(--text-sm); margin-top: 2px; opacity: 0.85">{{ lookupResult.fqdn }}</div>
+              <!-- The preview above skips the ACL check entirely (DnsQueryHandler
+                   .resolveForAdminPreview's own doc comment) — resolving here says
+                   nothing about which real peer would get an answer on the wire.
+                   grantedUsers is the honest answer to that, computed separately. -->
+              <div style="font-size: var(--text-xs); margin-top: var(--space-2); opacity: 0.85">
+                <span v-if="lookupResult.grantedUsers && lookupResult.grantedUsers.length > 0">
+                  {{ t('dns.lookup_result_granted_users', { users: lookupResult.grantedUsers.join(', ') }) }}
+                </span>
+                <span v-else>{{ t('dns.lookup_result_no_grants') }}</span>
+              </div>
+            </div>
           </div>
           <div v-else-if="lookupResult.result === 'nxdomain'" class="callout callout-warn">
             <div>{{ t('dns.lookup_result_nxdomain') }}</div>
