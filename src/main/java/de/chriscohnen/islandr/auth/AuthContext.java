@@ -11,6 +11,6 @@ package de.chriscohnen.islandr.auth;
 public record AuthContext(String principal, String userId, String provider, boolean isAdmin) {
 
     public boolean isLocalAdmin() {
-        return Session.LOCAL.equals(provider);
+        return Session.LOCAL.equals(provider) && userId == null;
     }
 }
