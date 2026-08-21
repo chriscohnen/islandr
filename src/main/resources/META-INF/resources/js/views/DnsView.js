@@ -106,6 +106,10 @@ export default defineComponent({
         <div>{{ t('dns.blocked_hint') }} <router-link :to="{ path: '/settings', query: { tab: 'network' } }" style="color:inherit;text-decoration:underline">{{ t('dns.disabled_link') }}</router-link></div>
       </div>
 
+      <div v-if="status.enabled" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+        <div>{{ t('dns.split_tunnel_hint', { zone: status.zone, ip: status.bindAddress }) }}</div>
+      </div>
+
       <div class="card card-pad" style="margin-bottom: var(--space-5)">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4)">
           <div>
