@@ -145,6 +145,40 @@ export default defineComponent({
         return meta;
       }
     },
+    // peer.schedule.create/update rows carry the window in meta.after
+    // (weekdayMask/activeFrom/activeTo) — the target column otherwise shows
+    // only the peer name, indistinguishable from a plain peer.create. Build
+    // a compact "Mo–Fr 08:00–18:00"-style label from it.
+    scheduleLabel(row) {
+      if (!row.action || !row.action.startsWith("peer.schedule.") || !row.meta) return null;
+      let parsed;
+      try { parsed = JSON.parse(row.meta); } catch { return null; }
+      const s = parsed.after;
+      if (!s || s.weekdayMask == null || !s.activeFrom || !s.activeTo) return null;
+
+      const DAYS = [
+        { bit: 1, key: "peer.weekday_mon" }, { bit: 2, key: "peer.weekday_tue" },
+        { bit: 4, key: "peer.weekday_wed" }, { bit: 8, key: "peer.weekday_thu" },
+        { bit: 16, key: "peer.weekday_fri" }, { bit: 32, key: "peer.weekday_sat" },
+        { bit: 64, key: "peer.weekday_sun" },
+      ];
+      const active = DAYS.map((d) => (s.weekdayMask & d.bit) !== 0);
+      // Compress consecutive active days into ranges ("Mo–Fr") instead of
+      // spelling out every day.
+      const parts = [];
+      let i = 0;
+      while (i < DAYS.length) {
+        if (!active[i]) { i++; continue; }
+        let j = i;
+        while (j + 1 < DAYS.length && active[j + 1]) j++;
+        parts.push(j > i ? `${t(DAYS[i].key)}–${t(DAYS[j].key)}` : t(DAYS[i].key));
+        i = j + 1;
+      }
+      const days = parts.length > 0 ? parts.join(", ") : "—";
+      const from = s.activeFrom.slice(0, 5);
+      const to = s.activeTo.slice(0, 5);
+      return `${days} ${from}–${to}`;
+    },
     // Parses target strings in two formats:
     //   old: "Resource:some-uuid"
     //   new: "Resource:Name (some-uuid)"  or  "Session:email (uuid)"
@@ -239,6 +273,7 @@ export default defineComponent({
                     <span v-if="parseTarget(row.target).name"
                           :title="parseTarget(row.target).fullId || ''"
                           style="color: var(--fg1); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">{{ parseTarget(row.target).name }}</span>
+                    <span v-if="scheduleLabel(row)" class="mono muted" style="margin-left: 6px">{{ scheduleLabel(row) }}</span>
                   </template>
                   <span v-else class="muted">—</span>
                 </td>
