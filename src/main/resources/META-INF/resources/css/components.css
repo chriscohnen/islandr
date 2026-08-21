@@ -136,7 +136,6 @@
 .table th.table-actions,
 .table td.table-actions {
   width: 1%;
-  white-space: nowrap;
   text-align: right;
 }
 
