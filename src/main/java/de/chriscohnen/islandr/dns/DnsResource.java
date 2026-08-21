@@ -73,7 +73,14 @@ public class DnsResource {
                 bindAddress, port, names.size(), names);
     }
 
-    public record LookupRequest(@NotBlank String name) {}
+    /** {@code sourceIp}, when set, switches the lookup from the forgiving
+     *  admin preview to the *exact* real resolver path ({@link
+     *  DnsQueryHandler#resolve}) as seen from that peer's tunnel IP — the
+     *  only way to actually answer "would this specific peer's real DNS
+     *  query work" without needing a live WireGuard round-trip to test it.
+     *  Requires the full FQDN (no zone-append/bare-name shortcuts — a real
+     *  query never gets those either). */
+    public record LookupRequest(@NotBlank String name, String sourceIp) {}
 
     /** {@code result}: "answer" | "nxdomain" | "not-managed". {@code fqdn} is
      *  the canonical name that actually matched — worth showing since the
@@ -81,11 +88,13 @@ public class DnsResource {
      *  {@code upstream} is which configured upstream server actually answered
      *  a "not-managed" lookup — null for "answer"/"nxdomain" (those never
      *  leave the zone) and also null if every upstream timed out.
-     *  {@code grantedUsers} is only populated for "answer": this preview
-     *  itself skips the ACL check (see {@link DnsQueryHandler#resolveForAdminPreview}),
-     *  so it resolving a name here says nothing about which real peer, if
-     *  any, would actually get an answer on the wire — this lists them so
-     *  the admin doesn't have to separately cross-check the ACL matrix. */
+     *  {@code grantedUsers} is only populated for "answer" *and* only when
+     *  {@code sourceIp} was omitted: the plain preview skips the ACL check
+     *  (see {@link DnsQueryHandler#resolveForAdminPreview}), so it resolving
+     *  a name here says nothing about which real peer, if any, would
+     *  actually get an answer on the wire — this lists them so the admin
+     *  doesn't have to separately cross-check the ACL matrix. Meaningless
+     *  (and omitted) once {@code sourceIp} already pins it down to one peer. */
     public record LookupResponse(String result, String ip, String fqdn, String upstream,
                                   java.util.List<String> grantedUsers) {}
 
@@ -93,9 +102,13 @@ public class DnsResource {
     @Path("/lookup")
     public LookupResponse lookup(@Context ContainerRequestContext ctx, @Valid LookupRequest body) {
         Auth.requireAdmin(ctx);
-        DnsQueryHandler.Resolution r = queryHandler.resolveForAdminPreview(body.name());
+        boolean asPeer = body.sourceIp() != null && !body.sourceIp().isBlank();
+        DnsQueryHandler.Resolution r = asPeer
+                ? queryHandler.resolve(body.name(), body.sourceIp().trim())
+                : queryHandler.resolveForAdminPreview(body.name());
         if (r instanceof DnsQueryHandler.Resolution.Answer a) {
-            return new LookupResponse("answer", a.ip(), a.fqdn(), null, queryHandler.grantedUserLabels(a.resourceId()));
+            java.util.List<String> granted = asPeer ? null : queryHandler.grantedUserLabels(a.resourceId());
+            return new LookupResponse("answer", a.ip(), a.fqdn(), null, granted);
         }
         if (r instanceof DnsQueryHandler.Resolution.NxDomain) {
             return new LookupResponse("nxdomain", null, null, null, null);

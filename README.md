@@ -178,30 +178,7 @@ islandr/
 │   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
 │   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
 │   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
-│       ├── README.md                        # ADR index
-│       ├── 0001-quarkus-backend.md
-│       ├── 0002-vue-without-npm.md
-│       ├── 0003-nftables-replaces-ufw.md
-│       ├── 0004-sqlite-dev-postgres-prod.md
-│       ├── 0005-hub-only-firewall.md
-│       ├── 0006-resource-level-acl.md
-│       ├── 0007-private-key-retention.md
-│       ├── 0008-runtime-settings-in-db.md
-│       ├── 0009-license-eupl-1.2.md
-│       ├── 0010-font-and-icon-asset-self-hosting.md
-│       ├── 0011-process-privilege-model.md
-│       ├── 0012-docker-socket-proxy.md
-│       ├── 0013-default-everyone-role.md
-│       ├── 0014-device-discovery.md
-│       ├── 0015-builtin-tls-termination.md
-│       ├── 0016-peer-activity-heatmap-storage.md
-│       ├── 0017-split-tunnel-network-scope.md
-│       ├── 0018-websocket-tunnel-fallback.md
-│       ├── 0019-acme-hand-rolled-client.md
-│       ├── 0020-dns01-challenge-with-manual-mode.md
-│       ├── 0021-topology-world-map.md
-│       ├── 0022-acl-type-grants.md
-│       └── 0023-resource-dns-resolver-hand-rolled.md
+│       └── README.md                        # ADR index — one file per decision, numbered 0001+
 ├── architecture/
 │   ├── workspace.dsl                        # C4 model (Structurizr DSL) — source of diagrams
 │   ├── docs/                                # Markdown pages rendered into the interactive C4 site
