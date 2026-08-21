@@ -84,6 +84,51 @@ class DnsWireFormatTest {
         assertThat(Arrays.copyOfRange(resp, resp.length - 16, resp.length)).isEqualTo(ip6);
     }
 
+    // Real stub resolvers (glibc getaddrinfo with AF_UNSPEC — what `ping`
+    // uses without -4/-6) query AAAA and A independently. Every managed
+    // Resource in practice only ever has an IPv4 literal, so the AAAA leg
+    // used to get an answer whose RR TYPE (A, from the 4-byte address) didn't
+    // match the echoed question's QTYPE (AAAA) — a wire-malformed response
+    // several resolvers silently treat as "no usable data" without ever
+    // falling back to the (perfectly fine) A query. buildAnswerOrNoData is
+    // the fix: NODATA (NOERROR, ANCOUNT=0) when the family doesn't match what
+    // was asked, a real answer only when it does.
+    @Test
+    void buildAnswerOrNoData_answersWhenQueriedFamilyMatches() throws Exception {
+        byte[] q = rawQuery(1, true, "fileserver.homeoffice.islandr.internal", DnsWireFormat.TYPE_A);
+        DnsWireFormat.Query parsed = DnsWireFormat.parseQuery(q, q.length);
+        byte[] ip = InetAddress.getByName("10.8.0.42").getAddress();
+
+        byte[] resp = DnsWireFormat.buildAnswerOrNoData(q, parsed, ip, 30);
+
+        assertThat(u16(resp, 6)).isEqualTo(1); // ANCOUNT
+        assertThat(u16(resp, 2) & 0xF).isEqualTo(DnsWireFormat.RCODE_NO_ERROR);
+        assertThat(Arrays.copyOfRange(resp, resp.length - 4, resp.length)).isEqualTo(ip);
+    }
+
+    @Test
+    void buildAnswerOrNoData_isNoDataWhenAAAAQueriedButOnlyAnIPv4LiteralExists() throws Exception {
+        byte[] q = rawQuery(1, true, "fileserver.homeoffice.islandr.internal", DnsWireFormat.TYPE_AAAA);
+        DnsWireFormat.Query parsed = DnsWireFormat.parseQuery(q, q.length);
+        byte[] ip = InetAddress.getByName("10.8.0.42").getAddress(); // 4 bytes — no AAAA record
+
+        byte[] resp = DnsWireFormat.buildAnswerOrNoData(q, parsed, ip, 30);
+
+        assertThat(u16(resp, 6)).isEqualTo(0); // ANCOUNT — NODATA, not a mistyped answer
+        assertThat(u16(resp, 2) & 0xF).isEqualTo(DnsWireFormat.RCODE_NO_ERROR); // name exists, just not this type
+    }
+
+    @Test
+    void buildAnswerOrNoData_isNoDataWhenAQueriedButOnlyAnIPv6LiteralExists() throws Exception {
+        byte[] q = rawQuery(1, true, "fileserver.homeoffice.islandr.internal", DnsWireFormat.TYPE_A);
+        DnsWireFormat.Query parsed = DnsWireFormat.parseQuery(q, q.length);
+        byte[] ip6 = InetAddress.getByName("fd11::42").getAddress(); // 16 bytes — no A record
+
+        byte[] resp = DnsWireFormat.buildAnswerOrNoData(q, parsed, ip6, 30);
+
+        assertThat(u16(resp, 6)).isEqualTo(0); // ANCOUNT
+    }
+
     @Test
     void buildError_hasNoAnswersAndCarriesRcode() throws Exception {
         byte[] q = rawQuery(7, false, "nope.homeoffice.islandr.internal", DnsWireFormat.TYPE_A);

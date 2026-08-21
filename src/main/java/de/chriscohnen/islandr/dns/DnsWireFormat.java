@@ -99,6 +99,37 @@ final class DnsWireFormat {
         return out.toByteArray();
     }
 
+    /** Builds a real answer when the queried type matches the address family
+     *  we actually have, otherwise NODATA (NOERROR, zero answers) — never a
+     *  record whose TYPE contradicts the echoed question's QTYPE. Every
+     *  managed Resource only ever carries one literal (almost always IPv4),
+     *  but a real stub resolver (glibc getaddrinfo/AF_UNSPEC — what `ping`
+     *  uses without -4/-6) queries AAAA and A independently. Answering the
+     *  AAAA leg with a 4-byte address mislabeled TYPE=A used to produce a
+     *  wire-malformed response that several resolvers silently treat as "no
+     *  usable data" without ever falling back to the (perfectly fine) A
+     *  query — this is the fix. */
+    static byte[] buildAnswerOrNoData(byte[] query, Query parsed, byte[] addressBytes, int ttlSeconds) {
+        boolean queriedFamilyMatches = (parsed.qtype() == TYPE_AAAA) == (addressBytes.length == 16);
+        return queriedFamilyMatches ? buildAnswer(query, parsed, addressBytes, ttlSeconds) : buildNoData(query, parsed);
+    }
+
+    /** NODATA: the name exists (so NOERROR, not NXDOMAIN) but there's nothing
+     *  of the queried type — e.g. an AAAA query against an IPv4-only
+     *  resource. Distinct from {@link #buildError}'s NXDOMAIN, which means
+     *  the name itself doesn't resolve at all. */
+    static byte[] buildNoData(byte[] query, Query parsed) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writeU16(out, parsed.id());
+        writeU16(out, header(parsed.recursionDesired(), true, RCODE_NO_ERROR));
+        writeU16(out, 1); // QDCOUNT
+        writeU16(out, 0); // ANCOUNT
+        writeU16(out, 0); // NSCOUNT
+        writeU16(out, 0); // ARCOUNT
+        out.write(query, 12, parsed.questionEnd() - 12);
+        return out.toByteArray();
+    }
+
     /** Error response (no answers) — used for NXDOMAIN, both "no such resource"
      *  and "resource exists but this peer has no grant" (ADR-0023: those two
      *  cases are intentionally indistinguishable on the wire). */
