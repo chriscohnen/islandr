@@ -964,19 +964,21 @@ export const peerModalTemplate = `
         </div>
         <div v-else class="callout callout-warning">
           <div>
-            <strong>{{ t('peer.warn_no_key') }}</strong>
-            {{ t('peer.secret_no_key_a') }}<strong>never</strong>{{ t('peer.secret_no_key_b') }}<code>PrivateKey</code>{{ t('peer.secret_no_key_c') }}
-          </div>
-          <div v-if="!keyRotateArmed" style="margin-top: var(--space-3)">
-            <button type="button" class="btn btn-secondary btn-sm" @click="keyRotateArmed = true">{{ t('peer.key_rotate_btn') }}</button>
-          </div>
-          <div v-else style="margin-top: var(--space-3); display:flex; align-items:center; justify-content:space-between; gap: var(--space-3)">
-            <div>{{ t('peer.key_rotate_warn') }}</div>
-            <div style="display:flex; gap: var(--space-2); flex-shrink:0">
-              <button type="button" class="btn btn-ghost btn-sm" @click="keyRotateArmed = false">{{ t('peer.psk_cancel') }}</button>
-              <button type="button" class="btn btn-danger btn-sm" :disabled="keyRotating" @click="rotateKey(secret.peer?.id)">
-                {{ keyRotating ? t('peer.secret_applying') : t('peer.key_rotate_confirm') }}
-              </button>
+            <div>
+              <strong>{{ t('peer.warn_no_key') }}</strong>
+              {{ t('peer.secret_no_key_a') }}<strong>never</strong>{{ t('peer.secret_no_key_b') }}<code>PrivateKey</code>{{ t('peer.secret_no_key_c') }}
+            </div>
+            <div v-if="!keyRotateArmed" style="margin-top: var(--space-3)">
+              <button type="button" class="btn btn-secondary btn-sm" @click="keyRotateArmed = true">{{ t('peer.key_rotate_btn') }}</button>
+            </div>
+            <div v-else style="margin-top: var(--space-3); display:flex; align-items:center; justify-content:space-between; gap: var(--space-3)">
+              <div>{{ t('peer.key_rotate_warn') }}</div>
+              <div style="display:flex; gap: var(--space-2); flex-shrink:0">
+                <button type="button" class="btn btn-ghost btn-sm" @click="keyRotateArmed = false">{{ t('peer.psk_cancel') }}</button>
+                <button type="button" class="btn btn-danger btn-sm" :disabled="keyRotating" @click="rotateKey(secret.peer?.id)">
+                  {{ keyRotating ? t('peer.secret_applying') : t('peer.key_rotate_confirm') }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
