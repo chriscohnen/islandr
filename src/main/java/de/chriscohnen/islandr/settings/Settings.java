@@ -280,30 +280,25 @@ public class Settings extends PanacheEntityBase {
     /** What actually belongs in a client's {@code DNS =} line (ADR-0023).
      *  Resolver off → {@code wgClientDns} verbatim, exactly as before this
      *  feature existed. Resolver on → the hub's own tunnel IP first (the only
-     *  way a peer can reach the resolver at all), plus a standalone
-     *  {@code ~zone} routing-domain token (wg-quick's split-DNS syntax — the
-     *  same convention {@code wgClientDns} itself already relies on, see its
-     *  own doc comment) so a domain-aware client OS actually routes the
-     *  managed zone's queries here, with whatever's in {@code wgClientDns}
-     *  kept after it as a fallback.
+     *  way a peer can reach the resolver at all), with whatever's in
+     *  {@code wgClientDns} kept after it as a fallback — same free-text/
+     *  split-DNS syntax as always. Used by both the real {@code .conf}
+     *  generation ({@code PeerService.renderConf}) and the Settings UI's
+     *  live AllowedIPs preview, so the two never disagree.
      *
-     *  <p>The domain scope matters on split-tunnel setups (this resolver's
-     *  main use case — a full-tunnel client would route everything through
-     *  the hub anyway): without it, a client whose OS honors per-domain DNS
-     *  routing (systemd-resolved, macOS/Windows/iOS's WireGuard app) installs
-     *  the hub's IP as merely <em>interface-scoped</em>, not the domain's
-     *  actual resolver — ordinary hostname lookups (an app's plain
-     *  {@code getaddrinfo}, {@code ping}, ...) never consult an
-     *  interface-scoped entry at all, they only consult the default resolver
-     *  or a domain-matched one. A bare, unscoped hub IP entry only ever
-     *  worked when it happened to be queried directly (e.g. {@code dig
-     *  @<hub-ip>}) or already known to be a good source of true answers,
-     *  regardless — this is the case observed against a live install, where
-     *  {@code dig}/an explicit direct query against the hub already worked
-     *  but ordinary hostname resolution (and so {@code ping}) did not. Used
-     *  by both the real {@code .conf} generation ({@code
-     *  PeerService.renderConf}) and the Settings UI's live AllowedIPs
-     *  preview, so the two never disagree. */
+     *  <p><b>Deliberately does not inject a {@code ~zone} routing-domain
+     *  token here</b>, despite that being wg-quick(8)'s real split-DNS
+     *  syntax and the one thing that would make a domain-aware client OS
+     *  route the managed zone here instead of treating this entry as merely
+     *  interface-scoped on a split-tunnel setup: the official cross-platform
+     *  WireGuard apps (confirmed on macOS) validate the {@code DNS =} line as
+     *  a plain IP list and flat-out refuse to save a config containing a
+     *  non-IP token — auto-injecting one server-side, for every peer
+     *  regardless of which client they actually use, would silently break
+     *  import for exactly the client platform most peers are on. The
+     *  `~domain` convention only actually works for genuine wg-quick/Linux
+     *  clients, so it stays admin-opt-in via {@code wgClientDns} (as it
+     *  always was), never auto-added here. */
     public String effectiveClientDns() {
         if (!dnsResolverEnabled) return wgClientDns;
         String hubIp;
@@ -314,18 +309,6 @@ public class Settings extends PanacheEntityBase {
             // on save) but conf generation must never throw over it — fall back.
             return wgClientDns;
         }
-        // dnsResolverZone is guaranteed non-blank whenever dnsResolverEnabled
-        // is true — SettingsService defaults it at enable-time (see
-        // updateDns/DEFAULT_DNS_RESOLVER_ZONE) — but skip the routing-domain
-        // token rather than emit a bare "~" if that invariant is ever violated.
-        // The "~domain" token is its own standalone entry (wg-quick applies
-        // every routing domain in the line to every DNS server in the line —
-        // it isn't "this domain routes to this one specific preceding IP"),
-        // same shape AllowedIpsCalculator#appendDnsHostRoutesIfNeeded already
-        // expects when skipping it as a non-IP token.
-        String zoneDomainToken = (dnsResolverZone == null || dnsResolverZone.isBlank())
-                ? null : "~" + dnsResolverZone.trim().toLowerCase(java.util.Locale.ROOT);
-        String hubEntry = zoneDomainToken == null ? hubIp : hubIp + ", " + zoneDomainToken;
-        return (wgClientDns == null || wgClientDns.isBlank()) ? hubEntry : hubEntry + ", " + wgClientDns;
+        return (wgClientDns == null || wgClientDns.isBlank()) ? hubIp : hubIp + ", " + wgClientDns;
     }
 }

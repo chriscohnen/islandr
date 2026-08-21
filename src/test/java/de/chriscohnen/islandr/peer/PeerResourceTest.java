@@ -875,12 +875,7 @@ class PeerResourceTest {
                             """)
                     .when().post("/api/v1/users/" + userId + "/peers")
                     .then().statusCode(201)
-                    // ~islandr.internal: a standalone routing-domain token (wg-quick's
-                    // split-DNS syntax, see Settings#effectiveClientDns) scoping the
-                    // managed zone to this interface's DNS servers — without it,
-                    // split-tunnel clients whose OS honors per-domain DNS routing never
-                    // actually consult the hub for ordinary hostname lookups.
-                    .body("conf", containsString("DNS = 10.8.0.1, ~islandr.internal, 10.9.0.1"));
+                    .body("conf", containsString("DNS = 10.8.0.1, 10.9.0.1"));
         } finally {
             setDnsResolverEnabled(false);
             setGlobalDns(null);
@@ -899,8 +894,8 @@ class PeerResourceTest {
                             """)
                     .when().post("/api/v1/users/" + userId + "/peers")
                     .then().statusCode(201)
-                    .body("conf", containsString("DNS = 10.8.0.1, ~islandr.internal"))
-                    .body("conf", not(containsString("DNS = 10.8.0.1, ~islandr.internal,")));
+                    .body("conf", containsString("DNS = 10.8.0.1"))
+                    .body("conf", not(containsString("DNS = 10.8.0.1,")));
         } finally {
             setDnsResolverEnabled(false);
         }
