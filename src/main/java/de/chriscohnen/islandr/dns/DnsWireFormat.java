@@ -294,6 +294,15 @@ final class DnsWireFormat {
         int flags = 0x8000; // QR=1
         if (authoritative) flags |= 0x0400; // AA
         if (rd) flags |= 0x0100; // echo RD
+        // RA — every query this server sees gets a real answer one way or
+        // another: authoritative in-zone, or forwarded to a real upstream
+        // out-of-zone (DnsResolverService#forward). It never actually lacks
+        // recursion from the querying client's point of view, so claiming
+        // RA=0 was simply wrong, not just conservative — and cost real,
+        // correct answers: some stub resolvers (macOS/BSD nslookup among
+        // them) distrust an RA=0 response and silently retry the next
+        // configured server even when this one's answer was valid.
+        flags |= 0x0080;
         return flags | (rcode & 0xF);
     }
 

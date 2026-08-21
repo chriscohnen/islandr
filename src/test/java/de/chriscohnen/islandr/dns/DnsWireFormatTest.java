@@ -66,6 +66,15 @@ class DnsWireFormatTest {
         assertThat((flags >> 15) & 1).isEqualTo(1); // QR
         assertThat((flags >> 10) & 1).isEqualTo(1); // AA
         assertThat((flags >> 8) & 1).isEqualTo(1);  // RD echoed
+        // RA — this server is never truly unable to help: it answers
+        // in-zone names authoritatively and forwards everything else to a
+        // real upstream, so from a client's point of view recursion *is*
+        // available. Some stub resolvers (macOS/BSD nslookup among them)
+        // distrust an RA=0 response and silently move on to the next
+        // configured server even when it carries a perfectly valid answer —
+        // this was exactly that: a real, correct answer a client discarded
+        // anyway because the flag falsely claimed no recursion.
+        assertThat((flags >> 7) & 1).isEqualTo(1); // RA
         assertThat(flags & 0xF).isEqualTo(DnsWireFormat.RCODE_NO_ERROR);
         assertThat(u16(resp, 4)).isEqualTo(1); // QDCOUNT
         assertThat(u16(resp, 6)).isEqualTo(1); // ANCOUNT
