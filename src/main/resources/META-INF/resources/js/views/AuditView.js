@@ -148,20 +148,24 @@ export default defineComponent({
     // Parses target strings in two formats:
     //   old: "Resource:some-uuid"
     //   new: "Resource:Name (some-uuid)"  or  "Session:email (uuid)"
+    // The id is never shown inline (a random uuid means nothing to the admin
+    // reading the log) — it's only kept as fullId, for a hover tooltip.
     parseTarget(target) {
       if (!target) return null;
       const colon = target.indexOf(":");
-      if (colon < 0) return { prefix: null, name: target, id: null };
+      if (colon < 0) return { prefix: null, name: target, fullId: null };
       const prefix = target.slice(0, colon);
       const rest = target.slice(colon + 1);
       // new format: "Name (id)" — id is inside the last parens
       const parenMatch = rest.match(/^(.+?)\s+\(([^)]+)\)$/);
       if (parenMatch) {
-        return { prefix, name: parenMatch[1], id: parenMatch[2].slice(0, 8) + "…" };
+        return { prefix, name: parenMatch[1], fullId: parenMatch[2] };
       }
-      // old format: bare id or other value
+      // old format: bare id (e.g. a raw session id — never a human name) or
+      // some other free-text value
       const isUuid = /^[0-9a-f-]{36}$/.test(rest);
-      return { prefix, name: isUuid ? null : rest, id: isUuid ? rest.slice(0, 8) + "…" : null };
+      const looksOpaque = isUuid || (prefix === "Session" && rest.length > 12);
+      return { prefix, name: looksOpaque ? null : rest, fullId: looksOpaque ? rest : null };
     },
     actionBadgeClass(action) {
       // Coarse colour cue: delete/disable/revoke = neutral (no scary red),
@@ -230,11 +234,11 @@ export default defineComponent({
                 <td style="font-size: var(--text-xs); white-space: nowrap">
                   <template v-if="row.target">
                     <span v-if="parseTarget(row.target).prefix"
-                          class="mono muted" style="opacity: 0.45; margin-right: 3px; font-size: 10px">{{ parseTarget(row.target).prefix }}</span>
+                          class="mono muted" :title="parseTarget(row.target).fullId || ''"
+                          style="opacity: 0.45; margin-right: 3px; font-size: 10px">{{ parseTarget(row.target).prefix }}</span>
                     <span v-if="parseTarget(row.target).name"
+                          :title="parseTarget(row.target).fullId || ''"
                           style="color: var(--fg1); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">{{ parseTarget(row.target).name }}</span>
-                    <span v-if="parseTarget(row.target).id"
-                          class="mono muted" style="margin-left: 4px">{{ parseTarget(row.target).id }}</span>
                   </template>
                   <span v-else class="muted">—</span>
                 </td>
