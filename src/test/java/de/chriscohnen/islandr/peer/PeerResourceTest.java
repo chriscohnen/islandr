@@ -28,6 +28,7 @@ import static org.hamcrest.Matchers.startsWith;
 class PeerResourceTest {
 
     @Inject SettingsService settings;
+    @Inject de.chriscohnen.islandr.wg.WgAdapter wgAdapter;
 
     /** Mutates the shared settings singleton — callers must restore it (see the
      *  includeDns tests' try/finally) since the row is shared across the suite. */
@@ -1116,6 +1117,43 @@ class PeerResourceTest {
     void rotateKey_unknownPeerReturns404() {
         given().contentType("application/json").when().post("/api/v1/peers/does-not-exist/rotate-key")
                 .then().statusCode(404);
+    }
+
+    /**
+     * Every other mutating peer op (create/update/delete) persists the DB
+     * change and degrades enforcement gracefully when the proxy is
+     * unreachable (ProxyUnavailableException) instead of failing the whole
+     * request — rotateAdminKey caught RuntimeException too broadly and threw
+     * a hard 500 instead, discarding the freshly generated keypair the admin
+     * needed for exactly this incident-response case.
+     */
+    @Test
+    void rotateKey_degradesGracefully_whenProxyUnavailable() {
+        String userId = createUser();
+        var created = given().contentType("application/json")
+                .body("""
+                        { "name": "rotate-degraded", "assignedIp": "10.8.0.95" }
+                        """)
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201)
+                .extract().response();
+        String peerId = created.path("peer.id");
+        String originalPublicKey = created.path("peer.publicKey");
+
+        de.chriscohnen.islandr.wg.MockWgAdapter mock =
+                (de.chriscohnen.islandr.wg.MockWgAdapter) io.quarkus.arc.ClientProxy.unwrap(wgAdapter);
+        mock.forceUnavailable = true;
+        try {
+            given().contentType("application/json").when().post("/api/v1/peers/" + peerId + "/rotate-key")
+                    .then().statusCode(200)
+                    .body("peer.id", equalTo(peerId))
+                    .body("peer.publicKey", not(equalTo(originalPublicKey)))
+                    .body("peer.keyRotatedAt", notNullValue())
+                    .body("privateKey", notNullValue())
+                    .body("qrPngBase64", notNullValue());
+        } finally {
+            mock.forceUnavailable = false;
+        }
     }
 
     // ---- Admin PSK rotation (issue #46) ------------------------------------

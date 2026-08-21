@@ -49,7 +49,18 @@ public class Session extends PanacheEntityBase {
         return revokedAt == null && expiresAt.isAfter(now);
     }
 
+    /**
+     * True only for the ENV-bootstrap admin session, never for a regular
+     * local-password login. Both use {@code provider=LOCAL} (see {@link
+     * de.chriscohnen.islandr.auth.AuthResource#login}), so {@code provider}
+     * alone can't distinguish them — {@code userId == null} is the real
+     * signal: it means no {@code admin@local} users row exists yet for this
+     * session to bind to (bug: this used to check {@code provider} alone,
+     * which treated every local-password user, admin or not, as the
+     * ENV-bootstrap admin — see {@link AdminUserBootstrap} for why a bound
+     * admin@local row is always {@code isAdmin=true} regardless).
+     */
     public boolean isLocalAdmin() {
-        return LOCAL.equals(provider);
+        return LOCAL.equals(provider) && userId == null;
     }
 }

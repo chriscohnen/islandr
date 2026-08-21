@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.Site;
+import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.user.User;
@@ -49,7 +50,8 @@ class DnsQueryHandlerTest {
     }
 
     private record Fixture(String siteSlug, String resourceDnsName, String resourceIp,
-                           String grantedPeerIp, String ungrantedPeerIp, String noIdentityPeerIp) {}
+                           String grantedPeerIp, String ungrantedPeerIp, String noIdentityPeerIp,
+                           String resourceId, String ungrantedUserId) {}
 
     @Transactional
     Fixture seed(boolean viaAutoAllRole) {
@@ -99,7 +101,7 @@ class DnsQueryHandlerTest {
         // No Peer row at all for noIdentityIp — simulates an unrecognized source.
 
         return new Fixture(DnsQueryHandler.slugify(siteName), dnsName, resource.ip,
-                grantedIp, ungrantedIp, noIdentityIp);
+                grantedIp, ungrantedIp, noIdentityIp, resource.id, ungranted.id);
     }
 
     private static final java.util.concurrent.atomic.AtomicInteger IP_COUNTER = new java.util.concurrent.atomic.AtomicInteger(1);
@@ -133,6 +135,31 @@ class DnsQueryHandlerTest {
         // the auto_all role's grant (ADR-0013 "Everyone" semantics).
         DnsQueryHandler.Resolution r = handler.resolve(fqdn(f), f.grantedPeerIp());
         assertThat(r).isInstanceOf(DnsQueryHandler.Resolution.Answer.class);
+    }
+
+    // ADR-0024's direct User→Resource grant — the "Freigabe hinzufügen" path
+    // in the ACL matrix's add-user-grant dialog — bypasses the role model
+    // entirely. AclService.hasAnyGrant (used by #resolve) only ever checked
+    // role_resource_grants/role_resource_type_grants; a resource granted
+    // *only* this way looked identical to "no grant at all" to the DNS
+    // resolver, even though the admin console's own ACL page showed it as
+    // granted.
+    @Test
+    void resolve_answers_whenGrantIsADirectUserGrant_notThroughARole() {
+        Fixture f = seed(false);
+        // ungrantedPeerIp's user has no role-based grant at all (seed() never
+        // adds one) — give it a *direct* grant instead.
+        directGrant(f.ungrantedUserId(), f.resourceId());
+
+        DnsQueryHandler.Resolution r = handler.resolve(fqdn(f), f.ungrantedPeerIp());
+
+        assertThat(r).isInstanceOf(DnsQueryHandler.Resolution.Answer.class);
+        assertThat(((DnsQueryHandler.Resolution.Answer) r).ip()).isEqualTo(f.resourceIp());
+    }
+
+    @Transactional
+    void directGrant(String userId, String resourceId) {
+        UserResourceGrant.createNew(userId, resourceId, true).persist();
     }
 
     @Test

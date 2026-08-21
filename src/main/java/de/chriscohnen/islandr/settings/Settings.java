@@ -284,7 +284,21 @@ public class Settings extends PanacheEntityBase {
      *  {@code wgClientDns} kept after it as a fallback — same free-text/
      *  split-DNS syntax as always. Used by both the real {@code .conf}
      *  generation ({@code PeerService.renderConf}) and the Settings UI's
-     *  live AllowedIPs preview, so the two never disagree. */
+     *  live AllowedIPs preview, so the two never disagree.
+     *
+     *  <p><b>Deliberately does not inject a {@code ~zone} routing-domain
+     *  token here</b>, despite that being wg-quick(8)'s real split-DNS
+     *  syntax and the one thing that would make a domain-aware client OS
+     *  route the managed zone here instead of treating this entry as merely
+     *  interface-scoped on a split-tunnel setup: the official cross-platform
+     *  WireGuard apps (confirmed on macOS) validate the {@code DNS =} line as
+     *  a plain IP list and flat-out refuse to save a config containing a
+     *  non-IP token — auto-injecting one server-side, for every peer
+     *  regardless of which client they actually use, would silently break
+     *  import for exactly the client platform most peers are on. The
+     *  `~domain` convention only actually works for genuine wg-quick/Linux
+     *  clients, so it stays admin-opt-in via {@code wgClientDns} (as it
+     *  always was), never auto-added here. */
     public String effectiveClientDns() {
         if (!dnsResolverEnabled) return wgClientDns;
         String hubIp;

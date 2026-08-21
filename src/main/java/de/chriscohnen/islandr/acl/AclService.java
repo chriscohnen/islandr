@@ -39,6 +39,16 @@ public class AclService {
                 "  OR EXISTS (SELECT 1 FROM role_resource_type_grants g " +
                 "          JOIN roles ro ON ro.id = g.role_id AND ro.auto_all = 1 " +
                 "          WHERE g.site_id = r.site_id AND g.resource_type = r.type)" +
+                // Direct User→Resource grant (ADR-0024) — bypasses the role
+                // model entirely, so it's keyed on userId directly, no
+                // user_roles join needed. This EXISTS clause was missing
+                // here even though RdpGrantService and MyAccessResource's
+                // resolveMyAccess both already check it: a resource granted
+                // *only* this way (the ACL matrix's "Freigabe hinzufügen"
+                // dialog) looked identical to "no grant at all" to callers
+                // of this method, e.g. the DNS resolver (ADR-0023).
+                "  OR EXISTS (SELECT 1 FROM user_resource_grants g " +
+                "          WHERE g.user_id = ?1 AND g.resource_id = r.id)" +
                 ")")
                 .setParameter(1, userId)
                 .setParameter(2, resourceId)

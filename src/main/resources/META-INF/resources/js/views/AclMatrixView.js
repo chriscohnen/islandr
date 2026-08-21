@@ -702,8 +702,11 @@ export default defineComponent({
       props: ["ports", "current"],
       emits: ["apply", "cancel"],
       data() {
+        // current === null means this picker is adding a brand-new grant —
+        // "kein Zugriff" isn't offered there (see template), so default to
+        // "all" instead of the no-op "none" that used to sit unreachable.
         const mode = this.current === null
-            ? "none"
+            ? "all"
             : (this.current.allPorts ? "all" : "limited");
         const checked = new Set(
             this.current && !this.current.allPorts ? this.current.portIds : []);
@@ -730,7 +733,7 @@ export default defineComponent({
       template: `
         <div class="modal-body">
           <div style="display: flex; flex-direction: column; gap: var(--space-3)">
-            <label style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500">
+            <label v-if="current !== null" style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500">
               <input type="radio" value="none" v-model="mode" style="width: 16px; height: 16px; accent-color: var(--accent)" />
               {{ t('acl.picker_none') }}
             </label>

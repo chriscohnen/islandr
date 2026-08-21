@@ -1165,8 +1165,13 @@ body {
    node, 1.8s loop, halts on prefers-reduced-motion. The actual color comes
    from CSS variables so it follows the theme. */
 .topo {
+  /* No ancestor gives this a definite height, so height:100% used to resolve
+     to "auto" — the SVG then sized itself purely from width * viewBox aspect
+     ratio, growing well past the viewport on wide screens. Cap it instead;
+     the default preserveAspectRatio (xMidYMid meet) keeps content centered
+     and undistorted within the box. */
   width: 100%;
-  height: 100%;
+  height: min(440px, 55vh);
   display: block;
 }
 .topo .hub-core {

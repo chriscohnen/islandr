@@ -14,13 +14,16 @@ export default defineComponent({
       loading: true,
       error: null,
       lookupName: "",
+      lookupAsPeerIp: "",
+      peers: [],
       lookupResult: null,
+      lookupResultAsPeer: null,
       lookupError: null,
       lookingUp: false,
     };
   },
   async mounted() {
-    await this.load();
+    await Promise.all([this.load(), this.loadPeers()]);
   },
   computed: { _lang() { return locale.current; } },
   methods: {
@@ -38,16 +41,29 @@ export default defineComponent({
         this.loading = false;
       }
     },
+    // Peers for the "test as" dropdown — best-effort; a failure here just
+    // leaves the dropdown empty, it never blocks the page's own status load.
+    async loadPeers() {
+      try {
+        const res = await fetch("/api/v1/peers");
+        if (res.ok) this.peers = await res.json();
+      } catch {
+        // leave peers empty
+      }
+    },
     async lookup() {
       if (!this.lookupName.trim()) return;
       this.lookingUp = true;
       this.lookupError = null;
       this.lookupResult = null;
       try {
+        const body = { name: this.lookupName.trim() };
+        if (this.lookupAsPeerIp) body.sourceIp = this.lookupAsPeerIp;
+        this.lookupResultAsPeer = this.peers.find((p) => p.assignedIp === this.lookupAsPeerIp) || null;
         const res = await fetch("/api/v1/dns/lookup", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name: this.lookupName.trim() }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
         this.lookupResult = await res.json();
@@ -88,6 +104,10 @@ export default defineComponent({
       </div>
       <div v-else-if="!status.running" class="callout callout-warn" style="margin-bottom: var(--space-4)">
         <div>{{ t('dns.blocked_hint') }} <router-link :to="{ path: '/settings', query: { tab: 'network' } }" style="color:inherit;text-decoration:underline">{{ t('dns.disabled_link') }}</router-link></div>
+      </div>
+
+      <div v-if="status.enabled" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+        <div>{{ t('dns.split_tunnel_hint', { zone: status.zone, ip: status.bindAddress }) }}</div>
       </div>
 
       <div class="card card-pad" style="margin-bottom: var(--space-5)">
@@ -138,6 +158,13 @@ export default defineComponent({
             <input id="dnsLookupName" class="input mono" v-model="lookupName"
                    :placeholder="'fileserver.homeoffice.' + (status.zone || 'islandr.internal')" />
           </div>
+          <div class="field" style="margin: 0; min-width: 220px">
+            <label for="dnsLookupAsPeer">{{ t('dns.lookup_as_peer_label') }}</label>
+            <select id="dnsLookupAsPeer" class="select" v-model="lookupAsPeerIp" :title="t('dns.lookup_as_peer_hint')">
+              <option value="">{{ t('dns.lookup_as_peer_none') }}</option>
+              <option v-for="p in peers" :key="p.id" :value="p.assignedIp">{{ p.name }} — {{ p.assignedIp }}</option>
+            </select>
+          </div>
           <button type="submit" class="btn btn-secondary" :disabled="lookingUp || !lookupName.trim()">
             {{ lookingUp ? t('dns.lookup_btn_busy') : t('dns.lookup_btn') }}
           </button>
@@ -147,11 +174,33 @@ export default defineComponent({
 
         <div v-if="lookupResult" style="margin-top: var(--space-4)">
           <div v-if="lookupResult.result === 'answer'" class="callout callout-success">
-            <div>{{ t('dns.lookup_result_answer', { ip: lookupResult.ip }) }}</div>
-            <div class="mono" style="font-size: var(--text-sm); margin-top: 2px; opacity: 0.85">{{ lookupResult.fqdn }}</div>
+            <div>
+              <div>{{ t('dns.lookup_result_answer', { ip: lookupResult.ip }) }}</div>
+              <div class="mono" style="font-size: var(--text-sm); margin-top: 2px; opacity: 0.85">{{ lookupResult.fqdn }}</div>
+              <!-- The plain preview skips the ACL check entirely (DnsQueryHandler
+                   .resolveForAdminPreview's own doc comment) — resolving here says
+                   nothing about which real peer would get an answer on the wire.
+                   grantedUsers is the honest answer to that, computed separately.
+                   Once a specific peer was tested (lookupResultAsPeer), the answer
+                   already *is* that peer's real outcome — no separate list needed. -->
+              <div v-if="lookupResultAsPeer" style="font-size: var(--text-xs); margin-top: var(--space-2); opacity: 0.85">
+                {{ t('dns.lookup_result_as_peer_answered', { peer: lookupResultAsPeer.name }) }}
+              </div>
+              <div v-else style="font-size: var(--text-xs); margin-top: var(--space-2); opacity: 0.85">
+                <span v-if="lookupResult.grantedUsers && lookupResult.grantedUsers.length > 0">
+                  {{ t('dns.lookup_result_granted_users', { users: lookupResult.grantedUsers.join(', ') }) }}
+                </span>
+                <span v-else>{{ t('dns.lookup_result_no_grants') }}</span>
+              </div>
+            </div>
           </div>
           <div v-else-if="lookupResult.result === 'nxdomain'" class="callout callout-warn">
-            <div>{{ t('dns.lookup_result_nxdomain') }}</div>
+            <div>
+              <div>{{ t('dns.lookup_result_nxdomain') }}</div>
+              <div v-if="lookupResultAsPeer" style="font-size: var(--text-xs); margin-top: var(--space-2); opacity: 0.85">
+                {{ t('dns.lookup_result_as_peer_denied', { peer: lookupResultAsPeer.name }) }}
+              </div>
+            </div>
           </div>
           <div v-else-if="lookupResult.ip" class="callout callout-info">
             <div>{{ t('dns.lookup_result_upstream_answer', { ip: lookupResult.ip, upstream: lookupResult.upstream }) }}</div>

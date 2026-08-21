@@ -246,7 +246,7 @@ public class DnsResolverService {
         if (resolution instanceof DnsQueryHandler.Resolution.Answer answer) {
             byte[] addressBytes = literalAddressBytes(answer.ip());
             if (addressBytes == null) return DnsWireFormat.buildError(query, parsed, DnsWireFormat.RCODE_NXDOMAIN);
-            return DnsWireFormat.buildAnswer(query, parsed, addressBytes, ANSWER_TTL_SECONDS);
+            return DnsWireFormat.buildAnswerOrNoData(query, parsed, addressBytes, ANSWER_TTL_SECONDS);
         }
         if (resolution instanceof DnsQueryHandler.Resolution.NxDomain) {
             return DnsWireFormat.buildError(query, parsed, DnsWireFormat.RCODE_NXDOMAIN);

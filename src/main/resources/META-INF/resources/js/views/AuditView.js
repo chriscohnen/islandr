@@ -145,23 +145,61 @@ export default defineComponent({
         return meta;
       }
     },
+    // peer.schedule.create/update rows carry the window in meta.after
+    // (weekdayMask/activeFrom/activeTo) — the target column otherwise shows
+    // only the peer name, indistinguishable from a plain peer.create. Build
+    // a compact "Mo–Fr 08:00–18:00"-style label from it.
+    scheduleLabel(row) {
+      if (!row.action || !row.action.startsWith("peer.schedule.") || !row.meta) return null;
+      let parsed;
+      try { parsed = JSON.parse(row.meta); } catch { return null; }
+      const s = parsed.after;
+      if (!s || s.weekdayMask == null || !s.activeFrom || !s.activeTo) return null;
+
+      const DAYS = [
+        { bit: 1, key: "peer.weekday_mon" }, { bit: 2, key: "peer.weekday_tue" },
+        { bit: 4, key: "peer.weekday_wed" }, { bit: 8, key: "peer.weekday_thu" },
+        { bit: 16, key: "peer.weekday_fri" }, { bit: 32, key: "peer.weekday_sat" },
+        { bit: 64, key: "peer.weekday_sun" },
+      ];
+      const active = DAYS.map((d) => (s.weekdayMask & d.bit) !== 0);
+      // Compress consecutive active days into ranges ("Mo–Fr") instead of
+      // spelling out every day.
+      const parts = [];
+      let i = 0;
+      while (i < DAYS.length) {
+        if (!active[i]) { i++; continue; }
+        let j = i;
+        while (j + 1 < DAYS.length && active[j + 1]) j++;
+        parts.push(j > i ? `${t(DAYS[i].key)}–${t(DAYS[j].key)}` : t(DAYS[i].key));
+        i = j + 1;
+      }
+      const days = parts.length > 0 ? parts.join(", ") : "—";
+      const from = s.activeFrom.slice(0, 5);
+      const to = s.activeTo.slice(0, 5);
+      return `${days} ${from}–${to}`;
+    },
     // Parses target strings in two formats:
     //   old: "Resource:some-uuid"
     //   new: "Resource:Name (some-uuid)"  or  "Session:email (uuid)"
+    // The id is never shown inline (a random uuid means nothing to the admin
+    // reading the log) — it's only kept as fullId, for a hover tooltip.
     parseTarget(target) {
       if (!target) return null;
       const colon = target.indexOf(":");
-      if (colon < 0) return { prefix: null, name: target, id: null };
+      if (colon < 0) return { prefix: null, name: target, fullId: null };
       const prefix = target.slice(0, colon);
       const rest = target.slice(colon + 1);
       // new format: "Name (id)" — id is inside the last parens
       const parenMatch = rest.match(/^(.+?)\s+\(([^)]+)\)$/);
       if (parenMatch) {
-        return { prefix, name: parenMatch[1], id: parenMatch[2].slice(0, 8) + "…" };
+        return { prefix, name: parenMatch[1], fullId: parenMatch[2] };
       }
-      // old format: bare id or other value
+      // old format: bare id (e.g. a raw session id — never a human name) or
+      // some other free-text value
       const isUuid = /^[0-9a-f-]{36}$/.test(rest);
-      return { prefix, name: isUuid ? null : rest, id: isUuid ? rest.slice(0, 8) + "…" : null };
+      const looksOpaque = isUuid || (prefix === "Session" && rest.length > 12);
+      return { prefix, name: looksOpaque ? null : rest, fullId: looksOpaque ? rest : null };
     },
     actionBadgeClass(action) {
       // Coarse colour cue: delete/disable/revoke = neutral (no scary red),
@@ -230,11 +268,12 @@ export default defineComponent({
                 <td style="font-size: var(--text-xs); white-space: nowrap">
                   <template v-if="row.target">
                     <span v-if="parseTarget(row.target).prefix"
-                          class="mono muted" style="opacity: 0.45; margin-right: 3px; font-size: 10px">{{ parseTarget(row.target).prefix }}</span>
+                          class="mono muted" :title="parseTarget(row.target).fullId || ''"
+                          style="opacity: 0.45; margin-right: 3px; font-size: 10px">{{ parseTarget(row.target).prefix }}</span>
                     <span v-if="parseTarget(row.target).name"
+                          :title="parseTarget(row.target).fullId || ''"
                           style="color: var(--fg1); font-family: var(--font-sans); text-transform: none; letter-spacing: 0">{{ parseTarget(row.target).name }}</span>
-                    <span v-if="parseTarget(row.target).id"
-                          class="mono muted" style="margin-left: 4px">{{ parseTarget(row.target).id }}</span>
+                    <span v-if="scheduleLabel(row)" class="mono muted" style="margin-left: 6px">{{ scheduleLabel(row) }}</span>
                   </template>
                   <span v-else class="muted">—</span>
                 </td>

@@ -6,6 +6,7 @@ import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.settings.SettingsService;
+import de.chriscohnen.islandr.user.User;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -40,7 +41,7 @@ public class DnsQueryHandler {
         // not necessarily what was typed (resolveForAdminPreview's zone-append/
         // bare-name shortcuts mean those can differ; #resolve's real protocol
         // path always matches them exactly, so it's a no-op there).
-        record Answer(String ip, String fqdn) implements Resolution {}
+        record Answer(String ip, String fqdn, String resourceId) implements Resolution {}
         record NxDomain() implements Resolution {}
     }
 
@@ -62,7 +63,7 @@ public class DnsQueryHandler {
         if (peer == null || peer.userId == null) return NXDOMAIN;
 
         return aclSvc.hasAnyGrant(peer.userId, resource.id)
-                ? new Resolution.Answer(resource.ip, canonicalFqdn(resource, lookup.site(), normalizeZone(s.dnsResolverZone)))
+                ? new Resolution.Answer(resource.ip, canonicalFqdn(resource, lookup.site(), normalizeZone(s.dnsResolverZone)), resource.id)
                 : NXDOMAIN;
     }
 
@@ -108,14 +109,32 @@ public class DnsQueryHandler {
             if (matches.size() == 1) {
                 Resource r = matches.get(0);
                 Site site = Site.findById(r.siteId);
-                if (site != null) return new Resolution.Answer(r.ip, canonicalFqdn(r, site, zone));
+                if (site != null) return new Resolution.Answer(r.ip, canonicalFqdn(r, site, zone), r.id);
             }
         }
         return switch (lookup.status()) {
             case NOT_MANAGED -> NOT_MANAGED;
             case NO_MATCH -> NXDOMAIN;
-            case FOUND -> new Resolution.Answer(lookup.resource().ip, canonicalFqdn(lookup.resource(), lookup.site(), zone));
+            case FOUND -> new Resolution.Answer(lookup.resource().ip, canonicalFqdn(lookup.resource(), lookup.site(), zone), lookup.resource().id);
         };
+    }
+
+    /** Every user who would actually get an {@code Answer} for this resource
+     *  through the real {@link #resolve} path — the admin lookup preview
+     *  skips the ACL check entirely (see {@link #resolveForAdminPreview}'s
+     *  own doc comment), so "resolves in the preview" alone doesn't tell an
+     *  admin whether any *real* peer can actually reach it by name. Linear
+     *  scan over every user, one {@code hasAnyGrant} check each — accepted
+     *  at this codebase's target small-team scale (same trade-off as the
+     *  zone lookup's own per-query site scan, see the class doc). */
+    @Transactional
+    public List<String> grantedUserLabels(String resourceId) {
+        List<String> labels = new ArrayList<>();
+        for (User u : User.<User>listAll()) {
+            if (aclSvc.hasAnyGrant(u.id, resourceId)) labels.add(u.name);
+        }
+        labels.sort(String::compareTo);
+        return labels;
     }
 
     private enum ZoneStatus { NOT_MANAGED, NO_MATCH, FOUND }

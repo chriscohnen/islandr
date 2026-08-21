@@ -147,6 +147,38 @@ class AuthorizationMatrixTest {
     }
 
     @Test
+    void localNonAdminUser_isForbiddenFromAdminEndpoints() {
+        // A local-password login (provider=Session.LOCAL) bound to a real,
+        // non-admin users row must be evaluated exactly like an OIDC org user —
+        // provider=local alone must never imply admin once a userId is present.
+        String cookie = localSessionCookieFor(orgUserId);
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .when().get("/api/v1/users").then().statusCode(403);
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .when().get("/api/v1/peers").then().statusCode(403);
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .when().get("/api/v1/settings").then().statusCode(403);
+    }
+
+    @Test
+    void me_carriesIsAdminFalse_forLocalNonAdminUser() {
+        String cookie = localSessionCookieFor(orgUserId);
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .when().get("/api/v1/auth/me")
+                .then().statusCode(200)
+                .body("isAdmin", org.hamcrest.Matchers.equalTo(false));
+    }
+
+    @Test
+    void localAdminUser_canHitAdminEndpoints_whenUsersRowIsActuallyAdmin() {
+        // The seeded admin@local row always has isAdmin=true (AdminUserBootstrap) —
+        // a local-password session bound to a real admin user must still work.
+        String cookie = localSessionCookieFor(adminOrgUserId);
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .when().get("/api/v1/users").then().statusCode(200);
+    }
+
+    @Test
     void orgUser_canListOwnPeers_emptyByDefault() {
         String cookie = sessionCookieFor(orgUserId, false);
         Response r = given().cookie(SessionFilter.COOKIE_NAME, cookie)
@@ -191,5 +223,11 @@ class AuthorizationMatrixTest {
 
     private Session createLocalAdminSession() {
         return sessions.create(Session.LOCAL, "admin", null);
+    }
+
+    /** A local-password login (provider=Session.LOCAL) bound to a real userId. */
+    private String localSessionCookieFor(String userId) {
+        Session s = sessions.create(Session.LOCAL, "local-" + userId.substring(0, 6), userId);
+        return s.id;
     }
 }
