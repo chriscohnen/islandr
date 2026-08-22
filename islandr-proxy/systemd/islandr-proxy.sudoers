@@ -3,6 +3,11 @@
 # root, nothing else. Argument shaping is enforced by islandr-proxy's allowlist,
 # not here (sudoers arg-globbing is brittle); the real gate is the daemon.
 #
+# Network diagnostics (ADR-0025, net_ping/net_tracepath) deliberately have no
+# entry here: ping/tracepath run directly as the islandr-proxy user, no
+# elevation, on a modern Linux host — see the Executor.Run doc comment in
+# handler.go for why.
+#
 # Paths are distro-dependent — verify with `command -v wg nft` and adjust.
 # Debian/Ubuntu: wg=/usr/bin/wg, nft=/usr/sbin/nft.
 islandr ALL=(root) NOPASSWD: /usr/bin/wg, /usr/sbin/nft

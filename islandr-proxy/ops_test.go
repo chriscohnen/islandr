@@ -83,7 +83,7 @@ func TestSetPeerWithPskWritesTempFileAndCleansUp(t *testing.T) {
 	var pskMode os.FileMode
 	ex := &recordingExec{}
 	// Read the preshared-key file *during* exec, while it still exists.
-	exReader := execFunc(func(name string, args []string, stdin []byte) (string, error) {
+	exReader := execFunc(func(name string, args []string, stdin []byte, sudo bool) (string, error) {
 		for i, a := range args {
 			if a == "preshared-key" && i+1 < len(args) {
 				pskPath = args[i+1]
@@ -94,7 +94,7 @@ func TestSetPeerWithPskWritesTempFileAndCleansUp(t *testing.T) {
 				}
 			}
 		}
-		return ex.Run(name, args, stdin)
+		return ex.Run(name, args, stdin, sudo)
 	})
 	h := NewHandler(exReader, cfg)
 	resp := handleLine(t, h, `{"op":"wg_set_peer","pubkey":"`+validKey+`","allowedIps":"10.0.0.2/32","presharedKey":"`+validKey+`"}`)
@@ -132,7 +132,7 @@ func TestSetPeerEmptyPskClearsExisting(t *testing.T) {
 	var pskPath, pskContent string
 	sawContent := false
 	ex := &recordingExec{}
-	exReader := execFunc(func(name string, args []string, stdin []byte) (string, error) {
+	exReader := execFunc(func(name string, args []string, stdin []byte, sudo bool) (string, error) {
 		for i, a := range args {
 			if a == "preshared-key" && i+1 < len(args) {
 				pskPath = args[i+1]
@@ -141,7 +141,7 @@ func TestSetPeerEmptyPskClearsExisting(t *testing.T) {
 				sawContent = true
 			}
 		}
-		return ex.Run(name, args, stdin)
+		return ex.Run(name, args, stdin, sudo)
 	})
 	h := NewHandler(exReader, cfg)
 	resp := handleLine(t, h, `{"op":"wg_set_peer","pubkey":"`+validKey+`","allowedIps":"10.0.0.2/32","presharedKey":""}`)
@@ -227,10 +227,10 @@ func TestExecErrorSurfacedAsNotOk(t *testing.T) {
 
 // --- small test helpers ---
 
-type execFunc func(name string, args []string, stdin []byte) (string, error)
+type execFunc func(name string, args []string, stdin []byte, sudo bool) (string, error)
 
-func (f execFunc) Run(name string, args []string, stdin []byte) (string, error) {
-	return f(name, args, stdin)
+func (f execFunc) Run(name string, args []string, stdin []byte, sudo bool) (string, error) {
+	return f(name, args, stdin, sudo)
 }
 
 type errString string

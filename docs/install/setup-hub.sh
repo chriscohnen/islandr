@@ -69,6 +69,14 @@ islandr ALL=(root) NOPASSWD: /usr/bin/wg set $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE dump
+# Network diagnostics (ADR-0025) deliberately have no entry here: neither ping
+# nor tracepath is run through sudo. tracepath needs no elevation on Linux at
+# all; ping normally doesn't either on a modern host — iputils ships the binary
+# with a cap_net_raw file capability, or the distro's net.ipv4.ping_group_range
+# sysctl permits an unprivileged ICMP socket outright. If your host has neither
+# and pings fail with "Operation not permitted", the fix is local to the host
+# (setcap cap_net_raw+ep \$(command -v ping), or widen ping_group_range) — not
+# a sudoers entry, which islandr's ping invocation would not use anyway.
 SUDOERS
 chmod 0440 /etc/sudoers.d/islandr
 
@@ -119,6 +127,10 @@ ISLANDR_NFT_MODE=real
 ISLANDR_USE_SUDO=true
 # Device discovery (ADR-0014) scans for real by default — no setting needed.
 # Set ISLANDR_DISCOVERY_MODE=mock to get two fixed synthetic hosts instead.
+# Network diagnostics (ADR-0025, ping/tracepath/mtr from Atlas) — same
+# posture: unprivileged and side-effect-free, so it also defaults to real
+# outside a container, no setting needed. Set ISLANDR_DIAG_MODE=mock to
+# get simulated latency instead.
 
 # Database
 QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db

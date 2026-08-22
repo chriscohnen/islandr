@@ -248,20 +248,31 @@ public class AclResolutionService {
                 .map(r -> new AtlasDto.RoleOption(r.id, r.name, usersByRole.getOrDefault(r.id, List.of())))
                 .toList();
 
-        List<AtlasDto.SiteNode> siteNodes = Site.<Site>listAll(Sort.by("name")).stream()
-                .map(s -> new AtlasDto.SiteNode(s.id, s.name, s.cidr, s.gatewayPeerId))
+        // Peer name is joined in (not just the id) so the Atlas frontend can label the
+        // gateway diamond and drive the "ping the site peer itself" diagnostics action
+        // (ADR-0025) without a second round-trip per site.
+        @SuppressWarnings("unchecked")
+        List<Object[]> siteRows = em.createNativeQuery(
+                        "SELECT s.id, s.name, s.cidr, s.gateway_peer_id, p.name "
+                                + "FROM sites s LEFT JOIN peers p ON p.id = s.gateway_peer_id "
+                                + "ORDER BY s.name")
+                .getResultList();
+        List<AtlasDto.SiteNode> siteNodes = siteRows.stream()
+                .map(s -> new AtlasDto.SiteNode((String) s[0], (String) s[1], (String) s[2], (String) s[3], (String) s[4]))
                 .toList();
 
         @SuppressWarnings("unchecked")
         List<Object[]> allResRows = em.createNativeQuery(
-                        "SELECT r.id, r.site_id, s.name, r.name, r.type, s.cidr, r.ip, r.description, s.gateway_peer_id "
+                        "SELECT r.id, r.site_id, s.name, r.name, r.type, s.cidr, r.ip, r.description, "
+                                + "s.gateway_peer_id, gw.name "
                                 + "FROM resources r JOIN sites s ON s.id = r.site_id "
+                                + "LEFT JOIN peers gw ON gw.id = s.gateway_peer_id "
                                 + "ORDER BY s.name, r.name")
                 .getResultList();
         List<AtlasDto.ResourceNode> resourceNodes = allResRows.stream()
                 .map(r -> new AtlasDto.ResourceNode(
                         (String) r[0], (String) r[3], (String) r[4], (String) r[1], (String) r[2],
-                        (String) r[5], (String) r[6], (String) r[7], (String) r[8]))
+                        (String) r[5], (String) r[6], (String) r[7], (String) r[8], (String) r[9]))
                 .toList();
 
         // Only resources are a hard requirement for any edge to exist — site-direct

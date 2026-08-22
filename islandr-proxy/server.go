@@ -78,14 +78,26 @@ func runtimeDir() string {
 	return "/run/islandr"
 }
 
-// osExec runs the allowlisted command through sudo, relying on the scoped
-// sudoers rules of ADR-0011 (the islandr user may run exactly wg/nft). The
-// command is always an argument vector — never a shell string — so validated
-// values cannot be reinterpreted by a shell.
+// osExec runs the allowlisted command, escalating through sudo only when asked
+// (relying on the scoped sudoers rules of ADR-0011 — the islandr user may run
+// exactly wg/nft as root). ping/tracepath pass sudo=false: they need no
+// elevation on a modern Linux host (ADR-0025 §3), and islandr-proxy.sudoers
+// does not grant them anyway. The command is always an argument vector — never
+// a shell string — so validated values cannot be reinterpreted by a shell.
 type osExec struct{}
 
-func (osExec) Run(name string, args []string, stdin []byte) (string, error) {
-	cmd := exec.Command("sudo", append([]string{name}, args...)...)
+// Run's stdout return is non-empty even on a non-zero exit: net_ping (ADR-0025)
+// needs the captured report from `ping` exiting 1 on packet loss, which is a
+// successful invocation, not a failure. wg/nft call-sites only ever check the
+// error, so returning stdout alongside it changes nothing for them.
+func (osExec) Run(name string, args []string, stdin []byte, sudo bool) (string, error) {
+	argv := append([]string{name}, args...)
+	var cmd *exec.Cmd
+	if sudo {
+		cmd = exec.Command("sudo", argv...)
+	} else {
+		cmd = exec.Command(argv[0], argv[1:]...)
+	}
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -94,9 +106,9 @@ func (osExec) Run(name string, args []string, stdin []byte) (string, error) {
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(errb.String()); msg != "" {
-			return "", errors.New(msg)
+			return out.String(), errors.New(msg)
 		}
-		return "", err
+		return out.String(), err
 	}
 	return out.String(), nil
 }

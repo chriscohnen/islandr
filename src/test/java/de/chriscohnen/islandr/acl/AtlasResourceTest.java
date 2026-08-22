@@ -112,6 +112,33 @@ class AtlasResourceTest {
         return new String[] { userA.id, userB.id };
     }
 
+    // ADR-0025: the Atlas frontend needs the gateway peer's own name (not just its
+    // id) to label the on-rim diamond and drive the "ping the site peer" action —
+    // both the SiteNode and the ResourceNode carry it, populated via the same
+    // sites->peers join either way.
+    @Test
+    void atlas_siteWithGatewayPeer_carriesPeerNameOnBothSiteAndResourceNodes() {
+        String[] ids = seedSiteWithGatewayPeerAndResource();
+
+        given().when().get("/api/v1/acl/atlas")
+                .then().statusCode(200)
+                .body("sites.find { it.id == '" + ids[0] + "' }.gatewayPeerName", is("atlas-test-gateway"))
+                .body("resources.find { it.id == '" + ids[1] + "' }.siteGatewayPeerName", is("atlas-test-gateway"));
+    }
+
+    @Transactional
+    String[] seedSiteWithGatewayPeerAndResource() {
+        de.chriscohnen.islandr.peer.Peer gw = de.chriscohnen.islandr.peer.Peer.createNew(
+                null, "atlas-test-gateway", "ATLASGWKEY".repeat(5).substring(0, 43) + "=", "10.64.0.1");
+        gw.persist();
+        Site site = Site.createNew("atlas-test-gw-site", "10.64.0.0/16", null);
+        site.gatewayPeerId = gw.id;
+        site.persist();
+        Resource res = Resource.createNew(site.id, "atlas-test-gw-resource", "10.64.0.5", null, "computer");
+        res.persist();
+        return new String[] { site.id, res.id };
+    }
+
     @Test
     void atlas_autoAllRole_fansOutWithoutExplicitMembership() {
         // Note: other real users (e.g. the bootstrap admin, not scoped by

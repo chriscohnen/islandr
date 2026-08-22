@@ -42,6 +42,12 @@
 .btn-secondary.is-loading::after, .btn-ghost.is-loading::after { color: var(--fg2); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Brief success confirmation after an explicit, no-auto-save action
+   completes (e.g. the ACL matrix's "Änderungen anwenden") — icon + label
+   swap, not a color change, matching "status is never color-only". */
+.btn.is-success { animation: btnSuccessFade var(--dur) var(--ease-standard); }
+@keyframes btnSuccessFade { from { opacity: 0; } to { opacity: 1; } }
+
 /* ---- Inputs -------------------------------------------------------------- */
 .field { display: flex; flex-direction: column; gap: var(--space-2); }
 .field-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg1); }
@@ -144,3 +150,9 @@
 .kbd { font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 6px; border-radius: var(--radius-xs); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--fg2); box-shadow: 0 1px 0 var(--border-strong); }
 .skeleton { background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 50%, var(--surface-3) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: var(--radius-sm); }
 @keyframes shimmer { to { background-position: -200% 0; } }
+
+/* Determinate progress bar for a running, data-driven job (e.g. a device
+   scan) — distinct from .skeleton (placeholder shimmer for content that
+   hasn't loaded yet). Width is driven by real progress, not looped. */
+.progress { height: 6px; border-radius: var(--radius-full); background: var(--surface-3); overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: inherit; transition: width var(--dur) var(--ease-standard); }

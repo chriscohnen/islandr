@@ -198,7 +198,7 @@ islandr/
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
 │   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014)
-│   │   ├── dns/         # hand-rolled DNS resolver for resource names, opt-in (ADR-0023)
+│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), unrelated PTR/mDNS/NetBIOS reverse lookups for discovery's hostname suggestion (#45, #48)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── identity/    # OidcProvider, JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
 │   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
@@ -217,7 +217,7 @@ islandr/
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 580+ tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 620+ tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -244,12 +244,13 @@ islandr/
 
 **Networks, resources & firewall**
 - Sites and typed resources (computer, router, printer, NAS, camera, IoT, rack server, KVM host, …)
-- **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports and reverse DNS, and bulk-create resources from a reviewable list. Unprivileged sockets only, no new capabilities ([ADR-0014](docs/adr/0014-device-discovery.md))
+- **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports, and bulk-create resources from a reviewable list. Resource-name suggestion tries reverse DNS (PTR, targeted against the site's DNS server or the system resolver), then mDNS, then NetBIOS, in that order — admin can always override, and untried/failed lookups just fall back to the pre-existing typed baseline ([ADR-0014](docs/adr/0014-device-discovery.md), [#45](https://github.com/chriscohnen/islandr/issues/45), [#48](https://github.com/chriscohnen/islandr/issues/48)). Unprivileged sockets only, no new capabilities. A determinate progress bar replaces the running-state spinner during a scan
 - Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
 - **Resource-type ACL grants** — roles → every resource of a type at a site (e.g. "all printers in the home office"), additive to individual grants ([ADR-0022](docs/adr/0022-acl-type-grants.md))
 - **Direct user→resource grants** — grant one specific user access to a resource without a role, for one-off exceptions that don't warrant a new role ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md))
 - **Site-to-site grants** — a site's gateway peer can itself be a grant subject, authorizing the whole site's CIDR (not just individual peers) to reach a resource, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52))
 - **Atlas view** — a global map of who/what can reach which resources across the whole tenant, with click-to-focus filtering and drag-to-grant creation (drag either end: user/site → resource or resource → site) ([#49](https://github.com/chriscohnen/islandr/issues/49))
+- **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell (no `sudo`, no new capabilities). Results dock in a panel beside the graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram itself ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66))
 - **World-map topology view** — sites, gateways and live tunnels on a geocoded map, alongside the existing network diagram ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md))
 - **DNS resolver for resource names** — opt-in, hand-rolled UDP/TCP resolver authoritative for the managed resource zone (per-site subdomains), ACL-filtered per querying peer, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
 - **Dashboard traffic-tier topology** — network/topology links colour by actual traffic volume, not just handshake recency
@@ -281,6 +282,11 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.18.0**
+- **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell — no `sudo`, no new capabilities needed on a modern Linux host ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66)). Results dock in a panel beside the Atlas graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram; connected client peers are now visibly marked and pingable too
+- **Device discovery: mDNS + NetBIOS hostname fallback** — when a discovered host has no router-registered DHCP hostname for a PTR lookup to find, discovery now also tries mDNS and then NetBIOS before falling back to the admin-typed baseline, closing the gap for devices a router's DNS server never learns a name for ([#48](https://github.com/chriscohnen/islandr/issues/48), follows on from [#45](https://github.com/chriscohnen/islandr/issues/45))
+- Device Discovery's running-state spinner is now a determinate progress bar; the ACL matrix's "Änderungen anwenden" button shows a brief success confirmation after a save instead of just reverting
 
 **0.17.0**
 - **Peer-Scheduler** — recurring weekly time windows that auto-enable/disable a peer, plus a terminal `validUntil` expiry that disables it for good regardless of any open window; manual enable/disable holds until the next schedule transition instead of being silently overwritten ([#47](https://github.com/chriscohnen/islandr/issues/47), closes [#10](https://github.com/chriscohnen/islandr/issues/10))

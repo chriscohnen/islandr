@@ -18,6 +18,7 @@ export default defineComponent({
       selectedRoleId: "", // "" = direct user-grant mode
       selectedUserId: null, // focused user (click-select in direct mode) — only their edges render
       selectedResourceId: null, // focused resource (click-select) — only edges reaching it render
+      selectedPeerId: null, // focused site-gateway peer (ADR-0025 diagnostics target) — no edge filtering
       lang: locale.current,
       grantDialog: null, // { subjectType, subjectId, resourceId, subjectName, resourceName, kind, allPorts, portIds, ports }
       grantSaving: false,
@@ -31,6 +32,21 @@ export default defineComponent({
       // doesn't scale once a tenant has dozens of them. "" = show everyone.
       userFilterRoleId: "",
       grantsPage: 1,
+      // Network diagnostics (ADR-0025): availability is fetched once so the
+      // action can gray itself out instead of offering a probe that will just
+      // fail; diagModal holds the live state of one open probe dialog.
+      diagAvailability: null,
+      diagModal: null, // { targetKind: "resource"|"peer", targetId, targetName, path, ping, pingLoading, pingError, tracepath, traceLoading, traceError }
+      // Which mobile/roaming user currently has a connected client peer
+      // (ADR-0025 follow-up: connected peers are pingable too, and Atlas
+      // previously gave no visual way to tell who's actually online).
+      // From GET /api/v1/peers/live: userId -> all of that user's currently
+      // connected peers, newest handshake first. A user with two devices
+      // connected (e.g. laptop + phone) still shows as a single dot on the
+      // diagram — the dot means "this user is online", not "this device is"
+      // — but every connected device of theirs must stay individually
+      // pingable, so the full list is kept, not just the most recent one.
+      connectedPeersByUserId: {},
     };
   },
   computed: {
@@ -59,10 +75,41 @@ export default defineComponent({
       const r = this.graph.resources.find((r) => r.id === this.selectedResourceId);
       return r ? r.name : this.selectedResourceId;
     },
+    focusedPeerName() {
+      if (!this.selectedPeerId) return "";
+      return (this._lastPeerClick && this._lastPeerClick.peerId === this.selectedPeerId)
+          ? this._lastPeerClick.peerName : this.selectedPeerId;
+    },
+    // The focused user's currently-connected client peers, if any — the
+    // diagnostics targets when pinging a mobile/roaming user (each peer's
+    // own tunnel IP, same PeerResource endpoints the site-gateway diamond
+    // already uses, just for a client device instead of a site). Newest
+    // handshake first; every entry is individually pingable, not just [0].
+    selectedUserConnectedPeers() {
+      if (!this.selectedUserId) return [];
+      return this.connectedPeersByUserId[this.selectedUserId] || [];
+    },
     focusLabel() {
       if (this.selectedUserId) return t("atlas.focus_user", { user: this.focusedUserName || " " });
       if (this.selectedResourceId) return t("atlas.focus_resource", { resource: this.focusedResourceName || " " });
+      if (this.selectedPeerId) return t("atlas.focus_peer", { peer: this.focusedPeerName || " " });
       return "";
+    },
+    // Drives the probed-path overlay on the diagram (ADR-0025 §5): the label
+    // shown at the last segment's midpoint and whether it's drawn green or
+    // red. Based on the ping result specifically — ping always runs first
+    // when the dialog opens, so it's the one result guaranteed to exist as
+    // soon as there's a path to draw at all.
+    probeLabel() {
+      const ping = this.diagModal && this.diagModal.ping;
+      if (!ping) return "";
+      return ping.reachable
+          ? t("atlas.diagnostics_overlay_ms", { ms: ping.avgMs })
+          : t("atlas.diagnostics_overlay_loss", { loss: ping.lossPercent });
+    },
+    probeReachable() {
+      const ping = this.diagModal && this.diagModal.ping;
+      return ping ? !!ping.reachable : true;
     },
     stats() {
       if (!this.graph) return { sites: 0, devices: 0, users: 0, grants: 0 };
@@ -174,10 +221,13 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this.loadDiagAvailability();
+    this.loadConnectedPeers();
     this._offEscape = onEscape(() => {
-      if (this.grantDialog) this.cancelGrantDialog();
+      if (this.diagModal) this.closeDiagnostics();
+      else if (this.grantDialog) this.cancelGrantDialog();
       else if (this.revokeConfirm) this.cancelRevokeConfirm();
-      else if (this.selectedUserId || this.selectedResourceId) this.clearFocus();
+      else if (this.selectedUserId || this.selectedResourceId || this.selectedPeerId) this.clearFocus();
     });
   },
   beforeUnmount() {
@@ -196,11 +246,13 @@ export default defineComponent({
         if (!this.highlightedUserIds.includes(userId)) {
           this.selectedRoleId = "";
           this.selectedResourceId = null;
+          this.selectedPeerId = null;
           this.selectedUserId = userId;
         }
         return;
       }
       this.selectedResourceId = null;
+      this.selectedPeerId = null;
       this.selectedUserId = this.selectedUserId === userId ? null : userId;
     },
 
@@ -211,12 +263,26 @@ export default defineComponent({
     onResourceClick(resourceId) {
       this.selectedRoleId = "";
       this.selectedUserId = null;
+      this.selectedPeerId = null;
       this.selectedResourceId = this.selectedResourceId === resourceId ? null : resourceId;
+    },
+
+    // Clicking a site's gateway diamond (ADR-0025) — only fires when the
+    // site actually has a gateway peer (AtlasDiagram no-ops otherwise).
+    // Its own focus mode, mutually exclusive with user/resource focus but
+    // deliberately NOT touching the role picker or edge filtering — picking
+    // a peer to ping is not a grant-graph question.
+    onPeerClick({ peerId, peerName, siteName }) {
+      this.selectedUserId = null;
+      this.selectedResourceId = null;
+      this.selectedPeerId = this.selectedPeerId === peerId ? null : peerId;
+      this._lastPeerClick = { peerId, peerName, siteName };
     },
 
     clearFocus() {
       this.selectedUserId = null;
       this.selectedResourceId = null;
+      this.selectedPeerId = null;
     },
 
     toggleTypeFilter(type) {
@@ -403,6 +469,147 @@ export default defineComponent({
         this.revokeSaving = false;
       }
     },
+
+    // ── Network diagnostics (ADR-0025) — admin-triggered ping/path-latency probe ──
+
+    async loadDiagAvailability() {
+      try {
+        const res = await fetch("/api/v1/diagnostics/availability");
+        if (res.ok) this.diagAvailability = await res.json();
+      } catch { /* action just stays enabled; the probe itself will report the real error */ }
+    },
+
+    // Who's actually connected right now, so the "mobile/roaming" circle can
+    // show it and a connected user's own peer becomes a diagnostics target —
+    // same idea as the site-gateway peer, just for a client device instead of
+    // a site. A snapshot at load time, not live-refreshed — good enough to
+    // decide "is this worth pinging", same one-shot posture as the rest of
+    // this dialog (ADR-0025 §6, no persisted/live history in v1).
+    async loadConnectedPeers() {
+      try {
+        const res = await fetch("/api/v1/peers/live");
+        if (!res.ok) return;
+        const live = await res.json();
+        const byUser = {};
+        for (const p of live) {
+          if (!p.userId || p.type === "site") continue; // site peers are handled via the gateway diamond, not here
+          (byUser[p.userId] || (byUser[p.userId] = [])).push(p);
+        }
+        for (const peers of Object.values(byUser)) {
+          peers.sort((a, b) => new Date(b.lastHandshake) - new Date(a.lastHandshake));
+        }
+        this.connectedPeersByUserId = byUser;
+      } catch { /* the mobile circle just shows everyone as "unknown", no worse than before this existed */ }
+    },
+
+    pathHopLabel(hop) {
+      if (hop.kind === "hub") return t("atlas.diagnostics_hop_hub");
+      if (hop.kind === "site-gateway") return t("atlas.diagnostics_hop_gateway", { peer: hop.name, site: hop.detail });
+      if (hop.kind === "peer") return hop.name; // the peer itself is the destination — no further detail to show
+      return hop.name + (hop.detail ? " (" + hop.detail + ")" : "");
+    },
+
+    tracepathHopLabel(hop) {
+      return hop.host
+          ? t("atlas.diagnostics_hop_row", { ttl: hop.ttl, host: hop.host, ms: hop.ms != null ? hop.ms : "?" })
+          : t("atlas.diagnostics_hop_no_reply", { ttl: hop.ttl });
+    },
+
+    // targetKind selects the endpoint base — /api/v1/resources/{id} for a
+    // Resource, /api/v1/peers/{id} for a site's gateway peer probed directly
+    // (ADR-0025). Same modal, same ping/tracepath UI either way.
+    openDiagnostics(resourceId) {
+      const resource = this.graph.resources.find((r) => r.id === resourceId);
+      if (!resource) return;
+      this.diagModal = {
+        targetKind: "resource", targetId: resourceId, targetName: resource.name,
+        path: null, ping: null, pingLoading: true, pingError: null,
+        tracepath: null, traceLoading: false, traceError: null,
+        mtr: null, mtrLoading: false, mtrError: null,
+      };
+      this.runPing();
+    },
+
+    openDiagnosticsForPeer(peerId, peerName) {
+      this.diagModal = {
+        targetKind: "peer", targetId: peerId, targetName: peerName || peerId,
+        path: null, ping: null, pingLoading: true, pingError: null,
+        tracepath: null, traceLoading: false, traceError: null,
+        mtr: null, mtrLoading: false, mtrError: null,
+      };
+      this.runPing();
+    },
+
+    closeDiagnostics() {
+      this.diagModal = null;
+    },
+
+    diagBaseUrl(m) {
+      return m.targetKind === "peer" ? "/api/v1/peers/" + m.targetId : "/api/v1/resources/" + m.targetId;
+    },
+
+    async runPing() {
+      if (!this.diagModal) return;
+      const m = this.diagModal;
+      m.pingLoading = true;
+      m.pingError = null;
+      try {
+        const res = await fetch(this.diagBaseUrl(m) + "/diagnostics/ping", { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || ("HTTP " + res.status));
+        }
+        const data = await res.json();
+        m.ping = data;
+        m.path = data.path;
+      } catch (e) {
+        m.pingError = t("atlas.diagnostics_error", { error: e.message });
+      } finally {
+        m.pingLoading = false;
+      }
+    },
+
+    async runTracepath() {
+      if (!this.diagModal) return;
+      const m = this.diagModal;
+      m.traceLoading = true;
+      m.traceError = null;
+      try {
+        const res = await fetch(this.diagBaseUrl(m) + "/diagnostics/tracepath", { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || ("HTTP " + res.status));
+        }
+        const data = await res.json();
+        m.tracepath = data;
+        m.path = data.path;
+      } catch (e) {
+        m.traceError = t("atlas.diagnostics_error", { error: e.message });
+      } finally {
+        m.traceLoading = false;
+      }
+    },
+
+    async runMtr() {
+      if (!this.diagModal) return;
+      const m = this.diagModal;
+      m.mtrLoading = true;
+      m.mtrError = null;
+      try {
+        const res = await fetch(this.diagBaseUrl(m) + "/diagnostics/mtr", { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || ("HTTP " + res.status));
+        }
+        const data = await res.json();
+        m.mtr = data;
+        m.path = data.path;
+      } catch (e) {
+        m.mtrError = t("atlas.diagnostics_error", { error: e.message });
+      } finally {
+        m.mtrLoading = false;
+      }
+    },
   },
   template: `
     <div class="page-header" style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3)">
@@ -422,7 +629,9 @@ export default defineComponent({
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-3)">{{ t('atlas.legend_hint') }}</p>
+    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-3)">
+      {{ t('atlas.legend_hint') }} {{ t('atlas.legend_connected_hint') }}
+    </p>
 
     <!-- Type/user filter chips — same inclusive-filter pattern as the topology
          map's type row (empty selection = show everything; picking one or
@@ -468,10 +677,43 @@ export default defineComponent({
            same user node (select, then click again to deselect), landing
            the second click on whatever node the page reflow put under the
            still-stationary cursor instead of the one the admin meant. -->
-      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId) ? 'visible' : 'hidden' }">
+      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId || selectedPeerId) ? 'visible' : 'hidden' }">
         {{ focusLabel || ' ' }}
-        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId) ? 0 : -1">✕</button>
+        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId || selectedPeerId) ? 0 : -1">✕</button>
       </span>
+
+      <!-- ADR-0025: a probe target is always a focused, known Resource, the
+           site's own gateway peer, or a connected user's own client peer —
+           never free text. Grayed out (not hidden) with an actionable title
+           when ping itself is missing on the hub — same "degrade honestly"
+           posture as the DNS resolver's own status page. A focused user with
+           no *currently connected* peer gets no action at all — there is
+           nothing reachable to probe. A user with exactly one connected
+           device keeps the single generic button; two or more (e.g. laptop
+           + phone both online) get one button each, named by device, so
+           every one of them stays individually pingable instead of only
+           ever reaching the most-recently-handshook device. -->
+      <button v-if="selectedResourceId || selectedPeerId" class="btn btn-ghost btn-sm"
+              :disabled="diagAvailability && !diagAvailability.ping"
+              :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
+              @click="selectedPeerId ? openDiagnosticsForPeer(selectedPeerId, focusedPeerName)
+                    : openDiagnostics(selectedResourceId)">
+        <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action') }}
+      </button>
+      <button v-else-if="selectedUserConnectedPeers.length === 1" class="btn btn-ghost btn-sm"
+              :disabled="diagAvailability && !diagAvailability.ping"
+              :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
+              @click="openDiagnosticsForPeer(selectedUserConnectedPeers[0].id, focusedUserName)">
+        <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action') }}
+      </button>
+      <template v-else-if="selectedUserConnectedPeers.length > 1">
+        <button v-for="peer in selectedUserConnectedPeers" :key="peer.id" class="btn btn-ghost btn-sm"
+                :disabled="diagAvailability && !diagAvailability.ping"
+                :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
+                @click="openDiagnosticsForPeer(peer.id, peer.name || peer.id)">
+          <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action_device', { device: peer.name || peer.id }) }}
+        </button>
+      </template>
 
       <div style="display: flex; gap: var(--space-2); margin-left: auto">
         <button class="btn btn-sm" :class="tool === 'grant' ? 'btn-primary' : 'btn-ghost'" @click="tool = 'grant'">
@@ -494,10 +736,128 @@ export default defineComponent({
     </div>
 
     <template v-else-if="graph">
-      <div class="card card-pad">
+      <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
+                       :selected-peer-id="selectedPeerId"
+                       :connected-user-ids="Object.keys(connectedPeersByUserId)"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
-                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" />
+                       :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
+                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />
+
+        <!-- Network diagnostics (ADR-0025): docked beside the graph, not a modal —
+             the whole point is seeing the probed hub -> [site-gateway] -> target
+             chain highlighted live on the diagram (AtlasDiagram's probe overlay)
+             at the same time as the numbers, not one hidden behind the other.
+             No backdrop: the graph underneath stays interactive. -->
+        <div v-if="diagModal" class="card" style="position: absolute; top: var(--space-3); right: var(--space-3); width: 300px;
+                    max-height: calc(70vh - var(--space-3) * 2); overflow-y: auto; z-index: 5; padding: var(--space-3);
+                    box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.18))">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3)">
+            <strong style="font-size: var(--text-sm)">{{ t('atlas.diagnostics_title', { resource: diagModal.targetName }) }}</strong>
+            <button class="btn btn-ghost btn-sm" style="padding: 0 4px; flex-shrink: 0" @click="closeDiagnostics">✕</button>
+          </div>
+
+          <div v-if="diagModal.path" style="margin-bottom: var(--space-3)">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+              {{ t('atlas.diagnostics_path_title') }}
+            </h3>
+            <div class="mono" style="font-size: var(--text-xs)">
+              <span v-for="(hop, i) in diagModal.path" :key="i">
+                <span v-if="i > 0"> → </span>{{ pathHopLabel(hop) }}
+              </span>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-3)">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
+              {{ t('atlas.diagnostics_ping_title') }}
+              <button class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.pingLoading" :title="t('atlas.diagnostics_rerun')" @click="runPing">
+                <Icon name="rotate" :size="12" />
+              </button>
+            </h3>
+            <div v-if="diagModal.pingLoading" class="muted" style="font-size: var(--text-xs)">{{ t('common.loading') }}</div>
+            <div v-else-if="diagModal.pingError" class="error-banner" style="font-size: var(--text-xs)">{{ diagModal.pingError }}</div>
+            <div v-else-if="diagModal.ping">
+              <p style="margin: 0 0 4px">
+                <span :class="['badge', 'status-pill', diagModal.ping.reachable ? 'badge-success' : 'badge-danger']">
+                  <Icon :name="diagModal.ping.reachable ? 'check' : 'unlink'" :size="12" />
+                  {{ diagModal.ping.reachable ? t('atlas.diagnostics_reachable') : t('atlas.diagnostics_unreachable') }}
+                </span>
+              </p>
+              <p class="mono" style="margin: 0; font-size: var(--text-xs)">
+                {{ t('atlas.diagnostics_stats', { received: diagModal.ping.received, sent: diagModal.ping.sent, loss: diagModal.ping.lossPercent }) }}
+              </p>
+              <p v-if="diagModal.ping.reachable" class="mono muted" style="margin: 2px 0 0; font-size: var(--text-xs)">
+                {{ t('atlas.diagnostics_rtt', { min: diagModal.ping.minMs, avg: diagModal.ping.avgMs, max: diagModal.ping.maxMs }) }}
+              </p>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-3)">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
+              {{ t('atlas.diagnostics_tracepath_title') }}
+              <button v-if="diagModal.tracepath" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.traceLoading" :title="t('atlas.diagnostics_rerun')" @click="runTracepath">
+                <Icon name="rotate" :size="12" />
+              </button>
+            </h3>
+            <div v-if="diagModal.traceLoading" class="muted" style="font-size: var(--text-xs)">{{ t('common.loading') }}</div>
+            <template v-else>
+              <div v-if="diagModal.traceError" class="error-banner" style="font-size: var(--text-xs); margin-bottom: var(--space-2)">{{ diagModal.traceError }}</div>
+              <ul v-if="diagModal.tracepath" class="mono" style="margin: 0; padding-left: var(--space-4); font-size: var(--text-xs)">
+                <li v-for="hop in diagModal.tracepath.hops" :key="hop.ttl">{{ tracepathHopLabel(hop) }}</li>
+              </ul>
+              <!-- Not v-else: same "don't dead-end on the error" fix as mtr below. -->
+              <button v-if="!diagModal.tracepath" class="btn btn-ghost btn-sm"
+                      :disabled="diagAvailability && !diagAvailability.tracepath"
+                      :title="diagAvailability && !diagAvailability.tracepath ? t('atlas.diagnostics_unavailable', { tool: 'tracepath' }) : ''"
+                      @click="runTracepath">
+                {{ diagModal.traceError ? t('atlas.diagnostics_retry') : t('atlas.diagnostics_run_tracepath') }}
+              </button>
+            </template>
+          </div>
+
+          <!-- mtr (ADR-0025 §1): opportunistic upgrade over tracepath — per-hop
+               loss % and aggregated RTT over several cycles, not just one shot.
+               Only offered when actually detected on the hub; tracepath above
+               always stays available as the baseline either way. -->
+          <div v-if="diagAvailability && diagAvailability.mtr">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
+              {{ t('atlas.diagnostics_mtr_title') }}
+              <button v-if="diagModal.mtr" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.mtrLoading" :title="t('atlas.diagnostics_rerun')" @click="runMtr">
+                <Icon name="rotate" :size="12" />
+              </button>
+            </h3>
+            <div v-if="diagModal.mtrLoading" class="muted" style="font-size: var(--text-xs)">{{ t('common.loading') }}</div>
+            <template v-else>
+              <div v-if="diagModal.mtrError" class="error-banner" style="font-size: var(--text-xs); margin-bottom: var(--space-2)">{{ diagModal.mtrError }}</div>
+              <table v-if="diagModal.mtr" class="table" style="font-size: var(--text-xs)">
+                <thead>
+                  <tr>
+                    <th>{{ t('atlas.diagnostics_mtr_th_hop') }}</th>
+                    <th>{{ t('atlas.diagnostics_mtr_th_loss') }}</th>
+                    <th>{{ t('atlas.diagnostics_mtr_th_avg') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="hop in diagModal.mtr.hops" :key="hop.ttl">
+                    <td class="mono">{{ hop.ttl }}. {{ hop.host || t('atlas.diagnostics_hop_no_reply_short') }}</td>
+                    <td class="mono">{{ hop.lossPercent }}%</td>
+                    <td class="mono">{{ hop.avgMs != null ? hop.avgMs + ' ms' : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <!-- Not v-else: a failed attempt (e.g. the shared per-target cooldown
+                   rejecting a too-quick retry) must still offer another try, not
+                   dead-end on the error banner forever. -->
+              <button v-if="!diagModal.mtr" class="btn btn-ghost btn-sm" @click="runMtr">
+                {{ diagModal.mtrError ? t('atlas.diagnostics_retry') : t('atlas.diagnostics_run_mtr') }}
+              </button>
+            </template>
+          </div>
+        </div>
       </div>
 
       <div class="card card-pad" style="margin-top: var(--space-4)">
@@ -586,5 +946,6 @@ export default defineComponent({
         </div>
       </div>
     </div>
+
   `,
 });

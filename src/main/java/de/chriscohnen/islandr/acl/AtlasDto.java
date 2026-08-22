@@ -8,7 +8,8 @@ public class AtlasDto {
 
     public record ResourceNode(
             String id, String name, String type, String siteId, String siteName,
-            String siteCidr, String ip, String description, String siteGatewayPeerId) {}
+            String siteCidr, String ip, String description, String siteGatewayPeerId,
+            String siteGatewayPeerName) {}
 
     /** kind: "role" | "type-grant" | "user-direct" | "site-direct". roleId/roleName are null
      * except for "role"/"type-grant". subjectType: "user" (subjectId is a User.id, the only
@@ -23,7 +24,7 @@ public class AtlasDto {
     /** Every Site, independent of whether it owns any resources — a site that only ever
      * grants (never receives) access has no ResourceNode of its own to hang a name/cidr
      * off of, so the frontend needs this list to draw its gateway node regardless. */
-    public record SiteNode(String id, String name, String cidr, String gatewayPeerId) {}
+    public record SiteNode(String id, String name, String cidr, String gatewayPeerId, String gatewayPeerName) {}
 
     public record Graph(
             List<UserNode> users, List<ResourceNode> resources,

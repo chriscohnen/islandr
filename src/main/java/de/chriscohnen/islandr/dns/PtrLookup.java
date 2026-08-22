@@ -55,7 +55,10 @@ public final class PtrLookup {
         }
     }
 
-    private static String reverseArpaName(String ipv4) {
+    /** Package-visible: also used by {@link MdnsLookup}, which queries the
+     *  same reverse "*.in-addr.arpa" name over mDNS instead of a configured
+     *  unicast DNS server. */
+    static String reverseArpaName(String ipv4) {
         String[] octets = ipv4.split("\\.");
         if (octets.length != 4) throw new IllegalArgumentException("not an IPv4 address: " + ipv4);
         return octets[3] + "." + octets[2] + "." + octets[1] + "." + octets[0] + ".in-addr.arpa";

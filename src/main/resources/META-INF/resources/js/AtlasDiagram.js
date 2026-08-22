@@ -9,6 +9,8 @@ const CIRCLE_GAP = 40;
 const NODE_RADIUS = 16;
 const NODE_RING_MARGIN = 26; // distance from circle edge to node centers
 const MIN_CIRCLE_RADIUS = 90;
+const HUB_SIZE = 20; // half-width of the hub's square icon
+const HUB_GAP = 56; // vertical gap between the topmost circle's rim and the hub anchor
 
 function curvePath(x1, y1, x2, y2, bow = 0.18) {
   const dx = x2 - x1, dy = y2 - y1;
@@ -127,14 +129,26 @@ export default defineComponent({
     highlightedUserIds: { type: Array, default: () => [] }, // user ids for the active role filter
     selectedUserId: { type: String, default: null }, // focused user (direct-grant mode) — only their edges render
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
+    selectedPeerId: { type: String, default: null }, // focused site-gateway peer (ADR-0025 diagnostics target) — ring only, no edge filtering
+    connectedUserIds: { type: Array, default: () => [] }, // users with a currently-connected client peer (ADR-0025) — also pingable
     activeTypes: { type: Array, default: () => [] }, // non-empty = show only resources of these types
     activeUserIds: { type: Array, default: () => [] }, // non-empty = show only these users
+    // ADR-0025: while a diagnostics probe is open, the probed hub -> [site-gateway] ->
+    // target chain (same shape as the backend's PathHop list) is drawn as an overlay
+    // on top of the existing grant graph. probeLabel is the short text shown at the
+    // last segment's midpoint (e.g. "37.5 ms" or "✕ 100%"); null path = no overlay.
+    probePath: { type: Array, default: null },
+    probeLabel: { type: String, default: "" },
+    probeReachable: { type: Boolean, default: true },
   },
-  emits: ["drag-grant", "revoke-edge", "user-click", "resource-click"],
+  emits: ["drag-grant", "revoke-edge", "user-click", "resource-click", "peer-click"],
   data() {
     return {
       dragFromUserId: null,
       dragFromIsGateway: false, // true when dragFromUserId is a site's gateway node, not a user
+      dragFromGatewayPeerId: null, // the gateway node's underlying Peer id, if the site has one
+      dragFromGatewayPeerName: null,
+      dragFromGatewaySiteName: null,
       dragFromResourceId: null, // set instead of dragFromUserId when the drag starts on a resource node
       dragPointer: null, // { x, y } in content coords, while dragging
       dragStartClient: null, // { x, y } in raw client px, to distinguish a click from a drag
@@ -149,6 +163,9 @@ export default defineComponent({
   computed: {
     highlightedUserIdSet() {
       return new Set(this.highlightedUserIds);
+    },
+    connectedUserIdSet() {
+      return new Set(this.connectedUserIds);
     },
     // Inclusive filter (empty = show everything), same as the topology
     // map's type chips. Filtered-out nodes are dropped entirely, not just
@@ -171,7 +188,7 @@ export default defineComponent({
         if (!bySite.has(r.siteId)) {
           bySite.set(r.siteId, {
             id: r.siteId, name: r.siteName, cidr: r.siteCidr,
-            gatewayPeerId: r.siteGatewayPeerId, resources: [],
+            gatewayPeerId: r.siteGatewayPeerId, gatewayPeerName: r.siteGatewayPeerName, resources: [],
           });
         }
         bySite.get(r.siteId).resources.push(r);
@@ -188,7 +205,7 @@ export default defineComponent({
         if (!bySite.has(site.id) && grantingSiteIds.has(site.id)) {
           bySite.set(site.id, {
             id: site.id, name: site.name, cidr: site.cidr,
-            gatewayPeerId: site.gatewayPeerId, resources: [],
+            gatewayPeerId: site.gatewayPeerId, gatewayPeerName: site.gatewayPeerName, resources: [],
           });
         }
       }
@@ -197,7 +214,11 @@ export default defineComponent({
         out.push({ id: "__mobile__", name: t("atlas.circle_mobile"), kind: "mobile", nodes: this.visibleUsers });
       }
       for (const site of bySite.values()) {
-        out.push({ id: site.id, name: site.name, cidr: site.cidr, gatewayPeerId: site.gatewayPeerId, kind: "site", nodes: site.resources });
+        out.push({
+          id: site.id, name: site.name, cidr: site.cidr,
+          gatewayPeerId: site.gatewayPeerId, gatewayPeerName: site.gatewayPeerName,
+          kind: "site", nodes: site.resources,
+        });
       }
       return out;
     },
@@ -264,16 +285,20 @@ export default defineComponent({
               : sunflowerPoint(item.x, item.y, ni, c.nodes.length, item.r - NODE_RING_MARGIN);
           return { ...n, x: pos.x, y: pos.y, circleId: c.id, isUser: c.kind === "mobile" };
         });
-        // One gateway (grant-subject) node per site circle, anchored at the
-        // top of the rim — outside the sunflower-packed radius
-        // (item.r - NODE_RING_MARGIN) so it never collides with a resource
-        // node, and below the external name/CIDR label so it never collides
-        // with that either.
+        // One gateway (grant-subject) node per site circle, sitting exactly
+        // on the circle's rim (2026-08-22 feedback: previously floated just
+        // inside it, reading as "part of the network" rather than "the door
+        // into it") — anchored on the right side (3 o'clock), not the top,
+        // so it never collides with the external name/CIDR label above.
+        // When the site actually has a gateway peer, the diamond doubles as
+        // that peer's own diagnostics target (ADR-0025) — pingable directly,
+        // distinct from pinging a resource behind it.
         if (c.kind === "site") {
           nodes.push({
             id: c.id, name: c.name, kind: "gateway",
-            x: item.x, y: item.y - (item.r - NODE_RADIUS - 4),
+            x: item.x + item.r, y: item.y,
             circleId: c.id, isUser: false, isGateway: true,
+            peerId: c.gatewayPeerId || null, peerName: c.gatewayPeerName || null,
           });
         }
         return { ...c, cx: item.x, cy: item.y, r: item.r, color, nodes };
@@ -303,6 +328,51 @@ export default defineComponent({
             return { edge: e, path: curvePath(from.x, from.y, to.x, to.y), key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || "") };
           });
     },
+    // A single fixed anchor for the Hub (2026-08-22 feedback: previously
+    // absent from the graph entirely, even though it's the actual origin of
+    // every probe drawn here). Centered above the packed site cluster —
+    // mirrors how the "mobile" circle sits centered below it — computed from
+    // the already-laid-out circles rather than folded into the relaxation
+    // pass, since it's a single point, not something that needs packing.
+    hubPoint() {
+      const circles = this.layout;
+      if (circles.length === 0) return { x: W / 2, y: H / 2 - 140 };
+      const topY = Math.min(...circles.map((c) => c.cy - c.r));
+      const avgX = circles.reduce((sum, c) => sum + c.cx, 0) / circles.length;
+      return { x: avgX, y: topY - HUB_GAP - HUB_SIZE };
+    },
+    // Maps a PathHop list (ADR-0025's hub -> [site-gateway] -> resource/peer
+    // chain, as returned by the ping/tracepath endpoints) onto actual
+    // on-screen points, so the probed connection can be drawn as an overlay
+    // on top of the existing grant graph rather than only described in the
+    // dialog's text. A hop that can't be resolved to a node on the current
+    // graph (e.g. filtered out) just breaks the overlay off early rather
+    // than drawing a line to nowhere.
+    probeOverlay() {
+      if (!this.probePath || this.probePath.length < 2) return null;
+      const points = [];
+      for (const hop of this.probePath) {
+        let pt = null;
+        if (hop.kind === "hub") {
+          pt = this.hubPoint;
+        } else if (hop.kind === "site-gateway" || hop.kind === "peer") {
+          const circle = this.layout.find((c) => c.gatewayPeerId === hop.id);
+          const gwNode = circle && circle.nodes.find((n) => n.isGateway);
+          if (gwNode) pt = { x: gwNode.x, y: gwNode.y };
+        } else if (hop.kind === "resource") {
+          const n = this.nodesById.get(hop.id);
+          if (n) pt = { x: n.x, y: n.y };
+        }
+        if (!pt) break;
+        points.push(pt);
+      }
+      if (points.length < 2) return null;
+      let d = "M " + points[0].x + " " + points[0].y;
+      for (let i = 1; i < points.length; i++) d += " L " + points[i].x + " " + points[i].y;
+      const last = points[points.length - 1];
+      const prev = points[points.length - 2];
+      return { path: d, labelX: (last.x + prev.x) / 2, labelY: (last.y + prev.y) / 2 - 10 };
+    },
     contentBounds() {
       if (this.layout.length === 0) return { minX: 0, minY: 0, maxX: W, maxY: H };
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -312,6 +382,10 @@ export default defineComponent({
         minY = Math.min(minY, circle.cy - circle.r - 24);
         maxY = Math.max(maxY, circle.cy + circle.r);
       }
+      const hub = this.hubPoint;
+      minY = Math.min(minY, hub.y - HUB_SIZE - 20);
+      minX = Math.min(minX, hub.x - HUB_SIZE - 10);
+      maxX = Math.max(maxX, hub.x + HUB_SIZE + 10);
       return { minX, minY, maxX, maxY };
     },
     contentTransform() {
@@ -409,6 +483,9 @@ export default defineComponent({
       if (node.isUser || node.isGateway) {
         this.dragFromUserId = node.id;
         this.dragFromIsGateway = !!node.isGateway;
+        this.dragFromGatewayPeerId = node.isGateway ? node.peerId : null;
+        this.dragFromGatewayPeerName = node.isGateway ? node.peerName : null;
+        this.dragFromGatewaySiteName = node.isGateway ? node.name : null;
         this.dragFromResourceId = null;
       } else {
         this.dragFromResourceId = node.id;
@@ -436,6 +513,9 @@ export default defineComponent({
       window.removeEventListener("pointercancel", this.onWindowPointerCancel);
       this.dragFromUserId = null;
       this.dragFromIsGateway = false;
+      this.dragFromGatewayPeerId = null;
+      this.dragFromGatewayPeerName = null;
+      this.dragFromGatewaySiteName = null;
       this.dragFromResourceId = null;
       this.dragPointer = null;
       this.dragStartClient = null;
@@ -444,6 +524,9 @@ export default defineComponent({
     onWindowPointerUp(evt) {
       const fromUserId = this.dragFromUserId;
       const fromIsGateway = this.dragFromIsGateway;
+      const fromGatewayPeerId = this.dragFromGatewayPeerId;
+      const fromGatewayPeerName = this.dragFromGatewayPeerName;
+      const fromGatewaySiteName = this.dragFromGatewaySiteName;
       const fromResourceId = this.dragFromResourceId;
       const moved = this.dragMoved;
       let resourceId = null;
@@ -474,10 +557,12 @@ export default defineComponent({
           this.$emit("drag-grant", { subjectType: "site", subjectId: gatewaySubjectId, resourceId: fromResourceId });
         }
       } else if (fromUserId && !fromIsGateway) {
-        // A plain click on a gateway node is a no-op for now — sites are
-        // grant subjects (draggable), not a filter/focus mode like users
-        // (out of scope for v1).
         this.$emit("user-click", fromUserId);
+      } else if (fromUserId && fromIsGateway && fromGatewayPeerId) {
+        // A plain click on a gateway node that actually has a peer behind it
+        // (ADR-0025) — a hub-local site's diamond (no gateway peer) stays a
+        // no-op, since there's nothing to ping at that hop.
+        this.$emit("peer-click", { peerId: fromGatewayPeerId, peerName: fromGatewayPeerName, siteName: fromGatewaySiteName });
       }
     },
     onWindowPointerCancel() {
@@ -492,8 +577,9 @@ export default defineComponent({
     // to one specific person regardless of which role is active. Resource
     // focus follows the same idea on the resource side — user and resource
     // focus are mutually exclusive (AtlasView clears one when the other is set).
-    // Gateway (site) nodes have no filter/focus mode of their own (out of
-    // scope for v1) — always shown at full opacity, never highlighted.
+    // Gateway (site) nodes have their own, separate focus (selectedPeerId,
+    // ADR-0025) — it never dims/hides anything else, since picking a peer to
+    // ping is not a grant-graph filter the way user/resource focus is.
     nodeDimmed(node) {
       if (node.isGateway) return false;
       if (node.isUser) {
@@ -504,17 +590,19 @@ export default defineComponent({
       return this.selectedResourceId ? node.id !== this.selectedResourceId : false;
     },
     nodeHighlighted(node) {
-      if (node.isGateway) return false;
+      if (node.isGateway) return !!(this.selectedPeerId && node.peerId === this.selectedPeerId);
       if (node.isUser) {
         if (this.selectedUserId) return node.id === this.selectedUserId;
         return this.highlightedUserIdSet.has(node.id);
       }
       return node.id === this.selectedResourceId;
     },
-    // True only for the one individually click-selected node (user or
-    // resource focus) — not the broader role-membership highlight, which can
-    // mark many nodes at once and would turn the animated ring into noise.
+    // True only for the one individually click-selected node (user, resource,
+    // or gateway-peer focus) — not the broader role-membership highlight,
+    // which can mark many nodes at once and would turn the animated ring into
+    // noise.
     nodeFocused(node) {
+      if (node.isGateway) return !!(this.selectedPeerId && node.peerId === this.selectedPeerId);
       return node.id === this.selectedUserId || node.id === this.selectedResourceId;
     },
     onResourceNodeClick(node) {
@@ -578,6 +666,20 @@ export default defineComponent({
                 :x2="dragPointer.x" :y2="dragPointer.y"
                 stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3" />
 
+          <!-- ADR-0025: the actually-probed hub -> [site-gateway] -> target chain,
+               drawn thicker and colored by outcome so it reads as "this exact
+               connection was just tested" rather than blending into the
+               ordinary grant edges above. -->
+          <g v-if="probeOverlay">
+            <path :d="probeOverlay.path" fill="none"
+                  :stroke="probeReachable ? 'var(--success-solid)' : 'var(--danger-solid)'"
+                  stroke-width="3" stroke-linecap="round" />
+            <text :x="probeOverlay.labelX" :y="probeOverlay.labelY" text-anchor="middle"
+                  font-family="var(--font-mono)" font-size="12" font-weight="600"
+                  :fill="probeReachable ? 'var(--success-solid)' : 'var(--danger-solid)'"
+                  style="paint-order: stroke; stroke: var(--surface); stroke-width: 3px">{{ probeLabel }}</text>
+          </g>
+
           <g v-for="circle in layout" :key="'nodes-' + circle.id">
             <g v-for="node in circle.nodes" :key="node.id"
                :data-resource-id="(!node.isUser && !node.isGateway) ? node.id : null"
@@ -590,6 +692,7 @@ export default defineComponent({
                @pointermove="!node.isUser && !node.isGateway && hoveredNode === node && updateHoverPos($event)"
                @pointerleave="!node.isUser && !node.isGateway && onResourceLeave()">
               <title v-if="node.isGateway">{{ t('atlas.tooltip_gateway', { site: node.name, cidr: circle.cidr }) }}</title>
+              <title v-else-if="node.isUser">{{ connectedUserIdSet.has(node.id) ? t('atlas.tooltip_connected') : t('atlas.tooltip_disconnected') }}</title>
               <circle v-if="nodeFocused(node)" :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
                       fill="none" stroke="var(--fg1)" stroke-width="1.5">
                 <animate attributeName="r" values="${NODE_RADIUS + 3};${NODE_RADIUS + 9};${NODE_RADIUS + 3}"
@@ -613,9 +716,32 @@ export default defineComponent({
                       :fill-opacity="nodeDimmed(node) ? 0.3 : 1"
                       :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                       :stroke-width="nodeHighlighted(node) ? 3 : 2" />
+              <!-- Connected-peer indicator (ADR-0025 follow-up): a small badge, not a
+                   recolored node — the node's own fill already carries meaning (dimmed/
+                   highlighted/focused) and shape alone tells user/gateway/resource apart
+                   per the app's "never color-only" rule; this is a supplementary "is
+                   anyone actually home right now" signal on top, with its own tooltip
+                   text above and a name-label suffix below so it's not color-only either. -->
+              <circle v-if="node.isUser && connectedUserIdSet.has(node.id)"
+                      :cx="node.x + ${NODE_RADIUS} * 0.68" :cy="node.y + ${NODE_RADIUS} * 0.68" r="5"
+                      fill="var(--success-solid)" stroke="var(--surface)" stroke-width="1.5" />
               <text :x="node.x" :y="node.y + ${NODE_RADIUS} + 14" text-anchor="middle"
-                    fill="var(--fg2)" font-size="11">{{ node.name }}</text>
+                    fill="var(--fg2)" font-size="11">{{ node.name }}{{ node.isUser && connectedUserIdSet.has(node.id) ? ' •' : '' }}</text>
             </g>
+          </g>
+
+          <!-- The Hub itself (2026-08-22 feedback): a square, not a circle or
+               diamond, so its shape alone is enough to tell it apart from a
+               user/resource node or a site's gateway peer — no click/drag
+               behavior of its own, it's the fixed origin every probe starts
+               from, never a grant subject or a probe target. -->
+          <g>
+            <rect :x="hubPoint.x - ${HUB_SIZE}" :y="hubPoint.y - ${HUB_SIZE}"
+                  :width="${HUB_SIZE * 2}" :height="${HUB_SIZE * 2}" rx="4"
+                  fill="var(--surface)" stroke="var(--fg1)" stroke-width="2" />
+            <text :x="hubPoint.x" :y="hubPoint.y + 4" text-anchor="middle"
+                  fill="var(--fg1)" font-size="11" font-weight="700"
+                  style="text-transform: uppercase; letter-spacing: 0.05em">{{ t('atlas.diagnostics_hop_hub') }}</text>
           </g>
         </g>
       </svg>

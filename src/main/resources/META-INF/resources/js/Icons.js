@@ -398,6 +398,11 @@ export const PATHS = {
     '<line x1="19" x2="22" y1="16" y2="16"/>',
   ],
 
+  // activity — Puls-Linie für den Netzwerk-Diagnose-Trigger auf Atlas, ADR-0025 (Lucide "activity", MIT)
+  activity: [
+    '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  ],
+
   // atlas — Kreise-in-Kreisen-Sinnbild für den Atlas-View (Lucide "orbit", MIT)
   atlas: [
     '<circle cx="12" cy="12" r="3"/>',

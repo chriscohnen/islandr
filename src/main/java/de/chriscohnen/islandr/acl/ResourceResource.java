@@ -4,6 +4,9 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.firewall.RulesetService;
+import de.chriscohnen.islandr.network.NetworkDiagnosticsDto;
+import de.chriscohnen.islandr.network.NetworkDiagnosticsService;
+import de.chriscohnen.islandr.peer.Peer;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
@@ -19,6 +22,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +39,7 @@ public class ResourceResource {
     @Inject PortGroupService portGroups;
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
+    @Inject NetworkDiagnosticsService diag;
 
     @GET
     public List<ResourceDto.Response> listAll(@Context ContainerRequestContext ctx) {
@@ -203,5 +208,62 @@ public class ResourceResource {
         audit.logDelete(a.principal(), "resource.port_delete", "ResourcePort:" + portId, beforeMap);
         rulesets.recomputeFromHook();
         return Response.noContent().build();
+    }
+
+    // ── network diagnostics (ADR-0025) — admin-triggered ping/path-latency probe ──
+    // Lives on this class, not a standalone resource: the probe target must always
+    // be an existing Resource (R-181, never a free-text address), so it belongs next
+    // to the entity it targets, same as the "ports" sub-resource above.
+
+    @POST
+    @Path("/{id}/diagnostics/ping")
+    public NetworkDiagnosticsDto.PingResponse ping(@Context ContainerRequestContext ctx,
+                                                    @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Resource resource = resources.get(id);
+        List<NetworkDiagnosticsDto.PathHop> path = resolveDiagnosticsPath(resource);
+        return diag.ping("resource:" + id, a.principal(), "Resource:" + resource.name + " (" + id + ")",
+                id, resource.name, resource.ip, path);
+    }
+
+    @POST
+    @Path("/{id}/diagnostics/tracepath")
+    public NetworkDiagnosticsDto.TracepathResponse tracepath(@Context ContainerRequestContext ctx,
+                                                              @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Resource resource = resources.get(id);
+        List<NetworkDiagnosticsDto.PathHop> path = resolveDiagnosticsPath(resource);
+        return diag.tracepath("resource:" + id, a.principal(), "Resource:" + resource.name + " (" + id + ")",
+                id, resource.name, resource.ip, path);
+    }
+
+    @POST
+    @Path("/{id}/diagnostics/mtr")
+    public NetworkDiagnosticsDto.MtrResponse mtr(@Context ContainerRequestContext ctx,
+                                                  @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Resource resource = resources.get(id);
+        List<NetworkDiagnosticsDto.PathHop> path = resolveDiagnosticsPath(resource);
+        return diag.mtr("resource:" + id, a.principal(), "Resource:" + resource.name + " (" + id + ")",
+                id, resource.name, resource.ip, path);
+    }
+
+    /**
+     * hub → the resource's site gateway peer (if any) → the resource — the same chain
+     * highlighted on Atlas (ADR-0025 §5). A hub-local site (no gateway peer) is just
+     * hub → resource.
+     */
+    private List<NetworkDiagnosticsDto.PathHop> resolveDiagnosticsPath(Resource resource) {
+        List<NetworkDiagnosticsDto.PathHop> path = new ArrayList<>();
+        path.add(new NetworkDiagnosticsDto.PathHop("hub", null, "Hub", null));
+        Site site = Site.findById(resource.siteId);
+        if (site != null && site.gatewayPeerId != null) {
+            Peer gw = Peer.findById(site.gatewayPeerId);
+            if (gw != null) {
+                path.add(new NetworkDiagnosticsDto.PathHop("site-gateway", gw.id, gw.name, site.name));
+            }
+        }
+        path.add(new NetworkDiagnosticsDto.PathHop("resource", resource.id, resource.name, resource.ip));
+        return path;
     }
 }

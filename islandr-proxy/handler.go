@@ -20,9 +20,15 @@ type Config struct {
 }
 
 // Executor runs one host command as an argument vector (never a shell string).
-// stdin, when non-nil, is fed to the process's standard input.
+// stdin, when non-nil, is fed to the process's standard input. sudo selects
+// whether the call escalates: wg/nft genuinely need root (ADR-0011); ping and
+// tracepath do not on a modern Linux host — iputils ping normally carries a
+// CAP_NET_RAW file capability (or the kernel's net.ipv4.ping_group_range sysctl
+// permits an unprivileged ICMP socket outright), and tracepath's UDP+PMTUD
+// approach needs no elevation at all (ADR-0025 §3). Escalating them anyway would
+// also fail outright here: islandr-proxy.sudoers only grants wg/nft, not ping.
 type Executor interface {
-	Run(name string, args []string, stdin []byte) (string, error)
+	Run(name string, args []string, stdin []byte, sudo bool) (string, error)
 }
 
 // Request is the line-delimited JSON the JVM ProxyClient sends. Field names match
@@ -37,15 +43,29 @@ type Request struct {
 	Pubkey       string  `json:"pubkey"`
 	AllowedIps   string  `json:"allowedIps"`
 	PresharedKey *string `json:"presharedKey"`
+	Ip           string  `json:"ip"`    // net_ping / net_tracepath target — validated as a bare IP, never a shell token
+	Count        int     `json:"count"` // net_ping sample count — re-clamped here, not trusted from the caller
 }
 
 // Response is the single JSON line sent back. Ok mirrors what ProxyClient reads;
-// Error carries the reason on failure; Dump carries wg_show output.
+// Error carries the reason on failure; Dump carries wg_show/ping/tracepath output.
+// Ping/Tracepath/Mtr report tool availability for net_availability.
 type Response struct {
-	Ok    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-	Dump  string `json:"dump,omitempty"`
+	Ok        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	Dump      string `json:"dump,omitempty"`
+	Ping      bool   `json:"ping,omitempty"`
+	Tracepath bool   `json:"tracepath,omitempty"`
+	Mtr       bool   `json:"mtr,omitempty"`
 }
+
+// pingTimeoutSeconds bounds a single `ping` reply wait (matches the JVM real adapter).
+const pingTimeoutSeconds = 2
+
+// maxPingCount caps the sample size regardless of what the caller asked for
+// (ADR-0025 R-183) — the JVM side already fixes this server-side, this is
+// defense in depth against a proxy talked to directly.
+const maxPingCount = 10
 
 // Handler dispatches one request to the allowlisted command for its op.
 type Handler struct {
@@ -76,29 +96,122 @@ func (h *Handler) dispatch(req Request) Response {
 		if !validKeyMaterial(req.Pubkey) {
 			return fail("invalid pubkey")
 		}
-		if _, err := h.exec.Run("wg", []string{"set", h.cfg.Iface, "peer", req.Pubkey, "remove"}, nil); err != nil {
+		if _, err := h.exec.Run("wg", []string{"set", h.cfg.Iface, "peer", req.Pubkey, "remove"}, nil, true); err != nil {
 			return fail("wg_remove_peer failed: " + err.Error())
 		}
 		return ok()
 	case "wg_show":
-		out, err := h.exec.Run("wg", []string{"show", h.cfg.Iface, "dump"}, nil)
+		out, err := h.exec.Run("wg", []string{"show", h.cfg.Iface, "dump"}, nil, true)
 		if err != nil {
 			return fail("wg_show failed: " + err.Error())
 		}
 		return Response{Ok: true, Dump: out}
 	case "nft_validate":
-		if _, err := h.exec.Run("nft", []string{"-c", "-f", h.cfg.RulesetPath}, nil); err != nil {
+		if _, err := h.exec.Run("nft", []string{"-c", "-f", h.cfg.RulesetPath}, nil, true); err != nil {
 			return fail("nft_validate failed: " + err.Error())
 		}
 		return ok()
 	case "nft_reload":
-		if _, err := h.exec.Run("nft", []string{"-f", h.cfg.RulesetPath}, nil); err != nil {
+		if _, err := h.exec.Run("nft", []string{"-f", h.cfg.RulesetPath}, nil, true); err != nil {
 			return fail("nft_reload failed: " + err.Error())
 		}
 		return ok()
+	case "net_availability":
+		return Response{Ok: true,
+			Ping:      commandExists("ping"),
+			Tracepath: commandExists("tracepath"),
+			Mtr:       commandExists("mtr")}
+	case "net_ping":
+		return h.netPing(req)
+	case "net_tracepath":
+		return h.netTracepath(req)
+	case "net_mtr":
+		return h.netMtr(req)
 	default:
 		return fail("unknown op: " + req.Op)
 	}
+}
+
+// netPing runs `ping -c <count> -W 2 <ip>`. A lost reply (partial or 100% loss) is
+// a normal, successful invocation — ping exits 1 on 100% loss, not an error — so
+// exit 1 alongside captured stdout is still Ok:true; only "never actually probed"
+// (bad args, DNS/socket error) is a failure. Parsing the report happens on the JVM
+// side (RealNetworkDiagnosticsAdapter.parsePingOutput), so this stays a thin,
+// auditable pass-through, same shape as wg_show handing back a raw dump.
+func (h *Handler) netPing(req Request) Response {
+	ip := net.ParseIP(req.Ip)
+	if ip == nil {
+		return fail("invalid ip")
+	}
+	count := req.Count
+	if count <= 0 || count > maxPingCount {
+		count = 4
+	}
+	out, err := h.exec.Run("ping", []string{"-c", fmt.Sprint(count), "-W", fmt.Sprint(pingTimeoutSeconds), ip.String()}, nil, false)
+	if err != nil {
+		// exec.Command surfaces a plain exit-status error for ping's exit 1 (loss) too;
+		// distinguish by re-running is unnecessary — h.exec.Run already returns stdout on
+		// non-zero exit via the shared osExec captured-output path (see server.go)  when
+		// the command produced output at all, so an error here with no output at all means
+		// ping never ran (bad args, target unresolvable, permission denied).
+		if out == "" {
+			return fail("net_ping failed: " + err.Error())
+		}
+	}
+	return Response{Ok: true, Dump: out}
+}
+
+func (h *Handler) netTracepath(req Request) Response {
+	ip := net.ParseIP(req.Ip)
+	if ip == nil {
+		return fail("invalid ip")
+	}
+	out, err := h.exec.Run("tracepath", []string{ip.String()}, nil, false)
+	if err != nil && out == "" {
+		return fail("net_tracepath failed: " + err.Error())
+	}
+	return Response{Ok: true, Dump: out}
+}
+
+// netMtr runs `mtr --report --report-cycles <count> -n <ip>` — never sudo, same
+// reasoning as net_ping (ADR-0025 §3): mtr needs no more elevation than ping does
+// on a modern host, and it's opportunistic-only besides (ADR-0025 §1). Reuses
+// Count/maxPingCount rather than a separate field/cap — "how many probes per
+// hop" is the same server-side-bounded concept net_ping already has.
+func (h *Handler) netMtr(req Request) Response {
+	ip := net.ParseIP(req.Ip)
+	if ip == nil {
+		return fail("invalid ip")
+	}
+	cycles := req.Count
+	if cycles <= 0 || cycles > maxPingCount {
+		cycles = 4
+	}
+	out, err := h.exec.Run("mtr", []string{"--report", "--report-cycles", fmt.Sprint(cycles), "-n", ip.String()}, nil, false)
+	if err != nil {
+		return fail("net_mtr failed: " + err.Error())
+	}
+	return Response{Ok: true, Dump: out}
+}
+
+// commandExists walks $PATH looking for an executable file — same dependency-free
+// approach as the JVM side (RealNetworkDiagnosticsAdapter.commandExists), so the
+// proxy never assumes `which` itself is present.
+func commandExists(name string) bool {
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/bin:/bin:/usr/sbin:/sbin"
+	}
+	for _, dir := range strings.Split(path, string(os.PathListSeparator)) {
+		if dir == "" {
+			continue
+		}
+		info, err := os.Stat(dir + "/" + name)
+		if err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) wgSetPeer(req Request) Response {
@@ -128,7 +241,7 @@ func (h *Handler) wgSetPeer(req Request) Response {
 		args = append(args, "preshared-key", pskPath)
 	}
 
-	if _, err := h.exec.Run("wg", args, nil); err != nil {
+	if _, err := h.exec.Run("wg", args, nil, true); err != nil {
 		return fail("wg_set_peer failed: " + err.Error())
 	}
 	return ok()

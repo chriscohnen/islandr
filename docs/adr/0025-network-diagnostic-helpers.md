@@ -1,6 +1,6 @@
 # ADR-0025 — Network diagnostic helpers (ping / path latency) via unprivileged-shell CLI tools
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-22
 **Deciders:** Christian Cohnen
 **Relates to:** [ADR-0011](0011-process-privilege-model.md) (privilege model this must not widen), [ADR-0005](0005-hub-only-firewall.md) (why a hub-originated probe is a faithful test of the real traffic path), [ADR-0012](0012-docker-socket-proxy.md) (Docker execution path), [ADR-0014](0014-device-discovery.md) (closest sibling — same "stay unprivileged, degrade honestly" posture for a network-probing feature), [ADR-0023](0023-resource-dns-resolver-hand-rolled.md) (precedent for a feature that silently disables itself with an actionable message rather than crashing when a host-level dependency is missing), Atlas view (`AtlasResource`/`AtlasDto`/`AtlasView.js`, the graph this hooks into).
@@ -36,8 +36,8 @@ At startup (and re-checked on the diagnostics page, mirroring how the System →
 
 ### 3. Privilege — same `sudoers` scope as `wg`/`nft`, native execution only
 
-- **Native/systemd deployment:** a `sudoers` entry scoped to exactly the `ping` invocation shape needed (fixed flags, no shell metacharacters, matching how the existing `wg`/`nft` entries are scoped) — no new capability, no widening of ADR-0011's model. `tracepath` needs no elevation at all on Linux and is invoked directly.
-- **Docker deployment:** routed through `islandr-proxy` (ADR-0012) exactly like `wg`/`nft` — a new pair of handlers on the existing Unix-socket API. This is also where the "is it installed" question gets a *guaranteed* answer rather than a runtime gamble: the proxy's own Docker image is one Islandr builds and controls, so `iputils-ping`/`iputils-tracepath` are installed there deliberately, independent of whatever the host or the (deliberately minimal) main app image does or doesn't have.
+- **Native/systemd deployment:** originally planned as a `sudoers` entry scoped to the `ping` invocation shape (mirroring `wg`/`nft`) — **corrected during implementation**: neither `ping` nor `tracepath` is actually run through `sudo`. `tracepath` needs no elevation at all on Linux. `ping` does not either on a modern host: `iputils` normally ships the binary with a `cap_net_raw` file capability rather than `setuid root`, and most distributions additionally set the `net.ipv4.ping_group_range` sysctl to permit an unprivileged ICMP socket outright — the assumption that `ping` needs the same escalation as `wg`/`nft` was simply wrong. A host that genuinely lacks both fails the call with "Operation not permitted", surfaced honestly as the same "tool not available" state as a missing binary (§2) rather than silently routed around with `sudo` — the fix is local to the host (`setcap`/sysctl), not a new sudoers line. Net effect: **zero new sudoers entries** for this ADR, an even smaller footprint than originally decided.
+- **Docker deployment:** routed through `islandr-proxy` (ADR-0012) exactly like `wg`/`nft` — a new pair of handlers on the existing Unix-socket API, but unlike `wg`/`nft` these do **not** escalate through the proxy's own `sudo` either (same reasoning as the native path — the proxy's `Executor.Run` takes an explicit per-call `sudo` flag). `islandr-proxy.sudoers` was not extended for network diagnostics.
 - A new `NetworkDiagnosticsAdapter` interface (real / mock / socket) mirrors `WgAdapter`'s existing three-way split — same pattern, same reasoning, nothing novel introduced.
 
 ### 4. Target validation — known Peers/Resources only, never a free-text IP
@@ -99,12 +99,13 @@ A wins by staying inside the privilege model, working everywhere including the d
 
 ## Follow-ups (traceability per the docs contract)
 
-Not yet fired — this ADR is **Proposed**, not Accepted; these land when implementation actually starts, same convention as ADR-0014's own follow-up list:
-
-- ⏳ **R-181, R-182, R-183** to be added to [arc42 §11](../arc42/11-risks-and-technical-debt.md).
-- ⏳ **T-018** (probe-flood against a resource/upstream network) to be added to the [§8.1 STRIDE threat model](../arc42/08-crosscutting-concepts.md), cross-referenced from its mitigation in §8.2 and from R-183.
+- ✅ **R-181, R-182, R-183** added to [arc42 §11](../arc42/11-risks-and-technical-debt.md) (Low priority, alongside their ADR-0014 siblings R-140/R-141/R-142).
+- ✅ **T-018** (network-diagnostics probe abused as a recon primitive / probe-flood) added to the [§8.1 STRIDE threat model](../arc42/08-crosscutting-concepts.md), cross-referenced from its mitigation in §8.2 and from R-181/R-183.
+- ✅ Implemented: `NetworkDiagnosticsAdapter` (real/mock/socket, mirroring `WgAdapter`), the ping/tracepath/mtr endpoints on `ResourceResource` and `PeerResource` (target always an existing `Resource` or the site's own gateway `Peer`, 3s per-target cooldown shared across all three probes, fixed sample counts, audit-logged), the `islandr-proxy` `net_ping`/`net_tracepath`/`net_mtr`/`net_availability` ops, and the Atlas UI (a persistent Hub node, a rim-anchored gateway diamond that is itself pingable when the site has a peer, and a "Test connection" action showing the probed hub → site-gateway → resource path as an overlay on the graph, not just in a dialog).
+- ✅ §1's `mtr` "opportunistic upgrade" is now real, not just planned: `mtr --report --report-cycles 4 -n <ip>`, never `sudo` (same reasoning as `ping`), surfaced in the Atlas dialog only when `GET /api/v1/diagnostics/availability` reports it present.
+- ✅ §5 update (2026-08-22 feedback): the gateway (site-peer) diamond sits exactly on its circle's rim, not floating just inside it, and is itself a valid diagnostics target — clicking it (when the site actually has a gateway peer) focuses it and offers "Test connection" the same way a Resource does, via new `PeerResource` endpoints. A persistent Hub node was added to the graph (previously absent — Atlas only ever drew grants), anchored above the packed site cluster; the probed path is drawn as a highlighted overlay directly on the diagram (hub → gateway diamond → resource/peer), colored by reachability, not only described in the dialog's text.
 - ⏳ Capture in the spec: a new Business Rule for target-validation (no free-text IP) and the audit-log entry shape, plus a runtime scenario in arc42 §6 showing the hub → site-gateway-peer → resource probe path.
-- ⏳ Status to move to **Accepted** here and in the [ADR index](README.md) / [arc42 §9](../arc42/09-architecture-decisions.md) once implemented.
+- ⏳ arc42 §9's ADR table/cross-cutting-consequences list stops at ADR-0019 already (ADR-0020–0024 are likewise not yet back-filled) — left as-is rather than adding only ADR-0025 out of sequence; a future pass should catch up the whole range at once.
 
 ## References
 
