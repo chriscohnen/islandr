@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr.identity;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.NotFoundException;
@@ -11,6 +12,8 @@ import java.util.Locale;
 
 @ApplicationScoped
 public class OidcProviderService {
+
+    @Inject OidcProviderRegistry registry;
 
     public List<OidcProvider> listAll() {
         return OidcProvider.<OidcProvider>listAll();
@@ -48,10 +51,11 @@ public class OidcProviderService {
         if (req.enabled() != null) {
             if (req.enabled()) {
                 requireEnableable(p);
-                // Mutual exclusion: at most one OIDC provider may be active at a time.
-                // When enabling this one, deactivate every other already-enabled provider.
-                // Frontend confirms the swap with the user before sending the request.
-                deactivated = deactivateOthers(p.providerKey, actor);
+                // Mutual exclusion: at most one OIDC provider may be active at a
+                // time, across MS365/Google *and* every custom provider (issue
+                // #69). Frontend confirms the swap with the user before sending
+                // the request.
+                deactivated = registry.deactivateAllExcept(p.providerKey, actor);
             }
             p.enabled = req.enabled();
         }
@@ -59,19 +63,6 @@ public class OidcProviderService {
         p.updatedAt = Instant.now();
         p.updatedBy = actor;
         return new UpdateResult(p, deactivated);
-    }
-
-    private List<String> deactivateOthers(String keepKey, String actor) {
-        List<String> deactivated = new java.util.ArrayList<>();
-        for (OidcProvider other : OidcProvider.<OidcProvider>listAll()) {
-            if (!other.providerKey.equals(keepKey) && other.enabled) {
-                other.enabled = false;
-                other.updatedAt = Instant.now();
-                other.updatedBy = actor;
-                deactivated.add(other.providerKey);
-            }
-        }
-        return deactivated;
     }
 
     private static void requireEnableable(OidcProvider p) {

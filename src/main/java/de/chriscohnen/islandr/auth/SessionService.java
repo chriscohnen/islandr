@@ -20,9 +20,18 @@ public class SessionService {
 
     @Transactional
     public Session create(String provider, String principal, String userId) {
+        return create(provider, principal, userId, null);
+    }
+
+    /** @param customProviderId only meaningful when {@code provider} is
+     *         {@link Session#CUSTOM} — which of the admin-configured generic
+     *         OIDC providers (issue #69) this session came from. */
+    @Transactional
+    public Session create(String provider, String principal, String userId, String customProviderId) {
         Session s = new Session();
         s.id = newId();
         s.provider = provider;
+        s.oidcCustomProviderId = customProviderId;
         s.principal = principal;
         s.userId = userId;
         s.createdAt = Instant.now();

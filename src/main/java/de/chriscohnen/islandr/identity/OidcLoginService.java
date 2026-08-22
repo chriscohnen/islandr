@@ -11,7 +11,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.BadRequestException;
-import jakarta.ws.rs.NotFoundException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -34,7 +33,7 @@ public class OidcLoginService {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    @Inject OidcProviderService providers;
+    @Inject OidcProviderRegistry registry;
     @Inject IdTokenVerifier idTokens;
     @Inject AvatarFetcher avatars;
     @Inject SessionService sessions;
@@ -48,17 +47,16 @@ public class OidcLoginService {
     public record AuthorizeRedirect(String url, String state) {}
 
     public AuthorizeRedirect buildAuthorizeUrl(String providerKey, String redirectUri) {
-        OidcProvider p = enabledOrThrow(providerKey);
-        ProviderEndpoints.Endpoints ep = ProviderEndpoints.forProvider(p);
+        ResolvedOidcProvider p = enabledOrThrow(providerKey);
         String state = randomToken();
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("client_id", p.clientId);
+        params.put("client_id", p.clientId());
         params.put("response_type", "code");
         params.put("redirect_uri", redirectUri);
         params.put("response_mode", "query");
-        params.put("scope", ProviderEndpoints.scopesFor(p));
+        params.put("scope", p.scopes());
         params.put("state", state);
-        return new AuthorizeRedirect(ep.authorize() + "?" + encodeQuery(params), state);
+        return new AuthorizeRedirect(p.endpoints().authorize() + "?" + encodeQuery(params), state);
     }
 
     /**
@@ -74,16 +72,15 @@ public class OidcLoginService {
         }
         if (code == null || code.isBlank()) throw new BadRequestException("missing authorization code");
 
-        OidcProvider p = enabledOrThrow(providerKey);
-        ProviderEndpoints.Endpoints ep = ProviderEndpoints.forProvider(p);
+        ResolvedOidcProvider p = enabledOrThrow(providerKey);
 
-        TokenResponse tokens = exchangeCode(p, ep, code, redirectUri);
+        TokenResponse tokens = exchangeCode(p, code, redirectUri);
         IdTokenVerifier.Claims claims = idTokens.verify(tokens.idToken(), p);
         if (claims.email() == null || claims.email().isBlank()) {
             throw new BadRequestException("ID-Token has no email claim — cannot identify user");
         }
         if (!domainAllowed(p, claims.email())) {
-            throw new BadRequestException("email domain not in allowlist for " + p.providerKey);
+            throw new BadRequestException("email domain not in allowlist for " + p.key());
         }
 
         // Treat null as true — null can occur on rows created before V17 migration
@@ -91,7 +88,7 @@ public class OidcLoginService {
         UpsertResult upsert = upsertUser(p, claims, autoProvision);
         User u = upsert.user();
         cacheAvatar(p, u, claims, tokens.accessToken());
-        Session s = sessions.create(p.providerKey, u.name, u.id);
+        Session s = sessions.create(p.kind(), u.name, u.id, p.isCustom() ? p.key() : null);
 
         // Auto-provisioning a fresh org user is a privileged event — the
         // domain allowlist (or the IdP consent setup) just opened a new
@@ -102,11 +99,11 @@ public class OidcLoginService {
                     java.util.Map.of(
                             "name", u.name,
                             "email", u.email,
-                            "oidcProvider", p.providerKey,
+                            "oidcProvider", p.key(),
                             "oidcSubject", u.oidcSubject));
         }
         audit.logEvent(claims.email(), "auth.login_oidc", "Session:" + claims.email() + " (" + s.id + ")",
-                java.util.Map.of("provider", p.providerKey, "userId", u.id));
+                java.util.Map.of("provider", p.key(), "userId", u.id));
         return s;
     }
 
@@ -114,15 +111,11 @@ public class OidcLoginService {
 
     // -- helpers ------------------------------------------------------------
 
-    private OidcProvider enabledOrThrow(String key) {
-        OidcProvider p;
-        try {
-            p = providers.get(key);
-        } catch (NotFoundException nfe) {
-            throw new BadRequestException("unknown provider: " + key);
-        }
-        if (!p.enabled) throw new BadRequestException("provider not enabled: " + key);
-        if (p.clientId == null || p.clientSecret == null) {
+    private ResolvedOidcProvider enabledOrThrow(String key) {
+        ResolvedOidcProvider p = registry.find(key).orElseThrow(
+                () -> new BadRequestException("unknown provider: " + key));
+        if (!p.enabled()) throw new BadRequestException("provider not enabled: " + key);
+        if (p.clientId() == null || p.clientSecret() == null) {
             throw new BadRequestException("provider missing credentials: " + key);
         }
         return p;
@@ -130,16 +123,15 @@ public class OidcLoginService {
 
     record TokenResponse(String idToken, String accessToken) {}
 
-    private TokenResponse exchangeCode(OidcProvider p, ProviderEndpoints.Endpoints ep,
-                                       String code, String redirectUri) {
+    private TokenResponse exchangeCode(ResolvedOidcProvider p, String code, String redirectUri) {
         Map<String, String> form = new LinkedHashMap<>();
         form.put("grant_type", "authorization_code");
         form.put("code", code);
         form.put("redirect_uri", redirectUri);
-        form.put("client_id", p.clientId);
-        form.put("client_secret", p.clientSecret);
+        form.put("client_id", p.clientId());
+        form.put("client_secret", p.clientSecret());
         try {
-            HttpFetcher.Response r = http.postForm(ep.token(), form, null);
+            HttpFetcher.Response r = http.postForm(p.endpoints().token(), form, null);
             if (r.status() != 200) {
                 throw new IllegalStateException("token exchange failed: HTTP " + r.status() + " — " + r.text());
             }
@@ -154,16 +146,22 @@ public class OidcLoginService {
         }
     }
 
-    private UpsertResult upsertUser(OidcProvider p, IdTokenVerifier.Claims claims, boolean autoProvision) {
-        // First try (provider, subject) — stable across email changes in the IdP.
-        User u = User.findByOidc(p.providerKey, claims.subject());
+    private UpsertResult upsertUser(ResolvedOidcProvider p, IdTokenVerifier.Claims claims, boolean autoProvision) {
+        // First try (provider, subject[, customProviderId]) — stable across
+        // email changes in the IdP. "custom" alone doesn't disambiguate
+        // between two different admin-configured IdPs, so that lookup is
+        // additionally scoped to which one (p.key()).
+        User u = p.isCustom()
+                ? User.findByOidc(p.kind(), claims.subject(), p.key())
+                : User.findByOidc(p.kind(), claims.subject());
         boolean provisioned = false;
         if (u == null) {
             // Fallback: an admin-created local user with this email gets linked on first OIDC login.
             u = User.find("email", claims.email()).firstResult();
             if (u != null) {
-                u.oidcProvider = p.providerKey;
+                u.oidcProvider = p.kind();
                 u.oidcSubject = claims.subject();
+                u.oidcCustomProviderId = p.isCustom() ? p.key() : null;
             }
         }
         if (u == null && !autoProvision) {
@@ -173,8 +171,9 @@ public class OidcLoginService {
         if (u == null) {
             // Auto-provision new user. Domain allowlist was already enforced by caller.
             u = User.createNew(displayName(claims), claims.email());
-            u.oidcProvider = p.providerKey;
+            u.oidcProvider = p.kind();
             u.oidcSubject = claims.subject();
+            u.oidcCustomProviderId = p.isCustom() ? p.key() : null;
             u.preferredLocale = claims.locale();
             u.persist();
             provisioned = true;
@@ -191,7 +190,7 @@ public class OidcLoginService {
         return new UpsertResult(u, provisioned);
     }
 
-    private void cacheAvatar(OidcProvider p, User u, IdTokenVerifier.Claims claims, String accessToken) {
+    private void cacheAvatar(ResolvedOidcProvider p, User u, IdTokenVerifier.Claims claims, String accessToken) {
         // Precedence: if the Gravatar toggle is on AND the user has a Gravatar
         // for this email, that wins over the IdP picture. Reason: users
         // actively curate Gravatar (it's "my public face"), while OIDC photos
@@ -207,13 +206,13 @@ public class OidcLoginService {
             if (p.isMicrosoft()) {
                 a = avatars.fetchMicrosoft(accessToken);
             } else {
-                // Google: try the ID-Token's picture claim first; if missing,
-                // fall back to the userinfo endpoint (some Workspace setups
-                // expose 'picture' only via userinfo, not directly in the token).
+                // Google/custom: try the ID-Token's picture claim first; if
+                // missing, fall back to the userinfo endpoint (some Workspace
+                // setups — and plenty of generic OIDC providers — expose
+                // 'picture' only via userinfo, not directly in the token).
                 a = avatars.fetchByUrl(claims.pictureUrl());
-                if (a == null) {
-                    ProviderEndpoints.Endpoints ep = ProviderEndpoints.forProvider(p);
-                    String pic = avatars.fetchUserinfoPictureUrl(ep.userInfo(), accessToken);
+                if (a == null && p.endpoints().userInfo() != null) {
+                    String pic = avatars.fetchUserinfoPictureUrl(p.endpoints().userInfo(), accessToken);
                     if (pic != null) a = avatars.fetchByUrl(pic);
                 }
             }
@@ -251,18 +250,19 @@ public class OidcLoginService {
         return c.email();
     }
 
-    private boolean domainAllowed(OidcProvider p, String email) {
+    private boolean domainAllowed(ResolvedOidcProvider p, String email) {
         // Empty allowlist = "trust whatever the OAuth consent screen lets through".
-        // The real first-line filter is the Google/MS consent setup itself:
+        // The real first-line filter is the IdP's own consent setup itself:
         // Workspace 'Internal' or explicit test-users for Gmail-family deployments
+        // (and the equivalent org/app assignment on Okta/Auth0/Keycloak, etc.)
         // already block unwanted accounts before the callback ever fires. The
-        // allowlist is a second, email-domain-based layer for Workspaces that
-        // span multiple domains and want to further restrict.
-        if (p.allowedDomains == null || p.allowedDomains.isBlank()) return true;
+        // allowlist is a second, email-domain-based layer for setups that span
+        // multiple domains and want to further restrict.
+        if (p.allowedDomains() == null || p.allowedDomains().isBlank()) return true;
         int at = email.indexOf('@');
         if (at < 0) return false;
         String domain = email.substring(at + 1).toLowerCase(Locale.ROOT);
-        return Arrays.asList(p.allowedDomains.toLowerCase(Locale.ROOT).split(",")).contains(domain);
+        return Arrays.asList(p.allowedDomains().toLowerCase(Locale.ROOT).split(",")).contains(domain);
     }
 
     private String randomToken() {

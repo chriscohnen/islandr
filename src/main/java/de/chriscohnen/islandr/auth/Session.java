@@ -21,6 +21,9 @@ public class Session extends PanacheEntityBase {
     public static final String LOCAL = "local";
     public static final String MICROSOFT = "microsoft";
     public static final String GOOGLE = "google";
+    /** A generic, admin-configured OIDC provider (issue #69) — the specific
+     *  one is in {@link #oidcCustomProviderId}. */
+    public static final String CUSTOM = "custom";
 
     @Id
     @Column(name = "id", nullable = false, length = 64)
@@ -35,6 +38,12 @@ public class Session extends PanacheEntityBase {
 
     @Column(name = "provider", nullable = false, length = 32)
     public String provider;
+
+    /** Only set when {@link #provider} is {@link #CUSTOM} — which
+     *  admin-configured generic OIDC provider (issue #69) this session came
+     *  from. Null for local/microsoft/google sessions. */
+    @Column(name = "oidc_custom_provider_id", length = 36)
+    public String oidcCustomProviderId;
 
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;

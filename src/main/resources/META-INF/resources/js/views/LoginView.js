@@ -21,6 +21,9 @@ export default defineComponent({
       loading: false,
       error: null,
       providers: { microsoft: false, google: false },
+      // The one enabled generic OIDC provider (issue #69), if that's what's
+      // active instead of MS365/Google — { providerKey, displayName } | null.
+      activeCustom: null,
       providersLoaded: false,
       showLocal: false,
       lang: locale.current,
@@ -31,12 +34,17 @@ export default defineComponent({
     activeOidc() {
       if (this.providers.microsoft) return "microsoft";
       if (this.providers.google) return "google";
+      if (this.activeCustom) return this.activeCustom.providerKey;
       return null;
     },
     activeOidcLabel() {
       // Reference this.lang so Vue re-evaluates when the locale changes.
       void this.lang;
-      return this.activeOidc === "microsoft" ? this.t("login.ms") : this.t("login.google");
+      if (this.activeOidc === "microsoft") return this.t("login.ms");
+      if (this.activeOidc === "google") return this.t("login.google");
+      // Generic OIDC provider (issue #69) — admin-typed display name, no
+      // client-side i18n label to look up.
+      return this.activeCustom ? this.activeCustom.displayName : "";
     },
   },
   async mounted() {
@@ -50,7 +58,13 @@ export default defineComponent({
       const res = await fetch("/api/v1/auth/providers");
       if (res.ok) {
         const list = await res.json();
-        for (const p of list) this.providers[p.providerKey] = !!p.enabled;
+        for (const p of list) {
+          if (p.kind === "custom") {
+            if (p.enabled) this.activeCustom = { providerKey: p.providerKey, displayName: p.displayName };
+          } else {
+            this.providers[p.providerKey] = !!p.enabled;
+          }
+        }
       }
     } catch {
       // Provider-Liste ist optional — Lokal-Login funktioniert immer
@@ -146,6 +160,17 @@ export default defineComponent({
                   class="btn btn-block oauth-btn-primary"
                   @click="startOidc('google')">
             <span class="oauth-mark oauth-mark--google" aria-hidden="true">G</span>
+            <span>{{ activeOidcLabel }}</span>
+          </button>
+
+          <!-- Generic OIDC provider (Okta/Auth0/Keycloak/any issuer, issue
+               #69) — plain neutral icon, not a colored brand mark (same
+               reasoning as the admin Identity page's tiles). -->
+          <button v-if="activeOidc && activeOidc !== 'microsoft' && activeOidc !== 'google'"
+                  type="button"
+                  class="btn btn-block oauth-btn-primary"
+                  @click="startOidc(activeOidc)">
+            <span class="oauth-mark" aria-hidden="true"><Icon name="identity" :size="18" /></span>
             <span>{{ activeOidcLabel }}</span>
           </button>
 

@@ -68,10 +68,14 @@ public class OidcProviderResource {
                     before, after);
         }
 
-        // Mutual exclusion: enabling this one may have auto-disabled others.
-        // One audit row per affected sibling so the timeline is honest.
+        // Mutual exclusion: enabling this one may have auto-disabled others —
+        // MS365/Google or any custom provider (issue #69). One audit row per
+        // affected sibling so the timeline is honest; the target label
+        // distinguishes which kind of row it actually was.
         for (String otherKey : result.deactivatedOthers()) {
-            audit.logEvent(actor.principal(), "oidc_provider.disable", "OidcProvider:" + otherKey,
+            boolean isFixed = OidcProvider.MICROSOFT.equals(otherKey) || OidcProvider.GOOGLE.equals(otherKey);
+            String target = (isFixed ? "OidcProvider:" : "OidcCustomProvider:") + otherKey;
+            audit.logEvent(actor.principal(), "oidc_provider.disable", target,
                     Map.of("providerKey", otherKey, "reason", "mutual_exclusion_with:" + key));
         }
 

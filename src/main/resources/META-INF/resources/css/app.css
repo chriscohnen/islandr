@@ -1011,6 +1011,12 @@ body {
 .idp-logo--lg .oauth-mark { width: 28px; height: 28px; }
 .idp-logo--xl .oauth-mark { width: 48px; height: 48px; font-size: 28px; }
 .idp-logo--local { color: var(--fg2); }
+/* Generic OIDC providers (Okta/Auth0/Keycloak/any issuer, issue #69) — plain
+   neutral icon, not a colored brand mark. Unlike Microsoft/Google (consumer
+   "Sign in with" kits explicitly permit third-party button use of their
+   logo), these are B2B IdPs with no equivalent published permission — see
+   docs/adr or the identity.md competitor notes for the reasoning. */
+.idp-logo--custom { color: var(--fg2); }
 
 /* Hero card */
 .identity-hero {
