@@ -812,8 +812,12 @@ export default defineComponent({
           </div>
 
           <div>
-            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
               {{ t('atlas.diagnostics_tracepath_title') }}
+              <button v-if="diagModal.tracepath" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.traceLoading" :title="t('atlas.diagnostics_rerun')" @click="runTracepath">
+                <Icon name="rotate" :size="13" />
+              </button>
             </h3>
             <div v-if="diagModal.traceLoading" class="muted">{{ t('common.loading') }}</div>
             <template v-else>
@@ -836,8 +840,12 @@ export default defineComponent({
                Only offered when actually detected on the hub; tracepath above
                always stays available as the baseline either way. -->
           <div v-if="diagAvailability && diagAvailability.mtr" style="margin-top: var(--space-4)">
-            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
               {{ t('atlas.diagnostics_mtr_title') }}
+              <button v-if="diagModal.mtr" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.mtrLoading" :title="t('atlas.diagnostics_rerun')" @click="runMtr">
+                <Icon name="rotate" :size="13" />
+              </button>
             </h3>
             <div v-if="diagModal.mtrLoading" class="muted">{{ t('common.loading') }}</div>
             <template v-else>
