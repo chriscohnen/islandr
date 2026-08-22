@@ -1,6 +1,5 @@
 package de.chriscohnen.islandr.network;
 
-import de.chriscohnen.islandr.proxy.AdapterMode;
 import de.chriscohnen.islandr.proxy.ContainerDetector;
 import de.chriscohnen.islandr.proxy.ProxyClient;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -15,15 +14,21 @@ import java.util.Optional;
 
 /**
  * Picks the {@link NetworkDiagnosticsAdapter} implementation at startup based on
- * {@code islandr.diag.mode} ({@code real}, {@code mock}, or {@code socket}) — same
- * resolution rule as {@link de.chriscohnen.islandr.wg.WgAdapterProducer} (design §8, D3):
- * an explicit value always wins, an unset value defaults to {@code socket} inside a
- * container and {@code mock} on a bare host.
+ * {@code islandr.diag.mode} ({@code real}, {@code mock}, or {@code socket}).
  *
- * <p>A separate property from {@code islandr.wg.mode} rather than reusing it — a
- * deployment could plausibly want real {@code wg} but no diagnostics tooling (or vice
- * versa) — but the same socket path and container detection are reused, since it is
- * the same host proxy either way.
+ * <p>Deliberately <em>not</em> {@link de.chriscohnen.islandr.proxy.AdapterMode#resolve}'s
+ * wg/nft rule (unset → {@code mock} outside a container): {@code ping}/{@code tracepath}/
+ * {@code mtr} need no elevation and mutate nothing (ADR-0025 §3), so there is no safety
+ * reason to hide them behind an explicit opt-in the way genuinely-privileged {@code wg}/
+ * {@code nft} are. Same posture as Device Discovery (ADR-0014), which defaults to {@code real}
+ * outside a container for exactly this reason. An explicit value always wins; unset defaults
+ * to {@code socket} inside a container (main image likely lacks the tools; the proxy's host
+ * install guarantees them) and {@code real} on a bare host. Dev/test set an explicit
+ * {@code mock} in {@code application.properties} so a laptop or CI run never shells out.
+ *
+ * <p>A separate property from {@code islandr.wg.mode} rather than reusing it — a deployment
+ * could plausibly want real {@code wg} but no diagnostics tooling (or vice versa) — but the
+ * same socket path and container detection are reused, since it is the same host proxy either way.
  */
 @ApplicationScoped
 public class NetworkDiagnosticsAdapterProducer {
@@ -44,7 +49,7 @@ public class NetworkDiagnosticsAdapterProducer {
     @Produces
     @ApplicationScoped
     public NetworkDiagnosticsAdapter produce() {
-        String resolved = AdapterMode.resolve(mode, containerDetector.inContainer());
+        String resolved = resolveMode();
         switch (resolved) {
             case "real":
                 LOG.info("NetworkDiagnosticsAdapter mode=real — ping/tracepath run unprivileged (ADR-0025 §3)");
@@ -56,5 +61,11 @@ public class NetworkDiagnosticsAdapterProducer {
                 LOG.info("NetworkDiagnosticsAdapter mode=mock — using in-memory implementation");
                 return new MockNetworkDiagnosticsAdapter();
         }
+    }
+
+    /** See the class doc comment — unset resolves to {@code real} outside a container, not {@code mock}. */
+    private String resolveMode() {
+        if (mode.isPresent() && !mode.get().isBlank()) return mode.get().trim().toLowerCase();
+        return containerDetector.inContainer() ? "socket" : "real";
     }
 }
