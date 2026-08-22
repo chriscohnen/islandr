@@ -8,6 +8,12 @@ The current release is also summarised in the [README](README.md#release-notes).
 
 ---
 
+## 0.18.0
+
+- **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell — no `sudo`, no new capabilities needed on a modern Linux host ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66)). Results dock in a panel beside the Atlas graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram; connected client peers are now visibly marked, and every one of a user's connected devices is individually pingable, not just the most recently handshook one.
+- **Device discovery: mDNS + NetBIOS hostname fallback** — when a discovered host has no router-registered DHCP hostname for a PTR lookup to find, discovery now also tries mDNS and then NetBIOS before falling back to the admin-typed baseline ([#48](https://github.com/chriscohnen/islandr/issues/48), follows on from [#45](https://github.com/chriscohnen/islandr/issues/45)).
+- Device Discovery's running-state spinner is now a determinate progress bar; the ACL matrix's "Änderungen anwenden" button shows a brief success confirmation after a save instead of just reverting.
+
 ## 0.17.1
 
 - **Security: local-password sessions were treated as the ENV-bootstrap admin regardless of the actual user's admin flag** — any user authenticating with a locally-set password was granted admin privileges ([#55](https://github.com/chriscohnen/islandr/issues/55)).
