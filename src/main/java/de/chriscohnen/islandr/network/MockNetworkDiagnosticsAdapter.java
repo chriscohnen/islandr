@@ -38,7 +38,7 @@ public class MockNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
         }
         double base = 1 + (hash(ip) % 40);
         return new TracepathResult(List.of(
-                new TracepathHop(1, "10.0.0.1", base * 0.3),
+                new TracepathHop(1, "10.0.0.1", round1(base * 0.3)),
                 new TracepathHop(2, ip, base)
         ), "mock: path to " + ip);
     }
@@ -51,7 +51,7 @@ public class MockNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
         }
         double base = 1 + (hash(ip) % 40);
         return new MtrResult(List.of(
-                new MtrHop(1, "10.0.0.1", 0.0, cycles, base * 0.3, base * 0.3, base * 0.25, base * 0.4),
+                new MtrHop(1, "10.0.0.1", 0.0, cycles, round1(base * 0.3), round1(base * 0.3), round1(base * 0.25), round1(base * 0.4)),
                 new MtrHop(2, ip, 0.0, cycles, base, base, base - 1, base + 1.5)
         ), "mock: mtr report to " + ip);
     }
@@ -60,5 +60,13 @@ public class MockNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
         CRC32 crc = new CRC32();
         crc.update(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return crc.getValue();
+    }
+
+    /** Real ping/tracepath/mtr output is always a handful of decimal digits (parsed straight
+     *  from the tool's own text); the mock's fractional arithmetic (e.g. {@code base * 0.3})
+     *  otherwise produces binary-float noise like {@code 6.8999999999999995} that a real probe
+     *  would never show — round it away so mock output stays visually indistinguishable. */
+    private static double round1(double v) {
+        return Math.round(v * 10) / 10.0;
     }
 }
