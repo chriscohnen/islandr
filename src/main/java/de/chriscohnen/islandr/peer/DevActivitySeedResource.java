@@ -50,7 +50,14 @@ public class DevActivitySeedResource {
                 if (weekdaysOnly && (day.getDayOfWeek().getValue() >= 6)) continue;
                 if (rnd.nextDouble() > density) continue;
 
-                int hits = 1 + rnd.nextInt(20);
+                // hits are 30s poll ticks (ActivityHeatmap.js: hours = hits/120,
+                // absolute buckets up to a full ~2880/day) — a small 1-20 range
+                // put every seeded day in the lightest bucket regardless of the
+                // random draw, making the heatmap render as a flat single color.
+                // Spread across roughly half an hour to ~20 connected hours so
+                // the seed actually exercises all six intensity levels.
+                double hoursConnected = 0.5 + rnd.nextDouble() * 20;
+                int hits = (int) Math.round(hoursConnected * 120);
                 long rx = (long) (rnd.nextDouble() * 200_000_000);
                 long tx = (long) (rnd.nextDouble() * 40_000_000);
 
