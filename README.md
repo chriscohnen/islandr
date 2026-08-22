@@ -198,7 +198,7 @@ islandr/
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
 │   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014)
-│   │   ├── dns/         # hand-rolled DNS resolver for resource names (ADR-0023) + PTR/mDNS/NetBIOS discovery lookups (#45, #48)
+│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), unrelated PTR/mDNS/NetBIOS reverse lookups for discovery's hostname suggestion (#45, #48)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── identity/    # OidcProvider, JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
 │   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
