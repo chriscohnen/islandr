@@ -34,6 +34,10 @@ public class Webhook extends PanacheEntityBase {
     @Column(name = "event_types", nullable = false, columnDefinition = "TEXT")
     public String eventTypes;
 
+    /** {@link WebhookFormat#GENERIC} | {@link WebhookFormat#GOTIFY}. */
+    @Column(name = "format", nullable = false, length = 16)
+    public String format = WebhookFormat.GENERIC;
+
     @Column(name = "enabled", nullable = false)
     public boolean enabled = true;
 

@@ -28,7 +28,7 @@ class WebhookServiceTest {
     void create_generatesSecretAndPersistsDisabledFilter() {
         WebhookService.CreateResult r = svc.create(
                 new WebhookDto.CreateRequest("https://example.com/hook", "test hook",
-                        List.of(WebhookEventType.PEER_CONNECTED)), "admin");
+                        List.of(WebhookEventType.PEER_CONNECTED), null, null), "admin");
 
         assertThat(r.plaintextSecret()).isNotBlank();
         assertThat(r.webhook().enabled).isTrue();
@@ -39,7 +39,7 @@ class WebhookServiceTest {
     @Test
     void create_rejectsUnknownEventType() {
         assertThatThrownBy(() -> svc.create(
-                new WebhookDto.CreateRequest("https://example.com/hook", null, List.of("not.a.real.event")), "admin"))
+                new WebhookDto.CreateRequest("https://example.com/hook", null, List.of("not.a.real.event"), null, null), "admin"))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("unknown event type");
     }
@@ -47,18 +47,18 @@ class WebhookServiceTest {
     @Test
     void create_rejectsNonHttpUrl() {
         assertThatThrownBy(() -> svc.create(
-                new WebhookDto.CreateRequest("ftp://example.com/hook", null, List.of()), "admin"))
+                new WebhookDto.CreateRequest("ftp://example.com/hook", null, List.of(), null, null), "admin"))
                 .isInstanceOf(BadRequestException.class);
     }
 
     @Test
     void update_changesFilterAndRotatesUrl() {
         Webhook w = svc.create(new WebhookDto.CreateRequest("https://a.example.com", null,
-                List.of(WebhookEventType.PEER_CONNECTED)), "admin").webhook();
+                List.of(WebhookEventType.PEER_CONNECTED), null, null), "admin").webhook();
 
         Webhook updated = svc.update(w.id, new WebhookDto.UpdateRequest(
                 "https://b.example.com", "renamed",
-                List.of(WebhookEventType.ACL_GRANT_CREATED, WebhookEventType.ACL_GRANT_REVOKED), false), "admin");
+                List.of(WebhookEventType.ACL_GRANT_CREATED, WebhookEventType.ACL_GRANT_REVOKED), false, null, null), "admin");
 
         assertThat(updated.url).isEqualTo("https://b.example.com");
         assertThat(updated.description).isEqualTo("renamed");
@@ -69,7 +69,7 @@ class WebhookServiceTest {
 
     @Test
     void rotateSecret_changesSecretValue() {
-        Webhook w = svc.create(new WebhookDto.CreateRequest("https://a.example.com", null, List.of()), "admin").webhook();
+        Webhook w = svc.create(new WebhookDto.CreateRequest("https://a.example.com", null, List.of(), null, null), "admin").webhook();
         String original = w.secret;
 
         String rotated = svc.rotateSecret(w.id, "admin");
@@ -79,8 +79,57 @@ class WebhookServiceTest {
     }
 
     @Test
+    void create_gotify_requiresAdminSuppliedToken() {
+        assertThatThrownBy(() -> svc.create(new WebhookDto.CreateRequest(
+                "https://gotify.example.com", null, List.of(WebhookEventType.PEER_CONNECTED),
+                WebhookFormat.GOTIFY, null), "admin"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("app token");
+    }
+
+    @Test
+    void create_gotify_storesAdminSuppliedTokenAsSecret() {
+        WebhookService.CreateResult r = svc.create(new WebhookDto.CreateRequest(
+                "https://gotify.example.com", null, List.of(WebhookEventType.PEER_CONNECTED),
+                WebhookFormat.GOTIFY, "my-app-token"), "admin");
+
+        assertThat(r.webhook().format).isEqualTo(WebhookFormat.GOTIFY);
+        assertThat(r.webhook().secret).isEqualTo("my-app-token");
+        assertThat(r.plaintextSecret()).isEqualTo("my-app-token");
+    }
+
+    @Test
+    void rotateSecret_onGotifyWebhook_rejected() {
+        Webhook w = svc.create(new WebhookDto.CreateRequest("https://gotify.example.com", null,
+                List.of(), WebhookFormat.GOTIFY, "token-1"), "admin").webhook();
+
+        assertThatThrownBy(() -> svc.rotateSecret(w.id, "admin"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Gotify");
+    }
+
+    @Test
+    void update_gotify_canChangeToken() {
+        Webhook w = svc.create(new WebhookDto.CreateRequest("https://gotify.example.com", null,
+                List.of(), WebhookFormat.GOTIFY, "token-1"), "admin").webhook();
+
+        Webhook updated = svc.update(w.id,
+                new WebhookDto.UpdateRequest(null, null, null, null, null, "token-2"), "admin");
+
+        assertThat(updated.secret).isEqualTo("token-2");
+    }
+
+    @Test
+    void create_unknownFormat_rejected() {
+        assertThatThrownBy(() -> svc.create(new WebhookDto.CreateRequest(
+                "https://example.com", null, List.of(), "carrier-pigeon", null), "admin"))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("unknown format");
+    }
+
+    @Test
     void delete_removesIt() {
-        Webhook w = svc.create(new WebhookDto.CreateRequest("https://a.example.com", null, List.of()), "admin").webhook();
+        Webhook w = svc.create(new WebhookDto.CreateRequest("https://a.example.com", null, List.of(), null, null), "admin").webhook();
         svc.delete(w.id);
         assertThatThrownBy(() -> svc.get(w.id)).isInstanceOf(NotFoundException.class);
     }

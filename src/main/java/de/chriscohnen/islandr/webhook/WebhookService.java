@@ -34,12 +34,24 @@ public class WebhookService {
     public CreateResult create(WebhookDto.CreateRequest req, String actor) {
         validateUrl(req.url());
         List<String> types = validatedEventTypes(req.eventTypes());
+        String format = validatedFormat(req.format());
 
         Webhook w = new Webhook();
         w.id = UUID.randomUUID().toString();
         w.url = req.url().trim();
         w.description = blankToNull(req.description());
-        String secret = generateSecret();
+        w.format = format;
+        String secret;
+        if (WebhookFormat.GOTIFY.equals(format)) {
+            // The Gotify app token is admin-obtained (Gotify UI → Apps →
+            // Create App), not something we can generate ourselves.
+            if (req.secret() == null || req.secret().isBlank()) {
+                throw new BadRequestException("secret (the Gotify app token) is required for format=gotify");
+            }
+            secret = req.secret().trim();
+        } else {
+            secret = generateSecret();
+        }
         w.secret = secret;
         w.eventTypes = Webhook.toCsv(types);
         w.enabled = true;
@@ -47,6 +59,10 @@ public class WebhookService {
         w.updatedAt = w.createdAt;
         w.updatedBy = actor;
         w.persist();
+        // Gotify's token is the admin's own value — reflecting it back isn't
+        // "revealing a generated secret" (there's nothing to lose), but the
+        // API stays uniform: only the generic (server-generated) case truly
+        // needs the one-time-reveal treatment on the frontend.
         return new CreateResult(w, secret);
     }
 
@@ -59,15 +75,26 @@ public class WebhookService {
         }
         if (req.description() != null) w.description = blankToNull(req.description());
         if (req.eventTypes() != null) w.eventTypes = Webhook.toCsv(validatedEventTypes(req.eventTypes()));
+        if (req.format() != null) w.format = validatedFormat(req.format());
+        // Blank secret = "no change" (same convention as OidcProvider.clientSecret) —
+        // only meaningful for gotify, where it's an admin-re-enterable app
+        // token, not an auto-rotated HMAC key.
+        if (req.secret() != null && !req.secret().isBlank()) w.secret = req.secret().trim();
         if (req.enabled() != null) w.enabled = req.enabled();
         w.updatedAt = Instant.now();
         w.updatedBy = actor;
         return w;
     }
 
+    /** Only meaningful for {@link WebhookFormat#GENERIC} — a Gotify app token
+     *  is admin-obtained, not something we can regenerate; changing it goes
+     *  through {@link #update} with a new {@code secret} instead. */
     @Transactional
     public String rotateSecret(String id, String actor) {
         Webhook w = get(id);
+        if (WebhookFormat.GOTIFY.equals(w.format)) {
+            throw new BadRequestException("cannot auto-rotate a Gotify app token — update it with the new token from Gotify instead");
+        }
         String secret = generateSecret();
         w.secret = secret;
         w.updatedAt = Instant.now();
@@ -86,6 +113,12 @@ public class WebhookService {
         if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
             throw new BadRequestException("url must start with http:// or https://");
         }
+    }
+
+    private static String validatedFormat(String format) {
+        if (format == null || format.isBlank()) return WebhookFormat.GENERIC;
+        if (!WebhookFormat.ALL.contains(format)) throw new BadRequestException("unknown format: " + format);
+        return format;
     }
 
     private static List<String> validatedEventTypes(List<String> types) {

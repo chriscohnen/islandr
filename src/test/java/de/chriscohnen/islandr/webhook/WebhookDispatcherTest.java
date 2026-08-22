@@ -36,7 +36,7 @@ class WebhookDispatcherTest {
     @Test
     void publish_deliversToSubscribedWebhookWithValidSignature() throws Exception {
         Webhook w = svc.create(new WebhookDto.CreateRequest("https://hook.example.com/a", null,
-                List.of(WebhookEventType.PEER_CONNECTED)), "admin").webhook();
+                List.of(WebhookEventType.PEER_CONNECTED), null, null), "admin").webhook();
         http.postBodyStub(w.url, 200, "ok", null);
 
         dispatcher.publish(WebhookEventType.PEER_CONNECTED, "admin", "Peer:p1", Map.of("peerId", "p1"));
@@ -58,7 +58,7 @@ class WebhookDispatcherTest {
     @Test
     void publish_skipsWebhookNotSubscribedToThisEventType() {
         Webhook w = svc.create(new WebhookDto.CreateRequest("https://hook.example.com/b", null,
-                List.of(WebhookEventType.ACL_GRANT_CREATED)), "admin").webhook();
+                List.of(WebhookEventType.ACL_GRANT_CREATED), null, null), "admin").webhook();
         http.postBodyStub(w.url, 200, "ok", null);
 
         dispatcher.publish(WebhookEventType.PEER_CONNECTED, "admin", "Peer:p1", Map.of());
@@ -71,8 +71,8 @@ class WebhookDispatcherTest {
     @Test
     void publish_skipsDisabledWebhook() {
         Webhook w = svc.create(new WebhookDto.CreateRequest("https://hook.example.com/c", null,
-                List.of(WebhookEventType.PEER_CONNECTED)), "admin").webhook();
-        svc.update(w.id, new WebhookDto.UpdateRequest(null, null, null, false), "admin");
+                List.of(WebhookEventType.PEER_CONNECTED), null, null), "admin").webhook();
+        svc.update(w.id, new WebhookDto.UpdateRequest(null, null, null, false, null, null), "admin");
         http.postBodyStub(w.url, 200, "ok", null);
 
         dispatcher.publish(WebhookEventType.PEER_CONNECTED, "admin", "Peer:p1", Map.of());
@@ -84,7 +84,7 @@ class WebhookDispatcherTest {
     @Test
     void publish_recordsFailureWhenReceiverReturnsError() {
         Webhook w = svc.create(new WebhookDto.CreateRequest("https://hook.example.com/d", null,
-                List.of(WebhookEventType.PEER_CONNECTED)), "admin").webhook();
+                List.of(WebhookEventType.PEER_CONNECTED), null, null), "admin").webhook();
         http.postBodyStub(w.url, 500, "boom", null);
 
         dispatcher.publish(WebhookEventType.PEER_CONNECTED, "admin", "Peer:p1", Map.of());
@@ -97,7 +97,7 @@ class WebhookDispatcherTest {
     @Test
     void testFire_sendsRegardlessOfEventTypeFilter_andReturnsResultSynchronously() {
         Webhook w = svc.create(new WebhookDto.CreateRequest("https://hook.example.com/e", null,
-                List.of(WebhookEventType.ACL_GRANT_CREATED)), "admin").webhook(); // NOT subscribed to "webhook.test"
+                List.of(WebhookEventType.ACL_GRANT_CREATED), null, null), "admin").webhook(); // NOT subscribed to "webhook.test"
         http.postBodyStub(w.url, 200, "ok", null);
 
         WebhookDto.TestFireResponse result = dispatcher.testFire(w.id);
@@ -105,6 +105,23 @@ class WebhookDispatcherTest {
         assertThat(result.success()).isTrue();
         assertThat(result.status()).isEqualTo(200);
         assertThat(http.calls).anyMatch(c -> c.url().equals(w.url));
+    }
+
+    @Test
+    void publish_gotifyFormat_postsToMessageEndpointWithNativeShapeAndNoSignature() {
+        Webhook w = svc.create(new WebhookDto.CreateRequest("https://gotify.example.com", null,
+                List.of(WebhookEventType.PEER_DISCONNECTED), WebhookFormat.GOTIFY, "my-token"), "admin").webhook();
+        String expectedEndpoint = "https://gotify.example.com/message?token=my-token";
+        http.postBodyStub(expectedEndpoint, 200, "ok", null);
+
+        dispatcher.publish(WebhookEventType.PEER_DISCONNECTED, "system", "Peer:p1", Map.of("name", "office-gw"));
+
+        waitUntil(() -> http.calls.stream().anyMatch(c -> c.url().equals(expectedEndpoint)), 2000);
+        var call = http.calls.stream().filter(c -> c.url().equals(expectedEndpoint)).findFirst().orElseThrow();
+
+        assertThat(call.headers()).doesNotContainKey("X-Islandr-Signature");
+        assertThat(call.rawBodyText()).contains("\"title\"").contains("\"message\"").contains("\"priority\":8");
+        assertThat(call.rawBodyText()).doesNotContain("\"event\""); // not the generic envelope shape
     }
 
     @Test

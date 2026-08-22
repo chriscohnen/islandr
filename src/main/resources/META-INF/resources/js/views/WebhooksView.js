@@ -18,10 +18,10 @@ export default defineComponent({
       error: null,
       modal: null,       // "create" | "edit" | null
       editId: null,
-      form: { url: "", description: "", eventTypes: [] },
+      form: { url: "", description: "", eventTypes: [], format: "generic", secret: "" },
       submitting: false,
       formError: null,
-      revealedSecret: null, // { forUrl, secret } while the one-time modal is open
+      revealedSecret: null, // { secret, format } while the one-time modal is open
       testResults: {},      // webhookId -> { success, status, error } | "pending"
       lang: locale.current,
     };
@@ -65,13 +65,14 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { url: "", description: "", eventTypes: [] };
+      this.form = { url: "", description: "", eventTypes: [], format: "generic", secret: "" };
       this.formError = null;
     },
     openEdit(w) {
       this.modal = "edit";
       this.editId = w.id;
-      this.form = { url: w.url, description: w.description || "", eventTypes: [...w.eventTypes] };
+      this.form = { url: w.url, description: w.description || "", eventTypes: [...w.eventTypes],
+                     format: w.format, secret: "" };
       this.formError = null;
     },
     closeModal() {
@@ -100,9 +101,12 @@ export default defineComponent({
           throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
         }
         const saved = await res.json();
-        if (!this.editId && saved.secret) {
-          // Creation response carries the plaintext secret exactly once.
-          this.revealedSecret = { forUrl: saved.webhook.url, secret: saved.secret };
+        if (!this.editId && saved.secret && this.form.format !== "gotify") {
+          // Creation response carries the plaintext secret exactly once —
+          // only worth the "reveal once, never again" ceremony for the
+          // server-generated HMAC secret. A Gotify token is the admin's own
+          // value, already known to them; nothing to lose if not saved here.
+          this.revealedSecret = { secret: saved.secret, format: this.form.format };
         }
         await this.load();
         this.closeModal();
@@ -133,7 +137,7 @@ export default defineComponent({
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
         const body = await res.json();
-        this.revealedSecret = { forUrl: w.url, secret: body.secret };
+        this.revealedSecret = { secret: body.secret, format: "generic" };
       } catch (e) {
         this.error = t("webhooks.error_toggle", { error: e.message });
       }
@@ -199,6 +203,7 @@ export default defineComponent({
           <td>
             <div class="mono">{{ w.url }}</div>
             <div v-if="w.description" class="muted" style="font-size: var(--text-xs)">{{ w.description }}</div>
+            <span v-if="w.format === 'gotify'" class="tag" style="margin-top: var(--space-1)">Gotify</span>
           </td>
           <td>
             <span v-if="w.eventTypes.length === 0" class="muted" style="font-size: var(--text-xs)">{{ t('webhooks.no_filter') }}</span>
@@ -227,7 +232,7 @@ export default defineComponent({
               {{ w.enabled ? t('webhooks.btn_disable') : t('webhooks.btn_enable') }}
             </button>
             <button class="btn btn-ghost btn-sm" @click="openEdit(w)"><Icon name="edit" :size="13" />{{ t('webhooks.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="rotateSecret(w)">{{ t('webhooks.btn_rotate') }}</button>
+            <button v-if="w.format !== 'gotify'" class="btn btn-ghost btn-sm" @click="rotateSecret(w)">{{ t('webhooks.btn_rotate') }}</button>
             <button class="btn btn-ghost btn-sm" @click="deleteWebhook(w)"><Icon name="trash" :size="13" />{{ t('webhooks.btn_delete') }}</button>
           </td>
         </tr>
@@ -245,8 +250,29 @@ export default defineComponent({
           <div class="modal-body">
             <div v-if="formError" class="error-banner">{{ formError }}</div>
             <div class="field" style="margin-bottom: var(--space-4)">
-              <label for="whUrl">{{ t('webhooks.field_url') }}</label>
-              <input id="whUrl" class="input mono" type="text" v-model="form.url" required placeholder="https://example.com/hook" />
+              <label>{{ t('webhooks.field_format') }}</label>
+              <div style="display: flex; gap: var(--space-4)">
+                <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 400">
+                  <input type="radio" value="generic" v-model="form.format" style="accent-color: var(--accent)" />
+                  {{ t('webhooks.format_generic') }}
+                </label>
+                <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 400">
+                  <input type="radio" value="gotify" v-model="form.format" style="accent-color: var(--accent)" />
+                  {{ t('webhooks.format_gotify') }}
+                </label>
+              </div>
+            </div>
+            <div class="field" style="margin-bottom: var(--space-4)">
+              <label for="whUrl">{{ form.format === 'gotify' ? t('webhooks.field_url_gotify') : t('webhooks.field_url') }}</label>
+              <input id="whUrl" class="input mono" type="text" v-model="form.url" required
+                     :placeholder="form.format === 'gotify' ? 'https://gotify.example.com' : 'https://example.com/hook'" />
+              <div v-if="form.format === 'gotify'" class="field-hint">{{ t('webhooks.field_url_gotify_hint') }}</div>
+            </div>
+            <div v-if="form.format === 'gotify'" class="field" style="margin-bottom: var(--space-4)">
+              <label for="whToken">{{ t('webhooks.field_token') }}</label>
+              <input id="whToken" class="input mono" type="password" v-model="form.secret"
+                     :placeholder="editId ? t('webhooks.field_token_ph_edit') : t('webhooks.field_token_ph_new')" />
+              <div class="field-hint">{{ t('webhooks.field_token_hint') }}</div>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="whDesc">{{ t('webhooks.field_desc') }}</label>

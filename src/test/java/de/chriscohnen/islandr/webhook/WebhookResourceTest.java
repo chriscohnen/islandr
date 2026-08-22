@@ -92,6 +92,26 @@ class WebhookResourceTest {
     }
 
     @Test
+    void create_gotifyFormat_requiresToken() {
+        given().contentType("application/json").body("""
+                { "url": "https://gotify.example.com", "format": "gotify", "eventTypes": [] }
+                """)
+                .when().post("/api/v1/webhooks")
+                .then().statusCode(400);
+    }
+
+    @Test
+    void create_gotifyFormat_withToken_succeeds() {
+        given().contentType("application/json").body("""
+                { "url": "https://gotify.example.com", "format": "gotify", "secret": "app-token-1", "eventTypes": [] }
+                """)
+                .when().post("/api/v1/webhooks")
+                .then().statusCode(200)
+                .body("webhook.format", is("gotify"))
+                .body("webhook.secretSet", is(true));
+    }
+
+    @Test
     void create_unknownEventType_returns400() {
         given().contentType("application/json").body("""
                 { "url": "https://hook.example.com/x", "eventTypes": ["nope"] }

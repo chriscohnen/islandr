@@ -107,6 +107,7 @@ public class WebhookResource {
         m.put("url", w.url);
         m.put("description", w.description == null ? "" : w.description);
         m.put("eventTypes", w.eventTypes);
+        m.put("format", w.format);
         m.put("enabled", w.enabled);
         return m;
     }
