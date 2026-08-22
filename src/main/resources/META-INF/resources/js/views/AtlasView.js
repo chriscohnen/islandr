@@ -669,12 +669,127 @@ export default defineComponent({
     </div>
 
     <template v-else-if="graph">
-      <div class="card card-pad">
+      <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-peer-id="selectedPeerId"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
                        @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />
+
+        <!-- Network diagnostics (ADR-0025): docked beside the graph, not a modal —
+             the whole point is seeing the probed hub -> [site-gateway] -> target
+             chain highlighted live on the diagram (AtlasDiagram's probe overlay)
+             at the same time as the numbers, not one hidden behind the other.
+             No backdrop: the graph underneath stays interactive. -->
+        <div v-if="diagModal" class="card" style="position: absolute; top: var(--space-3); right: var(--space-3); width: 300px;
+                    max-height: calc(70vh - var(--space-3) * 2); overflow-y: auto; z-index: 5; padding: var(--space-3);
+                    box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.18))">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3)">
+            <strong style="font-size: var(--text-sm)">{{ t('atlas.diagnostics_title', { resource: diagModal.targetName }) }}</strong>
+            <button class="btn btn-ghost btn-sm" style="padding: 0 4px; flex-shrink: 0" @click="closeDiagnostics">✕</button>
+          </div>
+
+          <div v-if="diagModal.path" style="margin-bottom: var(--space-3)">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+              {{ t('atlas.diagnostics_path_title') }}
+            </h3>
+            <div class="mono" style="font-size: var(--text-xs)">
+              <span v-for="(hop, i) in diagModal.path" :key="i">
+                <span v-if="i > 0"> → </span>{{ pathHopLabel(hop) }}
+              </span>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-3)">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
+              {{ t('atlas.diagnostics_ping_title') }}
+              <button class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.pingLoading" :title="t('atlas.diagnostics_rerun')" @click="runPing">
+                <Icon name="rotate" :size="12" />
+              </button>
+            </h3>
+            <div v-if="diagModal.pingLoading" class="muted" style="font-size: var(--text-xs)">{{ t('common.loading') }}</div>
+            <div v-else-if="diagModal.pingError" class="error-banner" style="font-size: var(--text-xs)">{{ diagModal.pingError }}</div>
+            <div v-else-if="diagModal.ping">
+              <p style="margin: 0 0 4px">
+                <span :class="['badge', 'status-pill', diagModal.ping.reachable ? 'badge-success' : 'badge-danger']">
+                  <Icon :name="diagModal.ping.reachable ? 'check' : 'unlink'" :size="12" />
+                  {{ diagModal.ping.reachable ? t('atlas.diagnostics_reachable') : t('atlas.diagnostics_unreachable') }}
+                </span>
+              </p>
+              <p class="mono" style="margin: 0; font-size: var(--text-xs)">
+                {{ t('atlas.diagnostics_stats', { received: diagModal.ping.received, sent: diagModal.ping.sent, loss: diagModal.ping.lossPercent }) }}
+              </p>
+              <p v-if="diagModal.ping.reachable" class="mono muted" style="margin: 2px 0 0; font-size: var(--text-xs)">
+                {{ t('atlas.diagnostics_rtt', { min: diagModal.ping.minMs, avg: diagModal.ping.avgMs, max: diagModal.ping.maxMs }) }}
+              </p>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-3)">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
+              {{ t('atlas.diagnostics_tracepath_title') }}
+              <button v-if="diagModal.tracepath" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.traceLoading" :title="t('atlas.diagnostics_rerun')" @click="runTracepath">
+                <Icon name="rotate" :size="12" />
+              </button>
+            </h3>
+            <div v-if="diagModal.traceLoading" class="muted" style="font-size: var(--text-xs)">{{ t('common.loading') }}</div>
+            <template v-else>
+              <div v-if="diagModal.traceError" class="error-banner" style="font-size: var(--text-xs); margin-bottom: var(--space-2)">{{ diagModal.traceError }}</div>
+              <ul v-if="diagModal.tracepath" class="mono" style="margin: 0; padding-left: var(--space-4); font-size: var(--text-xs)">
+                <li v-for="hop in diagModal.tracepath.hops" :key="hop.ttl">{{ tracepathHopLabel(hop) }}</li>
+              </ul>
+              <!-- Not v-else: same "don't dead-end on the error" fix as mtr below. -->
+              <button v-if="!diagModal.tracepath" class="btn btn-ghost btn-sm"
+                      :disabled="diagAvailability && !diagAvailability.tracepath"
+                      :title="diagAvailability && !diagAvailability.tracepath ? t('atlas.diagnostics_unavailable', { tool: 'tracepath' }) : ''"
+                      @click="runTracepath">
+                {{ diagModal.traceError ? t('atlas.diagnostics_retry') : t('atlas.diagnostics_run_tracepath') }}
+              </button>
+            </template>
+          </div>
+
+          <!-- mtr (ADR-0025 §1): opportunistic upgrade over tracepath — per-hop
+               loss % and aggregated RTT over several cycles, not just one shot.
+               Only offered when actually detected on the hub; tracepath above
+               always stays available as the baseline either way. -->
+          <div v-if="diagAvailability && diagAvailability.mtr">
+            <h3 style="margin: 0 0 4px; font-size: 10px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
+              {{ t('atlas.diagnostics_mtr_title') }}
+              <button v-if="diagModal.mtr" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
+                      :disabled="diagModal.mtrLoading" :title="t('atlas.diagnostics_rerun')" @click="runMtr">
+                <Icon name="rotate" :size="12" />
+              </button>
+            </h3>
+            <div v-if="diagModal.mtrLoading" class="muted" style="font-size: var(--text-xs)">{{ t('common.loading') }}</div>
+            <template v-else>
+              <div v-if="diagModal.mtrError" class="error-banner" style="font-size: var(--text-xs); margin-bottom: var(--space-2)">{{ diagModal.mtrError }}</div>
+              <table v-if="diagModal.mtr" class="table" style="font-size: var(--text-xs)">
+                <thead>
+                  <tr>
+                    <th>{{ t('atlas.diagnostics_mtr_th_hop') }}</th>
+                    <th>{{ t('atlas.diagnostics_mtr_th_loss') }}</th>
+                    <th>{{ t('atlas.diagnostics_mtr_th_avg') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="hop in diagModal.mtr.hops" :key="hop.ttl">
+                    <td class="mono">{{ hop.ttl }}. {{ hop.host || t('atlas.diagnostics_hop_no_reply_short') }}</td>
+                    <td class="mono">{{ hop.lossPercent }}%</td>
+                    <td class="mono">{{ hop.avgMs != null ? hop.avgMs + ' ms' : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <!-- Not v-else: a failed attempt (e.g. the shared per-target cooldown
+                   rejecting a too-quick retry) must still offer another try, not
+                   dead-end on the error banner forever. -->
+              <button v-if="!diagModal.mtr" class="btn btn-ghost btn-sm" @click="runMtr">
+                {{ diagModal.mtrError ? t('atlas.diagnostics_retry') : t('atlas.diagnostics_run_mtr') }}
+              </button>
+            </template>
+          </div>
+        </div>
       </div>
 
       <div class="card card-pad" style="margin-top: var(--space-4)">
@@ -764,121 +879,5 @@ export default defineComponent({
       </div>
     </div>
 
-    <!-- Network diagnostics (ADR-0025): admin-triggered ping/tracepath against a
-         focused Resource, with the probed hub -> site-gateway -> resource path
-         spelled out inline (same graph Atlas already models). -->
-    <div v-if="diagModal" class="modal-backdrop" @click.self="closeDiagnostics">
-      <div class="modal">
-        <div class="modal-header">
-          <h2>{{ t('atlas.diagnostics_title', { resource: diagModal.targetName }) }}</h2>
-          <button class="btn btn-ghost btn-sm" @click="closeDiagnostics">✕</button>
-        </div>
-        <div class="modal-body">
-          <div v-if="diagModal.path" style="margin-bottom: var(--space-4)">
-            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
-              {{ t('atlas.diagnostics_path_title') }}
-            </h3>
-            <div class="mono" style="font-size: var(--text-sm)">
-              <span v-for="(hop, i) in diagModal.path" :key="i">
-                <span v-if="i > 0"> → </span>{{ pathHopLabel(hop) }}
-              </span>
-            </div>
-          </div>
-
-          <div style="margin-bottom: var(--space-4)">
-            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
-              {{ t('atlas.diagnostics_ping_title') }}
-              <button class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
-                      :disabled="diagModal.pingLoading" :title="t('atlas.diagnostics_rerun')" @click="runPing">
-                <Icon name="rotate" :size="13" />
-              </button>
-            </h3>
-            <div v-if="diagModal.pingLoading" class="muted">{{ t('common.loading') }}</div>
-            <div v-else-if="diagModal.pingError" class="error-banner">{{ diagModal.pingError }}</div>
-            <div v-else-if="diagModal.ping">
-              <p style="margin: 0 0 4px">
-                <span :class="['badge', 'status-pill', diagModal.ping.reachable ? 'badge-success' : 'badge-danger']">
-                  <Icon :name="diagModal.ping.reachable ? 'check' : 'unlink'" :size="12" />
-                  {{ diagModal.ping.reachable ? t('atlas.diagnostics_reachable') : t('atlas.diagnostics_unreachable') }}
-                </span>
-              </p>
-              <p class="mono" style="margin: 0; font-size: var(--text-sm)">
-                {{ t('atlas.diagnostics_stats', { received: diagModal.ping.received, sent: diagModal.ping.sent, loss: diagModal.ping.lossPercent }) }}
-              </p>
-              <p v-if="diagModal.ping.reachable" class="mono muted" style="margin: 2px 0 0; font-size: var(--text-sm)">
-                {{ t('atlas.diagnostics_rtt', { min: diagModal.ping.minMs, avg: diagModal.ping.avgMs, max: diagModal.ping.maxMs }) }}
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
-              {{ t('atlas.diagnostics_tracepath_title') }}
-              <button v-if="diagModal.tracepath" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
-                      :disabled="diagModal.traceLoading" :title="t('atlas.diagnostics_rerun')" @click="runTracepath">
-                <Icon name="rotate" :size="13" />
-              </button>
-            </h3>
-            <div v-if="diagModal.traceLoading" class="muted">{{ t('common.loading') }}</div>
-            <template v-else>
-              <div v-if="diagModal.traceError" class="error-banner" style="margin-bottom: var(--space-2)">{{ diagModal.traceError }}</div>
-              <ul v-if="diagModal.tracepath" class="mono" style="margin: 0; padding-left: var(--space-5); font-size: var(--text-sm)">
-                <li v-for="hop in diagModal.tracepath.hops" :key="hop.ttl">{{ tracepathHopLabel(hop) }}</li>
-              </ul>
-              <!-- Not v-else: same "don't dead-end on the error" fix as mtr below. -->
-              <button v-if="!diagModal.tracepath" class="btn btn-ghost btn-sm"
-                      :disabled="diagAvailability && !diagAvailability.tracepath"
-                      :title="diagAvailability && !diagAvailability.tracepath ? t('atlas.diagnostics_unavailable', { tool: 'tracepath' }) : ''"
-                      @click="runTracepath">
-                {{ diagModal.traceError ? t('atlas.diagnostics_retry') : t('atlas.diagnostics_run_tracepath') }}
-              </button>
-            </template>
-          </div>
-
-          <!-- mtr (ADR-0025 §1): opportunistic upgrade over tracepath — per-hop
-               loss % and aggregated RTT over several cycles, not just one shot.
-               Only offered when actually detected on the hub; tracepath above
-               always stays available as the baseline either way. -->
-          <div v-if="diagAvailability && diagAvailability.mtr" style="margin-top: var(--space-4)">
-            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px">
-              {{ t('atlas.diagnostics_mtr_title') }}
-              <button v-if="diagModal.mtr" class="btn btn-ghost btn-sm" style="padding: 2px; height: auto; text-transform: none; letter-spacing: 0"
-                      :disabled="diagModal.mtrLoading" :title="t('atlas.diagnostics_rerun')" @click="runMtr">
-                <Icon name="rotate" :size="13" />
-              </button>
-            </h3>
-            <div v-if="diagModal.mtrLoading" class="muted">{{ t('common.loading') }}</div>
-            <template v-else>
-              <div v-if="diagModal.mtrError" class="error-banner" style="margin-bottom: var(--space-2)">{{ diagModal.mtrError }}</div>
-              <table v-if="diagModal.mtr" class="table" style="font-size: var(--text-sm)">
-                <thead>
-                  <tr>
-                    <th>{{ t('atlas.diagnostics_mtr_th_hop') }}</th>
-                    <th>{{ t('atlas.diagnostics_mtr_th_loss') }}</th>
-                    <th>{{ t('atlas.diagnostics_mtr_th_avg') }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="hop in diagModal.mtr.hops" :key="hop.ttl">
-                    <td class="mono">{{ hop.ttl }}. {{ hop.host || t('atlas.diagnostics_hop_no_reply_short') }}</td>
-                    <td class="mono">{{ hop.lossPercent }}%</td>
-                    <td class="mono">{{ hop.avgMs != null ? hop.avgMs + ' ms' : '—' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <!-- Not v-else: a failed attempt (e.g. the shared per-target cooldown
-                   rejecting a too-quick retry) must still offer another try, not
-                   dead-end on the error banner forever. -->
-              <button v-if="!diagModal.mtr" class="btn btn-ghost btn-sm" @click="runMtr">
-                {{ diagModal.mtrError ? t('atlas.diagnostics_retry') : t('atlas.diagnostics_run_mtr') }}
-              </button>
-            </template>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-primary" @click="closeDiagnostics">{{ t('atlas.diagnostics_close') }}</button>
-        </div>
-      </div>
-    </div>
   `,
 });
