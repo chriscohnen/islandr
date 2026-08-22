@@ -40,9 +40,13 @@ export default defineComponent({
       // Which mobile/roaming user currently has a connected client peer
       // (ADR-0025 follow-up: connected peers are pingable too, and Atlas
       // previously gave no visual way to tell who's actually online).
-      // From GET /api/v1/peers/live, one entry per userId — the most
-      // recently-handshook peer if a user happens to have more than one.
-      connectedPeerByUserId: {},
+      // From GET /api/v1/peers/live: userId -> all of that user's currently
+      // connected peers, newest handshake first. A user with two devices
+      // connected (e.g. laptop + phone) still shows as a single dot on the
+      // diagram — the dot means "this user is online", not "this device is"
+      // — but every connected device of theirs must stay individually
+      // pingable, so the full list is kept, not just the most recent one.
+      connectedPeersByUserId: {},
     };
   },
   computed: {
@@ -76,13 +80,14 @@ export default defineComponent({
       return (this._lastPeerClick && this._lastPeerClick.peerId === this.selectedPeerId)
           ? this._lastPeerClick.peerName : this.selectedPeerId;
     },
-    // The focused user's currently-connected client peer, if any — the
-    // diagnostics target when pinging a mobile/roaming user (their peer's
+    // The focused user's currently-connected client peers, if any — the
+    // diagnostics targets when pinging a mobile/roaming user (each peer's
     // own tunnel IP, same PeerResource endpoints the site-gateway diamond
-    // already uses, just for a client device instead of a site).
-    selectedUserConnectedPeer() {
-      if (!this.selectedUserId) return null;
-      return this.connectedPeerByUserId[this.selectedUserId] || null;
+    // already uses, just for a client device instead of a site). Newest
+    // handshake first; every entry is individually pingable, not just [0].
+    selectedUserConnectedPeers() {
+      if (!this.selectedUserId) return [];
+      return this.connectedPeersByUserId[this.selectedUserId] || [];
     },
     focusLabel() {
       if (this.selectedUserId) return t("atlas.focus_user", { user: this.focusedUserName || " " });
@@ -488,12 +493,12 @@ export default defineComponent({
         const byUser = {};
         for (const p of live) {
           if (!p.userId || p.type === "site") continue; // site peers are handled via the gateway diamond, not here
-          const existing = byUser[p.userId];
-          if (!existing || new Date(p.lastHandshake) > new Date(existing.lastHandshake)) {
-            byUser[p.userId] = p;
-          }
+          (byUser[p.userId] || (byUser[p.userId] = [])).push(p);
         }
-        this.connectedPeerByUserId = byUser;
+        for (const peers of Object.values(byUser)) {
+          peers.sort((a, b) => new Date(b.lastHandshake) - new Date(a.lastHandshake));
+        }
+        this.connectedPeersByUserId = byUser;
       } catch { /* the mobile circle just shows everyone as "unknown", no worse than before this existed */ }
     },
 
@@ -683,15 +688,32 @@ export default defineComponent({
            when ping itself is missing on the hub — same "degrade honestly"
            posture as the DNS resolver's own status page. A focused user with
            no *currently connected* peer gets no action at all — there is
-           nothing reachable to probe. -->
-      <button v-if="selectedResourceId || selectedPeerId || selectedUserConnectedPeer" class="btn btn-ghost btn-sm"
+           nothing reachable to probe. A user with exactly one connected
+           device keeps the single generic button; two or more (e.g. laptop
+           + phone both online) get one button each, named by device, so
+           every one of them stays individually pingable instead of only
+           ever reaching the most-recently-handshook device. -->
+      <button v-if="selectedResourceId || selectedPeerId" class="btn btn-ghost btn-sm"
               :disabled="diagAvailability && !diagAvailability.ping"
               :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
               @click="selectedPeerId ? openDiagnosticsForPeer(selectedPeerId, focusedPeerName)
-                    : selectedUserConnectedPeer ? openDiagnosticsForPeer(selectedUserConnectedPeer.id, focusedUserName)
                     : openDiagnostics(selectedResourceId)">
         <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action') }}
       </button>
+      <button v-else-if="selectedUserConnectedPeers.length === 1" class="btn btn-ghost btn-sm"
+              :disabled="diagAvailability && !diagAvailability.ping"
+              :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
+              @click="openDiagnosticsForPeer(selectedUserConnectedPeers[0].id, focusedUserName)">
+        <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action') }}
+      </button>
+      <template v-else-if="selectedUserConnectedPeers.length > 1">
+        <button v-for="peer in selectedUserConnectedPeers" :key="peer.id" class="btn btn-ghost btn-sm"
+                :disabled="diagAvailability && !diagAvailability.ping"
+                :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
+                @click="openDiagnosticsForPeer(peer.id, peer.name || peer.id)">
+          <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action_device', { device: peer.name || peer.id }) }}
+        </button>
+      </template>
 
       <div style="display: flex; gap: var(--space-2); margin-left: auto">
         <button class="btn btn-sm" :class="tool === 'grant' ? 'btn-primary' : 'btn-ghost'" @click="tool = 'grant'">
@@ -717,7 +739,7 @@ export default defineComponent({
       <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-peer-id="selectedPeerId"
-                       :connected-user-ids="Object.keys(connectedPeerByUserId)"
+                       :connected-user-ids="Object.keys(connectedPeersByUserId)"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
                        @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />
