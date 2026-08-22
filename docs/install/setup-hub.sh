@@ -128,6 +128,12 @@ ISLANDR_USE_SUDO=true
 # Device discovery (ADR-0014) scans for real by default — no setting needed.
 # Set ISLANDR_DISCOVERY_MODE=mock to get two fixed synthetic hosts instead.
 
+# Network diagnostics (ADR-0025, ping/tracepath/mtr from Atlas) — unlike
+# discovery, this defaults to mock outside a container (same rule as
+# wg/nft), so it needs an explicit real here or every probe silently
+# returns simulated latency instead of actually shelling out.
+ISLANDR_DIAG_MODE=real
+
 # Database
 QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
 
