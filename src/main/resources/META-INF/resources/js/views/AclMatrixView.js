@@ -51,6 +51,11 @@ export default defineComponent({
       userGrants: [],
       newUserGrantUserId: "",
       newUserGrantResourceId: "",
+      // Ad-hoc temporary grant (issue #70) — "" = permanent (default,
+      // unchanged behavior), else a relative duration in hours applied at
+      // apply-time so the actual validUntil instant is always "now + N",
+      // not a stale value from whenever the dropdown was opened.
+      newUserGrantDurationHours: "",
       userGrantPicker: null, // { resource } — port-picker for the grant being added
       userGrantSaving: false,
       userGrantError: null,
@@ -363,24 +368,34 @@ export default defineComponent({
     async userGrantPickerApply(payload) {
       // payload: { mode: 'none' | 'all' | 'limited', portIds: string[] }
       if (payload.mode === "none") { this.userGrantPicker = null; return; }
+      const validUntil = this.durationHoursToValidUntil(this.newUserGrantDurationHours);
       await this.applyUserGrant(
           this.newUserGrantUserId, this.newUserGrantResourceId,
-          payload.mode === "all", payload.mode === "all" ? [] : payload.portIds);
+          payload.mode === "all", payload.mode === "all" ? [] : payload.portIds, validUntil);
       this.userGrantPicker = null;
+      this.newUserGrantDurationHours = "";
+    },
+
+    // "" = permanent (validUntil stays null); otherwise a relative duration
+    // in hours, resolved to an absolute instant right before sending — never
+    // stored as "N hours" server-side, only ever the concrete expiry time.
+    durationHoursToValidUntil(hours) {
+      if (!hours) return null;
+      return new Date(Date.now() + Number(hours) * 3600 * 1000).toISOString();
     },
 
     async removeUserGrant(g) {
-      await this.applyUserGrant(g.userId, g.resourceId, false, []);
+      await this.applyUserGrant(g.userId, g.resourceId, false, [], null);
     },
 
-    async applyUserGrant(userId, resourceId, allPorts, portIds) {
+    async applyUserGrant(userId, resourceId, allPorts, portIds, validUntil) {
       this.userGrantSaving = true;
       this.userGrantError = null;
       try {
         const res = await fetch("/api/v1/acl/user-grants", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ userId, resourceId, allPorts, portIds }),
+          body: JSON.stringify({ userId, resourceId, allPorts, portIds, validUntil }),
         });
         if (!res.ok) {
           const body = await res.text();
@@ -395,6 +410,18 @@ export default defineComponent({
       } finally {
         this.userGrantSaving = false;
       }
+    },
+
+    // Relative-time-in-UI, absolute-on-hover (CLAUDE.md convention) — same
+    // pattern as everywhere else timestamps show up (audit log, peer last-seen).
+    userGrantExpiryLabel(g) {
+      if (!g.validUntil) return t("acl.user_grant_permanent");
+      const ms = new Date(g.validUntil).getTime() - Date.now();
+      if (ms <= 0) return t("acl.user_grant_expiring_now");
+      const hours = Math.round(ms / 3600000);
+      if (hours < 1) return t("acl.user_grant_expires_in_minutes", { n: Math.max(1, Math.round(ms / 60000)) });
+      if (hours < 48) return t("acl.user_grant_expires_in_hours", { n: hours });
+      return t("acl.user_grant_expires_in_days", { n: Math.round(hours / 24) });
     },
 
     // Same pattern as the user-grant trio above, keyed by site instead of user.
@@ -597,6 +624,7 @@ export default defineComponent({
             <th>{{ t('atlas.th_user') }}</th>
             <th>{{ t('acl.th_resource') }}</th>
             <th>{{ t('acl.th_ports') }}</th>
+            <th>{{ t('acl.th_expires') }}</th>
             <th style="width: 40px"></th>
           </tr>
         </thead>
@@ -605,6 +633,9 @@ export default defineComponent({
             <td>{{ g.userName }}</td>
             <td>{{ g.resourceName }} <span class="muted">— {{ g.siteName }}</span></td>
             <td class="mono">{{ g.allPorts ? t('acl.picker_all') : g.portLabels.join(', ') }}</td>
+            <td :title="g.validUntil ? new Date(g.validUntil).toLocaleString(lang) : ''">
+              {{ userGrantExpiryLabel(g) }}
+            </td>
             <td>
               <button class="btn btn-ghost btn-sm" :disabled="userGrantSaving" @click="removeUserGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
             </td>
@@ -621,6 +652,17 @@ export default defineComponent({
         <select class="select" v-model="newUserGrantResourceId" style="max-width: 260px">
           <option value="" disabled>{{ t('acl.user_grant_pick_resource') }}</option>
           <option v-for="r in resources" :key="r.id" :value="r.id">{{ r.name }} — {{ (sitesById[r.siteId] || {}).name || r.siteId }}</option>
+        </select>
+        <!-- Ad-hoc temporary grant (issue #70) — "" stays permanent, the
+             pre-existing default. A relative duration, not an absolute
+             date/time picker: the whole point is "for a few hours from
+             now", resolved to a concrete instant only at apply-time. -->
+        <select class="select" v-model="newUserGrantDurationHours" style="max-width: 180px" :title="t('acl.user_grant_duration_hint')">
+          <option value="">{{ t('acl.user_grant_duration_permanent') }}</option>
+          <option value="1">{{ t('acl.user_grant_duration_1h') }}</option>
+          <option value="4">{{ t('acl.user_grant_duration_4h') }}</option>
+          <option value="24">{{ t('acl.user_grant_duration_24h') }}</option>
+          <option value="168">{{ t('acl.user_grant_duration_7d') }}</option>
         </select>
         <button class="btn btn-secondary btn-sm" :disabled="!newUserGrantUserId || !newUserGrantResourceId || userGrantSaving" @click="onAddUserGrantClick">
           {{ userGrantSaving ? t('common.loading') : t('acl.user_grant_add_btn') }}

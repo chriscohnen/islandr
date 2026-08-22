@@ -30,6 +30,12 @@ public class UserResourceGrant extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
+    /** Optional expiry (issue #70) — null means permanent, unchanged default
+     *  behavior. {@link de.chriscohnen.islandr.acl.UserGrantExpiryJob} revokes
+     *  the grant once this passes. */
+    @Column(name = "valid_until")
+    public Instant validUntil;
+
     public static UserResourceGrant createNew(String userId, String resourceId, boolean allPorts) {
         UserResourceGrant g = new UserResourceGrant();
         g.id = UUID.randomUUID().toString();
