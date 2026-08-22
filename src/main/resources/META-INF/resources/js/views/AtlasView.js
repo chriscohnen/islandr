@@ -37,6 +37,12 @@ export default defineComponent({
       // fail; diagModal holds the live state of one open probe dialog.
       diagAvailability: null,
       diagModal: null, // { targetKind: "resource"|"peer", targetId, targetName, path, ping, pingLoading, pingError, tracepath, traceLoading, traceError }
+      // Which mobile/roaming user currently has a connected client peer
+      // (ADR-0025 follow-up: connected peers are pingable too, and Atlas
+      // previously gave no visual way to tell who's actually online).
+      // From GET /api/v1/peers/live, one entry per userId — the most
+      // recently-handshook peer if a user happens to have more than one.
+      connectedPeerByUserId: {},
     };
   },
   computed: {
@@ -69,6 +75,14 @@ export default defineComponent({
       if (!this.selectedPeerId) return "";
       return (this._lastPeerClick && this._lastPeerClick.peerId === this.selectedPeerId)
           ? this._lastPeerClick.peerName : this.selectedPeerId;
+    },
+    // The focused user's currently-connected client peer, if any — the
+    // diagnostics target when pinging a mobile/roaming user (their peer's
+    // own tunnel IP, same PeerResource endpoints the site-gateway diamond
+    // already uses, just for a client device instead of a site).
+    selectedUserConnectedPeer() {
+      if (!this.selectedUserId) return null;
+      return this.connectedPeerByUserId[this.selectedUserId] || null;
     },
     focusLabel() {
       if (this.selectedUserId) return t("atlas.focus_user", { user: this.focusedUserName || " " });
@@ -203,6 +217,7 @@ export default defineComponent({
   async mounted() {
     await this.load();
     this.loadDiagAvailability();
+    this.loadConnectedPeers();
     this._offEscape = onEscape(() => {
       if (this.diagModal) this.closeDiagnostics();
       else if (this.grantDialog) this.cancelGrantDialog();
@@ -459,6 +474,29 @@ export default defineComponent({
       } catch { /* action just stays enabled; the probe itself will report the real error */ }
     },
 
+    // Who's actually connected right now, so the "mobile/roaming" circle can
+    // show it and a connected user's own peer becomes a diagnostics target —
+    // same idea as the site-gateway peer, just for a client device instead of
+    // a site. A snapshot at load time, not live-refreshed — good enough to
+    // decide "is this worth pinging", same one-shot posture as the rest of
+    // this dialog (ADR-0025 §6, no persisted/live history in v1).
+    async loadConnectedPeers() {
+      try {
+        const res = await fetch("/api/v1/peers/live");
+        if (!res.ok) return;
+        const live = await res.json();
+        const byUser = {};
+        for (const p of live) {
+          if (!p.userId || p.type === "site") continue; // site peers are handled via the gateway diamond, not here
+          const existing = byUser[p.userId];
+          if (!existing || new Date(p.lastHandshake) > new Date(existing.lastHandshake)) {
+            byUser[p.userId] = p;
+          }
+        }
+        this.connectedPeerByUserId = byUser;
+      } catch { /* the mobile circle just shows everyone as "unknown", no worse than before this existed */ }
+    },
+
     pathHopLabel(hop) {
       if (hop.kind === "hub") return t("atlas.diagnostics_hop_hub");
       if (hop.kind === "site-gateway") return t("atlas.diagnostics_hop_gateway", { peer: hop.name, site: hop.detail });
@@ -586,7 +624,9 @@ export default defineComponent({
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-3)">{{ t('atlas.legend_hint') }}</p>
+    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-3)">
+      {{ t('atlas.legend_hint') }} {{ t('atlas.legend_connected_hint') }}
+    </p>
 
     <!-- Type/user filter chips — same inclusive-filter pattern as the topology
          map's type row (empty selection = show everything; picking one or
@@ -637,14 +677,19 @@ export default defineComponent({
         <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId || selectedPeerId) ? 0 : -1">✕</button>
       </span>
 
-      <!-- ADR-0025: a probe target is always a focused, known Resource or the
-           site's own gateway peer — never free text. Grayed out (not hidden)
-           with an actionable title when ping itself is missing on the hub —
-           same "degrade honestly" posture as the DNS resolver's own status page. -->
-      <button v-if="selectedResourceId || selectedPeerId" class="btn btn-ghost btn-sm"
+      <!-- ADR-0025: a probe target is always a focused, known Resource, the
+           site's own gateway peer, or a connected user's own client peer —
+           never free text. Grayed out (not hidden) with an actionable title
+           when ping itself is missing on the hub — same "degrade honestly"
+           posture as the DNS resolver's own status page. A focused user with
+           no *currently connected* peer gets no action at all — there is
+           nothing reachable to probe. -->
+      <button v-if="selectedResourceId || selectedPeerId || selectedUserConnectedPeer" class="btn btn-ghost btn-sm"
               :disabled="diagAvailability && !diagAvailability.ping"
               :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
-              @click="selectedPeerId ? openDiagnosticsForPeer(selectedPeerId, focusedPeerName) : openDiagnostics(selectedResourceId)">
+              @click="selectedPeerId ? openDiagnosticsForPeer(selectedPeerId, focusedPeerName)
+                    : selectedUserConnectedPeer ? openDiagnosticsForPeer(selectedUserConnectedPeer.id, focusedUserName)
+                    : openDiagnostics(selectedResourceId)">
         <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action') }}
       </button>
 
@@ -672,6 +717,7 @@ export default defineComponent({
       <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-peer-id="selectedPeerId"
+                       :connected-user-ids="Object.keys(connectedPeerByUserId)"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
                        @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />

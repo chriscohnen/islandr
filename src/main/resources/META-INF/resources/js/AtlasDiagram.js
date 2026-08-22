@@ -130,6 +130,7 @@ export default defineComponent({
     selectedUserId: { type: String, default: null }, // focused user (direct-grant mode) — only their edges render
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
     selectedPeerId: { type: String, default: null }, // focused site-gateway peer (ADR-0025 diagnostics target) — ring only, no edge filtering
+    connectedUserIds: { type: Array, default: () => [] }, // users with a currently-connected client peer (ADR-0025) — also pingable
     activeTypes: { type: Array, default: () => [] }, // non-empty = show only resources of these types
     activeUserIds: { type: Array, default: () => [] }, // non-empty = show only these users
     // ADR-0025: while a diagnostics probe is open, the probed hub -> [site-gateway] ->
@@ -162,6 +163,9 @@ export default defineComponent({
   computed: {
     highlightedUserIdSet() {
       return new Set(this.highlightedUserIds);
+    },
+    connectedUserIdSet() {
+      return new Set(this.connectedUserIds);
     },
     // Inclusive filter (empty = show everything), same as the topology
     // map's type chips. Filtered-out nodes are dropped entirely, not just
@@ -688,6 +692,7 @@ export default defineComponent({
                @pointermove="!node.isUser && !node.isGateway && hoveredNode === node && updateHoverPos($event)"
                @pointerleave="!node.isUser && !node.isGateway && onResourceLeave()">
               <title v-if="node.isGateway">{{ t('atlas.tooltip_gateway', { site: node.name, cidr: circle.cidr }) }}</title>
+              <title v-else-if="node.isUser">{{ connectedUserIdSet.has(node.id) ? t('atlas.tooltip_connected') : t('atlas.tooltip_disconnected') }}</title>
               <circle v-if="nodeFocused(node)" :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
                       fill="none" stroke="var(--fg1)" stroke-width="1.5">
                 <animate attributeName="r" values="${NODE_RADIUS + 3};${NODE_RADIUS + 9};${NODE_RADIUS + 3}"
@@ -711,8 +716,17 @@ export default defineComponent({
                       :fill-opacity="nodeDimmed(node) ? 0.3 : 1"
                       :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                       :stroke-width="nodeHighlighted(node) ? 3 : 2" />
+              <!-- Connected-peer indicator (ADR-0025 follow-up): a small badge, not a
+                   recolored node — the node's own fill already carries meaning (dimmed/
+                   highlighted/focused) and shape alone tells user/gateway/resource apart
+                   per the app's "never color-only" rule; this is a supplementary "is
+                   anyone actually home right now" signal on top, with its own tooltip
+                   text above and a name-label suffix below so it's not color-only either. -->
+              <circle v-if="node.isUser && connectedUserIdSet.has(node.id)"
+                      :cx="node.x + ${NODE_RADIUS} * 0.68" :cy="node.y + ${NODE_RADIUS} * 0.68" r="5"
+                      fill="var(--success-solid)" stroke="var(--surface)" stroke-width="1.5" />
               <text :x="node.x" :y="node.y + ${NODE_RADIUS} + 14" text-anchor="middle"
-                    fill="var(--fg2)" font-size="11">{{ node.name }}</text>
+                    fill="var(--fg2)" font-size="11">{{ node.name }}{{ node.isUser && connectedUserIdSet.has(node.id) ? ' •' : '' }}</text>
             </g>
           </g>
 

@@ -112,6 +112,10 @@ public class PeerResource {
                     m.put("name",       p != null ? p.name       : null);
                     m.put("assignedIp", p != null ? p.assignedIp : null);
                     m.put("type",       p != null ? p.type       : null);
+                    // userId: which User owns this peer, null for site peers — lets the
+                    // Atlas view (ADR-0025) tell which "mobile/roaming" user node is
+                    // currently connected and therefore has a pingable peer right now.
+                    m.put("userId",     p != null ? p.userId     : null);
                     return m;
                 }).toList();
     }
