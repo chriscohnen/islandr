@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
 import { onEscape, onSaveShortcut } from "/js/keyboard.js";
+import { Icon } from "/js/Icons.js";
 
 // The Rollen × Ressourcen grant matrix (PRD §F-B, ADR-0006).
 // Layout: one tab per site (the resources column-set scopes to that site),
@@ -28,6 +29,11 @@ export default defineComponent({
       // Open port-picker overlay
       picker: null,    // { roleId, resourceId, portsForResource }
       saving: false,
+      // Brief confirmation shown on the apply button right after a
+      // successful save, before it reverts to its normal label — the apply
+      // step is deliberately explicit (no auto-save), so it needs an
+      // unambiguous "this worked" signal, not just the loading state ending.
+      justApplied: false,
       lang: locale.current,
       // Type grants ("all printers in Homeoffice", ACL type-grants 2026-07-28) —
       // additive, always all-ports, scoped by site like the matrix itself, but
@@ -291,6 +297,8 @@ export default defineComponent({
           throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
         }
         await this.load();
+        this.justApplied = true;
+        setTimeout(() => { this.justApplied = false; }, 1200);
       } catch (e) {
         this.error = t("acl.error_apply", { error: e.message });
       } finally {
@@ -440,8 +448,9 @@ export default defineComponent({
           {{ dirtyBadgeLabel }}
         </span>
         <button class="btn btn-ghost btn-sm" :disabled="!dirty" @click="discardAll">{{ t('acl.discard_btn') }}</button>
-        <button class="btn btn-primary btn-sm" :disabled="!dirty || saving" @click="applyAll">
-          {{ saving ? t('acl.applying') : t('acl.apply_btn') }}
+        <button class="btn btn-primary btn-sm" :class="{ 'is-success': justApplied }" :disabled="!dirty || saving" @click="applyAll">
+          <template v-if="justApplied"><Icon name="check" :size="13" />{{ t('acl.applied') }}</template>
+          <template v-else>{{ saving ? t('acl.applying') : t('acl.apply_btn') }}</template>
         </button>
       </div>
     </div>
@@ -698,6 +707,7 @@ export default defineComponent({
     </div>
   `,
   components: {
+    Icon,
     PortPicker: {
       props: ["ports", "current"],
       emits: ["apply", "cancel"],

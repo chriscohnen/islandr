@@ -96,6 +96,13 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    // CIDR range size is known up front, so total is stable from the first
+    // poll — no indeterminate phase needed before showing real progress.
+    scanProgressPct() {
+      const { done, total } = this.scanProgress;
+      if (!total) return 0;
+      return Math.min(100, Math.round((done / total) * 100));
+    },
     // Never written into form.dnsName automatically — shown as a placeholder/
     // accept-chip only, so doing nothing before Save leaves the field exactly
     // as empty as it was, instead of silently keeping a value nobody chose.
@@ -848,11 +855,13 @@ export default defineComponent({
           </template>
 
           <template v-else-if="scanState === 'running'">
-            <div style="display: flex; align-items: center; gap: var(--space-2)">
-              <span style="width: 15px; height: 15px; flex: none; border-radius: 50%; border: 2px solid var(--fg2); border-top-color: transparent; animation: spin 0.7s linear infinite; display: inline-block"></span>
-              <p class="muted" style="margin: 0">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }} · {{ t('discovery.found', { n: scanFound }) }}</p>
+            <div class="progress" role="progressbar" :aria-valuenow="scanProgress.done" :aria-valuemin="0" :aria-valuemax="scanProgress.total">
+              <div class="progress-fill" :style="{ width: scanProgressPct + '%' }"></div>
             </div>
-            <p class="field-hint" style="margin: var(--space-2) 0 0">{{ t('discovery.running_hint') }}</p>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); margin-top: var(--space-2)">
+              <p class="muted" style="margin: 0">{{ t('discovery.running_hint') }}</p>
+              <p class="mono" style="margin: 0; font-size: var(--text-sm); color: var(--fg1); white-space: nowrap">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }} · {{ t('discovery.found', { n: scanFound }) }}</p>
+            </div>
           </template>
 
           <template v-else-if="scanState === 'error'">
