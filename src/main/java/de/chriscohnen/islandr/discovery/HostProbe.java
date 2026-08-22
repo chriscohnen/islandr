@@ -1,5 +1,7 @@
 package de.chriscohnen.islandr.discovery;
 
+import de.chriscohnen.islandr.dns.MdnsLookup;
+import de.chriscohnen.islandr.dns.NetBiosLookup;
 import de.chriscohnen.islandr.dns.PtrLookup;
 
 import java.io.IOException;
@@ -104,15 +106,28 @@ public class HostProbe {
         return new ProbeResult(ip, live, List.copyOf(open), hostname);
     }
 
-    /** Prefers a targeted PTR query against the site's configured local DNS
-     *  server (issue #45) — falls back to the system resolver when no site
-     *  DNS server is configured, or the targeted query comes back empty. */
+    /**
+     * Resolution order (issue #48, following on from #45): a router-registered
+     * PTR name (targeted against the site's configured DNS server, or the
+     * JVM's system resolver) is authoritative and tried first; mDNS and
+     * NetBIOS are both device-self-reported fallbacks for hosts no
+     * router/local resolver knows a name for. Any step may legitimately come
+     * up empty — the admin-typed baseline (handled by the caller, not here)
+     * is the final fallback when all three do.
+     */
     private String resolveHostname(String ip) {
         if (dnsServerIp != null && !dnsServerIp.isBlank()) {
             Optional<String> targeted = PtrLookup.lookup(ip, dnsServerIp, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
             if (targeted.isPresent()) return targeted.get();
         }
-        return reverseLookup(ip);
+        String system = reverseLookup(ip);
+        if (system != null) return system;
+
+        Optional<String> mdns = MdnsLookup.lookup(ip, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
+        if (mdns.isPresent()) return mdns.get();
+
+        Optional<String> netbios = NetBiosLookup.lookup(ip, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
+        return netbios.orElse(null);
     }
 
     /** Bounded reverse-DNS (PTR) lookup; returns the name, or null if none / on timeout. */

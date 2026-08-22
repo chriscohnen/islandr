@@ -151,6 +151,15 @@ final class DnsWireFormat {
      *  of just "would be forwarded"), never by the resolver's own listening
      *  path (which only ever relays a real client's own query bytes). */
     static byte[] buildQuery(int id, String name, int qtype) {
+        return buildQuery(id, name, qtype, CLASS_IN);
+    }
+
+    /** As {@link #buildQuery(int, String, int)}, with an explicit QCLASS —
+     *  used by {@link MdnsLookup} to set the top "QU" bit (0x8000) on top of
+     *  {@link #CLASS_IN}, requesting a unicast rather than multicast reply
+     *  (RFC 6762 §5.4), so a one-shot lookup doesn't need to join the mDNS
+     *  multicast group just to hear the answer. */
+    static byte[] buildQuery(int id, String name, int qtype, int qclass) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         writeU16(out, id);
         writeU16(out, 0x0100); // RD=1, standard query, everything else 0
@@ -166,7 +175,7 @@ final class DnsWireFormat {
         }
         out.write(0); // root label
         writeU16(out, qtype);
-        writeU16(out, CLASS_IN);
+        writeU16(out, qclass);
         return out.toByteArray();
     }
 
@@ -280,8 +289,11 @@ final class DnsWireFormat {
 
     /** Advances past one (possibly compressed) NAME field, returning the
      *  offset immediately after it. Compression pointers are always exactly
-     *  2 bytes and always terminate the name at that point (RFC 1035 §4.1.4). */
-    private static int skipName(byte[] data, int pos) {
+     *  2 bytes and always terminate the name at that point (RFC 1035 §4.1.4).
+     *  Package-visible: also used by {@link NetBiosLookup}, whose NBSTAT
+     *  response echoes the question name with the same length-prefixed /
+     *  compression-pointer wire shape. */
+    static int skipName(byte[] data, int pos) {
         while (true) {
             int len = data[pos] & 0xff;
             if (len == 0) return pos + 1;
