@@ -20,9 +20,15 @@ type Config struct {
 }
 
 // Executor runs one host command as an argument vector (never a shell string).
-// stdin, when non-nil, is fed to the process's standard input.
+// stdin, when non-nil, is fed to the process's standard input. sudo selects
+// whether the call escalates: wg/nft genuinely need root (ADR-0011); ping and
+// tracepath do not on a modern Linux host — iputils ping normally carries a
+// CAP_NET_RAW file capability (or the kernel's net.ipv4.ping_group_range sysctl
+// permits an unprivileged ICMP socket outright), and tracepath's UDP+PMTUD
+// approach needs no elevation at all (ADR-0025 §3). Escalating them anyway would
+// also fail outright here: islandr-proxy.sudoers only grants wg/nft, not ping.
 type Executor interface {
-	Run(name string, args []string, stdin []byte) (string, error)
+	Run(name string, args []string, stdin []byte, sudo bool) (string, error)
 }
 
 // Request is the line-delimited JSON the JVM ProxyClient sends. Field names match
@@ -90,23 +96,23 @@ func (h *Handler) dispatch(req Request) Response {
 		if !validKeyMaterial(req.Pubkey) {
 			return fail("invalid pubkey")
 		}
-		if _, err := h.exec.Run("wg", []string{"set", h.cfg.Iface, "peer", req.Pubkey, "remove"}, nil); err != nil {
+		if _, err := h.exec.Run("wg", []string{"set", h.cfg.Iface, "peer", req.Pubkey, "remove"}, nil, true); err != nil {
 			return fail("wg_remove_peer failed: " + err.Error())
 		}
 		return ok()
 	case "wg_show":
-		out, err := h.exec.Run("wg", []string{"show", h.cfg.Iface, "dump"}, nil)
+		out, err := h.exec.Run("wg", []string{"show", h.cfg.Iface, "dump"}, nil, true)
 		if err != nil {
 			return fail("wg_show failed: " + err.Error())
 		}
 		return Response{Ok: true, Dump: out}
 	case "nft_validate":
-		if _, err := h.exec.Run("nft", []string{"-c", "-f", h.cfg.RulesetPath}, nil); err != nil {
+		if _, err := h.exec.Run("nft", []string{"-c", "-f", h.cfg.RulesetPath}, nil, true); err != nil {
 			return fail("nft_validate failed: " + err.Error())
 		}
 		return ok()
 	case "nft_reload":
-		if _, err := h.exec.Run("nft", []string{"-f", h.cfg.RulesetPath}, nil); err != nil {
+		if _, err := h.exec.Run("nft", []string{"-f", h.cfg.RulesetPath}, nil, true); err != nil {
 			return fail("nft_reload failed: " + err.Error())
 		}
 		return ok()
@@ -139,7 +145,7 @@ func (h *Handler) netPing(req Request) Response {
 	if count <= 0 || count > maxPingCount {
 		count = 4
 	}
-	out, err := h.exec.Run("ping", []string{"-c", fmt.Sprint(count), "-W", fmt.Sprint(pingTimeoutSeconds), ip.String()}, nil)
+	out, err := h.exec.Run("ping", []string{"-c", fmt.Sprint(count), "-W", fmt.Sprint(pingTimeoutSeconds), ip.String()}, nil, false)
 	if err != nil {
 		// exec.Command surfaces a plain exit-status error for ping's exit 1 (loss) too;
 		// distinguish by re-running is unnecessary — h.exec.Run already returns stdout on
@@ -158,7 +164,7 @@ func (h *Handler) netTracepath(req Request) Response {
 	if ip == nil {
 		return fail("invalid ip")
 	}
-	out, err := h.exec.Run("tracepath", []string{ip.String()}, nil)
+	out, err := h.exec.Run("tracepath", []string{ip.String()}, nil, false)
 	if err != nil && out == "" {
 		return fail("net_tracepath failed: " + err.Error())
 	}
@@ -212,7 +218,7 @@ func (h *Handler) wgSetPeer(req Request) Response {
 		args = append(args, "preshared-key", pskPath)
 	}
 
-	if _, err := h.exec.Run("wg", args, nil); err != nil {
+	if _, err := h.exec.Run("wg", args, nil, true); err != nil {
 		return fail("wg_set_peer failed: " + err.Error())
 	}
 	return ok()

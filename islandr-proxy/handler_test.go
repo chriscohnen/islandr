@@ -12,13 +12,15 @@ import (
 type recordingExec struct {
 	calls [][]string
 	stdin [][]byte
+	sudo  []bool
 	out   string
 	err   error
 }
 
-func (e *recordingExec) Run(name string, args []string, stdin []byte) (string, error) {
+func (e *recordingExec) Run(name string, args []string, stdin []byte, sudo bool) (string, error) {
 	e.calls = append(e.calls, append([]string{name}, args...))
 	e.stdin = append(e.stdin, stdin)
+	e.sudo = append(e.sudo, sudo)
 	return e.out, e.err
 }
 
@@ -78,6 +80,9 @@ func TestValidRemovePeerExecutes(t *testing.T) {
 	if !equalArgs(ex.calls[0], want) {
 		t.Fatalf("wrong command\n got: %v\nwant: %v", ex.calls[0], want)
 	}
+	if !ex.sudo[0] {
+		t.Fatalf("wg_remove_peer must escalate via sudo (ADR-0011)")
+	}
 }
 
 // ADR-0025: net_ping/net_tracepath must reject a non-IP target before ever
@@ -109,6 +114,12 @@ func TestNetPingExecutesWithClampedCount(t *testing.T) {
 	if resp.Dump != ex.out {
 		t.Fatalf("expected raw ping stdout passed through, got: %q", resp.Dump)
 	}
+	// ADR-0025: ping needs no elevation on a modern Linux host (CAP_NET_RAW file
+	// capability or net.ipv4.ping_group_range) — and islandr-proxy.sudoers does
+	// not grant it anyway, so escalating here would just fail.
+	if ex.sudo[0] {
+		t.Fatalf("net_ping must not escalate via sudo")
+	}
 }
 
 // A `ping` exit status of 1 (100% packet loss) is a normal, informative result —
@@ -122,6 +133,19 @@ func TestNetPingWithPacketLossIsStillOk(t *testing.T) {
 	}
 	if resp.Dump != ex.out {
 		t.Fatalf("expected the loss report passed through, got: %q", resp.Dump)
+	}
+}
+
+// tracepath needs no elevation at all on Linux (UDP + PMTUD, ADR-0025 §3).
+func TestNetTracepathDoesNotEscalate(t *testing.T) {
+	ex := &recordingExec{out: " 1:  10.0.0.1  0.234ms\n"}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_tracepath","ip":"10.0.0.1"}`)))
+	if !resp.Ok {
+		t.Fatalf("valid net_tracepath should succeed, got error: %q", resp.Error)
+	}
+	if ex.sudo[0] {
+		t.Fatalf("net_tracepath must not escalate via sudo")
 	}
 }
 

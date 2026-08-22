@@ -33,9 +33,6 @@ public class NetworkDiagnosticsAdapterProducer {
     @ConfigProperty(name = "islandr.diag.mode")
     Optional<String> mode;
 
-    @ConfigProperty(name = "islandr.use-sudo", defaultValue = "false")
-    boolean useSudo;
-
     @ConfigProperty(name = "islandr.proxy.socket", defaultValue = "/run/islandr/proxy.sock")
     String proxySocket;
 
@@ -50,8 +47,8 @@ public class NetworkDiagnosticsAdapterProducer {
         String resolved = AdapterMode.resolve(mode, containerDetector.inContainer());
         switch (resolved) {
             case "real":
-                LOG.infof("NetworkDiagnosticsAdapter mode=real, useSudo=%s", useSudo);
-                return new RealNetworkDiagnosticsAdapter(useSudo);
+                LOG.info("NetworkDiagnosticsAdapter mode=real — ping/tracepath run unprivileged (ADR-0025 §3)");
+                return new RealNetworkDiagnosticsAdapter();
             case "socket":
                 LOG.infof("NetworkDiagnosticsAdapter mode=socket — talking to host proxy at %s (timeout %s)", proxySocket, proxyTimeout);
                 return new SocketNetworkDiagnosticsAdapter(new ProxyClient(Path.of(proxySocket), proxyTimeout));

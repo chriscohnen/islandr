@@ -17,9 +17,17 @@ import java.util.regex.Pattern;
  * {@link NetworkDiagnosticsAdapter} backed by the {@code ping}/{@code tracepath}/{@code mtr}
  * CLI tools (ADR-0025).
  *
- * <p>{@code ping} needs {@code sudo} on a native install (raw ICMP, same escalation shape as
- * {@code wg}/{@code nft} per ADR-0011); {@code tracepath} needs no elevation at all on Linux
- * (UDP + Path-MTU-Discovery) and is always invoked directly, {@code sudo} or not.
+ * <p>Neither {@code ping} nor {@code tracepath} is run through {@code sudo}, unlike
+ * {@code wg}/{@code nft} (ADR-0011). {@code tracepath}'s UDP + Path-MTU-Discovery approach needs
+ * no elevation at all on Linux. {@code ping} does not either on a modern host: {@code iputils}
+ * normally ships the binary with a {@code cap_net_raw} file capability rather than
+ * {@code setuid root}, and most distributions additionally set the
+ * {@code net.ipv4.ping_group_range} sysctl to permit an unprivileged ICMP socket outright. A host
+ * that genuinely lacks both simply fails the call with "Operation not permitted" in
+ * {@code stderr}, surfaced honestly as a {@link NetworkDiagnosticsException} (ADR-0025 §2)
+ * instead of being silently escalated — that failure is the operator's signal to fix the
+ * capability/sysctl locally rather than something this adapter should route around with
+ * {@code sudo} by default.
  *
  * <p>A lost ping (partial or total packet loss) is a normal, successful invocation — {@code ping}
  * exits {@code 1} on 100% loss, not an error. Only "tool missing" / "process would not start" /
@@ -32,12 +40,6 @@ public class RealNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
     private static final int PING_TIMEOUT_SECONDS = 2;
     private static final int CALL_TIMEOUT_SECONDS = 15;
 
-    private final boolean useSudo;
-
-    public RealNetworkDiagnosticsAdapter(boolean useSudo) {
-        this.useSudo = useSudo;
-    }
-
     @Override
     public Availability checkAvailability() {
         return new Availability(commandExists("ping"), commandExists("tracepath"), commandExists("mtr"));
@@ -49,9 +51,11 @@ public class RealNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
             throw new NetworkDiagnosticsException("ping not found — install iputils-ping to enable this probe");
         }
         String[] command = {"ping", "-c", String.valueOf(count), "-W", String.valueOf(PING_TIMEOUT_SECONDS), ip};
-        Run run = run(command, useSudo);
+        // Never sudo — see class doc comment.
+        Run run = run(command, false);
         // exit 0 (all replies) and exit 1 (some/all lost) both produce a parseable report;
-        // anything else (exit 2 = usage/DNS/socket error) means ping never actually probed.
+        // anything else (exit 2 = usage/DNS/socket error, including a permission failure on
+        // a host without CAP_NET_RAW/ping_group_range) means ping never actually probed.
         if (run.exitCode != 0 && run.exitCode != 1) {
             throw new NetworkDiagnosticsException("ping exited " + run.exitCode + ": " + run.stderr.trim());
         }

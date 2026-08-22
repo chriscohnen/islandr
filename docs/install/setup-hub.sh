@@ -69,10 +69,14 @@ islandr ALL=(root) NOPASSWD: /usr/bin/wg set $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE dump
-# Network diagnostics (ADR-0025): fixed flags, sample count pinned to 4 server-side
-# (NetworkDiagnosticsResource never forwards an admin-controlled count). tracepath
-# needs no elevation on Linux at all and is invoked directly, no sudoers line for it.
-islandr ALL=(root) NOPASSWD: /usr/bin/ping -c 4 -W 2 *
+# Network diagnostics (ADR-0025) deliberately have no entry here: neither ping
+# nor tracepath is run through sudo. tracepath needs no elevation on Linux at
+# all; ping normally doesn't either on a modern host — iputils ships the binary
+# with a cap_net_raw file capability, or the distro's net.ipv4.ping_group_range
+# sysctl permits an unprivileged ICMP socket outright. If your host has neither
+# and pings fail with "Operation not permitted", the fix is local to the host
+# (setcap cap_net_raw+ep \$(command -v ping), or widen ping_group_range) — not
+# a sudoers entry, which islandr's ping invocation would not use anyway.
 SUDOERS
 chmod 0440 /etc/sudoers.d/islandr
 
