@@ -33,6 +33,7 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0023](0023-resource-dns-resolver-hand-rolled.md) | Resource-name DNS resolver: hand-rolled UDP/TCP server, not a library | Accepted | 2026-08-05 |
 | [0024](0024-direct-user-resource-grants.md) | Direct User-Resource grants, alongside Role-Resource grants | Accepted | 2026-08-11 |
 | [0025](0025-network-diagnostic-helpers.md) | Network diagnostic helpers (ping/path latency) via unprivileged-shell CLI tools, surfaced on Atlas | Accepted | 2026-08-22 |
+| [0026](0026-external-api-facade.md) | External API facade: API keys, separate resource surface, hand-written OpenAPI spec | Accepted | 2026-08-22 |
 
 ## Status legend
 
