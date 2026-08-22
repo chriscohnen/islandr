@@ -4,6 +4,8 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.firewall.RulesetService;
+import de.chriscohnen.islandr.network.NetworkDiagnosticsDto;
+import de.chriscohnen.islandr.network.NetworkDiagnosticsService;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import io.quarkus.panache.common.Sort;
 import jakarta.inject.Inject;
@@ -35,6 +37,7 @@ public class PeerResource {
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
     @Inject WgAdapter wg;
+    @Inject NetworkDiagnosticsService diag;
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
     @GET
@@ -362,6 +365,54 @@ public class PeerResource {
         audit.logDelete(a.principal(), "peer.delete", "Peer:" + peerName + " (" + id + ")", beforeMap);
         rulesets.recomputeFromHook();
         return Response.noContent().build();
+    }
+
+    // ── network diagnostics (ADR-0025) — pinging a site's gateway peer directly ──
+    // Distinct from ResourceResource's ping: this tests the tunnel itself (the
+    // peer's own WireGuard IP), not a resource behind it. Target is always an
+    // existing Peer (R-181, never a free-text address).
+
+    @POST
+    @Path("/{id}/diagnostics/ping")
+    public NetworkDiagnosticsDto.PingResponse ping(
+            @Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Peer peer = requirePeer(id);
+        return diag.ping("peer:" + id, a.principal(), "Peer:" + peer.name + " (" + id + ")",
+                id, peer.name, peer.assignedIp, diagnosticsPath(peer));
+    }
+
+    @POST
+    @Path("/{id}/diagnostics/tracepath")
+    public NetworkDiagnosticsDto.TracepathResponse tracepath(
+            @Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Peer peer = requirePeer(id);
+        return diag.tracepath("peer:" + id, a.principal(), "Peer:" + peer.name + " (" + id + ")",
+                id, peer.name, peer.assignedIp, diagnosticsPath(peer));
+    }
+
+    @POST
+    @Path("/{id}/diagnostics/mtr")
+    public NetworkDiagnosticsDto.MtrResponse mtr(
+            @Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Peer peer = requirePeer(id);
+        return diag.mtr("peer:" + id, a.principal(), "Peer:" + peer.name + " (" + id + ")",
+                id, peer.name, peer.assignedIp, diagnosticsPath(peer));
+    }
+
+    /** hub → the peer itself — no further hop, since the peer *is* the probe target here. */
+    private static List<NetworkDiagnosticsDto.PathHop> diagnosticsPath(Peer peer) {
+        return List.of(
+                new NetworkDiagnosticsDto.PathHop("hub", null, "Hub", null),
+                new NetworkDiagnosticsDto.PathHop("peer", peer.id, peer.name, peer.assignedIp));
+    }
+
+    private Peer requirePeer(String id) {
+        Peer p = Peer.findById(id);
+        if (p == null) throw new NotFoundException("peer not found: " + id);
+        return p;
     }
 
     /** Full snapshot for create/delete audit — captures every relevant field. */

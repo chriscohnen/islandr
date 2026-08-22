@@ -18,6 +18,7 @@ export default defineComponent({
       selectedRoleId: "", // "" = direct user-grant mode
       selectedUserId: null, // focused user (click-select in direct mode) — only their edges render
       selectedResourceId: null, // focused resource (click-select) — only edges reaching it render
+      selectedPeerId: null, // focused site-gateway peer (ADR-0025 diagnostics target) — no edge filtering
       lang: locale.current,
       grantDialog: null, // { subjectType, subjectId, resourceId, subjectName, resourceName, kind, allPorts, portIds, ports }
       grantSaving: false,
@@ -35,7 +36,7 @@ export default defineComponent({
       // action can gray itself out instead of offering a probe that will just
       // fail; diagModal holds the live state of one open probe dialog.
       diagAvailability: null,
-      diagModal: null, // { resourceId, resourceName, path, ping, pingLoading, pingError, tracepath, traceLoading, traceError }
+      diagModal: null, // { targetKind: "resource"|"peer", targetId, targetName, path, ping, pingLoading, pingError, tracepath, traceLoading, traceError }
     };
   },
   computed: {
@@ -64,10 +65,32 @@ export default defineComponent({
       const r = this.graph.resources.find((r) => r.id === this.selectedResourceId);
       return r ? r.name : this.selectedResourceId;
     },
+    focusedPeerName() {
+      if (!this.selectedPeerId) return "";
+      return (this._lastPeerClick && this._lastPeerClick.peerId === this.selectedPeerId)
+          ? this._lastPeerClick.peerName : this.selectedPeerId;
+    },
     focusLabel() {
       if (this.selectedUserId) return t("atlas.focus_user", { user: this.focusedUserName || " " });
       if (this.selectedResourceId) return t("atlas.focus_resource", { resource: this.focusedResourceName || " " });
+      if (this.selectedPeerId) return t("atlas.focus_peer", { peer: this.focusedPeerName || " " });
       return "";
+    },
+    // Drives the probed-path overlay on the diagram (ADR-0025 §5): the label
+    // shown at the last segment's midpoint and whether it's drawn green or
+    // red. Based on the ping result specifically — ping always runs first
+    // when the dialog opens, so it's the one result guaranteed to exist as
+    // soon as there's a path to draw at all.
+    probeLabel() {
+      const ping = this.diagModal && this.diagModal.ping;
+      if (!ping) return "";
+      return ping.reachable
+          ? t("atlas.diagnostics_overlay_ms", { ms: ping.avgMs })
+          : t("atlas.diagnostics_overlay_loss", { loss: ping.lossPercent });
+    },
+    probeReachable() {
+      const ping = this.diagModal && this.diagModal.ping;
+      return ping ? !!ping.reachable : true;
     },
     stats() {
       if (!this.graph) return { sites: 0, devices: 0, users: 0, grants: 0 };
@@ -184,7 +207,7 @@ export default defineComponent({
       if (this.diagModal) this.closeDiagnostics();
       else if (this.grantDialog) this.cancelGrantDialog();
       else if (this.revokeConfirm) this.cancelRevokeConfirm();
-      else if (this.selectedUserId || this.selectedResourceId) this.clearFocus();
+      else if (this.selectedUserId || this.selectedResourceId || this.selectedPeerId) this.clearFocus();
     });
   },
   beforeUnmount() {
@@ -203,11 +226,13 @@ export default defineComponent({
         if (!this.highlightedUserIds.includes(userId)) {
           this.selectedRoleId = "";
           this.selectedResourceId = null;
+          this.selectedPeerId = null;
           this.selectedUserId = userId;
         }
         return;
       }
       this.selectedResourceId = null;
+      this.selectedPeerId = null;
       this.selectedUserId = this.selectedUserId === userId ? null : userId;
     },
 
@@ -218,12 +243,26 @@ export default defineComponent({
     onResourceClick(resourceId) {
       this.selectedRoleId = "";
       this.selectedUserId = null;
+      this.selectedPeerId = null;
       this.selectedResourceId = this.selectedResourceId === resourceId ? null : resourceId;
+    },
+
+    // Clicking a site's gateway diamond (ADR-0025) — only fires when the
+    // site actually has a gateway peer (AtlasDiagram no-ops otherwise).
+    // Its own focus mode, mutually exclusive with user/resource focus but
+    // deliberately NOT touching the role picker or edge filtering — picking
+    // a peer to ping is not a grant-graph question.
+    onPeerClick({ peerId, peerName, siteName }) {
+      this.selectedUserId = null;
+      this.selectedResourceId = null;
+      this.selectedPeerId = this.selectedPeerId === peerId ? null : peerId;
+      this._lastPeerClick = { peerId, peerName, siteName };
     },
 
     clearFocus() {
       this.selectedUserId = null;
       this.selectedResourceId = null;
+      this.selectedPeerId = null;
     },
 
     toggleTypeFilter(type) {
@@ -423,6 +462,7 @@ export default defineComponent({
     pathHopLabel(hop) {
       if (hop.kind === "hub") return t("atlas.diagnostics_hop_hub");
       if (hop.kind === "site-gateway") return t("atlas.diagnostics_hop_gateway", { peer: hop.name, site: hop.detail });
+      if (hop.kind === "peer") return hop.name; // the peer itself is the destination — no further detail to show
       return hop.name + (hop.detail ? " (" + hop.detail + ")" : "");
     },
 
@@ -432,13 +472,27 @@ export default defineComponent({
           : t("atlas.diagnostics_hop_no_reply", { ttl: hop.ttl });
     },
 
+    // targetKind selects the endpoint base — /api/v1/resources/{id} for a
+    // Resource, /api/v1/peers/{id} for a site's gateway peer probed directly
+    // (ADR-0025). Same modal, same ping/tracepath UI either way.
     openDiagnostics(resourceId) {
       const resource = this.graph.resources.find((r) => r.id === resourceId);
       if (!resource) return;
       this.diagModal = {
-        resourceId, resourceName: resource.name,
+        targetKind: "resource", targetId: resourceId, targetName: resource.name,
         path: null, ping: null, pingLoading: true, pingError: null,
         tracepath: null, traceLoading: false, traceError: null,
+        mtr: null, mtrLoading: false, mtrError: null,
+      };
+      this.runPing();
+    },
+
+    openDiagnosticsForPeer(peerId, peerName) {
+      this.diagModal = {
+        targetKind: "peer", targetId: peerId, targetName: peerName || peerId,
+        path: null, ping: null, pingLoading: true, pingError: null,
+        tracepath: null, traceLoading: false, traceError: null,
+        mtr: null, mtrLoading: false, mtrError: null,
       };
       this.runPing();
     },
@@ -447,13 +501,17 @@ export default defineComponent({
       this.diagModal = null;
     },
 
+    diagBaseUrl(m) {
+      return m.targetKind === "peer" ? "/api/v1/peers/" + m.targetId : "/api/v1/resources/" + m.targetId;
+    },
+
     async runPing() {
       if (!this.diagModal) return;
       const m = this.diagModal;
       m.pingLoading = true;
       m.pingError = null;
       try {
-        const res = await fetch("/api/v1/resources/" + m.resourceId + "/diagnostics/ping", { method: "POST" });
+        const res = await fetch(this.diagBaseUrl(m) + "/diagnostics/ping", { method: "POST" });
         if (!res.ok) {
           const body = await res.text();
           throw new Error(body || ("HTTP " + res.status));
@@ -474,7 +532,7 @@ export default defineComponent({
       m.traceLoading = true;
       m.traceError = null;
       try {
-        const res = await fetch("/api/v1/resources/" + m.resourceId + "/diagnostics/tracepath", { method: "POST" });
+        const res = await fetch(this.diagBaseUrl(m) + "/diagnostics/tracepath", { method: "POST" });
         if (!res.ok) {
           const body = await res.text();
           throw new Error(body || ("HTTP " + res.status));
@@ -486,6 +544,27 @@ export default defineComponent({
         m.traceError = t("atlas.diagnostics_error", { error: e.message });
       } finally {
         m.traceLoading = false;
+      }
+    },
+
+    async runMtr() {
+      if (!this.diagModal) return;
+      const m = this.diagModal;
+      m.mtrLoading = true;
+      m.mtrError = null;
+      try {
+        const res = await fetch(this.diagBaseUrl(m) + "/diagnostics/mtr", { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || ("HTTP " + res.status));
+        }
+        const data = await res.json();
+        m.mtr = data;
+        m.path = data.path;
+      } catch (e) {
+        m.mtrError = t("atlas.diagnostics_error", { error: e.message });
+      } finally {
+        m.mtrLoading = false;
       }
     },
   },
@@ -553,18 +632,19 @@ export default defineComponent({
            same user node (select, then click again to deselect), landing
            the second click on whatever node the page reflow put under the
            still-stationary cursor instead of the one the admin meant. -->
-      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId) ? 'visible' : 'hidden' }">
+      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId || selectedPeerId) ? 'visible' : 'hidden' }">
         {{ focusLabel || ' ' }}
-        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId) ? 0 : -1">✕</button>
+        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId || selectedPeerId) ? 0 : -1">✕</button>
       </span>
 
-      <!-- ADR-0025: a probe target is always a focused, known Resource — never free text.
-           Grayed out (not hidden) with an actionable title when ping itself is missing on
-           the hub — same "degrade honestly" posture as the DNS resolver's own status page. -->
-      <button v-if="selectedResourceId" class="btn btn-ghost btn-sm"
+      <!-- ADR-0025: a probe target is always a focused, known Resource or the
+           site's own gateway peer — never free text. Grayed out (not hidden)
+           with an actionable title when ping itself is missing on the hub —
+           same "degrade honestly" posture as the DNS resolver's own status page. -->
+      <button v-if="selectedResourceId || selectedPeerId" class="btn btn-ghost btn-sm"
               :disabled="diagAvailability && !diagAvailability.ping"
               :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
-              @click="openDiagnostics(selectedResourceId)">
+              @click="selectedPeerId ? openDiagnosticsForPeer(selectedPeerId, focusedPeerName) : openDiagnostics(selectedResourceId)">
         <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action') }}
       </button>
 
@@ -591,8 +671,10 @@ export default defineComponent({
     <template v-else-if="graph">
       <div class="card card-pad">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
+                       :selected-peer-id="selectedPeerId"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
-                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" />
+                       :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
+                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />
       </div>
 
       <div class="card card-pad" style="margin-top: var(--space-4)">
@@ -688,7 +770,7 @@ export default defineComponent({
     <div v-if="diagModal" class="modal-backdrop" @click.self="closeDiagnostics">
       <div class="modal">
         <div class="modal-header">
-          <h2>{{ t('atlas.diagnostics_title', { resource: diagModal.resourceName }) }}</h2>
+          <h2>{{ t('atlas.diagnostics_title', { resource: diagModal.targetName }) }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeDiagnostics">✕</button>
         </div>
         <div class="modal-body">
@@ -739,6 +821,37 @@ export default defineComponent({
                     :title="diagAvailability && !diagAvailability.tracepath ? t('atlas.diagnostics_unavailable', { tool: 'tracepath' }) : ''"
                     @click="runTracepath">
               {{ t('atlas.diagnostics_run_tracepath') }}
+            </button>
+          </div>
+
+          <!-- mtr (ADR-0025 §1): opportunistic upgrade over tracepath — per-hop
+               loss % and aggregated RTT over several cycles, not just one shot.
+               Only offered when actually detected on the hub; tracepath above
+               always stays available as the baseline either way. -->
+          <div v-if="diagAvailability && diagAvailability.mtr" style="margin-top: var(--space-4)">
+            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+              {{ t('atlas.diagnostics_mtr_title') }}
+            </h3>
+            <div v-if="diagModal.mtrLoading" class="muted">{{ t('common.loading') }}</div>
+            <div v-else-if="diagModal.mtrError" class="error-banner">{{ diagModal.mtrError }}</div>
+            <table v-else-if="diagModal.mtr" class="table" style="font-size: var(--text-sm)">
+              <thead>
+                <tr>
+                  <th>{{ t('atlas.diagnostics_mtr_th_hop') }}</th>
+                  <th>{{ t('atlas.diagnostics_mtr_th_loss') }}</th>
+                  <th>{{ t('atlas.diagnostics_mtr_th_avg') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="hop in diagModal.mtr.hops" :key="hop.ttl">
+                  <td class="mono">{{ hop.ttl }}. {{ hop.host || t('atlas.diagnostics_hop_no_reply_short') }}</td>
+                  <td class="mono">{{ hop.lossPercent }}%</td>
+                  <td class="mono">{{ hop.avgMs != null ? hop.avgMs + ' ms' : '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <button v-else class="btn btn-ghost btn-sm" @click="runMtr">
+              {{ t('atlas.diagnostics_run_mtr') }}
             </button>
           </div>
         </div>

@@ -4,9 +4,8 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.firewall.RulesetService;
-import de.chriscohnen.islandr.network.NetworkDiagnosticsAdapter;
 import de.chriscohnen.islandr.network.NetworkDiagnosticsDto;
-import de.chriscohnen.islandr.network.NetworkDiagnosticsException;
+import de.chriscohnen.islandr.network.NetworkDiagnosticsService;
 import de.chriscohnen.islandr.peer.Peer;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
@@ -18,18 +17,14 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Direct routes on a {@link Resource}: get/update/delete + the port subresource.
@@ -40,19 +35,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @Consumes(MediaType.APPLICATION_JSON)
 public class ResourceResource {
 
-    /** Fixed, not admin-tunable — ADR-0025 R-183: bounded sample count regardless of caller input. */
-    private static final int PING_COUNT = 4;
-
-    /** Minimum spacing between two probes against the *same* resource — ADR-0025 R-183/T-018. */
-    private static final Duration DIAGNOSTICS_COOLDOWN = Duration.ofSeconds(3);
-
-    private static final Map<String, Instant> lastProbeAt = new ConcurrentHashMap<>();
-
     @Inject ResourceService resources;
     @Inject PortGroupService portGroups;
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
-    @Inject NetworkDiagnosticsAdapter diagnostics;
+    @Inject NetworkDiagnosticsService diag;
 
     @GET
     public List<ResourceDto.Response> listAll(@Context ContainerRequestContext ctx) {
@@ -234,21 +221,9 @@ public class ResourceResource {
                                                     @PathParam("id") String id) {
         AuthContext a = Auth.requireAdmin(ctx);
         Resource resource = resources.get(id);
-        requireDiagnosticsCooldownElapsed(id);
         List<NetworkDiagnosticsDto.PathHop> path = resolveDiagnosticsPath(resource);
-        try {
-            NetworkDiagnosticsAdapter.PingResult r = diagnostics.ping(resource.ip, PING_COUNT);
-            audit.logEvent(a.principal(), "diagnostics.ping", "Resource:" + resource.name + " (" + id + ")",
-                    Map.of("ip", resource.ip, "reachable", r.reachable(), "lossPercent", r.lossPercent(),
-                            "avgMs", r.avgMs() != null ? r.avgMs() : -1));
-            return new NetworkDiagnosticsDto.PingResponse(id, resource.name, resource.ip,
-                    r.reachable(), r.sent(), r.received(), r.lossPercent(),
-                    r.minMs(), r.avgMs(), r.maxMs(), r.mdevMs(), path);
-        } catch (NetworkDiagnosticsException e) {
-            audit.logEvent(a.principal(), "diagnostics.ping_failed", "Resource:" + resource.name + " (" + id + ")",
-                    Map.of("ip", resource.ip, "error", e.getMessage()));
-            throw diagnosticsUnavailable(e.getMessage());
-        }
+        return diag.ping("resource:" + id, a.principal(), "Resource:" + resource.name + " (" + id + ")",
+                id, resource.name, resource.ip, path);
     }
 
     @POST
@@ -257,22 +232,20 @@ public class ResourceResource {
                                                               @PathParam("id") String id) {
         AuthContext a = Auth.requireAdmin(ctx);
         Resource resource = resources.get(id);
-        requireDiagnosticsCooldownElapsed(id);
         List<NetworkDiagnosticsDto.PathHop> path = resolveDiagnosticsPath(resource);
-        try {
-            NetworkDiagnosticsAdapter.TracepathResult r = diagnostics.tracepath(resource.ip);
-            audit.logEvent(a.principal(), "diagnostics.tracepath", "Resource:" + resource.name + " (" + id + ")",
-                    Map.of("ip", resource.ip, "hops", r.hops().size()));
-            List<NetworkDiagnosticsDto.TracepathHopView> hops = new ArrayList<>();
-            for (NetworkDiagnosticsAdapter.TracepathHop h : r.hops()) {
-                hops.add(new NetworkDiagnosticsDto.TracepathHopView(h.ttl(), h.host(), h.ms()));
-            }
-            return new NetworkDiagnosticsDto.TracepathResponse(id, resource.name, resource.ip, hops, path);
-        } catch (NetworkDiagnosticsException e) {
-            audit.logEvent(a.principal(), "diagnostics.tracepath_failed", "Resource:" + resource.name + " (" + id + ")",
-                    Map.of("ip", resource.ip, "error", e.getMessage()));
-            throw diagnosticsUnavailable(e.getMessage());
-        }
+        return diag.tracepath("resource:" + id, a.principal(), "Resource:" + resource.name + " (" + id + ")",
+                id, resource.name, resource.ip, path);
+    }
+
+    @POST
+    @Path("/{id}/diagnostics/mtr")
+    public NetworkDiagnosticsDto.MtrResponse mtr(@Context ContainerRequestContext ctx,
+                                                  @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Resource resource = resources.get(id);
+        List<NetworkDiagnosticsDto.PathHop> path = resolveDiagnosticsPath(resource);
+        return diag.mtr("resource:" + id, a.principal(), "Resource:" + resource.name + " (" + id + ")",
+                id, resource.name, resource.ip, path);
     }
 
     /**
@@ -292,20 +265,5 @@ public class ResourceResource {
         }
         path.add(new NetworkDiagnosticsDto.PathHop("resource", resource.id, resource.name, resource.ip));
         return path;
-    }
-
-    /** ADR-0025 R-183/T-018: refuses a probe fired again against the same resource inside the cooldown. */
-    private void requireDiagnosticsCooldownElapsed(String resourceId) {
-        Instant now = Instant.now();
-        Instant previous = lastProbeAt.put(resourceId, now);
-        if (previous != null && Duration.between(previous, now).compareTo(DIAGNOSTICS_COOLDOWN) < 0) {
-            lastProbeAt.put(resourceId, previous); // don't let a rejected call reset the window
-            throw new WebApplicationException(Response.status(429)
-                    .entity("probe already running for this resource — wait a moment and retry").build());
-        }
-    }
-
-    private WebApplicationException diagnosticsUnavailable(String message) {
-        return new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE).entity(message).build());
     }
 }

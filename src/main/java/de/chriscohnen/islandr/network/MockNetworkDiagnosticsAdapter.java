@@ -43,6 +43,19 @@ public class MockNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
         ), "mock: path to " + ip);
     }
 
+    @Override
+    public MtrResult mtr(String ip, int cycles) {
+        if (forceUnreachable) {
+            return new MtrResult(List.of(new MtrHop(1, null, 100.0, cycles, null, null, null, null)),
+                    "mock: " + ip + " no reply");
+        }
+        double base = 1 + (hash(ip) % 40);
+        return new MtrResult(List.of(
+                new MtrHop(1, "10.0.0.1", 0.0, cycles, base * 0.3, base * 0.3, base * 0.25, base * 0.4),
+                new MtrHop(2, ip, 0.0, cycles, base, base, base - 1, base + 1.5)
+        ), "mock: mtr report to " + ip);
+    }
+
     private static long hash(String s) {
         CRC32 crc = new CRC32();
         crc.update(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));

@@ -161,6 +161,34 @@ func TestNetTracepathRejectsNonIpTarget(t *testing.T) {
 	}
 }
 
+func TestNetMtrRejectsNonIpTarget(t *testing.T) {
+	ex := &recordingExec{}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_mtr","ip":"; rm -rf /"}`)))
+	if resp.Ok {
+		t.Fatalf("non-IP target must not be ok")
+	}
+	if len(ex.calls) != 0 {
+		t.Fatalf("non-IP target must not execute anything, ran: %v", ex.calls)
+	}
+}
+
+func TestNetMtrExecutesWithClampedCycles(t *testing.T) {
+	ex := &recordingExec{out: "1.|-- 10.0.0.1   0.0%   4   0.4   0.5   0.4   0.6   0.1"}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_mtr","ip":"10.0.0.1","count":999}`)))
+	if !resp.Ok {
+		t.Fatalf("valid net_mtr should succeed, got error: %q", resp.Error)
+	}
+	want := []string{"mtr", "--report", "--report-cycles", "4", "-n", "10.0.0.1"}
+	if !equalArgs(ex.calls[0], want) {
+		t.Fatalf("out-of-range cycles must be clamped\n got: %v\nwant: %v", ex.calls[0], want)
+	}
+	if ex.sudo[0] {
+		t.Fatalf("net_mtr must not escalate via sudo")
+	}
+}
+
 func TestNetAvailabilityNeverExecutes(t *testing.T) {
 	ex := &recordingExec{}
 	h := NewHandler(ex, testConfig())

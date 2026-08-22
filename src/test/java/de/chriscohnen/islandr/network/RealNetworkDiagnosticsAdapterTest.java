@@ -108,6 +108,44 @@ class RealNetworkDiagnosticsAdapterTest {
     }
 
     @Test
+    void parseMtrOutput_hopsWithLossAndAggregatedRtt() throws Exception {
+        String output = """
+                Start: 2026-08-22T10:00:00+0000
+                HOST: hub                        Loss%   Snt   Last   Avg  Best  Wrst StDev
+                  1.|-- 10.0.0.1                   0.0%     4    0.4   0.5   0.4   0.6   0.1
+                  2.|-- 93.184.216.34              0.0%     4   12.3  12.5  12.1  13.0   0.3
+                """;
+        NetworkDiagnosticsAdapter.MtrResult r =
+                (NetworkDiagnosticsAdapter.MtrResult) invoke("parseMtrOutput", new Class<?>[]{String.class}, output);
+
+        assertThat(r.hops()).hasSize(2);
+        assertThat(r.hops().get(0).ttl()).isEqualTo(1);
+        assertThat(r.hops().get(0).host()).isEqualTo("10.0.0.1");
+        assertThat(r.hops().get(0).lossPercent()).isEqualTo(0.0);
+        assertThat(r.hops().get(0).sent()).isEqualTo(4);
+        assertThat(r.hops().get(0).avgMs()).isEqualTo(0.5);
+        assertThat(r.hops().get(1).host()).isEqualTo("93.184.216.34");
+        assertThat(r.hops().get(1).avgMs()).isEqualTo(12.5);
+    }
+
+    @Test
+    void parseMtrOutput_noReplyHopKeepsLossWithNullHostAndRtt() throws Exception {
+        String output = """
+                Start: 2026-08-22T10:00:00+0000
+                HOST: hub                        Loss%   Snt   Last   Avg  Best  Wrst StDev
+                  1.|-- ???                      100.0%     4    0.0   0.0   0.0   0.0   0.0
+                  2.|-- 10.0.0.2                   0.0%     4    1.2   1.3   1.1   1.5   0.2
+                """;
+        NetworkDiagnosticsAdapter.MtrResult r =
+                (NetworkDiagnosticsAdapter.MtrResult) invoke("parseMtrOutput", new Class<?>[]{String.class}, output);
+
+        assertThat(r.hops()).hasSize(2);
+        assertThat(r.hops().get(0).host()).isNull();
+        assertThat(r.hops().get(0).lossPercent()).isEqualTo(100.0);
+        assertThat(r.hops().get(0).avgMs()).isNull();
+    }
+
+    @Test
     void commandExists_findsSomethingAlwaysOnPathInCi() throws Exception {
         // "sh" is present on every CI/dev host this project targets (Linux, macOS).
         assertThat((Boolean) invoke("commandExists", new Class<?>[]{String.class}, "sh")).isTrue();

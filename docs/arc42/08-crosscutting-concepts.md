@@ -62,7 +62,7 @@ The `%test` profile uses `jdbc:sqlite:file::memory:?cache=shared`, Flyway `clean
 | Dashboard endpoint | Online peer count, firewall last-reload timestamp and status, nftables rule count | `GET /api/v1/status`, Admin Console dashboard |
 | Activity samples | Per-peer: last handshake, rx/tx bytes (30s polling, 30d retention) | `GET /api/v1/peers/{id}/activity` |
 | Discovery audit events | `discovery.scan_started` (actor, site, CIDR, host count) and `discovery.import` (actor, site, created IPs) — a scan reaches into a remote network, so who scanned what, and when, is on the record (T-013) | `GET /api/v1/audit`, Admin Console audit view |
-| Diagnostics audit events | `diagnostics.ping`/`diagnostics.tracepath` (actor, resource, ip, result) on success, `diagnostics.ping_failed`/`diagnostics.tracepath_failed` (actor, resource, ip, error) when the tool is missing or the invocation fails — same "who probed what, and when" record as discovery (T-018) | `GET /api/v1/audit`, Admin Console audit view |
+| Diagnostics audit events | `diagnostics.ping`/`diagnostics.tracepath`/`diagnostics.mtr` (actor, target, ip, result) on success, `diagnostics.*_failed` (actor, target, ip, error) when the tool is missing or the invocation fails — target is a Resource or a site's own gateway Peer; same "who probed what, and when" record as discovery (T-018) | `GET /api/v1/audit`, Admin Console audit view |
 
 There is no metrics endpoint (Prometheus/OpenTelemetry) in v1. The dashboard endpoint covers operational state. Adding Micrometer is a low-friction next step if monitoring integration is required.
 

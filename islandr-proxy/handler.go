@@ -125,6 +125,8 @@ func (h *Handler) dispatch(req Request) Response {
 		return h.netPing(req)
 	case "net_tracepath":
 		return h.netTracepath(req)
+	case "net_mtr":
+		return h.netMtr(req)
 	default:
 		return fail("unknown op: " + req.Op)
 	}
@@ -167,6 +169,27 @@ func (h *Handler) netTracepath(req Request) Response {
 	out, err := h.exec.Run("tracepath", []string{ip.String()}, nil, false)
 	if err != nil && out == "" {
 		return fail("net_tracepath failed: " + err.Error())
+	}
+	return Response{Ok: true, Dump: out}
+}
+
+// netMtr runs `mtr --report --report-cycles <count> -n <ip>` — never sudo, same
+// reasoning as net_ping (ADR-0025 §3): mtr needs no more elevation than ping does
+// on a modern host, and it's opportunistic-only besides (ADR-0025 §1). Reuses
+// Count/maxPingCount rather than a separate field/cap — "how many probes per
+// hop" is the same server-side-bounded concept net_ping already has.
+func (h *Handler) netMtr(req Request) Response {
+	ip := net.ParseIP(req.Ip)
+	if ip == nil {
+		return fail("invalid ip")
+	}
+	cycles := req.Count
+	if cycles <= 0 || cycles > maxPingCount {
+		cycles = 4
+	}
+	out, err := h.exec.Run("mtr", []string{"--report", "--report-cycles", fmt.Sprint(cycles), "-n", ip.String()}, nil, false)
+	if err != nil {
+		return fail("net_mtr failed: " + err.Error())
 	}
 	return Response{Ok: true, Dump: out}
 }

@@ -60,4 +60,14 @@ public class SocketNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapte
         String dump = response.body().path("dump").asText("");
         return RealNetworkDiagnosticsAdapter.parseTracepathOutput(dump);
     }
+
+    @Override
+    public MtrResult mtr(String ip, int cycles) {
+        ProxyResponse response = client.send(Map.of("op", "net_mtr", "ip", ip, "count", cycles));
+        if (!response.ok()) {
+            throw new NetworkDiagnosticsException("net_mtr failed: " + response.error());
+        }
+        String dump = response.body().path("dump").asText("");
+        return RealNetworkDiagnosticsAdapter.parseMtrOutput(dump);
+    }
 }

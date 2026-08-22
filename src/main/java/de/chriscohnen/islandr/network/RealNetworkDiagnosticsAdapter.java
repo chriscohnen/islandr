@@ -75,6 +75,20 @@ public class RealNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
         return parseTracepathOutput(run.stdout);
     }
 
+    @Override
+    public MtrResult mtr(String ip, int cycles) {
+        if (!commandExists("mtr")) {
+            throw new NetworkDiagnosticsException("mtr not found — install mtr to enable richer path diagnosis");
+        }
+        // Never sudo — mtr needs no more elevation than ping does on a modern host (same
+        // cap_net_raw/ping_group_range story), and it's opportunistic-only besides (ADR-0025 §1).
+        Run run = run(new String[]{"mtr", "--report", "--report-cycles", String.valueOf(cycles), "-n", ip}, false);
+        if (run.exitCode != 0) {
+            throw new NetworkDiagnosticsException("mtr exited " + run.exitCode + ": " + run.stderr.trim());
+        }
+        return parseMtrOutput(run.stdout);
+    }
+
     // ── parsing (static, unit-testable without shelling out; reused by SocketNetworkDiagnosticsAdapter) ──
 
     private static final Pattern STATS_LINE = Pattern.compile(
@@ -125,6 +139,32 @@ public class RealNetworkDiagnosticsAdapter implements NetworkDiagnosticsAdapter 
             hops.add(new TracepathHop(ttl, noReply ? null : host, ms));
         }
         return new TracepathResult(hops, output);
+    }
+
+    // Matches an `mtr --report -n` hop line, e.g.:
+    //   1.|-- 10.0.0.1                  0.0%     4    0.4   0.5   0.4   0.6   0.1
+    // Columns: ttl, host, loss%, sent, last, avg, best, worst, stdev (stdev unused here).
+    private static final Pattern MTR_LINE = Pattern.compile(
+            "^\\s*(\\d+)\\.\\|--\\s+(\\S+)\\s+([\\d.]+)%\\s+(\\d+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)");
+
+    /** Parses {@code mtr --report} stdout. Visible for tests. */
+    static MtrResult parseMtrOutput(String output) {
+        List<MtrHop> hops = new ArrayList<>();
+        for (String line : output.split("\n")) {
+            Matcher m = MTR_LINE.matcher(line);
+            if (!m.find()) continue;
+            int ttl = Integer.parseInt(m.group(1));
+            String host = m.group(2);
+            boolean noReply = "???".equals(host);
+            double loss = Double.parseDouble(m.group(3));
+            int sent = Integer.parseInt(m.group(4));
+            Double last = noReply ? null : Double.parseDouble(m.group(5));
+            Double avg = noReply ? null : Double.parseDouble(m.group(6));
+            Double best = noReply ? null : Double.parseDouble(m.group(7));
+            Double worst = noReply ? null : Double.parseDouble(m.group(8));
+            hops.add(new MtrHop(ttl, noReply ? null : host, loss, sent, last, avg, best, worst));
+        }
+        return new MtrResult(hops, output);
     }
 
     /**

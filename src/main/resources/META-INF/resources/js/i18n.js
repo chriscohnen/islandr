@@ -429,6 +429,15 @@ const messages = {
     "atlas.diagnostics_unavailable":  "{tool} not available on the hub — install it to enable this probe.",
     "atlas.diagnostics_error":        "Probe failed: {error}",
     "atlas.diagnostics_close":        "Close",
+    "atlas.focus_peer":               "Focused on {peer}",
+    "atlas.diagnostics_mtr_title":    "Path (mtr, richer)",
+    "atlas.diagnostics_run_mtr":      "Run mtr",
+    "atlas.diagnostics_mtr_th_hop":   "Hop",
+    "atlas.diagnostics_mtr_th_loss":  "Loss",
+    "atlas.diagnostics_mtr_th_avg":   "Avg",
+    "atlas.diagnostics_hop_no_reply_short": "no reply",
+    "atlas.diagnostics_overlay_ms":   "{ms} ms",
+    "atlas.diagnostics_overlay_loss": "{loss}% loss",
 
     // ── Networks / Sites ─────────────────────────────────────────────────────
     "sites.title":        "Networks",
@@ -1687,6 +1696,15 @@ const messages = {
     "atlas.diagnostics_unavailable":  "{tool} ist auf dem Hub nicht verfügbar — installiere es, um diese Prüfung zu aktivieren.",
     "atlas.diagnostics_error":        "Test fehlgeschlagen: {error}",
     "atlas.diagnostics_close":        "Schließen",
+    "atlas.focus_peer":               "Fokus auf {peer}",
+    "atlas.diagnostics_mtr_title":    "Pfad (mtr, genauer)",
+    "atlas.diagnostics_run_mtr":      "mtr ausführen",
+    "atlas.diagnostics_mtr_th_hop":   "Hop",
+    "atlas.diagnostics_mtr_th_loss":  "Verlust",
+    "atlas.diagnostics_mtr_th_avg":   "Avg",
+    "atlas.diagnostics_hop_no_reply_short": "keine Antwort",
+    "atlas.diagnostics_overlay_ms":   "{ms} ms",
+    "atlas.diagnostics_overlay_loss": "{loss}% Verlust",
 
     // ── Networks / Sites ─────────────────────────────────────────────────────
     "sites.title":        "Netzwerke",

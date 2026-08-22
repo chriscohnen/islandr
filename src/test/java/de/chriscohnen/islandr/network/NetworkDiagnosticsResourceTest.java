@@ -129,6 +129,19 @@ class NetworkDiagnosticsResourceTest {
     }
 
     @Test
+    void mtr_reachableResource_reportsHopsWithLoss() {
+        mock().forceUnreachable = false;
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String resourceId = createResource(suffix);
+
+        given().contentType("application/json").when().post("/api/v1/resources/" + resourceId + "/diagnostics/mtr")
+                .then().statusCode(200)
+                .body("hops", hasSize(2))
+                .body("hops[1].host", equalTo("10.90.0.5"))
+                .body("hops[1].lossPercent", equalTo(0.0f));
+    }
+
+    @Test
     void ping_secondCallWithinCooldown_isRateLimited() {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String resourceId = createResource(suffix);

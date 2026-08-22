@@ -37,6 +37,17 @@ public interface NetworkDiagnosticsAdapter {
 
     record TracepathResult(List<TracepathHop> hops, String rawOutput) {}
 
+    /**
+     * One hop of an {@code mtr --report} run — richer than a {@link TracepathHop}: per-hop
+     * loss percentage aggregated over {@code sent} cycles, plus last/avg/best/worst RTT,
+     * instead of a single one-shot timing. {@code host} is {@code null} for a hop that
+     * never replied to any cycle ({@code mtr}'s {@code ???}).
+     */
+    record MtrHop(int ttl, String host, double lossPercent, int sent,
+                  Double lastMs, Double avgMs, Double bestMs, Double worstMs) {}
+
+    record MtrResult(List<MtrHop> hops, String rawOutput) {}
+
     /** Probe {@code PATH} for {@code ping}/{@code tracepath}/{@code mtr} — never assumed present. */
     Availability checkAvailability();
 
@@ -58,4 +69,14 @@ public interface NetworkDiagnosticsAdapter {
      *         invocation itself fails.
      */
     TracepathResult tracepath(String ip);
+
+    /**
+     * Per-hop path trace with loss % and aggregated RTT against {@code ip}, richer than
+     * {@link #tracepath}. Opportunistic only (ADR-0025 §1) — never assumed present;
+     * {@code cycles} is a server-side bound like {@link #ping}'s {@code count}.
+     *
+     * @throws NetworkDiagnosticsException if {@code mtr} is not available or the
+     *         invocation itself fails.
+     */
+    MtrResult mtr(String ip, int cycles);
 }
