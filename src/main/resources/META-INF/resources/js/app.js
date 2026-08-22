@@ -19,6 +19,7 @@ import AclMatrixView from "/js/views/AclMatrixView.js";
 import AtlasView from "/js/views/AtlasView.js";
 import FirewallView from "/js/views/FirewallView.js";
 import DnsView from "/js/views/DnsView.js";
+import WebhooksView from "/js/views/WebhooksView.js";
 import StubView from "/js/views/StubView.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
@@ -98,6 +99,7 @@ const router = createRouter({
     { path: "/users", name: "users", component: UsersView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/identity", name: "identity", component: IdentityView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/audit", name: "audit", component: AuditView, meta: { requiresAuth: true, requiresAdmin: true } },
+    { path: "/webhooks", name: "webhooks", component: WebhooksView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/settings", name: "settings", component: SettingsView, meta: { requiresAuth: true, requiresAdmin: true } },
   ],
 });
@@ -333,6 +335,7 @@ const App = defineComponent({
           <router-link to="/firewall" class="nav-item"><Icon name="firewall" />{{ t('nav.firewall') }}</router-link>
           <router-link to="/dns" class="nav-item"><Icon name="dns" />{{ t('nav.dns') }}</router-link>
           <router-link to="/audit" class="nav-item"><Icon name="audit" />{{ t('nav.audit') }}</router-link>
+          <router-link to="/webhooks" class="nav-item"><Icon name="link" />{{ t('nav.webhooks') }}</router-link>
 
           <div class="sidebar-footer">
             <router-link to="/settings" class="nav-item"><Icon name="settings" />{{ t('nav.settings') }}</router-link>

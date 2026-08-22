@@ -1,10 +1,14 @@
 package de.chriscohnen.islandr.discovery;
 
 import de.chriscohnen.islandr.discovery.DiscoveryScanner.DiscoveredHost;
+import de.chriscohnen.islandr.webhook.WebhookDispatcher;
+import de.chriscohnen.islandr.webhook.WebhookEventType;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import java.util.Map;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -43,6 +47,8 @@ public class DiscoveryJobs {
     Duration hostTimeout;
     @ConfigProperty(name = "islandr.discovery.concurrency", defaultValue = "64")
     int concurrency;
+
+    @Inject WebhookDispatcher webhooks;
 
     private final ConcurrentMap<String, Job> jobs = new ConcurrentHashMap<>();
     private ExecutorService pool;
@@ -129,7 +135,11 @@ public class DiscoveryJobs {
                     ? realScan(hostIps, job.doneCount, job.foundCount, dnsServerIp)
                     : mockScan(hostIps, job.doneCount, job.foundCount);
             job.hosts = found;
-            if (job.state != State.CANCELLED) job.state = State.DONE;
+            if (job.state != State.CANCELLED) {
+                job.state = State.DONE;
+                webhooks.publish(WebhookEventType.DISCOVERY_SCAN_COMPLETED, "system:discovery",
+                        "Site:" + job.siteId, Map.of("siteId", job.siteId, "cidr", job.cidr, "found", found.size()));
+            }
         } catch (Exception e) {
             job.error = e.getMessage();
             if (job.state != State.CANCELLED) job.state = State.FAILED;

@@ -2,6 +2,8 @@ package de.chriscohnen.islandr.peer;
 
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.firewall.RulesetService;
+import de.chriscohnen.islandr.webhook.WebhookDispatcher;
+import de.chriscohnen.islandr.webhook.WebhookEventType;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -48,6 +50,7 @@ public class PeerScheduleJob {
     @Inject PeerService peers;
     @Inject PeerScheduleService schedules;
     @Inject AuditService audit;
+    @Inject WebhookDispatcher webhooks;
     @Inject RulesetService rulesets;
 
     @Scheduled(every = "60s",
@@ -127,6 +130,8 @@ public class PeerScheduleJob {
         peers.setEnabledBySchedule(p.id, newState);
         audit.logEvent(SYSTEM_ACTOR, newState ? "peer.enable" : "peer.disable",
                 "Peer:" + p.name + " (" + p.id + ")", Map.of("reason", reason));
+        webhooks.publish(newState ? WebhookEventType.PEER_ENABLED : WebhookEventType.PEER_DISABLED,
+                SYSTEM_ACTOR, "Peer:" + p.id, Map.of("peerId", p.id, "name", p.name, "reason", reason));
         LOG.infof("peer-schedule: %s peer %s (%s) — reason=%s", newState ? "enabled" : "disabled",
                 p.name, p.id, reason);
     }

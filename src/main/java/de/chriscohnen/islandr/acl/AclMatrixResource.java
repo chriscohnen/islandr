@@ -4,6 +4,8 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.firewall.RulesetService;
+import de.chriscohnen.islandr.webhook.WebhookDispatcher;
+import de.chriscohnen.islandr.webhook.WebhookEventType;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
@@ -38,6 +40,7 @@ public class AclMatrixResource {
 
     @Inject RoleService roles;
     @Inject AuditService audit;
+    @Inject WebhookDispatcher webhooks;
     @Inject RulesetService rulesets;
 
     @GET
@@ -76,6 +79,15 @@ public class AclMatrixResource {
             String resourceName = resourceNames.getOrDefault(d.resourceId(), d.resourceId());
             audit.logEvent(a.principal(), action,
                     "Grant:" + roleName + "/" + resourceName, details);
+            // Webhooks (issue #68): only create/delete map to a real "grant
+            // exists or doesn't" event — a port-scope update isn't one of
+            // the two candidate event types.
+            if ("create".equals(d.change()) || "delete".equals(d.change())) {
+                webhooks.publish(
+                        "create".equals(d.change()) ? WebhookEventType.ACL_GRANT_CREATED : WebhookEventType.ACL_GRANT_REVOKED,
+                        a.principal(), "Grant:" + roleName + "/" + resourceName,
+                        Map.of("role", roleName, "resource", resourceName));
+            }
         }
         if (!diffs.isEmpty()) {
             // The matrix is the most rule-shifting action in the whole app —

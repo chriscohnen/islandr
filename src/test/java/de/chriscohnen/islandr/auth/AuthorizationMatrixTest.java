@@ -49,6 +49,7 @@ class AuthorizationMatrixTest {
         given().when().get("/api/v1/settings").then().statusCode(401);
         given().when().get("/api/v1/identity/providers").then().statusCode(401);
         given().when().get("/api/v1/identity/custom-providers").then().statusCode(401);
+        given().when().get("/api/v1/webhooks").then().statusCode(401);
         given().when().get("/api/v1/audit").then().statusCode(401);
         given().when().get("/api/v1/dashboard").then().statusCode(401);
         given().when().get("/api/v1/firewall").then().statusCode(401);
