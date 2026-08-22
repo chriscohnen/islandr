@@ -69,6 +69,10 @@ islandr ALL=(root) NOPASSWD: /usr/bin/wg set $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show $WG_INTERFACE dump
+# Network diagnostics (ADR-0025): fixed flags, sample count pinned to 4 server-side
+# (NetworkDiagnosticsResource never forwards an admin-controlled count). tracepath
+# needs no elevation on Linux at all and is invoked directly, no sudoers line for it.
+islandr ALL=(root) NOPASSWD: /usr/bin/ping -c 4 -W 2 *
 SUDOERS
 chmod 0440 /etc/sudoers.d/islandr
 

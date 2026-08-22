@@ -31,6 +31,11 @@ export default defineComponent({
       // doesn't scale once a tenant has dozens of them. "" = show everyone.
       userFilterRoleId: "",
       grantsPage: 1,
+      // Network diagnostics (ADR-0025): availability is fetched once so the
+      // action can gray itself out instead of offering a probe that will just
+      // fail; diagModal holds the live state of one open probe dialog.
+      diagAvailability: null,
+      diagModal: null, // { resourceId, resourceName, path, ping, pingLoading, pingError, tracepath, traceLoading, traceError }
     };
   },
   computed: {
@@ -174,8 +179,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this.loadDiagAvailability();
     this._offEscape = onEscape(() => {
-      if (this.grantDialog) this.cancelGrantDialog();
+      if (this.diagModal) this.closeDiagnostics();
+      else if (this.grantDialog) this.cancelGrantDialog();
       else if (this.revokeConfirm) this.cancelRevokeConfirm();
       else if (this.selectedUserId || this.selectedResourceId) this.clearFocus();
     });
@@ -403,6 +410,84 @@ export default defineComponent({
         this.revokeSaving = false;
       }
     },
+
+    // ── Network diagnostics (ADR-0025) — admin-triggered ping/path-latency probe ──
+
+    async loadDiagAvailability() {
+      try {
+        const res = await fetch("/api/v1/diagnostics/availability");
+        if (res.ok) this.diagAvailability = await res.json();
+      } catch { /* action just stays enabled; the probe itself will report the real error */ }
+    },
+
+    pathHopLabel(hop) {
+      if (hop.kind === "hub") return t("atlas.diagnostics_hop_hub");
+      if (hop.kind === "site-gateway") return t("atlas.diagnostics_hop_gateway", { peer: hop.name, site: hop.detail });
+      return hop.name + (hop.detail ? " (" + hop.detail + ")" : "");
+    },
+
+    tracepathHopLabel(hop) {
+      return hop.host
+          ? t("atlas.diagnostics_hop_row", { ttl: hop.ttl, host: hop.host, ms: hop.ms != null ? hop.ms : "?" })
+          : t("atlas.diagnostics_hop_no_reply", { ttl: hop.ttl });
+    },
+
+    openDiagnostics(resourceId) {
+      const resource = this.graph.resources.find((r) => r.id === resourceId);
+      if (!resource) return;
+      this.diagModal = {
+        resourceId, resourceName: resource.name,
+        path: null, ping: null, pingLoading: true, pingError: null,
+        tracepath: null, traceLoading: false, traceError: null,
+      };
+      this.runPing();
+    },
+
+    closeDiagnostics() {
+      this.diagModal = null;
+    },
+
+    async runPing() {
+      if (!this.diagModal) return;
+      const m = this.diagModal;
+      m.pingLoading = true;
+      m.pingError = null;
+      try {
+        const res = await fetch("/api/v1/resources/" + m.resourceId + "/diagnostics/ping", { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || ("HTTP " + res.status));
+        }
+        const data = await res.json();
+        m.ping = data;
+        m.path = data.path;
+      } catch (e) {
+        m.pingError = t("atlas.diagnostics_error", { error: e.message });
+      } finally {
+        m.pingLoading = false;
+      }
+    },
+
+    async runTracepath() {
+      if (!this.diagModal) return;
+      const m = this.diagModal;
+      m.traceLoading = true;
+      m.traceError = null;
+      try {
+        const res = await fetch("/api/v1/resources/" + m.resourceId + "/diagnostics/tracepath", { method: "POST" });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || ("HTTP " + res.status));
+        }
+        const data = await res.json();
+        m.tracepath = data;
+        m.path = data.path;
+      } catch (e) {
+        m.traceError = t("atlas.diagnostics_error", { error: e.message });
+      } finally {
+        m.traceLoading = false;
+      }
+    },
   },
   template: `
     <div class="page-header" style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3)">
@@ -472,6 +557,16 @@ export default defineComponent({
         {{ focusLabel || ' ' }}
         <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId) ? 0 : -1">✕</button>
       </span>
+
+      <!-- ADR-0025: a probe target is always a focused, known Resource — never free text.
+           Grayed out (not hidden) with an actionable title when ping itself is missing on
+           the hub — same "degrade honestly" posture as the DNS resolver's own status page. -->
+      <button v-if="selectedResourceId" class="btn btn-ghost btn-sm"
+              :disabled="diagAvailability && !diagAvailability.ping"
+              :title="diagAvailability && !diagAvailability.ping ? t('atlas.diagnostics_unavailable', { tool: 'ping' }) : ''"
+              @click="openDiagnostics(selectedResourceId)">
+        <Icon name="activity" :size="14" /> {{ t('atlas.diagnostics_action') }}
+      </button>
 
       <div style="display: flex; gap: var(--space-2); margin-left: auto">
         <button class="btn btn-sm" :class="tool === 'grant' ? 'btn-primary' : 'btn-ghost'" @click="tool = 'grant'">
@@ -583,6 +678,75 @@ export default defineComponent({
           <button type="button" class="btn btn-primary" :disabled="revokeSaving" @click="confirmRevokeEdge">
             {{ revokeSaving ? t('common.loading') : t('atlas.tool_revoke') }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Network diagnostics (ADR-0025): admin-triggered ping/tracepath against a
+         focused Resource, with the probed hub -> site-gateway -> resource path
+         spelled out inline (same graph Atlas already models). -->
+    <div v-if="diagModal" class="modal-backdrop" @click.self="closeDiagnostics">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>{{ t('atlas.diagnostics_title', { resource: diagModal.resourceName }) }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeDiagnostics">✕</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="diagModal.path" style="margin-bottom: var(--space-4)">
+            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+              {{ t('atlas.diagnostics_path_title') }}
+            </h3>
+            <div class="mono" style="font-size: var(--text-sm)">
+              <span v-for="(hop, i) in diagModal.path" :key="i">
+                <span v-if="i > 0"> → </span>{{ pathHopLabel(hop) }}
+              </span>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-4)">
+            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+              {{ t('atlas.diagnostics_ping_title') }}
+            </h3>
+            <div v-if="diagModal.pingLoading" class="muted">{{ t('common.loading') }}</div>
+            <div v-else-if="diagModal.pingError" class="error-banner">{{ diagModal.pingError }}</div>
+            <div v-else-if="diagModal.ping">
+              <p style="margin: 0 0 4px">
+                <span :class="['badge', 'status-pill', diagModal.ping.reachable ? 'badge-success' : 'badge-danger']">
+                  <Icon :name="diagModal.ping.reachable ? 'check' : 'unlink'" :size="12" />
+                  {{ diagModal.ping.reachable ? t('atlas.diagnostics_reachable') : t('atlas.diagnostics_unreachable') }}
+                </span>
+              </p>
+              <p class="mono" style="margin: 0; font-size: var(--text-sm)">
+                {{ t('atlas.diagnostics_stats', { received: diagModal.ping.received, sent: diagModal.ping.sent, loss: diagModal.ping.lossPercent }) }}
+              </p>
+              <p v-if="diagModal.ping.reachable" class="mono muted" style="margin: 2px 0 0; font-size: var(--text-sm)">
+                {{ t('atlas.diagnostics_rtt', { min: diagModal.ping.minMs, avg: diagModal.ping.avgMs, max: diagModal.ping.maxMs }) }}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.05em">
+              {{ t('atlas.diagnostics_tracepath_title') }}
+            </h3>
+            <div v-if="diagModal.traceLoading" class="muted">{{ t('common.loading') }}</div>
+            <div v-else-if="diagModal.traceError" class="error-banner">{{ diagModal.traceError }}</div>
+            <ul v-else-if="diagModal.tracepath" class="mono" style="margin: 0; padding-left: var(--space-5); font-size: var(--text-sm)">
+              <li v-for="hop in diagModal.tracepath.hops" :key="hop.ttl">{{ tracepathHopLabel(hop) }}</li>
+            </ul>
+            <button v-else class="btn btn-ghost btn-sm"
+                    :disabled="diagAvailability && !diagAvailability.tracepath"
+                    :title="diagAvailability && !diagAvailability.tracepath ? t('atlas.diagnostics_unavailable', { tool: 'tracepath' }) : ''"
+                    @click="runTracepath">
+              {{ t('atlas.diagnostics_run_tracepath') }}
+            </button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" @click="runPing" :disabled="diagModal.pingLoading">
+            {{ t('atlas.diagnostics_ping_title') }}
+          </button>
+          <button type="button" class="btn btn-primary" @click="closeDiagnostics">{{ t('atlas.diagnostics_close') }}</button>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 # ADR-0025 — Network diagnostic helpers (ping / path latency) via unprivileged-shell CLI tools
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-22
 **Deciders:** Christian Cohnen
 **Relates to:** [ADR-0011](0011-process-privilege-model.md) (privilege model this must not widen), [ADR-0005](0005-hub-only-firewall.md) (why a hub-originated probe is a faithful test of the real traffic path), [ADR-0012](0012-docker-socket-proxy.md) (Docker execution path), [ADR-0014](0014-device-discovery.md) (closest sibling — same "stay unprivileged, degrade honestly" posture for a network-probing feature), [ADR-0023](0023-resource-dns-resolver-hand-rolled.md) (precedent for a feature that silently disables itself with an actionable message rather than crashing when a host-level dependency is missing), Atlas view (`AtlasResource`/`AtlasDto`/`AtlasView.js`, the graph this hooks into).
@@ -99,12 +99,11 @@ A wins by staying inside the privilege model, working everywhere including the d
 
 ## Follow-ups (traceability per the docs contract)
 
-Not yet fired — this ADR is **Proposed**, not Accepted; these land when implementation actually starts, same convention as ADR-0014's own follow-up list:
-
-- ⏳ **R-181, R-182, R-183** to be added to [arc42 §11](../arc42/11-risks-and-technical-debt.md).
-- ⏳ **T-018** (probe-flood against a resource/upstream network) to be added to the [§8.1 STRIDE threat model](../arc42/08-crosscutting-concepts.md), cross-referenced from its mitigation in §8.2 and from R-183.
+- ✅ **R-181, R-182, R-183** added to [arc42 §11](../arc42/11-risks-and-technical-debt.md) (Low priority, alongside their ADR-0014 siblings R-140/R-141/R-142).
+- ✅ **T-018** (network-diagnostics probe abused as a recon primitive / probe-flood) added to the [§8.1 STRIDE threat model](../arc42/08-crosscutting-concepts.md), cross-referenced from its mitigation in §8.2 and from R-181/R-183.
+- ✅ Implemented: `NetworkDiagnosticsAdapter` (real/mock/socket, mirroring `WgAdapter`), the ping/tracepath endpoints on `ResourceResource` (target always an existing `Resource`, 3s per-resource cooldown, fixed sample count, audit-logged), the `islandr-proxy` `net_ping`/`net_tracepath`/`net_availability` ops, and the Atlas "Test connection" action showing the probed hub → site-gateway → resource path.
 - ⏳ Capture in the spec: a new Business Rule for target-validation (no free-text IP) and the audit-log entry shape, plus a runtime scenario in arc42 §6 showing the hub → site-gateway-peer → resource probe path.
-- ⏳ Status to move to **Accepted** here and in the [ADR index](README.md) / [arc42 §9](../arc42/09-architecture-decisions.md) once implemented.
+- ⏳ arc42 §9's ADR table/cross-cutting-consequences list stops at ADR-0019 already (ADR-0020–0024 are likewise not yet back-filled) — left as-is rather than adding only ADR-0025 out of sequence; a future pass should catch up the whole range at once.
 
 ## References
 

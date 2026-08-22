@@ -84,6 +84,10 @@ func runtimeDir() string {
 // values cannot be reinterpreted by a shell.
 type osExec struct{}
 
+// Run's stdout return is non-empty even on a non-zero exit: net_ping (ADR-0025)
+// needs the captured report from `ping` exiting 1 on packet loss, which is a
+// successful invocation, not a failure. wg/nft call-sites only ever check the
+// error, so returning stdout alongside it changes nothing for them.
 func (osExec) Run(name string, args []string, stdin []byte) (string, error) {
 	cmd := exec.Command("sudo", append([]string{name}, args...)...)
 	if stdin != nil {
@@ -94,9 +98,9 @@ func (osExec) Run(name string, args []string, stdin []byte) (string, error) {
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(errb.String()); msg != "" {
-			return "", errors.New(msg)
+			return out.String(), errors.New(msg)
 		}
-		return "", err
+		return out.String(), err
 	}
 	return out.String(), nil
 }

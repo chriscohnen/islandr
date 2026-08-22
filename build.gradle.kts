@@ -127,7 +127,7 @@ configurations.all {
 // alert pending a dedicated look (see #20).
 
 group = "de.chriscohnen.islandr"
-version = "0.17.1"
+version = "0.18.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

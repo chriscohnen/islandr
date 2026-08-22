@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -76,6 +77,75 @@ func TestValidRemovePeerExecutes(t *testing.T) {
 	want := []string{"wg", "set", "wg0", "peer", validKey, "remove"}
 	if !equalArgs(ex.calls[0], want) {
 		t.Fatalf("wrong command\n got: %v\nwant: %v", ex.calls[0], want)
+	}
+}
+
+// ADR-0025: net_ping/net_tracepath must reject a non-IP target before ever
+// reaching the executor — the whole point of the allowlist is that a caller
+// can never redirect the probe at an arbitrary hostname/shell token.
+func TestNetPingRejectsNonIpTarget(t *testing.T) {
+	ex := &recordingExec{}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_ping","ip":"not-an-ip; rm -rf /"}`)))
+	if resp.Ok {
+		t.Fatalf("non-IP target must not be ok")
+	}
+	if len(ex.calls) != 0 {
+		t.Fatalf("non-IP target must not execute anything, ran: %v", ex.calls)
+	}
+}
+
+func TestNetPingExecutesWithClampedCount(t *testing.T) {
+	ex := &recordingExec{out: "4 packets transmitted, 4 received, 0% packet loss"}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_ping","ip":"10.0.0.1","count":999}`)))
+	if !resp.Ok {
+		t.Fatalf("valid net_ping should succeed, got error: %q", resp.Error)
+	}
+	want := []string{"ping", "-c", "4", "-W", "2", "10.0.0.1"}
+	if !equalArgs(ex.calls[0], want) {
+		t.Fatalf("out-of-range count must be clamped\n got: %v\nwant: %v", ex.calls[0], want)
+	}
+	if resp.Dump != ex.out {
+		t.Fatalf("expected raw ping stdout passed through, got: %q", resp.Dump)
+	}
+}
+
+// A `ping` exit status of 1 (100% packet loss) is a normal, informative result —
+// not a proxy-level failure — as long as it produced a report to parse.
+func TestNetPingWithPacketLossIsStillOk(t *testing.T) {
+	ex := &recordingExec{out: "4 packets transmitted, 0 received, 100% packet loss", err: fmt.Errorf("exit status 1")}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_ping","ip":"10.0.0.9"}`)))
+	if !resp.Ok {
+		t.Fatalf("100%% loss with a captured report must still be ok, got error: %q", resp.Error)
+	}
+	if resp.Dump != ex.out {
+		t.Fatalf("expected the loss report passed through, got: %q", resp.Dump)
+	}
+}
+
+func TestNetTracepathRejectsNonIpTarget(t *testing.T) {
+	ex := &recordingExec{}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_tracepath","ip":"$(reboot)"}`)))
+	if resp.Ok {
+		t.Fatalf("non-IP target must not be ok")
+	}
+	if len(ex.calls) != 0 {
+		t.Fatalf("non-IP target must not execute anything, ran: %v", ex.calls)
+	}
+}
+
+func TestNetAvailabilityNeverExecutes(t *testing.T) {
+	ex := &recordingExec{}
+	h := NewHandler(ex, testConfig())
+	resp := decodeResp(t, h.Handle([]byte(`{"op":"net_availability"}`)))
+	if !resp.Ok {
+		t.Fatalf("net_availability should always be ok, got error: %q", resp.Error)
+	}
+	if len(ex.calls) != 0 {
+		t.Fatalf("net_availability must not shell out — it only stats $PATH, ran: %v", ex.calls)
 	}
 }
 

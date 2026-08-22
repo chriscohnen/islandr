@@ -37,15 +37,29 @@ type Request struct {
 	Pubkey       string  `json:"pubkey"`
 	AllowedIps   string  `json:"allowedIps"`
 	PresharedKey *string `json:"presharedKey"`
+	Ip           string  `json:"ip"`    // net_ping / net_tracepath target — validated as a bare IP, never a shell token
+	Count        int     `json:"count"` // net_ping sample count — re-clamped here, not trusted from the caller
 }
 
 // Response is the single JSON line sent back. Ok mirrors what ProxyClient reads;
-// Error carries the reason on failure; Dump carries wg_show output.
+// Error carries the reason on failure; Dump carries wg_show/ping/tracepath output.
+// Ping/Tracepath/Mtr report tool availability for net_availability.
 type Response struct {
-	Ok    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-	Dump  string `json:"dump,omitempty"`
+	Ok        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	Dump      string `json:"dump,omitempty"`
+	Ping      bool   `json:"ping,omitempty"`
+	Tracepath bool   `json:"tracepath,omitempty"`
+	Mtr       bool   `json:"mtr,omitempty"`
 }
+
+// pingTimeoutSeconds bounds a single `ping` reply wait (matches the JVM real adapter).
+const pingTimeoutSeconds = 2
+
+// maxPingCount caps the sample size regardless of what the caller asked for
+// (ADR-0025 R-183) — the JVM side already fixes this server-side, this is
+// defense in depth against a proxy talked to directly.
+const maxPingCount = 10
 
 // Handler dispatches one request to the allowlisted command for its op.
 type Handler struct {
@@ -96,9 +110,79 @@ func (h *Handler) dispatch(req Request) Response {
 			return fail("nft_reload failed: " + err.Error())
 		}
 		return ok()
+	case "net_availability":
+		return Response{Ok: true,
+			Ping:      commandExists("ping"),
+			Tracepath: commandExists("tracepath"),
+			Mtr:       commandExists("mtr")}
+	case "net_ping":
+		return h.netPing(req)
+	case "net_tracepath":
+		return h.netTracepath(req)
 	default:
 		return fail("unknown op: " + req.Op)
 	}
+}
+
+// netPing runs `ping -c <count> -W 2 <ip>`. A lost reply (partial or 100% loss) is
+// a normal, successful invocation — ping exits 1 on 100% loss, not an error — so
+// exit 1 alongside captured stdout is still Ok:true; only "never actually probed"
+// (bad args, DNS/socket error) is a failure. Parsing the report happens on the JVM
+// side (RealNetworkDiagnosticsAdapter.parsePingOutput), so this stays a thin,
+// auditable pass-through, same shape as wg_show handing back a raw dump.
+func (h *Handler) netPing(req Request) Response {
+	ip := net.ParseIP(req.Ip)
+	if ip == nil {
+		return fail("invalid ip")
+	}
+	count := req.Count
+	if count <= 0 || count > maxPingCount {
+		count = 4
+	}
+	out, err := h.exec.Run("ping", []string{"-c", fmt.Sprint(count), "-W", fmt.Sprint(pingTimeoutSeconds), ip.String()}, nil)
+	if err != nil {
+		// exec.Command surfaces a plain exit-status error for ping's exit 1 (loss) too;
+		// distinguish by re-running is unnecessary — h.exec.Run already returns stdout on
+		// non-zero exit via the shared osExec captured-output path (see server.go)  when
+		// the command produced output at all, so an error here with no output at all means
+		// ping never ran (bad args, target unresolvable, permission denied).
+		if out == "" {
+			return fail("net_ping failed: " + err.Error())
+		}
+	}
+	return Response{Ok: true, Dump: out}
+}
+
+func (h *Handler) netTracepath(req Request) Response {
+	ip := net.ParseIP(req.Ip)
+	if ip == nil {
+		return fail("invalid ip")
+	}
+	out, err := h.exec.Run("tracepath", []string{ip.String()}, nil)
+	if err != nil && out == "" {
+		return fail("net_tracepath failed: " + err.Error())
+	}
+	return Response{Ok: true, Dump: out}
+}
+
+// commandExists walks $PATH looking for an executable file — same dependency-free
+// approach as the JVM side (RealNetworkDiagnosticsAdapter.commandExists), so the
+// proxy never assumes `which` itself is present.
+func commandExists(name string) bool {
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/bin:/bin:/usr/sbin:/sbin"
+	}
+	for _, dir := range strings.Split(path, string(os.PathListSeparator)) {
+		if dir == "" {
+			continue
+		}
+		info, err := os.Stat(dir + "/" + name)
+		if err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) wgSetPeer(req Request) Response {

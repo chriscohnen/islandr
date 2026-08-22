@@ -54,6 +54,11 @@ command -v nft >/dev/null || { echo "error: 'nft' not found — install nftables
 WG_PATH="$(command -v wg)"
 NFT_PATH="$(command -v nft)"
 
+# Network diagnostics (ADR-0025) are optional — the feature degrades honestly
+# (an actionable "not available" state) rather than blocking this install.
+command -v ping      >/dev/null || echo "note: 'ping' not found — install iputils-ping to enable the diagnostics probe"
+command -v tracepath >/dev/null || echo "note: 'tracepath' not found — install iputils-tracepath to enable path diagnosis"
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
