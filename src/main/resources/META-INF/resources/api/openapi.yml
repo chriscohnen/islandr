@@ -29,6 +29,12 @@ tags:
     description: WireGuard peers (client devices and site gateways).
   - name: users
     description: Organisation users.
+  - name: sites
+    description: Sites (network locations, identified by CIDR).
+  - name: resources
+    description: Resources reachable through a site (hosts, services).
+  - name: roles
+    description: Roles used to grant resource access.
 
 paths:
   /peers:
@@ -97,6 +103,57 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /sites:
+    get:
+      operationId: listSites
+      summary: List all sites
+      tags: [sites]
+      responses:
+        "200":
+          description: Every site.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Site"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /resources:
+    get:
+      operationId: listResources
+      summary: List all resources
+      tags: [resources]
+      responses:
+        "200":
+          description: Every resource, across all sites.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Resource"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /roles:
+    get:
+      operationId: listRoles
+      summary: List all roles
+      tags: [roles]
+      responses:
+        "200":
+          description: Every role.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -196,4 +253,64 @@ components:
         isAdmin: { type: boolean }
         preferredLocale: { type: string, nullable: true, enum: [de, en] }
         peerCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    Site:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        cidr: { type: string }
+        description: { type: string, nullable: true }
+        resourceCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        gatewayPeerId: { type: string, nullable: true }
+        gatewayPeerName: { type: string, nullable: true }
+        gatewayOnline: { type: boolean, nullable: true, description: "null when no gateway is configured" }
+        outsideSplitSupernet: { type: boolean, nullable: true }
+        subdomain: { type: string, nullable: true }
+        dnsServerIp: { type: string, nullable: true }
+
+    Resource:
+      type: object
+      properties:
+        id: { type: string }
+        siteId: { type: string }
+        name: { type: string }
+        ip: { type: string }
+        description: { type: string, nullable: true }
+        type: { type: string, enum: [computer, router, printer, nas, camera, iot, virt-host, rackserver, kvm, management, other] }
+        dnsName: { type: string, nullable: true }
+        dnsFlat: { type: boolean }
+        ports:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResourcePort"
+        createdAt: { type: string, format: date-time }
+
+    ResourcePort:
+      type: object
+      properties:
+        id: { type: string }
+        port: { type: integer }
+        portEnd: { type: integer, nullable: true }
+        transport: { type: string }
+        protocol: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        pathPrefix: { type: string, nullable: true }
+        rdpClipboard: { type: boolean }
+        rdpFileTransfer: { type: boolean }
+        rdpAccessMode: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    Role:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        memberCount: { type: integer }
+        grantCount: { type: integer }
+        autoAll: { type: boolean, description: "true for the seeded 'Everyone' role (ADR-0013)" }
         createdAt: { type: string, format: date-time }

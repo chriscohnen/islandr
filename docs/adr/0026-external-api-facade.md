@@ -36,6 +36,8 @@ Reasoning: a Prometheus-style `/metrics` endpoint or a CI script consulting the 
 
 Deliberately starts small: read-mostly access to the resources #15 and #71 actually need (peers list/create, users list) rather than mirroring every internal resource on day one. Each additional facade resource is an incremental, reviewable addition to the same pattern — not a big-bang full-CRUD surface.
 
+**Implementation update (2026-08-23):** sites (list), resources (list), and roles (list) added, read-only — the precondition ADR-0027 named for a useful MCP tool surface (an assistant can now see sites/resources/roles, though ACL grants themselves are still internal-only). Same pattern as peers/users: new narrow resource classes (`SiteExternalResource`, `ResourceExternalResource`, `RoleExternalResource`) delegating to the existing `SiteService`/`ResourceService`/`RoleService`, no duplicated logic.
+
 ## Alternatives considered (Pugh Matrix)
 
 Baseline: **separate facade + API-key auth + hand-written OpenAPI** (the decision). +1 better, 0 equal, −1 worse.
