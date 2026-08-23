@@ -1,6 +1,6 @@
 import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
-import { onEscape, onSaveShortcut } from "/js/keyboard.js";
+import { onEscape, onSaveShortcut, onSlashFocus } from "/js/keyboard.js";
 import { Icon } from "/js/Icons.js";
 
 // The Rollen × Ressourcen grant matrix (PRD §F-B, ADR-0006).
@@ -23,6 +23,18 @@ export default defineComponent({
       loading: true,
       error: null,
       activeSiteId: null,
+      // Top-level view split (2026-08-23 redesign): the role×resource matrix
+      // (+ its site-scoped type grants) is one mode, the two direct-grant
+      // lists (user/site → resource, both site-independent, both "bypass
+      // the role system for one exception") are the other. Previously all
+      // three sat stacked on one endless page — separating them mirrors the
+      // conceptual split Atlas already draws between "role mode" and
+      // "direct mode" grants, not a cosmetic tab for its own sake.
+      aclTab: "matrix", // "matrix" | "direct"
+      // Client-side name/IP filter over the active site's resource rows —
+      // the matrix has no pagination, so a large site's resource list is
+      // the other place this page grows long.
+      matrixFilter: "",
       // pending[roleId+resId] = { allPorts: bool, portIds: string[] }
       // Holds local edits since last load; deltas vs `grants` are dirty.
       pending: {},
@@ -88,6 +100,18 @@ export default defineComponent({
     activeResources() {
       return this.resourcesBySite[this.activeSiteId] || [];
     },
+    filteredActiveResources() {
+      const q = this.matrixFilter.trim().toLowerCase();
+      if (!q) return this.activeResources;
+      return this.activeResources.filter((r) =>
+          r.name.toLowerCase().includes(q) || (r.ip || "").toLowerCase().includes(q));
+    },
+    // Total direct grants across both kinds — shown as a count badge on the
+    // "Direct grants" tab so an admin can tell at a glance whether there's
+    // anything there before switching to it.
+    directGrantsCount() {
+      return this.userGrants.length + this.siteGrants.length;
+    },
     grantsByCell() {
       // serverGrants[roleId+"|"+resId] = GrantCell
       const m = {};
@@ -141,10 +165,12 @@ export default defineComponent({
       else if (this.siteGrantPicker) this.siteGrantPicker = null;
     });
     this._offSave = onSaveShortcut(() => { if (this.dirty) this.applyAll(); });
+    this._offSlash = onSlashFocus(() => this.aclTab === "matrix" ? this.$refs.matrixFilterInput : null);
   },
   beforeUnmount() {
     if (this._offEscape) this._offEscape();
     if (this._offSave) this._offSave();
+    if (this._offSlash) this._offSlash();
   },
   methods: {
     t(key, vars) { return t(key, vars); },
@@ -491,230 +517,260 @@ export default defineComponent({
       <p v-else-if="sites.length === 0">{{ t('acl.empty_sites') }}</p>
     </div>
 
-    <div v-else style="display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap">
-      <!-- Site list (master): a vertical, scannable list scales past a horizontal
-           tab strip that overflowed off-screen once a hub had many sites. -->
-      <aside style="flex: 0 0 240px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden">
-        <div style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-size: var(--text-xs); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg2)">
-          {{ t('acl.sites_heading') }} <span class="mono" style="margin-left: 4px; letter-spacing: 0">{{ sites.length }}</span>
-        </div>
-        <div style="max-height: 65vh; overflow-y: auto">
-          <button v-for="s in sites" :key="s.id"
-                  @click="activeSiteId = s.id"
-                  style="display: block; width: 100%; text-align: left; padding: var(--space-3) var(--space-4); background: transparent; border: none; border-left: 3px solid transparent; border-bottom: 1px solid var(--border); cursor: pointer"
-                  :style="s.id === activeSiteId ? 'background: var(--surface-2); border-left-color: var(--accent)' : ''">
-            <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.3">{{ s.name }}</div>
-            <div class="mono muted" style="font-size: var(--text-xs); margin-top: 2px">{{ s.cidr }}</div>
-            <div class="muted" style="font-size: var(--text-xs); margin-top: 2px">{{ (resourcesBySite[s.id] || []).length }} {{ t('acl.resources_count') }}</div>
-          </button>
-        </div>
-      </aside>
+    <!-- Two conceptual modes, not a cosmetic split: the role matrix (+ its
+         site-scoped type grants) governs access by rule; direct grants are
+         named, one-off exceptions that bypass roles entirely — the same
+         "role mode" / "direct mode" distinction Atlas already draws. Keeping
+         both visible at once was the actual "page feels long" complaint —
+         each mode alone fits a screen; the two stacked never did. -->
+    <div v-else>
+      <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-4)">
+        <button class="btn btn-sm" :class="aclTab === 'matrix' ? 'btn-secondary' : 'btn-ghost'" @click="aclTab = 'matrix'">
+          <Icon name="acl" :size="14" /> {{ t('acl.tab_matrix') }}
+        </button>
+        <button class="btn btn-sm" :class="aclTab === 'direct' ? 'btn-secondary' : 'btn-ghost'" @click="aclTab = 'direct'">
+          <Icon name="link" :size="14" /> {{ t('acl.tab_direct') }}
+          <span v-if="directGrantsCount > 0" class="mono muted" style="margin-left: 4px">{{ directGrantsCount }}</span>
+        </button>
+      </div>
 
-      <!-- Matrix (detail) for the active site; scrolls horizontally on its own. -->
-      <div style="flex: 1 1 0%; min-width: 0">
-        <div v-if="activeResources.length === 0" class="empty-state" style="margin: 0">
-          <h2>{{ t('acl.no_res_title') }}</h2>
-          <p>{{ t('acl.no_res_desc') }}</p>
-        </div>
-
-        <div v-else style="overflow-x: auto">
-        <table class="table" style="width: 100%">
-        <thead>
-          <tr>
-            <th style="position: sticky; left: 0; background: var(--surface-2); min-width: 220px">{{ t('acl.th_resource') }}</th>
-            <th style="position: sticky; left: 220px; background: var(--surface-2); text-align: right; padding-right: var(--space-4); white-space: nowrap; box-shadow: 1px 0 0 var(--border)">{{ t('acl.th_ports') }}</th>
-            <th v-for="role in roles" :key="role.id" style="text-align: center; min-width: 120px">
-              <div>{{ role.name }}</div>
-              <div class="muted" style="font-size: var(--text-xs); font-weight: 400; font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
-                {{ role.memberCount }} {{ t(role.memberCount === 1 ? 'acl.member' : 'acl.members') }}
-              </div>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in activeResources" :key="r.id">
-            <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle">
-              <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.4">{{ r.name }}</div>
-              <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); font-weight: 400; line-height: 1.3; margin-top: 2px">{{ r.ip }}</div>
-            </td>
-            <td style="position: sticky; left: 220px; background: var(--surface); text-align: right; padding-right: var(--space-4); vertical-align: middle; box-shadow: 1px 0 0 var(--border)">
-              <span class="mono muted" style="font-size: var(--text-sm)">{{ r.ports.length }}</span>
-            </td>
-            <td v-for="role in roles" :key="role.id" style="text-align: center; vertical-align: middle">
-              <button class="btn btn-ghost btn-sm"
-                      style="min-width: 60px; font-family: var(--font-mono); font-size: var(--text-md); text-transform: none; letter-spacing: 0"
-                      :style="isCellDirty(role.id, r.id) ? 'box-shadow: 0 0 0 2px #FBBF24 inset' : ''"
-                      @click="onCellClick(role.id, r)">
-                {{ cellLabel(role.id, r) }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-        </div>
-
-        <div class="muted" style="margin-top: var(--space-4); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
-          <span class="mono">∅</span> {{ t('acl.legend_none') }} &nbsp;·&nbsp;
-          <span class="mono">ⓐ</span> {{ t('acl.legend_all') }} &nbsp;·&nbsp;
-          <span class="mono">N</span> N {{ t('acl.legend_selected') }} &nbsp;·&nbsp;
-          {{ t('acl.legend_amber') }}
-        </div>
-
-        <!-- Type grants ("all printers in Homeoffice") — additive, always
-             all-ports, scoped to the active site like the matrix above but
-             not a matrix cell: applies to every current AND future resource
-             of that type in this site, not one concrete resourceId. Takes
-             effect immediately on add/remove (unlike the matrix, no
-             apply-batch step — there's no per-cell state to stage here). -->
-        <div class="card card-pad" style="margin-top: var(--space-5)">
-          <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.type_grants_title') }}</h2>
-          <div class="field-hint" style="margin-top: 0">{{ t('acl.type_grants_hint') }}</div>
-
-          <div v-if="typeGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ typeGrantError }}</div>
-
-          <table v-if="typeGrantsForActiveSite.length > 0" class="table" style="margin-top: var(--space-3)">
-            <thead>
-              <tr>
-                <th>{{ t('acl.th_role') }}</th>
-                <th>{{ t('acl.th_type') }}</th>
-                <th style="width: 40px"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="g in typeGrantsForActiveSite" :key="g.id">
-                <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
-                <td>{{ typeLabel(g.resourceType) }}</td>
-                <td>
-                  <button class="btn btn-ghost btn-sm" @click="removeTypeGrant(g.id)" :title="t('acl.type_grant_remove')">✕</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.type_grants_empty') }}</p>
-
-          <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
-            <select class="select" v-model="newTypeGrantRoleId" style="max-width: 220px">
-              <option value="" disabled>{{ t('acl.type_grant_pick_role') }}</option>
-              <option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option>
-            </select>
-            <select class="select" v-model="newTypeGrantType" style="max-width: 200px">
-              <option v-for="[key, label] in resourceTypeOptions" :key="key" :value="key">{{ label }}</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" :disabled="!newTypeGrantRoleId || typeGrantSaving" @click="addTypeGrant">
-              {{ typeGrantSaving ? t('common.loading') : t('acl.type_grant_add_btn') }}
+      <div v-show="aclTab === 'matrix'" style="display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap">
+        <!-- Site list (master): a vertical, scannable list scales past a horizontal
+             tab strip that overflowed off-screen once a hub had many sites. -->
+        <aside style="flex: 0 0 240px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden">
+          <div style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-size: var(--text-xs); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg2)">
+            {{ t('acl.sites_heading') }} <span class="mono" style="margin-left: 4px; letter-spacing: 0">{{ sites.length }}</span>
+          </div>
+          <div style="max-height: 65vh; overflow-y: auto">
+            <button v-for="s in sites" :key="s.id"
+                    @click="activeSiteId = s.id"
+                    style="display: block; width: 100%; text-align: left; padding: var(--space-3) var(--space-4); background: transparent; border: none; border-left: 3px solid transparent; border-bottom: 1px solid var(--border); cursor: pointer"
+                    :style="s.id === activeSiteId ? 'background: var(--surface-2); border-left-color: var(--accent)' : ''">
+              <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.3">{{ s.name }}</div>
+              <div class="mono muted" style="font-size: var(--text-xs); margin-top: 2px">{{ s.cidr }}</div>
+              <div class="muted" style="font-size: var(--text-xs); margin-top: 2px">{{ (resourcesBySite[s.id] || []).length }} {{ t('acl.resources_count') }}</div>
             </button>
+          </div>
+        </aside>
+
+        <!-- Matrix (detail) for the active site; scrolls horizontally on its own. -->
+        <div style="flex: 1 1 0%; min-width: 0">
+          <div v-if="activeResources.length === 0" class="empty-state" style="margin: 0">
+            <h2>{{ t('acl.no_res_title') }}</h2>
+            <p>{{ t('acl.no_res_desc') }}</p>
+          </div>
+
+          <template v-else>
+          <div style="display: flex; justify-content: flex-end; margin-bottom: var(--space-3)">
+            <input ref="matrixFilterInput" class="input input-sm" type="search" v-model="matrixFilter"
+                   :placeholder="t('acl.matrix_filter_ph')" style="width: 220px" />
+          </div>
+
+          <div v-if="filteredActiveResources.length === 0" class="empty-state" style="margin: 0">
+            <p>{{ t('acl.matrix_filter_empty', { query: matrixFilter }) }}</p>
+          </div>
+          <div v-else style="overflow-x: auto">
+          <table class="table" style="width: 100%">
+          <thead>
+            <tr>
+              <th style="position: sticky; left: 0; background: var(--surface-2); min-width: 220px">{{ t('acl.th_resource') }}</th>
+              <th style="position: sticky; left: 220px; background: var(--surface-2); text-align: right; padding-right: var(--space-4); white-space: nowrap; box-shadow: 1px 0 0 var(--border)">{{ t('acl.th_ports') }}</th>
+              <th v-for="role in roles" :key="role.id" style="text-align: center; min-width: 120px">
+                <div>{{ role.name }}</div>
+                <div class="muted" style="font-size: var(--text-xs); font-weight: 400; font-family: var(--font-sans); text-transform: none; letter-spacing: 0">
+                  {{ role.memberCount }} {{ t(role.memberCount === 1 ? 'acl.member' : 'acl.members') }}
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in filteredActiveResources" :key="r.id">
+              <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle">
+                <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.4">{{ r.name }}</div>
+                <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); font-weight: 400; line-height: 1.3; margin-top: 2px">{{ r.ip }}</div>
+              </td>
+              <td style="position: sticky; left: 220px; background: var(--surface); text-align: right; padding-right: var(--space-4); vertical-align: middle; box-shadow: 1px 0 0 var(--border)">
+                <span class="mono muted" style="font-size: var(--text-sm)">{{ r.ports.length }}</span>
+              </td>
+              <td v-for="role in roles" :key="role.id" style="text-align: center; vertical-align: middle">
+                <button class="btn btn-ghost btn-sm"
+                        style="min-width: 60px; font-family: var(--font-mono); font-size: var(--text-md); text-transform: none; letter-spacing: 0"
+                        :style="isCellDirty(role.id, r.id) ? 'box-shadow: 0 0 0 2px #FBBF24 inset' : ''"
+                        @click="onCellClick(role.id, r)">
+                  {{ cellLabel(role.id, r) }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+          </div>
+          </template>
+
+          <div class="muted" style="margin-top: var(--space-4); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-size: var(--text-sm)">
+            <span class="mono">∅</span> {{ t('acl.legend_none') }} &nbsp;·&nbsp;
+            <span class="mono">ⓐ</span> {{ t('acl.legend_all') }} &nbsp;·&nbsp;
+            <span class="mono">N</span> N {{ t('acl.legend_selected') }} &nbsp;·&nbsp;
+            {{ t('acl.legend_amber') }}
+          </div>
+
+          <!-- Type grants ("all printers in Homeoffice") — additive, always
+               all-ports, scoped to the active site like the matrix above but
+               not a matrix cell: applies to every current AND future resource
+               of that type in this site, not one concrete resourceId. Takes
+               effect immediately on add/remove (unlike the matrix, no
+               apply-batch step — there's no per-cell state to stage here). -->
+          <div class="card card-pad" style="margin-top: var(--space-5)">
+            <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.type_grants_title') }}</h2>
+            <div class="field-hint" style="margin-top: 0">{{ t('acl.type_grants_hint') }}</div>
+
+            <div v-if="typeGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ typeGrantError }}</div>
+
+            <table v-if="typeGrantsForActiveSite.length > 0" class="table" style="margin-top: var(--space-3)">
+              <thead>
+                <tr>
+                  <th>{{ t('acl.th_role') }}</th>
+                  <th>{{ t('acl.th_type') }}</th>
+                  <th style="width: 40px"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="g in typeGrantsForActiveSite" :key="g.id">
+                  <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
+                  <td>{{ typeLabel(g.resourceType) }}</td>
+                  <td>
+                    <button class="btn btn-ghost btn-sm" @click="removeTypeGrant(g.id)" :title="t('acl.type_grant_remove')">✕</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.type_grants_empty') }}</p>
+
+            <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
+              <select class="select" v-model="newTypeGrantRoleId" style="max-width: 220px">
+                <option value="" disabled>{{ t('acl.type_grant_pick_role') }}</option>
+                <option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option>
+              </select>
+              <select class="select" v-model="newTypeGrantType" style="max-width: 200px">
+                <option v-for="[key, label] in resourceTypeOptions" :key="key" :value="key">{{ label }}</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" :disabled="!newTypeGrantRoleId || typeGrantSaving" @click="addTypeGrant">
+                {{ typeGrantSaving ? t('common.loading') : t('acl.type_grant_add_btn') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Direct User → Resource grants (ADR-0024) — the same grants the Atlas
-         view's drag-and-drop creates, listed here for admins who'd rather not
-         use the map. Not scoped to activeSiteId: a grant can name a resource
-         in any site, so this card always shows every direct grant. -->
-    <div v-if="!loading && roles.length > 0 && sites.length > 0" class="card card-pad" style="margin-top: var(--space-5)">
-      <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.user_grants_title') }}</h2>
-      <div class="field-hint" style="margin-top: 0">{{ t('acl.user_grants_hint') }}</div>
+      <!-- Direct User → Resource grants (ADR-0024) — the same grants the Atlas
+           view's drag-and-drop creates, listed here for admins who'd rather not
+           use the map. Not scoped to activeSiteId: a grant can name a resource
+           in any site, so this card always shows every direct grant. -->
+      <div v-show="aclTab === 'direct'">
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.user_grants_title') }}</h2>
+        <div class="field-hint" style="margin-top: 0">{{ t('acl.user_grants_hint') }}</div>
 
-      <div v-if="userGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ userGrantError }}</div>
+        <div v-if="userGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ userGrantError }}</div>
 
-      <table v-if="userGrants.length > 0" class="table" style="margin-top: var(--space-3)">
-        <thead>
-          <tr>
-            <th>{{ t('atlas.th_user') }}</th>
-            <th>{{ t('acl.th_resource') }}</th>
-            <th>{{ t('acl.th_ports') }}</th>
-            <th>{{ t('acl.th_expires') }}</th>
-            <th style="width: 40px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="g in userGrants" :key="g.userId + '|' + g.resourceId">
-            <td>{{ g.userName }}</td>
-            <td>{{ g.resourceName }} <span class="muted">— {{ g.siteName }}</span></td>
-            <td class="mono">{{ g.allPorts ? t('acl.picker_all') : g.portLabels.join(', ') }}</td>
-            <td :title="g.validUntil ? new Date(g.validUntil).toLocaleString(lang) : ''">
-              {{ userGrantExpiryLabel(g) }}
-            </td>
-            <td>
-              <button class="btn btn-ghost btn-sm" :disabled="userGrantSaving" @click="removeUserGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.user_grants_empty') }}</p>
+        <table v-if="userGrants.length > 0" class="table" style="margin-top: var(--space-3)">
+          <thead>
+            <tr>
+              <th>{{ t('atlas.th_user') }}</th>
+              <th>{{ t('acl.th_resource') }}</th>
+              <th>{{ t('acl.th_ports') }}</th>
+              <th>{{ t('acl.th_expires') }}</th>
+              <th style="width: 40px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="g in userGrants" :key="g.userId + '|' + g.resourceId">
+              <td>{{ g.userName }}</td>
+              <td>{{ g.resourceName }} <span class="muted">— {{ g.siteName }}</span></td>
+              <td class="mono">{{ g.allPorts ? t('acl.picker_all') : g.portLabels.join(', ') }}</td>
+              <td :title="g.validUntil ? new Date(g.validUntil).toLocaleString(lang) : ''">
+                {{ userGrantExpiryLabel(g) }}
+              </td>
+              <td>
+                <button class="btn btn-ghost btn-sm" :disabled="userGrantSaving" @click="removeUserGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.user_grants_empty') }}</p>
 
-      <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
-        <select class="select" v-model="newUserGrantUserId" style="max-width: 220px">
-          <option value="" disabled>{{ t('acl.user_grant_pick_user') }}</option>
-          <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
-        </select>
-        <select class="select" v-model="newUserGrantResourceId" style="max-width: 260px">
-          <option value="" disabled>{{ t('acl.user_grant_pick_resource') }}</option>
-          <option v-for="r in resources" :key="r.id" :value="r.id">{{ r.name }} — {{ (sitesById[r.siteId] || {}).name || r.siteId }}</option>
-        </select>
-        <!-- Ad-hoc temporary grant (issue #70) — "" stays permanent, the
-             pre-existing default. A relative duration, not an absolute
-             date/time picker: the whole point is "for a few hours from
-             now", resolved to a concrete instant only at apply-time. -->
-        <select class="select" v-model="newUserGrantDurationHours" style="max-width: 180px" :title="t('acl.user_grant_duration_hint')">
-          <option value="">{{ t('acl.user_grant_duration_permanent') }}</option>
-          <option value="1">{{ t('acl.user_grant_duration_1h') }}</option>
-          <option value="4">{{ t('acl.user_grant_duration_4h') }}</option>
-          <option value="24">{{ t('acl.user_grant_duration_24h') }}</option>
-          <option value="168">{{ t('acl.user_grant_duration_7d') }}</option>
-        </select>
-        <button class="btn btn-secondary btn-sm" :disabled="!newUserGrantUserId || !newUserGrantResourceId || userGrantSaving" @click="onAddUserGrantClick">
-          {{ userGrantSaving ? t('common.loading') : t('acl.user_grant_add_btn') }}
-        </button>
+        <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
+          <select class="select" v-model="newUserGrantUserId" style="max-width: 220px">
+            <option value="" disabled>{{ t('acl.user_grant_pick_user') }}</option>
+            <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
+          </select>
+          <select class="select" v-model="newUserGrantResourceId" style="max-width: 260px">
+            <option value="" disabled>{{ t('acl.user_grant_pick_resource') }}</option>
+            <option v-for="r in resources" :key="r.id" :value="r.id">{{ r.name }} — {{ (sitesById[r.siteId] || {}).name || r.siteId }}</option>
+          </select>
+          <!-- Ad-hoc temporary grant (issue #70) — "" stays permanent, the
+               pre-existing default. A relative duration, not an absolute
+               date/time picker: the whole point is "for a few hours from
+               now", resolved to a concrete instant only at apply-time. -->
+          <select class="select" v-model="newUserGrantDurationHours" style="max-width: 180px" :title="t('acl.user_grant_duration_hint')">
+            <option value="">{{ t('acl.user_grant_duration_permanent') }}</option>
+            <option value="1">{{ t('acl.user_grant_duration_1h') }}</option>
+            <option value="4">{{ t('acl.user_grant_duration_4h') }}</option>
+            <option value="24">{{ t('acl.user_grant_duration_24h') }}</option>
+            <option value="168">{{ t('acl.user_grant_duration_7d') }}</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" :disabled="!newUserGrantUserId || !newUserGrantResourceId || userGrantSaving" @click="onAddUserGrantClick">
+            {{ userGrantSaving ? t('common.loading') : t('acl.user_grant_add_btn') }}
+          </button>
+        </div>
       </div>
-    </div>
 
-    <!-- Direct Site -> Resource grants — site-subject counterpart to the
-         card above, same shape and same PortPicker reuse. Not scoped to
-         activeSiteId, same reasoning as the user-grants card: a grant can
-         name a resource in any site, and the grantor site can differ from
-         the resource's own site too (a cross-site grant is legal). -->
-    <div v-if="!loading && roles.length > 0 && sites.length > 0" class="card card-pad" style="margin-top: var(--space-5)">
-      <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.site_grants_title') }}</h2>
-      <div class="field-hint" style="margin-top: 0">{{ t('acl.site_grants_hint') }}</div>
+      <!-- Direct Site -> Resource grants — site-subject counterpart to the
+           card above, same shape and same PortPicker reuse. Not scoped to
+           activeSiteId, same reasoning as the user-grants card: a grant can
+           name a resource in any site, and the grantor site can differ from
+           the resource's own site too (a cross-site grant is legal). -->
+      <div class="card card-pad" style="margin-top: var(--space-5)">
+        <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.site_grants_title') }}</h2>
+        <div class="field-hint" style="margin-top: 0">{{ t('acl.site_grants_hint') }}</div>
 
-      <div v-if="siteGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ siteGrantError }}</div>
+        <div v-if="siteGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ siteGrantError }}</div>
 
-      <table v-if="siteGrants.length > 0" class="table" style="margin-top: var(--space-3)">
-        <thead>
-          <tr>
-            <th>{{ t('acl.th_site') }}</th>
-            <th>{{ t('acl.th_resource') }}</th>
-            <th>{{ t('acl.th_ports') }}</th>
-            <th style="width: 40px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="g in siteGrants" :key="g.siteId + '|' + g.resourceId">
-            <td>{{ g.grantorSiteName }}</td>
-            <td>{{ g.resourceName }} <span class="muted">— {{ g.resourceSiteName }}</span></td>
-            <td class="mono">{{ g.allPorts ? t('acl.picker_all') : g.portLabels.join(', ') }}</td>
-            <td>
-              <button class="btn btn-ghost btn-sm" :disabled="siteGrantSaving" @click="removeSiteGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.site_grants_empty') }}</p>
+        <table v-if="siteGrants.length > 0" class="table" style="margin-top: var(--space-3)">
+          <thead>
+            <tr>
+              <th>{{ t('acl.th_site') }}</th>
+              <th>{{ t('acl.th_resource') }}</th>
+              <th>{{ t('acl.th_ports') }}</th>
+              <th style="width: 40px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="g in siteGrants" :key="g.siteId + '|' + g.resourceId">
+              <td>{{ g.grantorSiteName }}</td>
+              <td>{{ g.resourceName }} <span class="muted">— {{ g.resourceSiteName }}</span></td>
+              <td class="mono">{{ g.allPorts ? t('acl.picker_all') : g.portLabels.join(', ') }}</td>
+              <td>
+                <button class="btn btn-ghost btn-sm" :disabled="siteGrantSaving" @click="removeSiteGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.site_grants_empty') }}</p>
 
-      <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
-        <select class="select" v-model="newSiteGrantSiteId" style="max-width: 220px">
-          <option value="" disabled>{{ t('acl.site_grant_pick_site') }}</option>
-          <option v-for="s in sites" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
-        <select class="select" v-model="newSiteGrantResourceId" style="max-width: 260px">
-          <option value="" disabled>{{ t('acl.site_grant_pick_resource') }}</option>
-          <option v-for="r in resources" :key="r.id" :value="r.id">{{ r.name }} — {{ (sitesById[r.siteId] || {}).name || r.siteId }}</option>
-        </select>
-        <button class="btn btn-secondary btn-sm" :disabled="!newSiteGrantSiteId || !newSiteGrantResourceId || siteGrantSaving" @click="onAddSiteGrantClick">
-          {{ siteGrantSaving ? t('common.loading') : t('acl.site_grant_add_btn') }}
-        </button>
+        <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
+          <select class="select" v-model="newSiteGrantSiteId" style="max-width: 220px">
+            <option value="" disabled>{{ t('acl.site_grant_pick_site') }}</option>
+            <option v-for="s in sites" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+          <select class="select" v-model="newSiteGrantResourceId" style="max-width: 260px">
+            <option value="" disabled>{{ t('acl.site_grant_pick_resource') }}</option>
+            <option v-for="r in resources" :key="r.id" :value="r.id">{{ r.name }} — {{ (sitesById[r.siteId] || {}).name || r.siteId }}</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" :disabled="!newSiteGrantSiteId || !newSiteGrantResourceId || siteGrantSaving" @click="onAddSiteGrantClick">
+            {{ siteGrantSaving ? t('common.loading') : t('acl.site_grant_add_btn') }}
+          </button>
+        </div>
+      </div>
       </div>
     </div>
 

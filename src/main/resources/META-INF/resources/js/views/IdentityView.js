@@ -397,6 +397,16 @@ export default defineComponent({
     customDomainPlaceholder(preset) {
       return preset === "auth0" ? "your-tenant.auth0.com" : "your-org.okta.com";
     },
+    // The display-name field's placeholder used to hard-code "Keycloak"
+    // regardless of which tile the admin picked — misleading on the
+    // Auth0/Okta presets, which have their own obvious example name.
+    // "Keycloak" stays the example for the generic/custom preset, since
+    // that one has no single canonical provider to suggest instead.
+    customDisplayNamePlaceholder(preset) {
+      if (preset === "auth0") return "Auth0";
+      if (preset === "okta") return "Okta";
+      return "Keycloak";
+    },
 
     isConfigured(p) {
       return !!p.clientId && p.clientSecretSet &&
@@ -632,7 +642,7 @@ export default defineComponent({
         <div class="form-grid">
           <div class="field field-full">
             <label>{{ t('identity.custom_display_name') }}</label>
-            <input class="input" type="text" v-model="customDraft.displayName" placeholder="Keycloak" />
+            <input class="input" type="text" v-model="customDraft.displayName" :placeholder="customDisplayNamePlaceholder(customCreatingPreset)" />
           </div>
 
           <!-- Auth0/Okta preset: just a domain, issuer templated server-side. -->

@@ -47,6 +47,12 @@ export default defineComponent({
       // — but every connected device of theirs must stay individually
       // pingable, so the full list is kept, not just the most recent one.
       connectedPeersByUserId: {},
+      // Site-gateway (type=site) live peers, keyed by peer id — same
+      // /api/v1/peers/live snapshot as connectedPeersByUserId above, just the
+      // entries loadConnectedPeers used to skip. Drives the gateway diamond's
+      // hover card and online dot in AtlasDiagram (issue: "hover cards for
+      // site peers are still missing").
+      gatewayLiveByPeerId: {},
     };
   },
   computed: {
@@ -491,14 +497,20 @@ export default defineComponent({
         if (!res.ok) return;
         const live = await res.json();
         const byUser = {};
+        const gatewayById = {};
         for (const p of live) {
-          if (!p.userId || p.type === "site") continue; // site peers are handled via the gateway diamond, not here
+          if (p.type === "site") {
+            if (p.id) gatewayById[p.id] = p; // site peers: gateway hover card, not the user map below
+            continue;
+          }
+          if (!p.userId) continue;
           (byUser[p.userId] || (byUser[p.userId] = [])).push(p);
         }
         for (const peers of Object.values(byUser)) {
           peers.sort((a, b) => new Date(b.lastHandshake) - new Date(a.lastHandshake));
         }
         this.connectedPeersByUserId = byUser;
+        this.gatewayLiveByPeerId = gatewayById;
       } catch { /* the mobile circle just shows everyone as "unknown", no worse than before this existed */ }
     },
 
@@ -741,6 +753,8 @@ export default defineComponent({
                        :selected-peer-id="selectedPeerId"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
                        :connected-peers-by-user-id="connectedPeersByUserId"
+                       :connected-gateway-peer-ids="Object.keys(gatewayLiveByPeerId)"
+                       :gateway-peer-live-by-id="gatewayLiveByPeerId"
                        :hub-ip4="graph.hubIp4" :hub-ip6="graph.hubIp6"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"

@@ -135,6 +135,15 @@ export default defineComponent({
     // shape AtlasView already builds for the diagnostics buttons — reused here so
     // the user-node hover can list each connected device's IP, not just "online".
     connectedPeersByUserId: { type: Object, default: () => ({}) },
+    // Site-gateway peers currently online (ADR-0025's diagnostics target,
+    // same "last handshake in the live window" source as connectedUserIds —
+    // /api/v1/peers/live, just the type="site" entries instead of client
+    // ones). Drives the gateway diamond's own hover card and online dot,
+    // the same way connectedUserIds/connectedPeersByUserId drive a user's.
+    connectedGatewayPeerIds: { type: Array, default: () => [] },
+    // peerId -> { name, assignedIp, lastHandshake } for those same live
+    // site-gateway peers, for the hover card's IP row.
+    gatewayPeerLiveById: { type: Object, default: () => ({}) },
     // The Hub's own tunnel address(es) (network+1 of wgSubnet/wgSubnet6), for the
     // Hub node's hover card. hubIp6 is null on IPv4-only installs.
     hubIp4: { type: String, default: null },
@@ -175,6 +184,9 @@ export default defineComponent({
     },
     connectedUserIdSet() {
       return new Set(this.connectedUserIds);
+    },
+    connectedGatewayPeerIdSet() {
+      return new Set(this.connectedGatewayPeerIds);
     },
     // Inclusive filter (empty = show everything), same as the topology
     // map's type chips. Filtered-out nodes are dropped entirely, not just
@@ -308,6 +320,7 @@ export default defineComponent({
             x: item.x + item.r, y: item.y,
             circleId: c.id, isUser: false, isGateway: true,
             peerId: c.gatewayPeerId || null, peerName: c.gatewayPeerName || null,
+            cidr: c.cidr || null,
           });
         }
         return { ...c, cx: item.x, cy: item.y, r: item.r, color, nodes };
@@ -702,10 +715,9 @@ export default defineComponent({
                :style="(node.isUser || node.isGateway || tool === 'grant') ? 'cursor: grab' : 'cursor: pointer'"
                @pointerdown="onNodePointerDown(node, $event)"
                @click="onResourceNodeClick(node)"
-               @pointerenter="!node.isGateway && onNodeHover(node.isUser ? 'user' : 'resource', node, $event)"
-               @pointermove="!node.isGateway && hoveredNode === node && updateHoverPos($event)"
-               @pointerleave="!node.isGateway && onNodeLeave()">
-              <title v-if="node.isGateway">{{ t('atlas.tooltip_gateway', { site: node.name, cidr: circle.cidr }) }}</title>
+               @pointerenter="onNodeHover(node.isGateway ? 'gateway' : (node.isUser ? 'user' : 'resource'), node, $event)"
+               @pointermove="hoveredNode === node && updateHoverPos($event)"
+               @pointerleave="onNodeLeave()">
               <circle v-if="nodeFocused(node)" :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
                       fill="none" stroke="var(--fg1)" stroke-width="1.5">
                 <animate attributeName="r" values="${NODE_RADIUS + 3};${NODE_RADIUS + 9};${NODE_RADIUS + 3}"
@@ -735,11 +747,11 @@ export default defineComponent({
                    per the app's "never color-only" rule; this is a supplementary "is
                    anyone actually home right now" signal on top, with its own tooltip
                    text above and a name-label suffix below so it's not color-only either. -->
-              <circle v-if="node.isUser && connectedUserIdSet.has(node.id)"
+              <circle v-if="(node.isUser && connectedUserIdSet.has(node.id)) || (node.isGateway && node.peerId && connectedGatewayPeerIdSet.has(node.peerId))"
                       :cx="node.x + ${NODE_RADIUS} * 0.68" :cy="node.y + ${NODE_RADIUS} * 0.68" r="5"
                       fill="var(--success-solid)" stroke="var(--surface)" stroke-width="1.5" />
               <text :x="node.x" :y="node.y + ${NODE_RADIUS} + 14" text-anchor="middle"
-                    fill="var(--fg2)" font-size="11">{{ node.name }}{{ node.isUser && connectedUserIdSet.has(node.id) ? ' •' : '' }}</text>
+                    fill="var(--fg2)" font-size="11">{{ node.name }}{{ ((node.isUser && connectedUserIdSet.has(node.id)) || (node.isGateway && node.peerId && connectedGatewayPeerIdSet.has(node.peerId))) ? ' •' : '' }}</text>
             </g>
           </g>
 
@@ -786,6 +798,29 @@ export default defineComponent({
           <span class="muted">{{ t('atlas.tooltip_type') }}</span><span>{{ hoveredNode.type }}</span>
           <template v-if="hoveredNode.description">
             <span class="muted">{{ t('atlas.tooltip_description') }}</span><span>{{ hoveredNode.description }}</span>
+          </template>
+        </div>
+
+        <!-- Site-gateway node (ADR-0025): network + gateway peer + its own live
+             connection status, the same "who's actually home" question a user
+             node's card answers, just for the site's router instead of a person. -->
+        <div v-else-if="hoveredKind === 'gateway'" style="font-size: var(--text-xs)">
+          <div style="display: grid; grid-template-columns: auto auto; gap: 2px var(--space-3); margin-bottom: var(--space-2)">
+            <template v-if="hoveredNode.cidr">
+              <span class="muted">{{ t('atlas.tooltip_network') }}</span><span class="mono">{{ hoveredNode.cidr }}</span>
+            </template>
+            <template v-if="hoveredNode.peerName">
+              <span class="muted">{{ t('atlas.tooltip_gateway_peer') }}</span><span>{{ hoveredNode.peerName }}</span>
+            </template>
+          </div>
+          <div v-if="!hoveredNode.peerId" class="muted">{{ t('atlas.tooltip_no_gateway') }}</div>
+          <template v-else>
+            <div style="margin-bottom: var(--space-2)">
+              {{ connectedGatewayPeerIdSet.has(hoveredNode.peerId) ? t('atlas.tooltip_connected') : t('atlas.tooltip_disconnected') }}
+            </div>
+            <div v-if="gatewayPeerLiveById[hoveredNode.peerId]" style="display: grid; grid-template-columns: auto auto; gap: 2px var(--space-3)">
+              <span class="muted">{{ t('atlas.tooltip_ip') }}</span><span class="mono">{{ gatewayPeerLiveById[hoveredNode.peerId].assignedIp || '—' }}</span>
+            </div>
           </template>
         </div>
 
