@@ -85,6 +85,12 @@ export default defineComponent({
       if (i >= 0) this.form.eventTypes.splice(i, 1);
       else this.form.eventTypes.push(key);
     },
+    selectAllEventTypes() {
+      this.form.eventTypes = [...this.eventTypes];
+    },
+    selectNoEventTypes() {
+      this.form.eventTypes = [];
+    },
     async submit() {
       this.submitting = true;
       this.formError = null;
@@ -281,6 +287,10 @@ export default defineComponent({
             <div class="field">
               <label>{{ t('webhooks.field_events') }}</label>
               <div class="field-hint" style="margin-bottom: var(--space-2)">{{ t('webhooks.field_events_hint') }}</div>
+              <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-2)">
+                <button type="button" class="btn btn-ghost btn-sm" @click="selectAllEventTypes">{{ t('webhooks.select_all') }}</button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="selectNoEventTypes">{{ t('webhooks.select_none') }}</button>
+              </div>
               <div style="display: flex; flex-direction: column; gap: var(--space-2)">
                 <label v-for="et in eventTypes" :key="et"
                        style="display: flex; align-items: center; gap: var(--space-3); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 400">
