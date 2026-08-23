@@ -21,7 +21,18 @@ export default defineComponent({
       lang: locale.current,
     };
   },
-  computed: { _lang() { return locale.current; } },
+  computed: {
+    _lang() { return locale.current; },
+    // Ready-to-paste example against this exact instance, with the
+    // just-issued raw key already substituted in — shown once, in the same
+    // one-time reveal modal as the key itself, so "how do I actually use
+    // this" doesn't send an admin off to the docs mid-setup.
+    curlExample() {
+      if (!this.revealedKey) return "";
+      return 'curl -H "Authorization: Bearer ' + this.revealedKey.rawKey + '" \\\n  '
+          + location.origin + '/api/external/v1/peers';
+    },
+  },
   async mounted() {
     await this.load();
   },
@@ -76,6 +87,10 @@ export default defineComponent({
     async copyKey() {
       if (!this.revealedKey) return;
       try { await navigator.clipboard.writeText(this.revealedKey.rawKey); } catch {}
+    },
+    async copyCurl() {
+      if (!this.curlExample) return;
+      try { await navigator.clipboard.writeText(this.curlExample); } catch {}
     },
     async revoke(k) {
       if (!confirm(t("apikeys.confirm_revoke", { label: k.label }))) return;
@@ -183,6 +198,16 @@ export default defineComponent({
             <pre class="code-block">{{ revealedKey.rawKey }}</pre>
           </div>
           <div class="field-hint">{{ t('apikeys.reveal_hint') }}</div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label>{{ t('apikeys.curl_label') }}</label>
+            <div style="display: flex; align-items: flex-start; gap: var(--space-2)">
+              <pre class="code-block" style="flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-all">{{ curlExample }}</pre>
+              <button type="button" class="btn btn-ghost btn-sm" style="flex-shrink: 0" @click="copyCurl" :title="t('apikeys.btn_copy')">
+                <Icon name="copy" :size="13" />
+              </button>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" @click="copyKey">

@@ -803,6 +803,7 @@ const messages = {
     "apikeys.reveal_warning": "This is shown only once — copy it now. It acts with full admin privileges; treat it like a password.",
     "apikeys.field_key":   "Key",
     "apikeys.reveal_hint": "Lost it? Revoke it and create a new one — the old one stops working immediately.",
+    "apikeys.curl_label":  "Example request",
     "apikeys.btn_copy":    "Copy",
     "apikeys.btn_done":    "Done",
 
@@ -2225,6 +2226,7 @@ const messages = {
     "apikeys.reveal_warning": "Wird nur einmal angezeigt — jetzt kopieren. Er wirkt mit vollen Admin-Rechten — wie ein Passwort behandeln.",
     "apikeys.field_key":   "Key",
     "apikeys.reveal_hint": "Verloren? Widerrufen und einen neuen anlegen — der alte funktioniert dann sofort nicht mehr.",
+    "apikeys.curl_label":  "Beispiel-Aufruf",
     "apikeys.btn_copy":    "Kopieren",
     "apikeys.btn_done":    "Fertig",
 
