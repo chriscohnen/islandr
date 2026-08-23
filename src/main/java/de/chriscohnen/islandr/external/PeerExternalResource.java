@@ -64,9 +64,21 @@ public class PeerExternalResource {
                            @QueryParam("userId") String userId,
                            @Valid PeerDto.CreateRequest body) {
         AuthContext a = Auth.requireAdmin(ctx);
-        if (userId == null && !"site".equals(body.resolvedType())) {
+        boolean isSite = "site".equals(body.resolvedType());
+        if (userId == null && !isSite) {
             throw new jakarta.ws.rs.BadRequestException(
                     "userId is required for client peers; omit it only when type=site");
+        }
+        // Symmetric with the check above: a site peer is never owned by a
+        // User (Peer.userId's own contract) — reject the combination
+        // outright instead of silently ignoring userId, which used to let a
+        // site peer end up with a stray owner (PeerService.createForUser now
+        // also defends against this independently, but a clear 400 here is
+        // better than a caller not noticing their request had no effect on
+        // ownership).
+        if (userId != null && isSite) {
+            throw new jakarta.ws.rs.BadRequestException(
+                    "userId must be omitted when type=site — site (gateway) peers are never owned by a user");
         }
         PeerDto.CreateResponse out = peers.createForUser(userId, body);
         audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().name() + " (" + out.peer().id() + ")",

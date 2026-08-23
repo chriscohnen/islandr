@@ -81,7 +81,15 @@ public class PeerService {
                     "or neither (to have the server generate a fresh keypair).");
         }
 
-        Peer peer = Peer.createNew(userId, req.name(), publicKeyToStore, req.assignedIp());
+        // A site (gateway) peer is never owned by a User — "Client peers
+        // always carry a userId" (Peer.userId's own contract). The internal
+        // POST /api/v1/peers route already only ever calls this with
+        // userId=null for site peers, but callers reachable from elsewhere
+        // (the external facade's single collapsed create endpoint) pass
+        // whatever userId came in on the query string — force it to null
+        // here too so a site peer can never end up carrying a stray owner
+        // no matter which caller skipped that rule upstream.
+        Peer peer = Peer.createNew(req.isSite() ? null : userId, req.name(), publicKeyToStore, req.assignedIp());
         peer.assignedIpv6 = emptyToNull(req.assignedIpv6());
         peer.type = req.resolvedType();
         peer.siteAllowedCidrs = normalisedSiteCidrs;
