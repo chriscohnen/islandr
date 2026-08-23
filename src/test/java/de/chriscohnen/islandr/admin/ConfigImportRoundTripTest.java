@@ -6,6 +6,8 @@ import de.chriscohnen.islandr.acl.RoleBootstrap;
 import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.acl.SiteResourceGrant;
 import de.chriscohnen.islandr.acl.UserResourceGrant;
+import de.chriscohnen.islandr.apikey.ApiKey;
+import de.chriscohnen.islandr.identity.OidcCustomProvider;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.peer.PeerSchedule;
 import de.chriscohnen.islandr.settings.Settings;
@@ -188,7 +190,8 @@ class ConfigImportRoundTripTest {
                 original.grantPortLinks(), original.roleResourceTypeGrants(),
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
-                original.peerSchedules());
+                original.peerSchedules(),
+                original.oidcCustomProviders(), original.apiKeys());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -299,7 +302,8 @@ class ConfigImportRoundTripTest {
                 original.grantPortLinks(), original.roleResourceTypeGrants(),
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
-                original.peerSchedules());
+                original.peerSchedules(),
+                original.oidcCustomProviders(), original.apiKeys());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -459,7 +463,8 @@ class ConfigImportRoundTripTest {
                 original.grantPortLinks(), original.roleResourceTypeGrants(),
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
-                original.peerSchedules());
+                original.peerSchedules(),
+                original.oidcCustomProviders(), original.apiKeys());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -576,5 +581,110 @@ class ConfigImportRoundTripTest {
         assertThat(reloadedSchedule.weekdayMask).isEqualTo(0b0011111);
         assertThat(reloadedSchedule.activeFrom).isEqualTo("08:00");
         assertThat(reloadedSchedule.activeTo).isEqualTo("18:00");
+    }
+
+    /**
+     * Two gaps that used to silently drop data on export/import: (1) a custom
+     * OIDC provider (Auth0/Okta/Keycloak/any issuer — issue #69) and the
+     * users.oidc_custom_provider_id link pointing at it, and (2) external-API
+     * keys (ADR-0026). Neither the raw API key nor a *newly re-revealed* one
+     * is expected to survive — the whole point of the one-time-secret pattern
+     * is that only the SHA-256 hash is ever stored — but the hash row itself
+     * must, or an already-issued key silently stops working the moment an
+     * admin restores from a backup.
+     */
+    @Test
+    void customOidcProviderApiKeyAndUserLinkSurviveTheRoundTrip() {
+        String providerId = UUID.randomUUID().toString();
+        String userEmail = "custom-oidc-" + UUID.randomUUID() + "@local";
+        String userId = UUID.randomUUID().toString();
+        String apiKeyId = UUID.randomUUID().toString();
+
+        QuarkusTransaction.requiringNew().run(() -> {
+            OidcCustomProvider p = new OidcCustomProvider();
+            p.id = providerId;
+            p.preset = OidcCustomProvider.PRESET_OKTA;
+            p.displayName = "Okta";
+            p.issuerUrl = "https://roundtrip.okta.com";
+            p.authorizeEndpoint = "https://roundtrip.okta.com/authorize";
+            p.tokenEndpoint = "https://roundtrip.okta.com/token";
+            p.jwksUri = "https://roundtrip.okta.com/keys";
+            p.userinfoEndpoint = "https://roundtrip.okta.com/userinfo";
+            p.discoveredIssuer = "https://roundtrip.okta.com";
+            p.discoveredAt = Instant.parse("2026-08-01T10:00:00Z");
+            p.clientId = "roundtrip-client";
+            p.clientSecret = "roundtrip-secret";
+            p.scopes = "openid profile email";
+            p.allowedDomains = "example.com";
+            p.enabled = true;
+            p.createdAt = Instant.parse("2026-08-01T09:00:00Z");
+            p.updatedAt = Instant.parse("2026-08-01T09:00:00Z");
+            p.updatedBy = "test";
+            p.persist();
+
+            User u = new User();
+            u.id = userId;
+            u.name = "Custom OIDC User";
+            u.email = userEmail;
+            u.enabled = true;
+            u.oidcProvider = "custom";
+            u.oidcSubject = "sub-123";
+            u.oidcCustomProviderId = providerId;
+            u.createdAt = Instant.parse("2026-08-01T09:05:00Z");
+            u.persist();
+
+            ApiKey k = new ApiKey();
+            k.id = apiKeyId;
+            k.label = "roundtrip key";
+            k.keyHash = "deadbeef".repeat(8);
+            k.keyPrefix = "islandr_live_abcd";
+            k.createdAt = Instant.parse("2026-08-01T09:10:00Z");
+            k.createdBy = "test-admin";
+            k.persist();
+        });
+
+        ConfigExportDto.Export exported =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+
+        assertThat(exported.oidcCustomProviders())
+                .filteredOn(p -> providerId.equals(p.id()))
+                .singleElement()
+                .satisfies(p -> {
+                    assertThat(p.displayName()).isEqualTo("Okta");
+                    assertThat(p.clientSecret()).isEqualTo("roundtrip-secret");
+                });
+        assertThat(exported.users())
+                .filteredOn(u -> userId.equals(u.id()))
+                .singleElement()
+                .satisfies(u -> assertThat(u.oidcCustomProviderId()).isEqualTo(providerId));
+        assertThat(exported.apiKeys())
+                .filteredOn(k -> apiKeyId.equals(k.id()))
+                .singleElement()
+                .satisfies(k -> {
+                    assertThat(k.keyHash()).isEqualTo("deadbeef".repeat(8));
+                    assertThat(k.keyPrefix()).isEqualTo("islandr_live_abcd");
+                });
+
+        configService.importConfig(exported);
+
+        OidcCustomProvider reloadedProvider =
+                QuarkusTransaction.requiringNew().call(() -> OidcCustomProvider.findById(providerId));
+        assertThat(reloadedProvider).isNotNull();
+        assertThat(reloadedProvider.clientSecret).isEqualTo("roundtrip-secret");
+
+        User reloadedUser =
+                QuarkusTransaction.requiringNew().call(() -> User.<User>find("email", userEmail).firstResult());
+        assertThat(reloadedUser).isNotNull();
+        assertThat(reloadedUser.oidcCustomProviderId)
+                .as("the FK must be re-linked, not dropped, on restore")
+                .isEqualTo(providerId);
+
+        ApiKey reloadedKey =
+                QuarkusTransaction.requiringNew().call(() -> ApiKey.findById(apiKeyId));
+        assertThat(reloadedKey)
+                .as("an already-issued key must keep authenticating after a restore — only the " +
+                        "raw value is unrecoverable, not the hash row that verifies it")
+                .isNotNull();
+        assertThat(reloadedKey.keyHash).isEqualTo("deadbeef".repeat(8));
     }
 }

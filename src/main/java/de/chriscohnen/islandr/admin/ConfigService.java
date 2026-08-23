@@ -1,6 +1,8 @@
 package de.chriscohnen.islandr.admin;
 
 import de.chriscohnen.islandr.acl.*;
+import de.chriscohnen.islandr.apikey.ApiKey;
+import de.chriscohnen.islandr.identity.OidcCustomProvider;
 import de.chriscohnen.islandr.identity.OidcProvider;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.peer.PeerSchedule;
@@ -47,7 +49,24 @@ public class ConfigService {
         List<ConfigExportDto.UserSnapshot> users = User.<User>listAll()
                 .stream().map(u -> new ConfigExportDto.UserSnapshot(
                         u.id, u.name, u.email, u.nickname, u.enabled, u.isAdmin,
-                        u.oidcProvider, u.oidcSubject, u.preferredLocale, u.createdAt))
+                        u.oidcProvider, u.oidcSubject, u.preferredLocale, u.createdAt,
+                        u.oidcCustomProviderId))
+                .toList();
+
+        List<ConfigExportDto.OidcCustomProviderSnapshot> customProviders =
+                OidcCustomProvider.<OidcCustomProvider>listAll()
+                .stream().map(p -> new ConfigExportDto.OidcCustomProviderSnapshot(
+                        p.id, p.preset, p.displayName, p.issuerUrl,
+                        p.authorizeEndpoint, p.tokenEndpoint, p.jwksUri, p.userinfoEndpoint,
+                        p.discoveredIssuer, p.discoveredAt,
+                        p.clientId, p.clientSecret, p.scopes, p.allowedDomains,
+                        p.enabled, p.createdAt, p.updatedAt, p.updatedBy))
+                .toList();
+
+        List<ConfigExportDto.ApiKeySnapshot> apiKeys = ApiKey.<ApiKey>listAll()
+                .stream().map(k -> new ConfigExportDto.ApiKeySnapshot(
+                        k.id, k.label, k.keyHash, k.keyPrefix,
+                        k.createdAt, k.createdBy, k.lastUsedAt, k.revokedAt))
                 .toList();
 
         List<ConfigExportDto.RoleSnapshot> roles = Role.<Role>listAll()
@@ -164,7 +183,8 @@ public class ConfigService {
                 settings, providers, users, roles, memberships, peers,
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
-                siteGrants, siteGrantPortLinks, peerSchedules);
+                siteGrants, siteGrantPortLinks, peerSchedules,
+                customProviders, apiKeys);
     }
 
     @Transactional
@@ -187,15 +207,54 @@ public class ConfigService {
         em.createNativeQuery("DELETE FROM peer_schedules").executeUpdate();
         em.createNativeQuery("DELETE FROM peers").executeUpdate();
         em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
+        // users.oidc_custom_provider_id references oidc_custom_providers (ON
+        // DELETE SET NULL) — delete the child (users) before the parent so
+        // this teardown never depends on the FK's own cascade behavior.
         em.createNativeQuery("DELETE FROM users").executeUpdate();
+        em.createNativeQuery("DELETE FROM oidc_custom_providers").executeUpdate();
         em.createNativeQuery("DELETE FROM roles").executeUpdate();
+        em.createNativeQuery("DELETE FROM api_keys").executeUpdate();
+
+        // --- Custom OIDC providers (issue #69) --------------------------------
+        // Must precede Users below: users.oidc_custom_provider_id is a
+        // (foreign_keys=ON, immediately-checked) FK into this table, so the
+        // referenced row has to exist before the referencing user row is
+        // inserted.
+        for (var op : safe(p.oidcCustomProviders())) {
+            em.createNativeQuery(
+                            "INSERT INTO oidc_custom_providers (id, preset, display_name, issuer_url," +
+                            " authorize_endpoint, token_endpoint, jwks_uri, userinfo_endpoint," +
+                            " discovered_issuer, discovered_at, client_id, client_secret, scopes," +
+                            " allowed_domains, enabled, created_at, updated_at, updated_by)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)")
+                    .setParameter(1, op.id())
+                    .setParameter(2, op.preset())
+                    .setParameter(3, op.displayName())
+                    .setParameter(4, op.issuerUrl())
+                    .setParameter(5, op.authorizeEndpoint())
+                    .setParameter(6, op.tokenEndpoint())
+                    .setParameter(7, op.jwksUri())
+                    .setParameter(8, op.userinfoEndpoint())
+                    .setParameter(9, op.discoveredIssuer())
+                    .setParameter(10, op.discoveredAt() != null ? ts(op.discoveredAt()) : null)
+                    .setParameter(11, op.clientId())
+                    .setParameter(12, op.clientSecret())
+                    .setParameter(13, op.scopes())
+                    .setParameter(14, op.allowedDomains())
+                    .setParameter(15, op.enabled() ? 1 : 0)
+                    .setParameter(16, ts(op.createdAt()))
+                    .setParameter(17, ts(op.updatedAt()))
+                    .setParameter(18, op.updatedBy())
+                    .executeUpdate();
+        }
 
         // --- Users -----------------------------------------------------------
         for (var u : safe(p.users())) {
             em.createNativeQuery(
                             "INSERT INTO users (id, name, email, nickname, enabled, is_admin," +
-                            " oidc_provider, oidc_subject, preferred_locale, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)")
+                            " oidc_provider, oidc_subject, preferred_locale, created_at," +
+                            " oidc_custom_provider_id)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
                     .setParameter(1, u.id())
                     .setParameter(2, u.name())
                     .setParameter(3, u.email())
@@ -206,6 +265,9 @@ public class ConfigService {
                     .setParameter(8, u.oidcSubject())
                     .setParameter(9, u.preferredLocale())
                     .setParameter(10, ts(u.createdAt()))
+                    // Pre-issue-#69 exports lack this field → null, same as a user
+                    // who never authenticated via a custom provider.
+                    .setParameter(11, u.oidcCustomProviderId())
                     .executeUpdate();
         }
 
@@ -491,6 +553,29 @@ public class ConfigService {
             prov.allowedDomains = op.allowedDomains();
             prov.updatedAt = Instant.now();
             prov.updatedBy = "config-import";
+        }
+
+        // --- External-API keys (ADR-0026) -------------------------------------
+        // Delete-then-reinsert, unlike the built-in OIDC providers above: these
+        // are ordinary admin-created rows with arbitrary ids, not pre-seeded
+        // singletons keyed by a fixed providerKey. Only the hash/prefix travel
+        // (ApiKey never stores the raw key) — an already-issued key keeps
+        // authenticating after this restore, since verification only ever
+        // needs the hash.
+        for (var k : safe(p.apiKeys())) {
+            em.createNativeQuery(
+                            "INSERT INTO api_keys (id, label, key_hash, key_prefix," +
+                            " created_at, created_by, last_used_at, revoked_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+                    .setParameter(1, k.id())
+                    .setParameter(2, k.label())
+                    .setParameter(3, k.keyHash())
+                    .setParameter(4, k.keyPrefix())
+                    .setParameter(5, ts(k.createdAt()))
+                    .setParameter(6, k.createdBy())
+                    .setParameter(7, k.lastUsedAt() != null ? ts(k.lastUsedAt()) : null)
+                    .setParameter(8, k.revokedAt() != null ? ts(k.revokedAt()) : null)
+                    .executeUpdate();
         }
 
         return new ConfigExportDto.ImportResult(
