@@ -1292,11 +1292,15 @@ body {
   text-anchor: middle;
   pointer-events: none;
 }
+/* Absolutely positioned over the .topo SVG's own box (see TopologyDiagram's
+   inline position/inset rules) — no height/centering here on purpose. A
+   fixed height plus center-alignment used to make this box taller than the
+   space actually available above the hub, pushing its vertically-centered
+   text down onto the hub itself; sizing now lives entirely in the inline
+   style so the two can't drift apart again. */
 .topo-empty {
   display: flex;
-  align-items: center;
   justify-content: center;
-  height: 360px;
   color: var(--fg3);
   font-size: var(--text-sm);
 }

@@ -578,9 +578,15 @@ export default defineComponent({
         {{ t('topology.resource_overflow', { count: resourceOverflow }) }}
       </div>
 
+      <!-- Anchored to the bottom of the .topo SVG's own box (not the whole
+           card) and below the hub, rather than centered over the whole
+           area — centering it there put the hint text directly on top of
+           the hub circle/label when there's nothing else on the diagram to
+           push it aside. The hub sits at the vertical center of this same
+           box (see CX/CY), so bottom-anchoring always clears it. -->
       <div v-if="sites.length === 0" class="topo-empty"
-           style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1">
-        <span style="pointer-events: auto">{{ t('topology.empty_a') }}<router-link to="/networks" style="font-weight: 600; color: var(--fg1); text-decoration: underline">{{ t('nav.networks') }}</router-link>{{ t('topology.empty_b') }}</span>
+           style="position: absolute; left: 0; right: 0; top: 0; height: min(440px, 55vh); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 20px; pointer-events: none; z-index: 1">
+        <span style="pointer-events: auto; text-align: center; max-width: 480px">{{ t('topology.empty_a') }}<router-link to="/networks" style="font-weight: 600; color: var(--fg1); text-decoration: underline">{{ t('nav.networks') }}</router-link>{{ t('topology.empty_b') }}</span>
       </div>
 
       <svg class="topo" :viewBox="viewBox"
