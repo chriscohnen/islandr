@@ -222,7 +222,7 @@ islandr/
 │   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 720+ tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 727 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -290,11 +290,15 @@ Only the changes that matter if you actually use it. Earlier versions: [CHANGELO
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
 **0.19.0**
-- **External API for automation** — a new `/api/external/v1` surface (API-key auth, separate from the session-cookie-authenticated admin console API) for scripts, CI, and infrastructure-as-code, with read access to peers, users, sites, resources, and roles; API keys are managed in a new Admin Console page, one-time reveal, hashed at rest, instantly revocable ([ADR-0026](docs/adr/0026-external-api-facade.md), [#15](https://github.com/chriscohnen/islandr/issues/15))
+- **Generic OIDC provider support** — Auth0, Okta, or any other OIDC-compliant issuer can now be added alongside Microsoft 365/Google Workspace, discovered automatically via `.well-known/openid-configuration`; Auth0/Okta get preset tiles that only ask for a domain, a fully generic tile asks for the issuer URL directly ([#69](https://github.com/chriscohnen/islandr/issues/69))
+- **Outgoing webhooks** — configure any URL to receive peer connect/disconnect, ACL grant, discovery-scan, and certificate-renewal events, filtered per webhook to only the event types it wants; HMAC-SHA256-signed by default, or a Gotify-native payload format for instances already running a Gotify server, plus an optional extra auth header (`Authorization`, `X-API-Key`, ...) for receivers that need one ([#68](https://github.com/chriscohnen/islandr/issues/68))
+- **External API for automation** — a new `/api/external/v1` surface (API-key auth, separate from the session-cookie-authenticated admin console API) for scripts, CI, and infrastructure-as-code, with read access to peers, users, sites, resources, and roles; API keys are managed in a new Admin Console page, one-time reveal (with a ready-to-paste curl example), hashed at rest, instantly revocable, and the whole facade can be switched off entirely from Settings ([ADR-0026](docs/adr/0026-external-api-facade.md), [#15](https://github.com/chriscohnen/islandr/issues/15))
+- **Ad-hoc temporary access grants** — a direct user→resource grant can now carry an expiry (1h/4h/24h/7d or permanent), auto-revoked on schedule for JIT-style access without an admin needing to remember to remove it later ([#70](https://github.com/chriscohnen/islandr/issues/70))
 - **Roles & ACL page redesign** — split into a *Role matrix* and a *Direct grants* tab instead of stacking everything on one long page, plus a resource filter above the matrix for large sites
-- **Atlas: hover cards for site-gateway peers** — the diamond node now shows network, gateway peer, live online status and tunnel IP on hover, the same rich card users/resources already had, instead of a plain tooltip
-- **Config export/import now covers custom OIDC providers and API keys** — a custom Auth0/Okta/Keycloak provider (and any user linked to it), and every issued API key, previously vanished silently on a restore; both now travel with the snapshot
-- Fixed a site (gateway) peer occasionally showing up under a user's "Für Benutzer" filter on the Peers page despite the table itself correctly showing no owner for it
+- **Atlas: hover cards everywhere** — user nodes show connection status and every connected device's tunnel IP, the Hub shows its own IPv4/IPv6 tunnel address, and site-gateway (diamond) nodes show network/gateway peer/live status/tunnel IP — the same rich card resources already had, replacing plain tooltips
+- **Security fix: disabling a user now also disables all their peers** — previously `enabled=false` only blocked the portal/OIDC login; the user's already-configured WireGuard peers kept working until someone separately disabled each one
+- **Config export/import now covers the external API toggle, custom OIDC providers, API keys, and Peer-Scheduler state** — all of these previously vanished silently on a restore; ad-hoc temporary grants are now explicitly *excluded* from export on purpose (they're meant to expire on their own, and a restored backup shouldn't resurrect a stale one)
+- Fixed a site (gateway) peer occasionally showing up under a user's "Für Benutzer" filter on the Peers page despite the table itself correctly showing no owner for it; the external API facade now rejects a peer-create request that tries to combine a site type with a userId instead of silently ignoring it
 
 **0.18.0**
 - **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell — no `sudo`, no new capabilities needed on a modern Linux host ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66)). Results dock in a panel beside the Atlas graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram; connected client peers are now visibly marked and pingable too
