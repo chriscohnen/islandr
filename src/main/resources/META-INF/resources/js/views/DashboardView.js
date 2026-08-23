@@ -220,6 +220,15 @@ export default defineComponent({
     hostHealthCpuLabel(h) {
       return h.cpuPercent != null ? Math.round(h.cpuPercent) + "%" : "—";
     },
+    // Prefixes a badge's own text with its status word — but only when it's
+    // not "ok", so a healthy reading doesn't clutter every badge with a
+    // redundant "OK ·". This is what fixes the real bug found in use: the
+    // overall (worst-of-three) status used to render as one pill next to
+    // the CPU number alone, so a memory-driven "Hoch" read as "CPU is high"
+    // even though CPU was fine. Each metric now carries its own status.
+    hostHealthPrefix(status) {
+      return status === "ok" ? "" : this.hostHealthStatusLabel(status) + " · ";
+    },
   },
   template: `
     <div class="page-header">
@@ -317,10 +326,16 @@ export default defineComponent({
             <Icon name="server" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_hub') }}
           </div>
           <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ hostHealthCpuLabel(data.hostHealth) }}</div>
-          <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center">
-            <span :class="['badge', hostHealthBadge(data.hostHealth.status)]">{{ hostHealthStatusLabel(data.hostHealth.status) }}</span>
-            <span v-if="data.hostHealth.status !== 'unavailable'" class="badge badge-neutral">{{ t('dashboard.hub_mem') }} {{ formatBytes(data.hostHealth.memUsedBytes) }} / {{ formatBytes(data.hostHealth.memTotalBytes) }}</span>
-            <span v-if="data.hostHealth.swapTotalBytes > 0" class="badge badge-neutral">{{ t('dashboard.hub_swap') }} {{ formatBytes(data.hostHealth.swapUsedBytes) }} / {{ formatBytes(data.hostHealth.swapTotalBytes) }}</span>
+          <!-- Each metric carries its own status badge — never one combined
+               pill next to the CPU number alone, which used to read as "CPU
+               is high" even when memory or swap was the actual cause. -->
+          <div v-if="data.hostHealth.status === 'unavailable'" class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2)">
+            <span class="badge badge-neutral">{{ hostHealthStatusLabel('unavailable') }}</span>
+          </div>
+          <div v-else class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center">
+            <span v-if="data.hostHealth.cpuStatus !== 'ok'" :class="['badge', hostHealthBadge(data.hostHealth.cpuStatus)]">{{ hostHealthPrefix(data.hostHealth.cpuStatus) }}CPU</span>
+            <span :class="['badge', hostHealthBadge(data.hostHealth.memStatus)]">{{ hostHealthPrefix(data.hostHealth.memStatus) }}{{ t('dashboard.hub_mem') }} {{ formatBytes(data.hostHealth.memUsedBytes) }} / {{ formatBytes(data.hostHealth.memTotalBytes) }}</span>
+            <span v-if="data.hostHealth.swapTotalBytes > 0" :class="['badge', hostHealthBadge(data.hostHealth.swapStatus)]">{{ hostHealthPrefix(data.hostHealth.swapStatus) }}{{ t('dashboard.hub_swap') }} {{ formatBytes(data.hostHealth.swapUsedBytes) }} / {{ formatBytes(data.hostHealth.swapTotalBytes) }}</span>
           </div>
         </div>
       </div>

@@ -200,7 +200,8 @@ public class HostHealthSampler {
         String overall = worstOf(cpuStatus, memStatus, swapStatus);
 
         return new HostHealthDto.Snapshot(cpuPercent, mem.totalBytes(), mem.usedBytes(),
-                mem.swapTotalBytes(), mem.swapUsedBytes(), mem.source(), overall, Instant.now());
+                mem.swapTotalBytes(), mem.swapUsedBytes(), mem.source(),
+                cpuStatus, memStatus, swapStatus, overall, Instant.now());
     }
 
     static String statusFor(double ratio, double high, double critical) {

@@ -27,6 +27,14 @@ public final class HostHealthDto {
      * itself is about to be OOM-killed well before the host runs low); "host"
      * otherwise (bare-metal/systemd, the primary supported deployment, or a
      * container with no memory limit set).
+     *
+     * <p>{@code status} is the worst of {@code cpuStatus}/{@code memStatus}/
+     * {@code swapStatus} — kept for anything that just wants one "is
+     * something wrong" signal (e.g. a future alert). The UI must attribute
+     * a High/Critical reading to whichever metric actually caused it using
+     * the three per-metric fields — showing the combined {@code status}
+     * next to the CPU number alone was a real bug: it read as "CPU is
+     * high" when memory (or swap) was actually the culprit.
      */
     public record Snapshot(
             Double cpuPercent,
@@ -35,11 +43,15 @@ public final class HostHealthDto {
             long swapTotalBytes,
             long swapUsedBytes,
             String memorySource,
+            String cpuStatus,
+            String memStatus,
+            String swapStatus,
             String status,
             Instant sampledAt
     ) {
         public static Snapshot unavailable() {
-            return new Snapshot(null, 0, 0, 0, 0, "host", Status.UNAVAILABLE, Instant.now());
+            return new Snapshot(null, 0, 0, 0, 0, "host",
+                    Status.UNAVAILABLE, Status.UNAVAILABLE, Status.UNAVAILABLE, Status.UNAVAILABLE, Instant.now());
         }
     }
 }

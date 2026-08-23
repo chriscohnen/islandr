@@ -95,19 +95,31 @@ class HostHealthSamplerTest {
         assertThat(snap.status()).isEqualTo(HostHealthDto.Status.OK);
     }
 
+    /**
+     * Regression test for a real bug found in use: the UI showed the
+     * combined {@code status} right next to the CPU% number, so a
+     * memory-driven "High"/"Critical" read as "CPU is high" even though CPU
+     * was fine. The per-metric fields must attribute correctly — memStatus
+     * critical, cpuStatus still ok — so the frontend can show it against the
+     * right number.
+     */
     @Test
-    void buildSnapshot_memoryAboveCriticalThreshold_isCritical() {
+    void buildSnapshot_memoryAboveCriticalThreshold_isCritical_attributedToMemoryNotCpu() {
         HostHealthSampler.MemReading mem = new HostHealthSampler.MemReading(
                 1000, 950, 0, 0, "host"); // 95% mem used
-        HostHealthDto.Snapshot snap = HostHealthSampler.buildSnapshot(5.0, mem);
+        HostHealthDto.Snapshot snap = HostHealthSampler.buildSnapshot(5.0, mem); // 5% cpu
         assertThat(snap.status()).isEqualTo(HostHealthDto.Status.CRITICAL);
+        assertThat(snap.memStatus()).isEqualTo(HostHealthDto.Status.CRITICAL);
+        assertThat(snap.cpuStatus()).as("CPU itself is fine, only memory is critical").isEqualTo(HostHealthDto.Status.OK);
     }
 
     @Test
-    void buildSnapshot_cpuAboveHighThreshold_isHigh() {
+    void buildSnapshot_cpuAboveHighThreshold_isHigh_attributedToCpu() {
         HostHealthSampler.MemReading mem = new HostHealthSampler.MemReading(1000, 100, 0, 0, "host");
         HostHealthDto.Snapshot snap = HostHealthSampler.buildSnapshot(80.0, mem); // 80% cpu -> high, not critical
         assertThat(snap.status()).isEqualTo(HostHealthDto.Status.HIGH);
+        assertThat(snap.cpuStatus()).isEqualTo(HostHealthDto.Status.HIGH);
+        assertThat(snap.memStatus()).isEqualTo(HostHealthDto.Status.OK);
     }
 
     @Test
