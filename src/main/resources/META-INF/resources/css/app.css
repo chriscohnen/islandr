@@ -1143,6 +1143,10 @@ body {
 .identity-strip--local {
   background: var(--surface-2);
 }
+.identity-strip--add {
+  background: transparent;
+  border-style: dashed;
+}
 
 /* Small-width override for confirm-style dialogs. .modal/.modal-backdrop's
    base (scrollable body, pinned header/footer) is defined above — a second,

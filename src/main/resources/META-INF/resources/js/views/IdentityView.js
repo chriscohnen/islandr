@@ -763,6 +763,28 @@ export default defineComponent({
           </div>
         </div>
 
+        <!-- Add another custom OIDC provider (issue #69). Must stay reachable
+             even when a provider is already active or configured — the
+             Auth0/Okta/Custom tiles used to live only in the empty-hero
+             (state B above), which never renders once any provider (fixed or
+             custom) is active. That silently hid the setup path entirely for
+             anyone who already had e.g. Google Workspace configured. -->
+        <div class="identity-strip identity-strip--add">
+          <span class="idp-logo idp-logo--sm idp-logo--custom">
+            <Icon name="identity" :size="16" />
+          </span>
+          <div class="identity-strip-text">
+            <div class="identity-strip-name">{{ t('identity.add_another_title') }}</div>
+            <div class="muted" style="font-size: var(--text-xs)">{{ t('identity.add_another_desc') }}</div>
+          </div>
+          <div class="identity-strip-actions">
+            <button v-for="preset in ['auth0', 'okta', 'custom']" :key="preset"
+                    class="btn btn-ghost btn-sm" @click="startCreateCustom(preset)">
+              {{ customPresetLabel(preset) }}
+            </button>
+          </div>
+        </div>
+
         <!-- Lokal-Admin: immer da, immer als Sicherheitsanker -->
         <div class="identity-strip identity-strip--local">
           <span class="idp-logo idp-logo--sm idp-logo--local" aria-hidden="true">
