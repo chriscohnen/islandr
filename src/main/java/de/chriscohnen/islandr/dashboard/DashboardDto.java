@@ -1,5 +1,7 @@
 package de.chriscohnen.islandr.dashboard;
 
+import de.chriscohnen.islandr.hosthealth.HostHealthDto;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -14,7 +16,11 @@ public final class DashboardDto {
             FirewallStatus firewall,
             List<AuditEntry> recentAudit,
             List<PeerEntry> recentPeers,
-            Topology topology
+            Topology topology,
+            // Hub CPU/memory/swap (#73) — a live sample, not a DB-backed stat
+            // like everything else above. "unavailable" status on a non-Linux
+            // dev machine (no /proc), never null.
+            HostHealthDto.Snapshot hostHealth
     ) {}
 
     /**

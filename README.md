@@ -202,6 +202,7 @@ islandr/
 │   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), unrelated PTR/mDNS/NetBIOS reverse lookups for discovery's hostname suggestion (#45, #48)
 │   │   ├── external/    # /api/external/v1 facade: API-key auth, peers/users/sites/resources/roles (ADR-0026)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
+│   │   ├── hosthealth/  # hub CPU/memory/swap sampler, hand-rolled from /proc (issue #73)
 │   │   ├── identity/    # OidcProvider + OidcCustomProvider (issue #69), JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
 │   │   ├── network/     # network diagnostics: ping/tracepath/mtr over an unprivileged shell (ADR-0025)
 │   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService

@@ -169,7 +169,8 @@ export default defineComponent({
       if (b == null) return "—";
       if (b < 1024) return b + " B";
       if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
-      return (b / (1024 * 1024)).toFixed(1) + " MB";
+      if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + " MB";
+      return (b / (1024 * 1024 * 1024)).toFixed(1) + " GB";
     },
     providerLabel(key) {
       if (key === "microsoft") return "Microsoft 365";
@@ -199,6 +200,25 @@ export default defineComponent({
       if (status === "ok") return "badge-success";
       if (status === "failed") return "badge-warning";
       return "badge-neutral";
+    },
+    // Hub health (#73) — CPU/memory/swap sampled server-side from /proc.
+    // "unavailable" (no /proc, e.g. a non-Linux dev machine) degrades to a
+    // muted "—", never an error state — this is informational, not a
+    // feature the app depends on.
+    hostHealthBadge(status) {
+      if (status === "critical") return "badge-danger";
+      if (status === "high") return "badge-warning";
+      if (status === "ok") return "badge-success";
+      return "badge-neutral";
+    },
+    hostHealthStatusLabel(status) {
+      if (status === "critical") return t("dashboard.hub_critical");
+      if (status === "high") return t("dashboard.hub_high");
+      if (status === "ok") return t("dashboard.hub_ok");
+      return t("dashboard.hub_unavailable");
+    },
+    hostHealthCpuLabel(h) {
+      return h.cpuPercent != null ? Math.round(h.cpuPercent) + "%" : "—";
     },
   },
   template: `
@@ -291,6 +311,18 @@ export default defineComponent({
             {{ data.firewall.stderr }}
           </div>
         </a>
+
+        <div class="card card-pad">
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="server" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_hub') }}
+          </div>
+          <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ hostHealthCpuLabel(data.hostHealth) }}</div>
+          <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center">
+            <span :class="['badge', hostHealthBadge(data.hostHealth.status)]">{{ hostHealthStatusLabel(data.hostHealth.status) }}</span>
+            <span v-if="data.hostHealth.status !== 'unavailable'" class="badge badge-neutral">{{ t('dashboard.hub_mem') }} {{ formatBytes(data.hostHealth.memUsedBytes) }} / {{ formatBytes(data.hostHealth.memTotalBytes) }}</span>
+            <span v-if="data.hostHealth.swapTotalBytes > 0" class="badge badge-neutral">{{ t('dashboard.hub_swap') }} {{ formatBytes(data.hostHealth.swapUsedBytes) }} / {{ formatBytes(data.hostHealth.swapTotalBytes) }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Network visualization: Topology (hub + sites + resources) and the

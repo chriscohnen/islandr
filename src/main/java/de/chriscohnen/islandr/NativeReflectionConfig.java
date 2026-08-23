@@ -9,6 +9,7 @@ import de.chriscohnen.islandr.auth.AuthResource;
 import de.chriscohnen.islandr.dashboard.DashboardDto;
 import de.chriscohnen.islandr.discovery.DiscoveryDto;
 import de.chriscohnen.islandr.firewall.FirewallDto;
+import de.chriscohnen.islandr.hosthealth.HostHealthDto;
 import de.chriscohnen.islandr.identity.OidcProviderDto;
 import de.chriscohnen.islandr.peer.MyPeerResource;
 import de.chriscohnen.islandr.peer.PeerDto;
@@ -100,6 +101,8 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         DashboardDto.SetupStatus.class,
         DashboardDto.AuditEntry.class,
         DashboardDto.PeerEntry.class,
+
+        HostHealthDto.Snapshot.class,
 
         FirewallDto.Response.class,
 
