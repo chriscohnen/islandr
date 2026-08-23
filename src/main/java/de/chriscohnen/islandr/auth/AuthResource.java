@@ -1,6 +1,8 @@
 package de.chriscohnen.islandr.auth;
 
 import de.chriscohnen.islandr.audit.AuditService;
+import de.chriscohnen.islandr.identity.OidcCustomProvider;
+import de.chriscohnen.islandr.identity.OidcCustomProviderService;
 import de.chriscohnen.islandr.identity.OidcProvider;
 import de.chriscohnen.islandr.identity.OidcProviderService;
 import io.quarkus.runtime.annotations.RegisterForReflection;
@@ -29,6 +31,7 @@ public class AuthResource {
     @Inject AdminBootstrap adminBootstrap;
     @Inject SessionService sessions;
     @Inject OidcProviderService providers;
+    @Inject OidcCustomProviderService customProviders;
     @Inject AuditService audit;
     @Inject de.chriscohnen.islandr.crypto.PasswordHasher passwordHasher;
 
@@ -45,22 +48,35 @@ public class AuthResource {
      * domains all stay behind the admin endpoint in {@link de.chriscohnen.islandr.identity.OidcProviderResource}.
      */
     @RegisterForReflection
-    public record PublicProvider(String providerKey, boolean enabled) {
+    public record PublicProvider(String providerKey, String kind, String displayName, boolean enabled) {
         static PublicProvider from(OidcProvider p) {
-            return new PublicProvider(p.providerKey, p.enabled);
+            // kind == providerKey for the two hardcoded ones; displayName is
+            // resolved client-side via i18n for these (unchanged behavior),
+            // so it's left null here rather than duplicating translated copy.
+            return new PublicProvider(p.providerKey, p.providerKey, null, p.enabled);
+        }
+
+        static PublicProvider from(OidcCustomProvider p) {
+            // Custom providers have no client-side i18n label — displayName
+            // is admin-typed and carried through as-is (issue #69).
+            return new PublicProvider(p.id, "custom", p.displayName, p.enabled);
         }
     }
 
     /**
-     * Lists which OIDC providers are enabled. Intentionally unauthenticated:
-     * the login page must call this before any session exists. Returns only
-     * {@code providerKey} + {@code enabled} — same info the OAuth redirect
-     * would leak anyway.
+     * Lists which OIDC providers are enabled — the two hardcoded ones and
+     * every admin-configured generic one (issue #69). Intentionally
+     * unauthenticated: the login page must call this before any session
+     * exists. Returns only the fields needed to render a login button —
+     * same info the OAuth redirect would leak anyway.
      */
     @GET
     @Path("/providers")
     public List<PublicProvider> listProviders() {
-        return providers.listAll().stream().map(PublicProvider::from).toList();
+        List<PublicProvider> all = new java.util.ArrayList<>();
+        providers.listAll().stream().map(PublicProvider::from).forEach(all::add);
+        customProviders.listAll().stream().map(PublicProvider::from).forEach(all::add);
+        return all;
     }
 
     @POST

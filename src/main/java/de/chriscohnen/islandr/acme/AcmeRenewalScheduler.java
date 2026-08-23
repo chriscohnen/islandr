@@ -1,11 +1,15 @@
 package de.chriscohnen.islandr.acme;
 
+import de.chriscohnen.islandr.webhook.WebhookDispatcher;
+import de.chriscohnen.islandr.webhook.WebhookEventType;
 import io.quarkus.runtime.StartupEvent;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+
+import java.util.Map;
 
 /**
  * Renews the ACME-managed certificate before it expires (ADR-0019, closing
@@ -25,6 +29,9 @@ public class AcmeRenewalScheduler {
     private static final Logger LOG = Logger.getLogger(AcmeRenewalScheduler.class);
 
     @Inject AcmeService acme;
+    @Inject WebhookDispatcher webhooks;
+
+    private static final String SYSTEM_ACTOR = "system:acme-renewal";
 
     void onStart(@Observes StartupEvent ev) {
         checkAndRenew();
@@ -40,13 +47,18 @@ public class AcmeRenewalScheduler {
             if (!acme.renewalDue()) return;
             LOG.info("ACME: certificate due for issuance/renewal, starting");
             acme.issueCertificate();
+            webhooks.publish(WebhookEventType.ACME_CERT_RENEWED, SYSTEM_ACTOR, "Certificate", Map.of());
         } catch (AcmeException e) {
             // Already recorded on Settings (acmeLastError) by AcmeService — the
             // Settings UI shows it; still log so it shows up in `journalctl`/
             // `docker logs` without an admin having to go check Settings first.
             LOG.warnf("ACME: renewal check failed: %s", e.getMessage());
+            webhooks.publish(WebhookEventType.ACME_CERT_RENEWAL_FAILED, SYSTEM_ACTOR, "Certificate",
+                    Map.of("error", e.getMessage() == null ? "" : e.getMessage()));
         } catch (RuntimeException e) {
             LOG.errorf(e, "ACME: unexpected error during renewal check");
+            webhooks.publish(WebhookEventType.ACME_CERT_RENEWAL_FAILED, SYSTEM_ACTOR, "Certificate",
+                    Map.of("error", e.getMessage() == null ? "" : e.getMessage()));
         }
     }
 }

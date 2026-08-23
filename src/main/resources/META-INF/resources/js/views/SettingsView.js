@@ -63,6 +63,7 @@ export default defineComponent({
         oidcAutoProvision: true,
         firewallDryRun: true,
         selfServicePeerCreation: true,
+        externalApiEnabled: true,
         ironRdpEnabled: false,
         wgMtu: null,
         wgIncludeMtuInConf: false,
@@ -240,6 +241,7 @@ export default defineComponent({
           oidcAutoProvision: s.oidcAutoProvision !== false,
           firewallDryRun: !!s.firewallDryRun,
           selfServicePeerCreation: s.selfServicePeerCreation !== false,
+          externalApiEnabled: s.externalApiEnabled !== false,
           ironRdpEnabled: !!s.ironRdpEnabled,
           wgMtu: s.wgMtu || null,
           wgIncludeMtuInConf: !!s.wgIncludeMtuInConf,
@@ -1337,6 +1339,24 @@ export default defineComponent({
             <span>{{ t('settings.iron_rdp_label') }}</span>
           </label>
           <div class="field-hint" style="margin-top: 0">{{ t('settings.iron_rdp_hint') }}</div>
+        </div>
+      </div>
+
+      <!-- External automation API (issue #15, ADR-0026) -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_external_api') }}</h2>
+        <div style="display: flex; flex-direction: column; gap: var(--space-2)">
+          <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+            <input type="checkbox" v-model="form.externalApiEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <span>{{ t('settings.external_api_label') }}</span>
+          </label>
+          <div class="field-hint" style="margin-top: 0">{{ t('settings.external_api_hint') }}</div>
+          <div v-if="!form.externalApiEnabled" class="callout callout-warn" style="margin-top: var(--space-2)">
+            {{ t('settings.external_api_disabled_warn') }}
+          </div>
+          <router-link to="/api-keys" class="btn btn-ghost btn-sm" style="align-self: flex-start; margin-top: var(--space-2)">
+            {{ t('settings.external_api_manage_keys') }}
+          </router-link>
         </div>
       </div>
       </template>

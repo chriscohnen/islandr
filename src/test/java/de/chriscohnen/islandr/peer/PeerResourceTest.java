@@ -43,7 +43,7 @@ class PeerResourceTest {
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
                 cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
-                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsResolverUpstream
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsResolverUpstream, cur.externalApiEnabled
         ), "test");
     }
 
@@ -63,7 +63,7 @@ class PeerResourceTest {
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
                 cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
-                enabled, cur.dnsResolverZone, cur.dnsResolverUpstream
+                enabled, cur.dnsResolverZone, cur.dnsResolverUpstream, cur.externalApiEnabled
         ), "test");
     }
 

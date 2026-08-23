@@ -60,6 +60,7 @@ public class SettingsService {
         s.oidcAutoProvision = req.oidcAutoProvision();
         s.firewallDryRun = req.firewallDryRun();
         s.selfServicePeerCreation = req.selfServicePeerCreation();
+        if (req.externalApiEnabled() != null) s.externalApiEnabled = req.externalApiEnabled();
         s.wgMtu = (req.wgMtu() != null && req.wgMtu() > 0) ? req.wgMtu() : null;
         s.wgIncludeMtuInConf = req.wgIncludeMtuInConf();
         // null (field omitted) keeps the 25 default; 0 is a valid "keepalive off globally".

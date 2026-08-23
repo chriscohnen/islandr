@@ -102,6 +102,23 @@ public final class TestJwt {
         return c;
     }
 
+    /** Build an ID-Token payload for a generic OIDC provider (issue #69) —
+     *  same shape as {@link #googleClaims}, just with an admin-supplied
+     *  issuer instead of Google's fixed one. */
+    public static Map<String, Object> genericClaims(String issuer, String clientId, String subject,
+                                                    String email, String name) {
+        long now = Instant.now().getEpochSecond();
+        Map<String, Object> c = new LinkedHashMap<>();
+        c.put("iss", issuer);
+        c.put("aud", clientId);
+        c.put("sub", subject);
+        c.put("email", email);
+        c.put("name", name);
+        c.put("iat", now);
+        c.put("exp", now + 3600);
+        return c;
+    }
+
     /** Strip any leading sign byte so the JWK n/e are unsigned per RFC 7518. */
     private static byte[] toUnsigned(BigInteger n) {
         byte[] b = n.toByteArray();

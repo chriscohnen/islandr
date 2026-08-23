@@ -47,6 +47,12 @@ export default defineComponent({
       // — but every connected device of theirs must stay individually
       // pingable, so the full list is kept, not just the most recent one.
       connectedPeersByUserId: {},
+      // Site-gateway (type=site) live peers, keyed by peer id — same
+      // /api/v1/peers/live snapshot as connectedPeersByUserId above, just the
+      // entries loadConnectedPeers used to skip. Drives the gateway diamond's
+      // hover card and online dot in AtlasDiagram (issue: "hover cards for
+      // site peers are still missing").
+      gatewayLiveByPeerId: {},
     };
   },
   computed: {
@@ -110,6 +116,13 @@ export default defineComponent({
     probeReachable() {
       const ping = this.diagModal && this.diagModal.ping;
       return ping ? !!ping.reachable : true;
+    },
+    // True while the overlay is showing the client-synthesized path (below)
+    // and no ping result has landed yet — drives a neutral/dashed "testing…"
+    // stroke instead of jumping straight to the green "reachable" color
+    // before anything has actually been measured.
+    probePending() {
+      return !!(this.diagModal && this.diagModal.pingLoading && !this.diagModal.ping);
     },
     stats() {
       if (!this.graph) return { sites: 0, devices: 0, users: 0, grants: 0 };
@@ -491,14 +504,20 @@ export default defineComponent({
         if (!res.ok) return;
         const live = await res.json();
         const byUser = {};
+        const gatewayById = {};
         for (const p of live) {
-          if (!p.userId || p.type === "site") continue; // site peers are handled via the gateway diamond, not here
+          if (p.type === "site") {
+            if (p.id) gatewayById[p.id] = p; // site peers: gateway hover card, not the user map below
+            continue;
+          }
+          if (!p.userId) continue;
           (byUser[p.userId] || (byUser[p.userId] = [])).push(p);
         }
         for (const peers of Object.values(byUser)) {
           peers.sort((a, b) => new Date(b.lastHandshake) - new Date(a.lastHandshake));
         }
         this.connectedPeersByUserId = byUser;
+        this.gatewayLiveByPeerId = gatewayById;
       } catch { /* the mobile circle just shows everyone as "unknown", no worse than before this existed */ }
     },
 
@@ -515,6 +534,35 @@ export default defineComponent({
           : t("atlas.diagnostics_hop_no_reply", { ttl: hop.ttl });
     },
 
+    // Deterministic hub -> [site-gateway] -> resource chain — mirrors
+    // ResourceResource.resolveDiagnosticsPath() exactly, but computed here
+    // from data already in `graph` instead of waiting on the server. The
+    // route itself never depends on the probe's outcome (only reachability/
+    // latency do), so there's nothing to actually wait for before drawing
+    // it — this is what lets the overlay line appear the instant the dialog
+    // opens instead of only after the first ping response lands.
+    pathHopsForResource(resourceId) {
+      const resource = this.graph.resources.find((r) => r.id === resourceId);
+      if (!resource) return null;
+      const path = [{ kind: "hub", id: null, name: t("atlas.diagnostics_hop_hub"), detail: null }];
+      const site = (this.graph.sites || []).find((s) => s.id === resource.siteId);
+      if (site && site.gatewayPeerId) {
+        path.push({ kind: "site-gateway", id: site.gatewayPeerId, name: site.gatewayPeerName, detail: site.name });
+      }
+      path.push({ kind: "resource", id: resource.id, name: resource.name, detail: resource.ip });
+      return path;
+    },
+
+    // Same idea for a direct peer probe (a site's gateway peer, or a
+    // connected user's own client peer) — mirrors PeerResource's own
+    // hub -> peer chain.
+    pathHopsForPeer(peerId, peerName) {
+      return [
+        { kind: "hub", id: null, name: t("atlas.diagnostics_hop_hub"), detail: null },
+        { kind: "peer", id: peerId, name: peerName || peerId, detail: null },
+      ];
+    },
+
     // targetKind selects the endpoint base — /api/v1/resources/{id} for a
     // Resource, /api/v1/peers/{id} for a site's gateway peer probed directly
     // (ADR-0025). Same modal, same ping/tracepath UI either way.
@@ -523,7 +571,7 @@ export default defineComponent({
       if (!resource) return;
       this.diagModal = {
         targetKind: "resource", targetId: resourceId, targetName: resource.name,
-        path: null, ping: null, pingLoading: true, pingError: null,
+        path: this.pathHopsForResource(resourceId), ping: null, pingLoading: true, pingError: null,
         tracepath: null, traceLoading: false, traceError: null,
         mtr: null, mtrLoading: false, mtrError: null,
       };
@@ -533,7 +581,7 @@ export default defineComponent({
     openDiagnosticsForPeer(peerId, peerName) {
       this.diagModal = {
         targetKind: "peer", targetId: peerId, targetName: peerName || peerId,
-        path: null, ping: null, pingLoading: true, pingError: null,
+        path: this.pathHopsForPeer(peerId, peerName), ping: null, pingLoading: true, pingError: null,
         tracepath: null, traceLoading: false, traceError: null,
         mtr: null, mtrLoading: false, mtrError: null,
       };
@@ -740,8 +788,13 @@ export default defineComponent({
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-peer-id="selectedPeerId"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
+                       :connected-peers-by-user-id="connectedPeersByUserId"
+                       :connected-gateway-peer-ids="Object.keys(gatewayLiveByPeerId)"
+                       :gateway-peer-live-by-id="gatewayLiveByPeerId"
+                       :hub-ip4="graph.hubIp4" :hub-ip6="graph.hubIp6"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
+                       :probe-pending="probePending"
                        @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />
 
         <!-- Network diagnostics (ADR-0025): docked beside the graph, not a modal —

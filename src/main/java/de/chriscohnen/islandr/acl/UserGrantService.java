@@ -6,11 +6,13 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.NotFoundException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -27,7 +29,8 @@ public class UserGrantService {
 
     public record GrantDiff(String userId, String resourceId, String change,
                             Boolean fromAllPorts, Boolean toAllPorts,
-                            List<String> fromPortIds, List<String> toPortIds) {}
+                            List<String> fromPortIds, List<String> toPortIds,
+                            Instant validUntil) {}
 
     /** All direct user grants, denormalized for the ACL page's list — same shape as the
      * Atlas graph's "user-direct" edges, just without the fan-out/role machinery. */
@@ -42,6 +45,22 @@ public class UserGrantService {
                                 + "ORDER BY u.name, r.name")
                 .getResultList();
         if (rows.isEmpty()) return List.of();
+
+        // validUntil is read via the Panache entity, not the native query
+        // above: a raw JDBC timestamp column comes back as a driver-specific
+        // type (java.sql.Timestamp on Postgres, a bare java.time.LocalDateTime
+        // on SQLite) whose conversion can be sensitive to the JVM's default
+        // timezone — the exact class of bug ADR-0004's "portable SQL only"
+        // rule exists to avoid. Hibernate's own entity-attribute Instant
+        // mapping (used for every other timestamp column in this codebase,
+        // e.g. createdAt) doesn't have that problem, so grant it the same
+        // treatment here instead of hand-rolling a timezone-safe native cast.
+        List<String> allGrantIds = new ArrayList<>();
+        for (Object[] row : rows) allGrantIds.add((String) row[0]);
+        Map<String, Instant> validUntilByGrant = new HashMap<>();
+        for (UserResourceGrant g : UserResourceGrant.<UserResourceGrant>list("id in ?1", allGrantIds)) {
+            validUntilByGrant.put(g.id, g.validUntil);
+        }
 
         Set<String> limitedGrantIds = new LinkedHashSet<>();
         for (Object[] row : rows) if (!(Boolean) row[6]) limitedGrantIds.add((String) row[0]);
@@ -67,9 +86,11 @@ public class UserGrantService {
         for (Object[] row : rows) {
             String grantId = (String) row[0];
             boolean allPorts = (Boolean) row[6];
+            Instant validUntil = validUntilByGrant.get(grantId);
             out.add(new UserGrantDto.ListItem(
                     (String) row[1], (String) row[2], (String) row[3], (String) row[4], (String) row[5],
-                    allPorts, allPorts ? List.of() : portLabelsByGrant.getOrDefault(grantId, List.of())));
+                    allPorts, allPorts ? List.of() : portLabelsByGrant.getOrDefault(grantId, List.of()),
+                    validUntil));
         }
         return out;
     }
@@ -98,16 +119,17 @@ public class UserGrantService {
         }
         if (g == null) {
             g = UserResourceGrant.createNew(u.userId(), u.resourceId(), u.allPorts());
+            g.validUntil = u.validUntil();
             g.persist();
             if (!u.allPorts()) insertPorts(g.id, wantPortIds);
-            return new GrantDiff(u.userId(), u.resourceId(), "create", null, u.allPorts(), null, wantPortIds);
+            return new GrantDiff(u.userId(), u.resourceId(), "create", null, u.allPorts(), null, wantPortIds, u.validUntil());
         }
 
         List<String> currentPortIds = currentPortIds(g.id);
         if (wantsNoGrant) {
             deletePortsFor(g.id);
             g.delete();
-            return new GrantDiff(u.userId(), u.resourceId(), "delete", g.allPorts, null, currentPortIds, null);
+            return new GrantDiff(u.userId(), u.resourceId(), "delete", g.allPorts, null, currentPortIds, null, null);
         }
 
         boolean changed = false;
@@ -127,8 +149,36 @@ public class UserGrantService {
             deletePortsFor(g.id);
             changed = true;
         }
+        // Issue #70 — the expiry itself can be the only thing an admin edits
+        // on an otherwise-unchanged grant (e.g. extending a contractor's
+        // window without touching port scope).
+        if (!Objects.equals(g.validUntil, u.validUntil())) {
+            g.validUntil = u.validUntil();
+            changed = true;
+        }
         if (!changed) return null;
-        return new GrantDiff(u.userId(), u.resourceId(), "update", null, u.allPorts(), currentPortIds, wantPortIds);
+        return new GrantDiff(u.userId(), u.resourceId(), "update", null, u.allPorts(), currentPortIds, wantPortIds, u.validUntil());
+    }
+
+    /** Grant ids past their {@code validUntil} — polled by {@link UserGrantExpiryJob}. */
+    public List<String> dueForExpiry(Instant now) {
+        return UserResourceGrant.<UserResourceGrant>list("validUntil is not null and validUntil <= ?1", now)
+                .stream().map(g -> g.id).toList();
+    }
+
+    public record ExpiredGrant(String userId, String resourceId) {}
+
+    /** Deletes one expired grant (ports + row) and returns a snapshot of who
+     *  it was for, so the caller can audit-log and notify after the fact —
+     *  or null if the grant is already gone (raced with a manual revoke). */
+    @Transactional
+    public ExpiredGrant expire(String grantId) {
+        UserResourceGrant g = UserResourceGrant.findById(grantId);
+        if (g == null) return null;
+        ExpiredGrant snapshot = new ExpiredGrant(g.userId, g.resourceId);
+        deletePortsFor(g.id);
+        g.delete();
+        return snapshot;
     }
 
     private void insertPorts(String grantId, List<String> portIds) {

@@ -79,7 +79,9 @@ public final class SettingsDto {
             // written into new client configs. Computed with includeDns=true (the
             // common case) — a peer with includeDns=false simply omits the DNS
             // host-route fix-up baked into this preview.
-            String computedAllowedIpsPreview
+            String computedAllowedIpsPreview,
+            // Opt-out for the external automation API facade (issue #15, ADR-0026).
+            boolean externalApiEnabled
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
                                      Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo) {
@@ -124,7 +126,8 @@ public final class SettingsDto {
                             s.tunnelMode, s.allowedIpsMode, s.wgClientAllowedIps,
                             s.wgSubnet, s.wgSubnet6, s.splitSupernet,
                             de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
-                            s.effectiveClientDns(), true));
+                            s.effectiveClientDns(), true),
+                    s.externalApiEnabled);
         }
     }
 
@@ -256,7 +259,14 @@ public final class SettingsDto {
             // optional — where the resolver forwards non-zone queries. Blank →
             // DnsQueryHandler falls back to a hardcoded default (1.1.1.1, 8.8.8.8).
             // Independent of wgClientDns — see Settings.java.
-            String dnsResolverUpstream
+            String dnsResolverUpstream,
+
+            // optional — null means "leave unchanged" (SettingsService), so a
+            // PUT that doesn't know about this field (an older test, a
+            // hand-written script) never silently disables it. Set explicitly
+            // false to turn off the external automation API facade entirely
+            // (issue #15, ADR-0026), regardless of any existing API key.
+            Boolean externalApiEnabled
     ) {}
 
     private SettingsDto() {}

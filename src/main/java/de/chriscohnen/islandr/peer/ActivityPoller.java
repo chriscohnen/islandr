@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr.peer;
 
 import de.chriscohnen.islandr.wg.WgAdapter;
+import de.chriscohnen.islandr.webhook.WebhookDispatcher;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -42,6 +43,7 @@ public class ActivityPoller {
     boolean pollEnabled;
 
     @Inject WgAdapter wg;
+    @Inject WebhookDispatcher webhooks;
 
     /**
      * Runs every 30s. 30s + 5-minute live window means a real peer with a
@@ -75,9 +77,13 @@ public class ActivityPoller {
             statuses = wg.showPeers(wgInterface);
         } catch (Exception ex) {
             LOG.debugf("wg showPeers threw: %s", ex.getMessage());
+            detectConnectionTransitions(Instant.now());
             return;
         }
-        if (statuses.isEmpty()) return;
+        if (statuses.isEmpty()) {
+            detectConnectionTransitions(Instant.now());
+            return;
+        }
 
         Map<String, WgAdapter.PeerStatus> byPubkey = new HashMap<>();
         for (WgAdapter.PeerStatus s : statuses) {
@@ -115,6 +121,34 @@ public class ActivityPoller {
             updated++;
         }
         if (updated > 0) LOG.debugf("activity poll: updated %d peer(s)", updated);
+        detectConnectionTransitions(now);
+    }
+
+    // Keyed by peer id, in-memory only — resets on restart, so the very
+    // first tick after boot never fires a false transition (no baseline to
+    // compare against yet, see the null-check below). Runs over EVERY peer
+    // each tick, not just the ones `wg` reported a handshake for this time
+    // around: a peer that goes fully silent (no wg report at all, e.g. the
+    // WireGuard interface itself has an issue) still needs to age from
+    // CONNECTED into STALE/DISCONNECTED purely by time passing, and this is
+    // the only place that notices that transition (issue #68).
+    private final Map<String, PeerConnectionStatus> lastKnownStatus = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void detectConnectionTransitions(Instant now) {
+        for (Peer p : Peer.<Peer>listAll()) {
+            PeerConnectionStatus current = PeerConnectionStatus.of(p.lastSeenAt, now);
+            PeerConnectionStatus previous = lastKnownStatus.put(p.id, current);
+            if (previous == null || previous == current) continue;
+            boolean wasConnected = previous == PeerConnectionStatus.CONNECTED;
+            boolean isConnected = current == PeerConnectionStatus.CONNECTED;
+            if (isConnected && !wasConnected) {
+                webhooks.publish(de.chriscohnen.islandr.webhook.WebhookEventType.PEER_CONNECTED,
+                        "system:activity-poller", "Peer:" + p.id, Map.of("peerId", p.id, "name", p.name));
+            } else if (!isConnected && wasConnected) {
+                webhooks.publish(de.chriscohnen.islandr.webhook.WebhookEventType.PEER_DISCONNECTED,
+                        "system:activity-poller", "Peer:" + p.id, Map.of("peerId", p.id, "name", p.name));
+            }
+        }
     }
 
     /**

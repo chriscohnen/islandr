@@ -31,7 +31,25 @@ public class ConfigExportDto {
         List<UserGrantPortLink> userGrantPortLinks,
         // Same tolerate-absence pattern, for direct site-grants.
         List<SiteGrantSnapshot> siteResourceGrants,
-        List<SiteGrantPortLink> siteGrantPortLinks
+        List<SiteGrantPortLink> siteGrantPortLinks,
+        // Same tolerate-absence pattern, for the Peer-Scheduler (#47/Z.58).
+        // Peer.validUntil/enabledSource travel on PeerSnapshot itself.
+        List<PeerScheduleSnapshot> peerSchedules,
+        // Same tolerate-absence pattern, for admin-configured generic OIDC
+        // providers (Auth0/Okta/Keycloak/any issuer — issue #69). Previously
+        // only the two hardcoded MS365/Google rows (oidcProviders above)
+        // travelled with an export; a custom provider silently vanished on
+        // restore, locking out every user who logged in through it.
+        List<OidcCustomProviderSnapshot> oidcCustomProviders,
+        // Same tolerate-absence pattern, for external-API keys (ADR-0026).
+        // Only the SHA-256 hash is ever stored (ApiKey's own contract) — a
+        // *newly revealed* raw key genuinely cannot be reconstructed, but
+        // that has no bearing on whether the hash rows themselves travel:
+        // an already-issued key's holder still has the raw value and can
+        // keep authenticating with it after a restore, because verification
+        // only ever needs the hash, never the raw key. Previously the whole
+        // list was dropped, silently revoking every key on a config restore.
+        List<ApiKeySnapshot> apiKeys
     ) {}
 
     public record SettingsSnapshot(
@@ -84,7 +102,12 @@ public class ConfigExportDto {
         String dnsResolverZone,
         // Where the resolver forwards non-zone queries — independent of
         // wgClientDns, see Settings.java. Null on pre-existing exports.
-        String dnsResolverUpstream
+        String dnsResolverUpstream,
+        // Opt-out for the external automation API facade (ADR-0026). Boolean (not
+        // primitive) so a pre-existing export without this field imports as null →
+        // the entity default (true, facade enabled), same "add-a-field, tolerate
+        // its absence" pattern as ironRdpEnabled/dnsResolverEnabled above.
+        Boolean externalApiEnabled
     ) {}
 
     public record OidcProviderSnapshot(
@@ -94,6 +117,51 @@ public class ConfigExportDto {
         String clientSecret,
         String tenantId,
         String allowedDomains
+    ) {}
+
+    /** One admin-configured generic OIDC provider (Okta/Auth0/Keycloak/any
+     *  issuer — issue #69, {@link de.chriscohnen.islandr.identity.OidcCustomProvider}).
+     *  Unlike the two hardcoded providers above, these are ordinary
+     *  admin-created rows with arbitrary ids — imported the same
+     *  delete-then-reinsert way as sites/resources/etc., not updated
+     *  in-place. Endpoints/discoveredIssuer/discoveredAt travel too so a
+     *  restored instance doesn't need network access to a (possibly
+     *  temporarily unreachable) IdP just to log in again immediately. */
+    public record OidcCustomProviderSnapshot(
+        String id,
+        String preset,
+        String displayName,
+        String issuerUrl,
+        String authorizeEndpoint,
+        String tokenEndpoint,
+        String jwksUri,
+        String userinfoEndpoint,
+        String discoveredIssuer,
+        Instant discoveredAt,
+        String clientId,
+        String clientSecret,
+        String scopes,
+        String allowedDomains,
+        boolean enabled,
+        Instant createdAt,
+        Instant updatedAt,
+        String updatedBy
+    ) {}
+
+    /** One admin-issued external-API key (issue #15, ADR-0026). Only the
+     *  SHA-256 hash + non-secret prefix travel, same as at rest — see
+     *  {@link Export#apiKeys()} for why that's still useful, not a "dead
+     *  row": an already-issued key keeps authenticating after a restore,
+     *  since verification only ever needs the hash, never the raw value. */
+    public record ApiKeySnapshot(
+        String id,
+        String label,
+        String keyHash,
+        String keyPrefix,
+        Instant createdAt,
+        String createdBy,
+        Instant lastUsedAt,
+        Instant revokedAt
     ) {}
 
     public record UserSnapshot(
@@ -106,7 +174,14 @@ public class ConfigExportDto {
         String oidcProvider,
         String oidcSubject,
         String preferredLocale,
-        Instant createdAt
+        Instant createdAt,
+        // Which OidcCustomProviderSnapshot (by id) this user last authenticated
+        // through, when oidcProvider="custom" — null otherwise, and null on any
+        // export from before this field existed. Without it, a user who signed
+        // in via a custom provider couldn't be matched back to that provider's
+        // row on next login after a restore (see User.findByOidc's 3-way match
+        // on provider+subject+customProviderId).
+        String oidcCustomProviderId
     ) {}
 
     /**
@@ -141,7 +216,13 @@ public class ConfigExportDto {
         // Geocoding — meaningful for type="site" only (physical gateway device location).
         Double lat,
         Double lng,
-        String locationLabel
+        String locationLabel,
+        // Peer-Scheduler (#47/Z.58): validUntil is a one-off expiry (e.g. an ad-hoc
+        // enable), enabledSource records who/what last flipped `enabled` ("admin",
+        // "schedule", "expiry") so a restored peer's audit trail stays legible.
+        // Both null on any export from before the Peer-Scheduler existed.
+        Instant validUntil,
+        String enabledSource
     ) {}
 
     public record SiteSnapshot(
@@ -228,6 +309,16 @@ public class ConfigExportDto {
     ) {}
 
     public record SiteGrantPortLink(String grantId, String portId) {}
+
+    public record PeerScheduleSnapshot(
+        String id,
+        String peerId,
+        int weekdayMask,
+        String activeFrom,
+        String activeTo,
+        Instant createdAt,
+        Instant updatedAt
+    ) {}
 
     public record ImportResult(
         int users,

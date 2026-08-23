@@ -31,7 +31,7 @@ public class IdTokenVerifier {
 
     public record Claims(String subject, String email, String name, String pictureUrl, String locale, JsonNode raw) {}
 
-    public Claims verify(String idToken, OidcProvider provider) {
+    public Claims verify(String idToken, ResolvedOidcProvider provider) {
         String[] parts = idToken.split("\\.");
         if (parts.length != 3) throw new IllegalArgumentException("not a JWT (expected 3 parts)");
 
@@ -44,7 +44,7 @@ public class IdTokenVerifier {
         String kid = text(header, "kid");
         if (kid == null) throw new IllegalArgumentException("missing kid header");
 
-        ProviderEndpoints.Endpoints ep = ProviderEndpoints.forProvider(provider);
+        ProviderEndpoints.Endpoints ep = provider.endpoints();
         PublicKey key = jwks.getKey(ep.jwks(), kid);
 
         verifySignature(parts[0] + "." + parts[1], signature, key);
@@ -77,16 +77,23 @@ public class IdTokenVerifier {
         }
     }
 
-    private void verifyClaims(JsonNode payload, OidcProvider provider, ProviderEndpoints.Endpoints ep) {
+    private void verifyClaims(JsonNode payload, ResolvedOidcProvider provider, ProviderEndpoints.Endpoints ep) {
         String iss = text(payload, "iss");
         if (iss == null) throw new IllegalStateException("missing iss");
         if (provider.isMicrosoft()) {
             // Accept both v2 endpoint issuer and the legacy sts.windows.net form (per MS docs).
-            if (!iss.equals(ep.issuer()) && !iss.startsWith("https://sts.windows.net/" + provider.tenantId)) {
+            if (!iss.equals(ep.issuer()) && !iss.startsWith("https://sts.windows.net/" + provider.tenantId())) {
+                throw new IllegalStateException("unexpected iss: " + iss);
+            }
+        } else if ("google".equals(provider.kind())) {
+            if (!iss.equals(ep.issuer()) && !iss.equals("accounts.google.com")) {
                 throw new IllegalStateException("unexpected iss: " + iss);
             }
         } else {
-            if (!iss.equals(ep.issuer()) && !iss.equals("accounts.google.com")) {
+            // Generic OIDC provider (issue #69): plain equality against the
+            // issuer discovery itself returned — no per-IdP quirks to tolerate
+            // for a spec-compliant provider.
+            if (!iss.equals(ep.issuer())) {
                 throw new IllegalStateException("unexpected iss: " + iss);
             }
         }
@@ -95,10 +102,10 @@ public class IdTokenVerifier {
         JsonNode aud = payload.get("aud");
         boolean audOk;
         if (aud == null) audOk = false;
-        else if (aud.isTextual()) audOk = provider.clientId.equals(aud.asText());
+        else if (aud.isTextual()) audOk = provider.clientId().equals(aud.asText());
         else if (aud.isArray()) {
             audOk = false;
-            for (JsonNode a : aud) if (a.isTextual() && provider.clientId.equals(a.asText())) audOk = true;
+            for (JsonNode a : aud) if (a.isTextual() && provider.clientId().equals(a.asText())) audOk = true;
         } else audOk = false;
         if (!audOk) throw new IllegalStateException("aud does not match client_id");
 

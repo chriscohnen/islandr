@@ -50,7 +50,8 @@ public class AclUserGrantResource {
             String resourceName = resource == null ? body.resourceId() : resource.name;
             audit.logEvent(a.principal(), "user_grant." + diff.change(),
                     "UserGrant:" + userName + "/" + resourceName,
-                    Map.of("allPorts", diff.toAllPorts() == null ? diff.fromAllPorts() : diff.toAllPorts()));
+                    Map.of("allPorts", diff.toAllPorts() == null ? diff.fromAllPorts() : diff.toAllPorts(),
+                            "validUntil", diff.validUntil() == null ? "" : diff.validUntil().toString()));
             rulesets.recomputeFromHook();
         }
         return Response.ok(Map.of("changed", diff != null ? 1 : 0)).build();

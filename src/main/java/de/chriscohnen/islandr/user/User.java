@@ -54,6 +54,12 @@ public class User extends PanacheEntityBase {
     @Column(name = "oidc_subject", length = 255)
     public String oidcSubject;
 
+    /** Only set when {@link #oidcProvider} is {@code "custom"} — which
+     *  admin-configured generic OIDC provider (issue #69) this user is
+     *  linked to. Null for local/microsoft/google users. */
+    @Column(name = "oidc_custom_provider_id", length = 36)
+    public String oidcCustomProviderId;
+
     // --- Avatar cache (V5) ---------------------------------------------------
     // Bytes from MS Graph / Google picture / Gravatar. Null = no avatar known.
     @Column(name = "avatar_bytes")
@@ -88,6 +94,15 @@ public class User extends PanacheEntityBase {
 
     public static User findByOidc(String provider, String subject) {
         return find("oidcProvider = ?1 and oidcSubject = ?2", provider, subject).firstResult();
+    }
+
+    /** As {@link #findByOidc(String, String)}, additionally scoped to one
+     *  specific generic OIDC provider (issue #69) — "custom" alone isn't
+     *  unique, two different customer IdPs could plausibly issue the same
+     *  {@code sub} value. */
+    public static User findByOidc(String provider, String subject, String customProviderId) {
+        return find("oidcProvider = ?1 and oidcSubject = ?2 and oidcCustomProviderId = ?3",
+                provider, subject, customProviderId).firstResult();
     }
 }
 

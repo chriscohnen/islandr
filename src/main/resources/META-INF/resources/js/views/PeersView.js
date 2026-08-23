@@ -48,8 +48,14 @@ export default defineComponent({
       return u ? `${u.name} (${u.email})` : null;
     },
     visiblePeers() {
+      // type !== 'site' guard matches the Benutzer column's own display rule
+      // below (a site peer always shows "—" there, regardless of its raw
+      // userId) — without it, a site peer whose userId happens to be
+      // non-null (stale data, or a client that skipped server-side
+      // validation) wrongly surfaces under a user it isn't actually owned
+      // by, even though the table itself correctly shows no owner for it.
       let list = this.filterUserId
-        ? this.peers.filter((p) => p.userId === this.filterUserId)
+        ? this.peers.filter((p) => p.type !== "site" && p.userId === this.filterUserId)
         : [...this.peers];
       const k = this.sortKey;
       const d = this.sortDir;
@@ -58,8 +64,10 @@ export default defineComponent({
         if (k === "name") return d * av.localeCompare(bv);
         if (k === "enabled") return d * ((av ? 1 : 0) - (bv ? 1 : 0));
         if (k === "user") {
-          av = this.userNameFor(a.userId);
-          bv = this.userNameFor(b.userId);
+          // Same "—" for a site peer as the Benutzer column, regardless of
+          // any stray userId on the row (see visiblePeers above).
+          av = a.type === "site" ? "—" : this.userNameFor(a.userId);
+          bv = b.type === "site" ? "—" : this.userNameFor(b.userId);
           return d * av.localeCompare(bv);
         }
         // dates / nulls

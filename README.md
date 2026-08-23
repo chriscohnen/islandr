@@ -193,31 +193,36 @@ islandr/
 │   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang"
 │   │   ├── acme/        # hand-rolled RFC 8555 ACME client — Let's Encrypt auto-provisioning
 │   │   ├── admin/       # config export/import, version check
+│   │   ├── apikey/      # admin-issued API keys for the external automation API (ADR-0026)
 │   │   ├── audit/       # audit log (entity, diff, resource, service)
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
 │   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014)
 │   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), unrelated PTR/mDNS/NetBIOS reverse lookups for discovery's hostname suggestion (#45, #48)
+│   │   ├── external/    # /api/external/v1 facade: API-key auth, peers/users/sites/resources/roles (ADR-0026)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
-│   │   ├── identity/    # OidcProvider, JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
+│   │   ├── identity/    # OidcProvider + OidcCustomProvider (issue #69), JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
+│   │   ├── network/     # network diagnostics: ping/tracepath/mtr over an unprivileged shell (ADR-0025)
 │   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
 │   │   ├── proxy/       # Docker socket-proxy client + reconciler (ADR-0012)
 │   │   ├── settings/    # singleton settings (WG topology, retention mode, hub geocoding)
 │   │   ├── tls/         # built-in TLS termination, cert hot-swap (ADR-0015)
 │   │   ├── user/        # User + Resource + AvatarService + Google Workspace import
 │   │   ├── validation/  # @ValidIpAddress / @ValidCidr custom validators
+│   │   ├── webhook/     # outbound event webhooks (issue #68)
 │   │   ├── wg/          # WgAdapter (real shells out, mock for dev/CI)
 │   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V62, portable SQL
+│   │   ├── db/migration/                    # Flyway migrations V1–V71, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
+│   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 620+ tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 727 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -275,6 +280,7 @@ islandr/
 - Google Workspace user import (the service-account JSON is encrypted at rest)
 - Audit log with cursor pagination and actor/action/target filters
 - Config **export/import** as a JSON snapshot, with preview and confirm
+- **External API for automation** — a separate, versioned `/api/external/v1` surface, authenticated by admin-issued API keys (one-time reveal, hashed at rest, instantly revocable) instead of a session cookie; a hand-written OpenAPI spec (`GET /api/openapi.yml`) documents it. Read access to peers, users, sites, resources, and roles today, growing incrementally ([ADR-0026](docs/adr/0026-external-api-facade.md), [#15](https://github.com/chriscohnen/islandr/issues/15))
 - On-demand update check — no telemetry, no background polling
 - Bilingual UI, German default and English, switchable at runtime
 
@@ -282,6 +288,17 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.19.0**
+- **Generic OIDC provider support** — Auth0, Okta, or any other OIDC-compliant issuer can now be added alongside Microsoft 365/Google Workspace, discovered automatically via `.well-known/openid-configuration`; Auth0/Okta get preset tiles that only ask for a domain, a fully generic tile asks for the issuer URL directly ([#69](https://github.com/chriscohnen/islandr/issues/69))
+- **Outgoing webhooks** — configure any URL to receive peer connect/disconnect, ACL grant, discovery-scan, and certificate-renewal events, filtered per webhook to only the event types it wants; HMAC-SHA256-signed by default, or a Gotify-native payload format for instances already running a Gotify server, plus an optional extra auth header (`Authorization`, `X-API-Key`, ...) for receivers that need one ([#68](https://github.com/chriscohnen/islandr/issues/68))
+- **External API for automation** — a new `/api/external/v1` surface (API-key auth, separate from the session-cookie-authenticated admin console API) for scripts, CI, and infrastructure-as-code, with read access to peers, users, sites, resources, and roles; API keys are managed in a new Admin Console page, one-time reveal (with a ready-to-paste curl example), hashed at rest, instantly revocable, and the whole facade can be switched off entirely from Settings ([ADR-0026](docs/adr/0026-external-api-facade.md), [#15](https://github.com/chriscohnen/islandr/issues/15))
+- **Ad-hoc temporary access grants** — a direct user→resource grant can now carry an expiry (1h/4h/24h/7d or permanent), auto-revoked on schedule for JIT-style access without an admin needing to remember to remove it later ([#70](https://github.com/chriscohnen/islandr/issues/70))
+- **Roles & ACL page redesign** — split into a *Role matrix* and a *Direct grants* tab instead of stacking everything on one long page, plus a resource filter above the matrix for large sites
+- **Atlas: hover cards everywhere** — user nodes show connection status and every connected device's tunnel IP, the Hub shows its own IPv4/IPv6 tunnel address, and site-gateway (diamond) nodes show network/gateway peer/live status/tunnel IP — the same rich card resources already had, replacing plain tooltips
+- **Security fix: disabling a user now also disables all their peers** — previously `enabled=false` only blocked the portal/OIDC login; the user's already-configured WireGuard peers kept working until someone separately disabled each one
+- **Config export/import now covers the external API toggle, custom OIDC providers, API keys, and Peer-Scheduler state** — all of these previously vanished silently on a restore; ad-hoc temporary grants are now explicitly *excluded* from export on purpose (they're meant to expire on their own, and a restored backup shouldn't resurrect a stale one)
+- Fixed a site (gateway) peer occasionally showing up under a user's "Für Benutzer" filter on the Peers page despite the table itself correctly showing no owner for it; the external API facade now rejects a peer-create request that tries to combine a site type with a userId instead of silently ignoring it
 
 **0.18.0**
 - **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell — no `sudo`, no new capabilities needed on a modern Linux host ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66)). Results dock in a panel beside the Atlas graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram; connected client peers are now visibly marked and pingable too
@@ -311,7 +328,6 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 
 **v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))
 - [`.deb` package](https://github.com/chriscohnen/islandr/issues/14) for `apt install islandr` on Ubuntu/Debian
-- [API key management](https://github.com/chriscohnen/islandr/issues/15) for automation
 
 ## Documentation
 

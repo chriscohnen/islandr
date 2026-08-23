@@ -111,4 +111,53 @@ class AclUserGrantResourceTest {
                 .when().put("/api/v1/acl/user-grants")
                 .then().statusCode(400);
     }
+
+    // -- issue #70: ad-hoc temporary grant (validUntil) -----------------
+
+    @Test
+    void apply_withValidUntil_persistsAndListsExpiry() {
+        Seed s = seed();
+        String validUntil = "2099-01-01T00:00:00Z";
+
+        given().contentType("application/json")
+                .body("{\"userId\":\"" + s.userId() + "\",\"resourceId\":\"" + s.resourceId()
+                        + "\",\"allPorts\":true,\"portIds\":[],\"validUntil\":\"" + validUntil + "\"}")
+                .when().put("/api/v1/acl/user-grants")
+                .then().statusCode(200).body("changed", is(1));
+
+        given().when().get("/api/v1/acl/user-grants")
+                .then().statusCode(200)
+                .body("find { it.userId == '" + s.userId() + "' }.validUntil", is(validUntil));
+    }
+
+    @Test
+    void apply_changingOnlyValidUntil_countsAsChanged() {
+        Seed s = seed();
+        given().contentType("application/json")
+                .body("{\"userId\":\"" + s.userId() + "\",\"resourceId\":\"" + s.resourceId()
+                        + "\",\"allPorts\":true,\"portIds\":[]}")
+                .when().put("/api/v1/acl/user-grants")
+                .then().statusCode(200).body("changed", is(1));
+
+        // Same allPorts/portIds, only validUntil added — must still be a real change.
+        given().contentType("application/json")
+                .body("{\"userId\":\"" + s.userId() + "\",\"resourceId\":\"" + s.resourceId()
+                        + "\",\"allPorts\":true,\"portIds\":[],\"validUntil\":\"2099-06-01T00:00:00Z\"}")
+                .when().put("/api/v1/acl/user-grants")
+                .then().statusCode(200).body("changed", is(1));
+    }
+
+    @Test
+    void apply_withoutValidUntil_isPermanent() {
+        Seed s = seed();
+        given().contentType("application/json")
+                .body("{\"userId\":\"" + s.userId() + "\",\"resourceId\":\"" + s.resourceId()
+                        + "\",\"allPorts\":true,\"portIds\":[]}")
+                .when().put("/api/v1/acl/user-grants")
+                .then().statusCode(200);
+
+        given().when().get("/api/v1/acl/user-grants")
+                .then().statusCode(200)
+                .body("find { it.userId == '" + s.userId() + "' }.validUntil", is(org.hamcrest.Matchers.nullValue()));
+    }
 }

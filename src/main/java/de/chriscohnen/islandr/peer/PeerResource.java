@@ -7,6 +7,8 @@ import de.chriscohnen.islandr.firewall.RulesetService;
 import de.chriscohnen.islandr.network.NetworkDiagnosticsDto;
 import de.chriscohnen.islandr.network.NetworkDiagnosticsService;
 import de.chriscohnen.islandr.wg.WgAdapter;
+import de.chriscohnen.islandr.webhook.WebhookDispatcher;
+import de.chriscohnen.islandr.webhook.WebhookEventType;
 import io.quarkus.panache.common.Sort;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -35,6 +37,7 @@ public class PeerResource {
     @Inject PeerService peers;
     @Inject PeerScheduleService schedules;
     @Inject AuditService audit;
+    @Inject WebhookDispatcher webhooks;
     @Inject RulesetService rulesets;
     @Inject WgAdapter wg;
     @Inject NetworkDiagnosticsService diag;
@@ -289,6 +292,8 @@ public class PeerResource {
         // audit-log-only, never persisted on the peer itself (#47).
         if (body.reason() != null && !body.reason().isBlank()) detail.put("reason", body.reason());
         audit.logEvent(a.principal(), action, "Peer:" + p.name() + " (" + id + ")", detail);
+        webhooks.publish(body.enabled() ? WebhookEventType.PEER_ENABLED : WebhookEventType.PEER_DISABLED,
+                a.principal(), "Peer:" + id, Map.of("peerId", id, "name", p.name()));
         rulesets.recomputeFromHook();
         return p;
     }
