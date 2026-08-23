@@ -28,5 +28,11 @@ public class AtlasDto {
 
     public record Graph(
             List<UserNode> users, List<ResourceNode> resources,
-            List<Edge> edges, List<RoleOption> roles, List<SiteNode> sites) {}
+            List<Edge> edges, List<RoleOption> roles, List<SiteNode> sites,
+            // The Hub's own tunnel address(es) — network+1 of wgSubnet/wgSubnet6
+            // (Settings.effectiveClientDns' "server address" convention), so the
+            // Atlas diagram's hover on the Hub node can show something concrete
+            // instead of just a label. hubIp6 is null on IPv4-only installs or if
+            // wgSubnet6 fails to parse.
+            String hubIp4, String hubIp6) {}
 }

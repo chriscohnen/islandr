@@ -740,6 +740,8 @@ export default defineComponent({
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-peer-id="selectedPeerId"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
+                       :connected-peers-by-user-id="connectedPeersByUserId"
+                       :hub-ip4="graph.hubIp4" :hub-ip6="graph.hubIp6"
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
                        @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />

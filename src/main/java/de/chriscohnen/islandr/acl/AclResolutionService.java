@@ -279,8 +279,11 @@ public class AclResolutionService {
         // grants don't need a single User row, so an empty userNodes list alone
         // must not suppress them (the role/type/user-direct blocks below degrade
         // to zero edges gracefully on their own when there are no users).
+        String[] hubIps = hubIps();
+
         if (resourceNodes.isEmpty()) {
-            return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions, siteNodes);
+            return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions, siteNodes,
+                    hubIps[0], hubIps[1]);
         }
 
         List<AtlasDto.Edge> edges = new ArrayList<>();
@@ -397,7 +400,31 @@ public class AclResolutionService {
             edges.add(new AtlasDto.Edge("site", siteId, resourceId, "site-direct", null, null, allPorts, portLabels));
         }
 
-        return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions, siteNodes);
+        return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions, siteNodes,
+                hubIps[0], hubIps[1]);
+    }
+
+    /**
+     * The Hub's own tunnel address(es) — network+1 of wgSubnet/wgSubnet6, the same
+     * "server address" convention {@link de.chriscohnen.islandr.settings.Settings#effectiveClientDns()}
+     * already relies on. Returns {@code [ip4, ip6]}; either slot is null if the
+     * corresponding subnet is unset or fails to parse (IPv6 is optional; an
+     * unparseable wgSubnet shouldn't be possible — it's {@code @ValidCidr}-enforced
+     * on save — but the Atlas graph must never fail to load over it).
+     */
+    private String[] hubIps() {
+        de.chriscohnen.islandr.settings.Settings s =
+                de.chriscohnen.islandr.settings.Settings.findById(de.chriscohnen.islandr.settings.Settings.SINGLETON_ID);
+        String ip4 = null, ip6 = null;
+        try {
+            ip4 = de.chriscohnen.islandr.peer.IpSubnet.parse(s.wgSubnet).networkAddress();
+        } catch (RuntimeException ignored) { /* graph must load regardless */ }
+        if (s.wgSubnet6 != null && !s.wgSubnet6.isBlank()) {
+            try {
+                ip6 = de.chriscohnen.islandr.peer.IpSubnet.parse(s.wgSubnet6).networkAddress();
+            } catch (RuntimeException ignored) { /* IPv6 is optional anyway */ }
+        }
+        return new String[] { ip4, ip6 };
     }
 
     static String formatPortLabel(int port, Integer portEnd, String protocol) {

@@ -131,6 +131,14 @@ export default defineComponent({
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
     selectedPeerId: { type: String, default: null }, // focused site-gateway peer (ADR-0025 diagnostics target) — ring only, no edge filtering
     connectedUserIds: { type: Array, default: () => [] }, // users with a currently-connected client peer (ADR-0025) — also pingable
+    // userId -> that user's currently-connected peers (id/name/assignedIp), same
+    // shape AtlasView already builds for the diagnostics buttons — reused here so
+    // the user-node hover can list each connected device's IP, not just "online".
+    connectedPeersByUserId: { type: Object, default: () => ({}) },
+    // The Hub's own tunnel address(es) (network+1 of wgSubnet/wgSubnet6), for the
+    // Hub node's hover card. hubIp6 is null on IPv4-only installs.
+    hubIp4: { type: String, default: null },
+    hubIp6: { type: String, default: null },
     activeTypes: { type: Array, default: () => [] }, // non-empty = show only resources of these types
     activeUserIds: { type: Array, default: () => [] }, // non-empty = show only these users
     // ADR-0025: while a diagnostics probe is open, the probed hub -> [site-gateway] ->
@@ -156,7 +164,8 @@ export default defineComponent({
       view: { scale: 1, tx: 0, ty: 0 },
       panning: false,
       panStart: null,
-      hoveredNode: null, // resource node under the pointer, for the hover tooltip
+      hoveredNode: null, // node under the pointer, for the hover tooltip
+      hoveredKind: null, // "resource" | "user" | "hub" — which card layout to render
       hoverPos: { x: 0, y: 0 }, // tooltip position, in container px
     };
   },
@@ -609,16 +618,21 @@ export default defineComponent({
       if (node.isUser || node.isGateway) return;
       this.$emit("resource-click", node.id);
     },
-    onResourceHover(node, evt) {
+    onNodeHover(kind, node, evt) {
       this.hoveredNode = node;
+      this.hoveredKind = kind;
       this.updateHoverPos(evt);
     },
     updateHoverPos(evt) {
       const rect = this.$refs.container.getBoundingClientRect();
       this.hoverPos = { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
     },
-    onResourceLeave() {
+    onNodeLeave() {
       this.hoveredNode = null;
+      this.hoveredKind = null;
+    },
+    connectedPeersFor(userId) {
+      return this.connectedPeersByUserId[userId] || [];
     },
     diamondPath(cx, cy, r) {
       return `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
@@ -688,11 +702,10 @@ export default defineComponent({
                :style="(node.isUser || node.isGateway || tool === 'grant') ? 'cursor: grab' : 'cursor: pointer'"
                @pointerdown="onNodePointerDown(node, $event)"
                @click="onResourceNodeClick(node)"
-               @pointerenter="!node.isUser && !node.isGateway && onResourceHover(node, $event)"
-               @pointermove="!node.isUser && !node.isGateway && hoveredNode === node && updateHoverPos($event)"
-               @pointerleave="!node.isUser && !node.isGateway && onResourceLeave()">
+               @pointerenter="!node.isGateway && onNodeHover(node.isUser ? 'user' : 'resource', node, $event)"
+               @pointermove="!node.isGateway && hoveredNode === node && updateHoverPos($event)"
+               @pointerleave="!node.isGateway && onNodeLeave()">
               <title v-if="node.isGateway">{{ t('atlas.tooltip_gateway', { site: node.name, cidr: circle.cidr }) }}</title>
-              <title v-else-if="node.isUser">{{ connectedUserIdSet.has(node.id) ? t('atlas.tooltip_connected') : t('atlas.tooltip_disconnected') }}</title>
               <circle v-if="nodeFocused(node)" :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
                       fill="none" stroke="var(--fg1)" stroke-width="1.5">
                 <animate attributeName="r" values="${NODE_RADIUS + 3};${NODE_RADIUS + 9};${NODE_RADIUS + 3}"
@@ -735,7 +748,10 @@ export default defineComponent({
                user/resource node or a site's gateway peer — no click/drag
                behavior of its own, it's the fixed origin every probe starts
                from, never a grant subject or a probe target. -->
-          <g>
+          <g style="cursor: default"
+             @pointerenter="onNodeHover('hub', { id: '__hub__', name: t('atlas.diagnostics_hop_hub') }, $event)"
+             @pointermove="hoveredKind === 'hub' && updateHoverPos($event)"
+             @pointerleave="onNodeLeave()">
             <rect :x="hubPoint.x - ${HUB_SIZE}" :y="hubPoint.y - ${HUB_SIZE}"
                   :width="${HUB_SIZE * 2}" :height="${HUB_SIZE * 2}" rx="4"
                   fill="var(--surface)" stroke="var(--fg1)" stroke-width="2" />
@@ -758,7 +774,8 @@ export default defineComponent({
       <div v-if="hoveredNode" class="card card-pad" style="position: absolute; pointer-events: none; z-index: 10; min-width: 200px; box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.18))"
            :style="{ left: (hoverPos.x + 16) + 'px', top: (hoverPos.y + 16) + 'px' }">
         <div style="font-weight: 600; margin-bottom: var(--space-2)">{{ hoveredNode.name }}</div>
-        <div style="display: grid; grid-template-columns: auto auto; gap: 2px var(--space-3); font-size: var(--text-xs)">
+
+        <div v-if="hoveredKind === 'resource'" style="display: grid; grid-template-columns: auto auto; gap: 2px var(--space-3); font-size: var(--text-xs)">
           <span class="muted">{{ t('atlas.tooltip_site') }}</span><span>{{ hoveredNode.siteName }}</span>
           <template v-if="hoveredNode.siteCidr">
             <span class="muted">{{ t('atlas.tooltip_network') }}</span><span class="mono">{{ hoveredNode.siteCidr }}</span>
@@ -770,6 +787,26 @@ export default defineComponent({
           <template v-if="hoveredNode.description">
             <span class="muted">{{ t('atlas.tooltip_description') }}</span><span>{{ hoveredNode.description }}</span>
           </template>
+        </div>
+
+        <!-- User node: connection status plus every currently-connected device's
+             own tunnel IP — a user with two online devices (laptop + phone) lists
+             both, not just the one behind the "•" indicator on the diagram. -->
+        <div v-else-if="hoveredKind === 'user'" style="font-size: var(--text-xs)">
+          <div style="margin-bottom: var(--space-2)">
+            {{ connectedUserIdSet.has(hoveredNode.id) ? t('atlas.tooltip_connected') : t('atlas.tooltip_disconnected') }}
+          </div>
+          <div v-if="connectedPeersFor(hoveredNode.id).length > 0" style="display: grid; grid-template-columns: auto auto; gap: 2px var(--space-3)">
+            <template v-for="peer in connectedPeersFor(hoveredNode.id)" :key="peer.id">
+              <span class="muted">{{ peer.name || peer.id }}</span><span class="mono">{{ peer.assignedIp || '—' }}</span>
+            </template>
+          </div>
+        </div>
+
+        <!-- Hub node: its own tunnel address(es) — the origin of every probe. -->
+        <div v-else-if="hoveredKind === 'hub'" style="display: grid; grid-template-columns: auto auto; gap: 2px var(--space-3); font-size: var(--text-xs)">
+          <span class="muted">{{ t('atlas.tooltip_ip4') }}</span><span class="mono">{{ hubIp4 || '—' }}</span>
+          <span class="muted">{{ t('atlas.tooltip_ip6') }}</span><span class="mono">{{ hubIp6 || '—' }}</span>
         </div>
       </div>
     </div>

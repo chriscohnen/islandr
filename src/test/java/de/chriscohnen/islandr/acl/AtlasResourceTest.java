@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.acl;
 
 import de.chriscohnen.islandr.auth.AdminSessionExtension;
 import de.chriscohnen.islandr.user.User;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -248,5 +249,23 @@ class AtlasResourceTest {
         res.persist();
         SiteResourceGrant.createNew(grantingSite.id, res.id, true).persist();
         return grantingSite.id;
+    }
+
+    /**
+     * The Hub node's own tunnel address (network+1 of wgSubnet, the diagram's hover
+     * target) must always be present so AtlasDiagram's Hub hover has something
+     * concrete to show, regardless of whether the graph has any users/resources yet.
+     */
+    @Test
+    void atlas_hubIp4_matchesSettingsWgSubnetServerAddress() {
+        String expected = QuarkusTransaction.requiringNew().call(() -> {
+            de.chriscohnen.islandr.settings.Settings s =
+                    de.chriscohnen.islandr.settings.Settings.findById(de.chriscohnen.islandr.settings.Settings.SINGLETON_ID);
+            return de.chriscohnen.islandr.peer.IpSubnet.parse(s.wgSubnet).networkAddress();
+        });
+
+        given().when().get("/api/v1/acl/atlas")
+                .then().statusCode(200)
+                .body("hubIp4", is(expected));
     }
 }
