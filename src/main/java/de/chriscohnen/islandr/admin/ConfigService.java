@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.admin;
 import de.chriscohnen.islandr.acl.*;
 import de.chriscohnen.islandr.identity.OidcProvider;
 import de.chriscohnen.islandr.peer.Peer;
+import de.chriscohnen.islandr.peer.PeerSchedule;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.user.User;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -34,7 +35,8 @@ public class ConfigService {
                 s.wgSubnet6,
                 s.hubLat, s.hubLon, s.hubLocationLabel,
                 s.nominatimUrl, s.ironRdpEnabled, s.activityRetentionDays,
-                s.dnsResolverEnabled, s.dnsResolverZone, s.dnsResolverUpstream);
+                s.dnsResolverEnabled, s.dnsResolverZone, s.dnsResolverUpstream,
+                s.externalApiEnabled);
 
         List<ConfigExportDto.OidcProviderSnapshot> providers = OidcProvider.<OidcProvider>listAll()
                 .stream().map(p -> new ConfigExportDto.OidcProviderSnapshot(
@@ -66,7 +68,13 @@ public class ConfigService {
                         p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.enabled,
                         includePrivateKeys ? p.privateKeyPem : null,
                         p.type, p.siteAllowedCidrs, p.deviceType, p.presharedKey, p.createdAt,
-                        p.lat, p.lng, p.locationLabel))
+                        p.lat, p.lng, p.locationLabel, p.validUntil, p.enabledSource))
+                .toList();
+
+        List<ConfigExportDto.PeerScheduleSnapshot> peerSchedules = PeerSchedule.<PeerSchedule>listAll()
+                .stream().map(ps -> new ConfigExportDto.PeerScheduleSnapshot(
+                        ps.id, ps.peerId, ps.weekdayMask, ps.activeFrom, ps.activeTo,
+                        ps.createdAt, ps.updatedAt))
                 .toList();
 
         List<ConfigExportDto.SiteSnapshot> sites = Site.<Site>listAll()
@@ -115,16 +123,26 @@ public class ConfigService {
                         g.id, g.roleId, g.siteId, g.resourceType, g.createdAt))
                 .toList();
 
-        List<ConfigExportDto.UserGrantSnapshot> userGrants = UserResourceGrant.<UserResourceGrant>listAll()
-                .stream().map(g -> new ConfigExportDto.UserGrantSnapshot(
+        // Ad-hoc temporary grants (#70) are deliberately excluded from a config
+        // snapshot: they carry a validUntil and are meant to expire on their own via
+        // UserGrantExpiryJob. Restoring a backup should never resurrect a grant that
+        // was only ever meant to be temporary — and may already be stale/expired by
+        // the time the backup is imported. Only permanent (validUntil == null) direct
+        // user-grants travel with the export.
+        List<UserResourceGrant> permanentUserGrants = UserResourceGrant.<UserResourceGrant>list("validUntil is null");
+        List<ConfigExportDto.UserGrantSnapshot> userGrants = permanentUserGrants.stream()
+                .map(g -> new ConfigExportDto.UserGrantSnapshot(
                         g.id, g.userId, g.resourceId, g.allPorts, g.createdAt))
                 .toList();
 
+        java.util.Set<String> permanentGrantIds = permanentUserGrants.stream()
+                .map(g -> g.id).collect(java.util.stream.Collectors.toSet());
         @SuppressWarnings("unchecked")
         List<Object[]> userGrantPortRows = em.createNativeQuery(
                         "SELECT grant_id, port_id FROM user_resource_grant_ports")
                 .getResultList();
         List<ConfigExportDto.UserGrantPortLink> userGrantPortLinks = userGrantPortRows.stream()
+                .filter(r -> permanentGrantIds.contains((String) r[0]))
                 .map(r -> new ConfigExportDto.UserGrantPortLink((String) r[0], (String) r[1]))
                 .toList();
 
@@ -146,7 +164,7 @@ public class ConfigService {
                 settings, providers, users, roles, memberships, peers,
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
-                siteGrants, siteGrantPortLinks);
+                siteGrants, siteGrantPortLinks, peerSchedules);
     }
 
     @Transactional
@@ -166,6 +184,7 @@ public class ConfigService {
         em.createNativeQuery("DELETE FROM sites").executeUpdate();
         em.createNativeQuery("DELETE FROM port_group_members").executeUpdate();
         em.createNativeQuery("DELETE FROM port_groups").executeUpdate();
+        em.createNativeQuery("DELETE FROM peer_schedules").executeUpdate();
         em.createNativeQuery("DELETE FROM peers").executeUpdate();
         em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
         em.createNativeQuery("DELETE FROM users").executeUpdate();
@@ -220,8 +239,8 @@ public class ConfigService {
                             " device_type, preshared_key," +
                             " total_rx_bytes, total_tx_bytes," +
                             " last_sampled_rx_bytes, last_sampled_tx_bytes, created_at," +
-                            " lat, lng, location_label)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,0,0,0,?12,?13,?14,?15)")
+                            " lat, lng, location_label, valid_until, enabled_source)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,0,0,0,?12,?13,?14,?15,?16,?17)")
                     .setParameter(1, peer.id())
                     .setParameter(2, peer.userId())
                     .setParameter(3, peer.name())
@@ -237,6 +256,26 @@ public class ConfigService {
                     .setParameter(13, peer.lat())
                     .setParameter(14, peer.lng())
                     .setParameter(15, peer.locationLabel())
+                    // Pre-Peer-Scheduler exports lack these fields → null (no expiry,
+                    // no recorded source of the current enabled state).
+                    .setParameter(16, peer.validUntil() != null ? ts(peer.validUntil()) : null)
+                    .setParameter(17, peer.enabledSource())
+                    .executeUpdate();
+        }
+
+        // --- Peer schedules (#47/Z.58) ----------------------------------------
+        for (var ps : safe(p.peerSchedules())) {
+            em.createNativeQuery(
+                            "INSERT INTO peer_schedules" +
+                            " (id, peer_id, weekday_mask, active_from, active_to, created_at, updated_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7)")
+                    .setParameter(1, ps.id())
+                    .setParameter(2, ps.peerId())
+                    .setParameter(3, ps.weekdayMask())
+                    .setParameter(4, ps.activeFrom())
+                    .setParameter(5, ps.activeTo())
+                    .setParameter(6, ts(ps.createdAt()))
+                    .setParameter(7, ts(ps.updatedAt()))
                     .executeUpdate();
         }
 
@@ -433,6 +472,9 @@ public class ConfigService {
             s.dnsResolverEnabled = snap.dnsResolverEnabled() != null ? snap.dnsResolverEnabled() : false;
             s.dnsResolverZone = snap.dnsResolverZone();
             s.dnsResolverUpstream = snap.dnsResolverUpstream();
+            // Pre-ADR-0026 exports lack this field → keep the entity default (true,
+            // facade enabled) rather than silently disabling automation on restore.
+            s.externalApiEnabled = snap.externalApiEnabled() != null ? snap.externalApiEnabled() : true;
             // wgServerPublicKey + wgServerEndpoint: keep the target hub's own values
             s.updatedAt = Instant.now();
             s.updatedBy = "config-import";

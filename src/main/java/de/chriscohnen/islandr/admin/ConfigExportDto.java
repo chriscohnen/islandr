@@ -31,7 +31,10 @@ public class ConfigExportDto {
         List<UserGrantPortLink> userGrantPortLinks,
         // Same tolerate-absence pattern, for direct site-grants.
         List<SiteGrantSnapshot> siteResourceGrants,
-        List<SiteGrantPortLink> siteGrantPortLinks
+        List<SiteGrantPortLink> siteGrantPortLinks,
+        // Same tolerate-absence pattern, for the Peer-Scheduler (#47/Z.58).
+        // Peer.validUntil/enabledSource travel on PeerSnapshot itself.
+        List<PeerScheduleSnapshot> peerSchedules
     ) {}
 
     public record SettingsSnapshot(
@@ -84,7 +87,12 @@ public class ConfigExportDto {
         String dnsResolverZone,
         // Where the resolver forwards non-zone queries — independent of
         // wgClientDns, see Settings.java. Null on pre-existing exports.
-        String dnsResolverUpstream
+        String dnsResolverUpstream,
+        // Opt-out for the external automation API facade (ADR-0026). Boolean (not
+        // primitive) so a pre-existing export without this field imports as null →
+        // the entity default (true, facade enabled), same "add-a-field, tolerate
+        // its absence" pattern as ironRdpEnabled/dnsResolverEnabled above.
+        Boolean externalApiEnabled
     ) {}
 
     public record OidcProviderSnapshot(
@@ -141,7 +149,13 @@ public class ConfigExportDto {
         // Geocoding — meaningful for type="site" only (physical gateway device location).
         Double lat,
         Double lng,
-        String locationLabel
+        String locationLabel,
+        // Peer-Scheduler (#47/Z.58): validUntil is a one-off expiry (e.g. an ad-hoc
+        // enable), enabledSource records who/what last flipped `enabled` ("admin",
+        // "schedule", "expiry") so a restored peer's audit trail stays legible.
+        // Both null on any export from before the Peer-Scheduler existed.
+        Instant validUntil,
+        String enabledSource
     ) {}
 
     public record SiteSnapshot(
@@ -228,6 +242,16 @@ public class ConfigExportDto {
     ) {}
 
     public record SiteGrantPortLink(String grantId, String portId) {}
+
+    public record PeerScheduleSnapshot(
+        String id,
+        String peerId,
+        int weekdayMask,
+        String activeFrom,
+        String activeTo,
+        Instant createdAt,
+        Instant updatedAt
+    ) {}
 
     public record ImportResult(
         int users,
