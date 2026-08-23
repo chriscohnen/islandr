@@ -94,7 +94,12 @@ export default defineComponent({
         <h1>{{ t('apikeys.title') }} <span v-if="keys.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">{{ keys.length }}</span></h1>
         <p class="page-sub">{{ t('apikeys.subtitle') }}</p>
       </div>
-      <button class="btn btn-primary btn-sm" @click="openCreate">{{ t('apikeys.create_btn') }}</button>
+      <div style="display: flex; gap: var(--space-2)">
+        <a href="/api/openapi.yml" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+          <Icon name="download" :size="14" />{{ t('apikeys.download_spec') }}
+        </a>
+        <button class="btn btn-primary btn-sm" @click="openCreate">{{ t('apikeys.create_btn') }}</button>
+      </div>
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>

@@ -92,6 +92,14 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "self_service_peer_creation", columnDefinition = "INTEGER")
     public boolean selfServicePeerCreation = true;
 
+    // Opt-out for the external automation API (issue #15, ADR-0026). Default
+    // true — the facade is already API-key-gated, so this is a further,
+    // explicit hardening switch for operators who never intend to use it,
+    // not a security-load-bearing default. When false, every
+    // /api/external/v1/* route 404s regardless of a valid API key.
+    @Column(name = "external_api_enabled", columnDefinition = "INTEGER")
+    public boolean externalApiEnabled = true;
+
     @Column(name = "wg_mtu")
     public Integer wgMtu;
 

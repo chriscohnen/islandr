@@ -1,0 +1,199 @@
+openapi: 3.0.3
+info:
+  title: Islandr External API
+  description: >
+    Automation-facing API for scripts, CI, and infrastructure-as-code
+    (issue #15). Deliberately separate from the internal `/api/v1` surface
+    the Admin Console's own UI uses — that one is free to change shape as
+    the UI evolves; this one is a stability-committed contract.
+
+
+    Authenticated with an API key (Admin Console → API Keys → Create),
+    never a session cookie. See ADR-0026 for the full rationale, including
+    why this file is hand-written/offline-generated rather than produced by
+    a runtime OpenAPI extension.
+  version: "1.0.0"
+  license:
+    name: EUPL-1.2
+    url: https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12
+
+servers:
+  - url: /api/external/v1
+    description: Path is relative to wherever your Islandr instance is reachable.
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: peers
+    description: WireGuard peers (client devices and site gateways).
+  - name: users
+    description: Organisation users.
+
+paths:
+  /peers:
+    get:
+      operationId: listPeers
+      summary: List all peers
+      tags: [peers]
+      responses:
+        "200":
+          description: Every peer, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Peer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createPeer
+      summary: Create a peer
+      description: >
+        Creates a client peer (pass `userId` as a query parameter) or a
+        site gateway peer (omit `userId`, set `type: site` in the body).
+        A client peer with no `userId` and no `type: site` is rejected —
+        client peers must always have an owner.
+      tags: [peers]
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Required for client peers; omit only when creating a site peer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PeerCreateRequest"
+      responses:
+        "201":
+          description: Peer created. The response includes the generated key
+            material exactly once — it is never retrievable again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeerCreateResponse"
+        "400":
+          description: Validation error (missing userId for a client peer,
+            malformed IP/key, IP already assigned, ...).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /users:
+    get:
+      operationId: listUsers
+      summary: List all users
+      tags: [users]
+      responses:
+        "200":
+          description: Every user, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        An API key created in the Admin Console (API Keys page). Sent as
+        `Authorization: Bearer islandr_<...>`. Acts with full admin
+        privileges in this API version — there is no per-key scoping yet
+        (ADR-0026, R-184).
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid, or revoked API key.
+
+  schemas:
+    Peer:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string, nullable: true, description: "null for site peers" }
+        name: { type: string }
+        publicKey: { type: string }
+        assignedIp: { type: string }
+        assignedIpv6: { type: string, nullable: true }
+        enabled: { type: boolean }
+        lastSeenAt: { type: string, format: date-time, nullable: true }
+        connectionStatus: { type: string, enum: [CONNECTED, STALE, DISCONNECTED] }
+        totalRxBytes: { type: integer, format: int64 }
+        totalTxBytes: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        type: { type: string, enum: [client, site] }
+        siteAllowedCidrs: { type: string, nullable: true }
+        deviceType: { type: string, nullable: true }
+        hasPresharedKey: { type: boolean }
+        validUntil: { type: string, format: date-time, nullable: true }
+
+    PeerCreateRequest:
+      type: object
+      required: [name, assignedIp]
+      properties:
+        name: { type: string }
+        assignedIp:
+          type: string
+          description: Must fall inside the instance's configured WireGuard subnet.
+        assignedIpv6: { type: string, nullable: true }
+        publicKey:
+          type: string
+          nullable: true
+          description: >
+            Omit both publicKey and privateKey to have Islandr generate a
+            fresh keypair (the common case). Set publicKey only to import a
+            client-generated key. Set both to import an existing keypair
+            (e.g. migrating from another WireGuard setup).
+        privateKey: { type: string, nullable: true }
+        type: { type: string, enum: [client, site], default: client }
+        siteAllowedCidrs:
+          type: string
+          nullable: true
+          description: Comma-separated CIDR list. Required when type=site.
+        deviceType:
+          type: string
+          nullable: true
+          enum: [laptop, desktop, mobile, tablet, server, other]
+        mtu: { type: integer, nullable: true, minimum: 576, maximum: 65535 }
+        generatePresharedKey: { type: boolean, default: false }
+
+    PeerCreateResponse:
+      type: object
+      properties:
+        peer:
+          $ref: "#/components/schemas/Peer"
+        privateKey:
+          type: string
+          nullable: true
+          description: Present only when Islandr generated or was given the private key.
+        conf:
+          type: string
+          description: A ready-to-use WireGuard .conf file, as text.
+        qrPngBase64:
+          type: string
+          description: The .conf rendered as a QR code, base64-encoded PNG.
+        presharedKey: { type: string, nullable: true }
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        nickname: { type: string, nullable: true }
+        displayName: { type: string, description: "nickname if set, else name" }
+        email: { type: string }
+        enabled: { type: boolean }
+        isAdmin: { type: boolean }
+        preferredLocale: { type: string, nullable: true, enum: [de, en] }
+        peerCount: { type: integer }
+        createdAt: { type: string, format: date-time }
