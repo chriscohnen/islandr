@@ -107,6 +107,13 @@ public class WebhookDispatcher {
                 headers.put("X-Islandr-Signature", "sha256=" + hmacSha256Hex(w.secret(), body));
                 headers.put("X-Islandr-Delivery", UUID.randomUUID().toString());
             }
+            // Optional extra auth header (e.g. Authorization/X-API-Key) some
+            // receivers require alongside or instead of the HMAC signature —
+            // sent regardless of format, since even a Gotify instance might sit
+            // behind a reverse proxy gating on its own header.
+            if (w.extraHeaderName() != null && !w.extraHeaderName().isBlank()) {
+                headers.put(w.extraHeaderName(), w.extraHeaderValue());
+            }
             HttpFetcher.Response r = http.postBody(endpoint, body, "application/json", headers);
             if (r.status() >= 200 && r.status() < 300) {
                 return new Attempt(true, r.status(), null);

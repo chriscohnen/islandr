@@ -54,6 +54,13 @@ public class WebhookService {
         }
         w.secret = secret;
         w.eventTypes = Webhook.toCsv(types);
+        String headerName = blankToNull(req.headerName());
+        String headerValue = blankToNull(req.headerValue());
+        if ((headerName == null) != (headerValue == null)) {
+            throw new BadRequestException("headerName and headerValue must both be set, or both left empty");
+        }
+        w.extraHeaderName = headerName;
+        w.extraHeaderValue = headerValue;
         w.enabled = true;
         w.createdAt = Instant.now();
         w.updatedAt = w.createdAt;
@@ -80,6 +87,30 @@ public class WebhookService {
         // only meaningful for gotify, where it's an admin-re-enterable app
         // token, not an auto-rotated HMAC key.
         if (req.secret() != null && !req.secret().isBlank()) w.secret = req.secret().trim();
+        // headerName is not sensitive — same "blank clears it" convention as
+        // description. Clearing the name clears the whole header (a name-less
+        // value would be unusable). headerValue follows the secret convention
+        // instead: blank = "leave unchanged", since the frontend never
+        // prefills a credential it can't safely display back.
+        if (req.headerName() != null) {
+            String name = blankToNull(req.headerName());
+            if (name == null) {
+                w.extraHeaderName = null;
+                w.extraHeaderValue = null;
+            } else {
+                w.extraHeaderName = name;
+                if (req.headerValue() != null && !req.headerValue().isBlank()) {
+                    w.extraHeaderValue = req.headerValue().trim();
+                } else if (w.extraHeaderValue == null) {
+                    throw new BadRequestException("headerValue is required when setting headerName for the first time");
+                }
+            }
+        } else if (req.headerValue() != null && !req.headerValue().isBlank()) {
+            if (w.extraHeaderName == null) {
+                throw new BadRequestException("headerName is required to set headerValue");
+            }
+            w.extraHeaderValue = req.headerValue().trim();
+        }
         if (req.enabled() != null) w.enabled = req.enabled();
         w.updatedAt = Instant.now();
         w.updatedBy = actor;

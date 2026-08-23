@@ -22,20 +22,22 @@ import java.util.List;
 @ApplicationScoped
 public class WebhookDeliveryRecorder {
 
-    public record Snapshot(String id, String url, String secret, String format) {}
+    public record Snapshot(String id, String url, String secret, String format,
+                            String extraHeaderName, String extraHeaderValue) {}
 
     @ActivateRequestContext
     public List<Snapshot> findSubscribed(String eventType) {
         return Webhook.<Webhook>list("enabled = true").stream()
                 .filter(w -> w.isSubscribed(eventType))
-                .map(w -> new Snapshot(w.id, w.url, w.secret, w.format))
+                .map(w -> new Snapshot(w.id, w.url, w.secret, w.format, w.extraHeaderName, w.extraHeaderValue))
                 .toList();
     }
 
     @ActivateRequestContext
     public Snapshot find(String id) {
         Webhook w = Webhook.findById(id);
-        return w == null ? null : new Snapshot(w.id, w.url, w.secret, w.format);
+        return w == null ? null
+                : new Snapshot(w.id, w.url, w.secret, w.format, w.extraHeaderName, w.extraHeaderValue);
     }
 
     @ActivateRequestContext

@@ -41,6 +41,17 @@ public class Webhook extends PanacheEntityBase {
     @Column(name = "enabled", nullable = false)
     public boolean enabled = true;
 
+    /** Optional extra HTTP header for authenticating with the receiving end
+     *  (e.g. {@code Authorization: Bearer ...} or {@code X-API-Key: ...}) —
+     *  independent of and in addition to the HMAC signature sent for
+     *  format=generic. Either both are null (no extra header) or both are
+     *  set; {@link WebhookService} enforces the pairing. */
+    @Column(name = "extra_header_name", length = 255)
+    public String extraHeaderName;
+
+    @Column(name = "extra_header_value", length = 2048)
+    public String extraHeaderValue;
+
     @Column(name = "last_delivery_at")
     public Instant lastDeliveryAt;
 

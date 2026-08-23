@@ -16,22 +16,27 @@ public final class WebhookDto {
      *  the HMAC secret is always server-generated. */
     @RegisterForReflection
     public record CreateRequest(@NotBlank String url, String description, List<String> eventTypes,
-                                String format, String secret) {}
+                                String format, String secret, String headerName, String headerValue) {}
 
     @RegisterForReflection
     public record UpdateRequest(String url, String description, List<String> eventTypes, Boolean enabled,
-                                String format, String secret) {}
+                                String format, String secret, String headerName, String headerValue) {}
 
-    /** Never carries {@code secret} — same one-time-secret posture as a peer's
-     *  private key. Only {@link CreateResponse}/{@link SecretResponse} do. */
+    /** Never carries {@code secret} or {@code headerValue} — same one-time-secret
+     *  posture as a peer's private key; {@code headerValue} is a credential just
+     *  like the HMAC secret, only {@code headerName} (not sensitive on its own,
+     *  e.g. "Authorization") is safe to echo back. Only {@link CreateResponse}/
+     *  {@link SecretResponse} carry {@code secret}. */
     @RegisterForReflection
     public record Response(
             String id, String url, String description, List<String> eventTypes, String format, boolean enabled,
-            boolean secretSet, Instant lastDeliveryAt, String lastDeliveryStatus, String lastDeliveryError, String updatedBy
+            boolean secretSet, String headerName, boolean headerValueSet,
+            Instant lastDeliveryAt, String lastDeliveryStatus, String lastDeliveryError, String updatedBy
     ) {
         static Response from(Webhook w) {
             return new Response(w.id, w.url, w.description, w.eventTypeSet().stream().toList(), w.format, w.enabled,
                     w.secret != null && !w.secret.isBlank(),
+                    w.extraHeaderName, w.extraHeaderValue != null && !w.extraHeaderValue.isBlank(),
                     w.lastDeliveryAt, w.lastDeliveryStatus, w.lastDeliveryError, w.updatedBy);
         }
     }

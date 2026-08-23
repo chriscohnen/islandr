@@ -109,6 +109,7 @@ public class WebhookResource {
         m.put("eventTypes", w.eventTypes);
         m.put("format", w.format);
         m.put("enabled", w.enabled);
+        m.put("headerName", w.extraHeaderName == null ? "" : w.extraHeaderName);
         return m;
     }
 }

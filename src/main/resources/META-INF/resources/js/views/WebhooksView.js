@@ -18,7 +18,7 @@ export default defineComponent({
       error: null,
       modal: null,       // "create" | "edit" | null
       editId: null,
-      form: { url: "", description: "", eventTypes: [], format: "generic", secret: "" },
+      form: { url: "", description: "", eventTypes: [], format: "generic", secret: "", headerName: "", headerValue: "" },
       submitting: false,
       formError: null,
       revealedSecret: null, // { secret, format } while the one-time modal is open
@@ -65,14 +65,14 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { url: "", description: "", eventTypes: [], format: "generic", secret: "" };
+      this.form = { url: "", description: "", eventTypes: [], format: "generic", secret: "", headerName: "", headerValue: "" };
       this.formError = null;
     },
     openEdit(w) {
       this.modal = "edit";
       this.editId = w.id;
       this.form = { url: w.url, description: w.description || "", eventTypes: [...w.eventTypes],
-                     format: w.format, secret: "" };
+                     format: w.format, secret: "", headerName: w.headerName || "", headerValue: "" };
       this.formError = null;
     },
     closeModal() {
@@ -210,6 +210,7 @@ export default defineComponent({
             <div class="mono">{{ w.url }}</div>
             <div v-if="w.description" class="muted" style="font-size: var(--text-xs)">{{ w.description }}</div>
             <span v-if="w.format === 'gotify'" class="tag" style="margin-top: var(--space-1)">Gotify</span>
+            <span v-if="w.headerName" class="tag mono" style="margin-top: var(--space-1)" :title="t('webhooks.header_tag_title')">{{ w.headerName }}</span>
           </td>
           <td>
             <span v-if="w.eventTypes.length === 0" class="muted" style="font-size: var(--text-xs)">{{ t('webhooks.no_filter') }}</span>
@@ -283,6 +284,22 @@ export default defineComponent({
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="whDesc">{{ t('webhooks.field_desc') }}</label>
               <input id="whDesc" class="input" type="text" v-model="form.description" :placeholder="t('webhooks.field_desc_ph')" />
+            </div>
+            <!-- Optional extra auth header (e.g. Authorization/X-API-Key) some
+                 receivers require alongside the HMAC signature. headerValue
+                 follows the same one-time-secret convention as the webhook's
+                 own secret: never prefilled on edit, blank means "no change". -->
+            <div class="form-grid" style="margin-bottom: var(--space-4)">
+              <div class="field">
+                <label for="whHeaderName">{{ t('webhooks.field_header_name') }}</label>
+                <input id="whHeaderName" class="input mono" type="text" v-model="form.headerName" placeholder="Authorization" />
+              </div>
+              <div class="field">
+                <label for="whHeaderValue">{{ t('webhooks.field_header_value') }}</label>
+                <input id="whHeaderValue" class="input mono" type="password" v-model="form.headerValue"
+                       :placeholder="editId && form.headerName ? t('webhooks.field_header_value_ph_edit') : 'Bearer …'" />
+              </div>
+              <div class="field-hint field-full">{{ t('webhooks.field_header_hint') }}</div>
             </div>
             <div class="field">
               <label>{{ t('webhooks.field_events') }}</label>
