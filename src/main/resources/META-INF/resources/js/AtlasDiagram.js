@@ -157,6 +157,11 @@ export default defineComponent({
     probePath: { type: Array, default: null },
     probeLabel: { type: String, default: "" },
     probeReachable: { type: Boolean, default: true },
+    // True while probePath is the client-synthesized route and no ping
+    // result has landed yet (AtlasView's probePending) — draws the overlay
+    // dashed/neutral instead of solid green, so it reads as "testing…" not
+    // as an outcome nobody has measured yet.
+    probePending: { type: Boolean, default: false },
   },
   emits: ["drag-grant", "revoke-edge", "user-click", "resource-click", "peer-click"],
   data() {
@@ -696,12 +701,16 @@ export default defineComponent({
           <!-- ADR-0025: the actually-probed hub -> [site-gateway] -> target chain,
                drawn thicker and colored by outcome so it reads as "this exact
                connection was just tested" rather than blending into the
-               ordinary grant edges above. -->
+               ordinary grant edges above. Route appears the instant the dialog
+               opens (AtlasView synthesizes it client-side — the route itself
+               never depends on the probe's outcome), dashed/neutral until the
+               first ping result actually lands, then solid green/red. -->
           <g v-if="probeOverlay">
             <path :d="probeOverlay.path" fill="none"
-                  :stroke="probeReachable ? 'var(--success-solid)' : 'var(--danger-solid)'"
+                  :stroke="probePending ? 'var(--fg2)' : (probeReachable ? 'var(--success-solid)' : 'var(--danger-solid)')"
+                  :stroke-dasharray="probePending ? '5 4' : null"
                   stroke-width="3" stroke-linecap="round" />
-            <text :x="probeOverlay.labelX" :y="probeOverlay.labelY" text-anchor="middle"
+            <text v-if="!probePending" :x="probeOverlay.labelX" :y="probeOverlay.labelY" text-anchor="middle"
                   font-family="var(--font-mono)" font-size="12" font-weight="600"
                   :fill="probeReachable ? 'var(--success-solid)' : 'var(--danger-solid)'"
                   style="paint-order: stroke; stroke: var(--surface); stroke-width: 3px">{{ probeLabel }}</text>
