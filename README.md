@@ -190,7 +190,7 @@ islandr/
 │   └── backup.sh                            # gzip-compressed, rotated SQLite backup via `sqlite3 .backup`
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
-│   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang"
+│   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang", port reservations (#72)
 │   │   ├── acme/        # hand-rolled RFC 8555 ACME client — Let's Encrypt auto-provisioning
 │   │   ├── admin/       # config export/import, version check
 │   │   ├── apikey/      # admin-issued API keys for the external automation API (ADR-0026)
@@ -209,7 +209,7 @@ islandr/
 │   │   ├── proxy/       # Docker socket-proxy client + reconciler (ADR-0012)
 │   │   ├── settings/    # singleton settings (WG topology, retention mode, hub geocoding)
 │   │   ├── tls/         # built-in TLS termination, cert hot-swap (ADR-0015)
-│   │   ├── user/        # User + Resource + AvatarService + Google Workspace import
+│   │   ├── user/        # User + Resource + AvatarService + Google Workspace import + access expiry (#53)
 │   │   ├── validation/  # @ValidIpAddress / @ValidCidr custom validators
 │   │   ├── webhook/     # outbound event webhooks (issue #68)
 │   │   ├── wg/          # WgAdapter (real shells out, mock for dev/CI)
@@ -223,7 +223,7 @@ islandr/
 │   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 727 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 809 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -289,6 +289,14 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.20.0**
+- **Exclusive ports** — a resource port can declare how many people may hold it at once. A grant then decides who may *ask*; a reservation decides who holds the slot right now. For the shared-function-account case (an RDP box with one session), where until now an admin coordinated by hand or several people all believed they had exclusive access. Capacity is per **port**, not per host, so one seat on RDP leaves the same machine's SSH freely usable. Users reserve and release from the self-service portal; requests at capacity are refused outright, naming who holds it, how long the wait is, and their e-mail to ask ([#72](https://github.com/chriscohnen/islandr/issues/72))
+- **User-level access expiry** — a user can carry a deadline of their own, closing a bypass: the Peer-Scheduler time-boxes a *device*, so a contractor whose peer had expired could enrol a fresh unlimited one from the portal. The deadline is checked at login and on every request, and withdraws access when it passes, cascading to the user's peers ([#53](https://github.com/chriscohnen/islandr/issues/53))
+- **Security fix: the OIDC login path never checked whether an account was enabled** — a disabled user could sign in through an identity provider even though the local-password path refused them
+- **Security fix: sessions outlived the access they were issued for** — disabling a user only took effect at their next login; anyone already signed in kept full access, self-service peer creation included, until the session expired
+- **Hub load on the Dashboard** — CPU, memory and swap of the hub itself, read from `/proc` with no extra dependency, preferring a container's cgroup limit over host totals where one is set. Each metric carries its own status, so a memory warning no longer reads as a CPU problem ([#73](https://github.com/chriscohnen/islandr/issues/73))
+- **Config export** now carries per-port capacity settings and user access deadlines, and its format version is finally enforced: an export from a *newer* Islandr is refused rather than silently imported with unknown fields dropped
 
 **0.19.0**
 - **Generic OIDC provider support** — Auth0, Okta, or any other OIDC-compliant issuer can now be added alongside Microsoft 365/Google Workspace, discovered automatically via `.well-known/openid-configuration`; Auth0/Okta get preset tiles that only ask for a domain, a fully generic tile asks for the issuer URL directly ([#69](https://github.com/chriscohnen/islandr/issues/69))
