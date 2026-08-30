@@ -64,8 +64,38 @@ public class Resource extends PanacheEntityBase {
     @Column(name = "dns_flat", nullable = false, columnDefinition = "INTEGER")
     public boolean dnsFlat = false;
 
+    /** Exclusive-capacity limit (issue #72): how many users may hold this
+     *  resource at the same time. {@code null} — the default, and every
+     *  resource that existed before #72 — means unlimited, i.e. a grant alone
+     *  is enough to reach it, exactly as before. Any non-null value opts the
+     *  resource into the reservation layer: a standing grant then establishes
+     *  only *eligibility*, and an active {@link ResourceReservation} is
+     *  additionally required to actually reach it. That is what stops the
+     *  shared-function-account case (an RDP box with one session) from being
+     *  circumvented by simply handing three people a role grant. */
+    @Column(name = "max_concurrent_users")
+    public Integer maxConcurrentUsers;
+
+    /** Ceiling on a single self-service reservation's length, in minutes.
+     *  {@code null} = no ceiling beyond the duration picker's own options.
+     *  Independent of {@link #maxConcurrentUsers} in the schema, but only
+     *  meaningful once the resource is capacity-limited. */
+    @Column(name = "max_reservation_minutes")
+    public Integer maxReservationMinutes;
+
+    /** When true (default), a request that fits the remaining capacity is
+     *  granted immediately; when false, every request waits for an admin
+     *  decision even on an idle resource. */
+    @Column(name = "auto_approve_reservations", nullable = false, columnDefinition = "INTEGER")
+    public boolean autoApproveReservations = true;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
+
+    /** True when this resource takes part in the reservation layer at all. */
+    public boolean isCapacityLimited() {
+        return maxConcurrentUsers != null;
+    }
 
     public static Resource createNew(String siteId, String name, String ip, String description, String type) {
         Resource r = new Resource();

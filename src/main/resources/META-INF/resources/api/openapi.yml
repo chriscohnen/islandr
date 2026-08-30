@@ -283,6 +283,13 @@ components:
         type: { type: string, enum: [computer, router, printer, nas, camera, iot, virt-host, rackserver, kvm, management, other] }
         dnsName: { type: string, nullable: true }
         dnsFlat: { type: boolean }
+        # Exclusive-capacity config (issue #72). maxConcurrentUsers null means
+        # unlimited — the resource is reachable on a grant alone, which is the
+        # default and the behaviour of every resource created before #72. With
+        # a value set, users must additionally hold a reservation.
+        maxConcurrentUsers: { type: integer, nullable: true }
+        maxReservationMinutes: { type: integer, nullable: true }
+        autoApproveReservations: { type: boolean }
         ports:
           type: array
           items:

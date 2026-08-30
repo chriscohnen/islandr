@@ -63,6 +63,7 @@ public class ResourceService {
         Resource r = Resource.createNew(siteId, req.name().strip(), ip, req.description(), req.type());
         r.dnsName = dnsName;
         r.dnsFlat = dnsName != null && req.dnsFlat();
+        applyReservationConfig(r, req);
         r.persist();
         return r;
     }
@@ -92,7 +93,22 @@ public class ResourceService {
         }
         r.dnsName = dnsName;
         r.dnsFlat = dnsFlat;
+        applyReservationConfig(r, req);
         return r;
+    }
+
+    /**
+     * Exclusive-capacity config (issue #72). Turning the limit off (a null
+     * maxConcurrentUsers) deliberately leaves any existing reservation rows
+     * alone rather than deleting them: they simply stop being consulted, and
+     * an admin who flips the limit back on within the hour gets the still-live
+     * ones back instead of having silently evicted everyone. The expiry job
+     * closes them on schedule either way.
+     */
+    private static void applyReservationConfig(Resource r, ResourceDto.UpsertRequest req) {
+        r.maxConcurrentUsers = req.maxConcurrentUsers();
+        r.maxReservationMinutes = req.maxReservationMinutes();
+        r.autoApproveReservations = req.autoApproveReservations();
     }
 
     /** Blank → null (never resolves); otherwise lowercased for a case-insensitive lookup key. */

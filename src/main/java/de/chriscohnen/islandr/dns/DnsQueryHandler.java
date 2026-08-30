@@ -62,7 +62,11 @@ public class DnsQueryHandler {
         // default; ADR-0023 leaves the site-peer case as an open question.
         if (peer == null || peer.userId == null) return NXDOMAIN;
 
-        return aclSvc.hasAnyGrant(peer.userId, resource.id)
+        // canReachNow, not hasAnyGrant: on a capacity-limited resource
+        // (issue #72) a grant without a live reservation does not reach it,
+        // and resolving its name would advertise a host nftables is about to
+        // drop packets for.
+        return aclSvc.canReachNow(peer.userId, resource.id)
                 ? new Resolution.Answer(resource.ip, canonicalFqdn(resource, lookup.site(), normalizeZone(s.dnsResolverZone)), resource.id)
                 : NXDOMAIN;
     }

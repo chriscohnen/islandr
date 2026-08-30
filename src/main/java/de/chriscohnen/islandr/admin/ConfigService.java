@@ -104,7 +104,9 @@ public class ConfigService {
 
         List<ConfigExportDto.ResourceSnapshot> resources = Resource.<Resource>listAll()
                 .stream().map(r -> new ConfigExportDto.ResourceSnapshot(
-                        r.id, r.siteId, r.name, r.ip, r.description, r.type, r.createdAt))
+                        r.id, r.siteId, r.name, r.ip, r.description, r.type,
+                        r.maxConcurrentUsers, r.maxReservationMinutes, r.autoApproveReservations,
+                        r.createdAt))
                 .toList();
 
         List<ConfigExportDto.ResourcePortSnapshot> ports = ResourcePort.<ResourcePort>listAll()
@@ -190,6 +192,12 @@ public class ConfigService {
     @Transactional
     public ConfigExportDto.ImportResult importConfig(ConfigExportDto.Export p) {
         // --- Tear-down in FK order -------------------------------------------
+        // Reservations (issue #72) FK both resources and users, so they go
+        // first. They are never re-inserted — reservations are transient
+        // session state, deliberately outside the export (see
+        // ConfigExportDto.ResourceSnapshot) — a restore starts with nobody
+        // holding anything, which is the honest state after a rebuild.
+        em.createNativeQuery("DELETE FROM resource_reservations").executeUpdate();
         em.createNativeQuery("DELETE FROM user_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_grants").executeUpdate();
@@ -359,15 +367,23 @@ public class ConfigService {
         // --- Resources -------------------------------------------------------
         for (var res : safe(p.resources())) {
             em.createNativeQuery(
-                            "INSERT INTO resources (id, site_id, name, ip, description, type, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7)")
+                            "INSERT INTO resources (id, site_id, name, ip, description, type," +
+                            " max_concurrent_users, max_reservation_minutes, auto_approve_reservations, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)")
                     .setParameter(1, res.id())
                     .setParameter(2, res.siteId())
                     .setParameter(3, res.name())
                     .setParameter(4, res.ip())
                     .setParameter(5, res.description())
                     .setParameter(6, res.type())
-                    .setParameter(7, ts(res.createdAt()))
+                    .setParameter(7, res.maxConcurrentUsers())
+                    .setParameter(8, res.maxReservationMinutes())
+                    // Absent in a pre-#72 export — fall back to the entity
+                    // default rather than importing every resource as
+                    // "needs an admin decision for every request".
+                    .setParameter(9, (res.autoApproveReservations() == null
+                            || res.autoApproveReservations()) ? 1 : 0)
+                    .setParameter(10, ts(res.createdAt()))
                     .executeUpdate();
         }
 

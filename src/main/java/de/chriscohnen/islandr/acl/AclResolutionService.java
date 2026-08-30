@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -183,6 +184,35 @@ public class AclResolutionService {
                             null));
         }
 
+        // Exclusive-capacity state (issue #72), loaded once for the whole
+        // list rather than per resource. Resources keep appearing here on the
+        // strength of the grant alone — that is the point: the portal must be
+        // able to show a reservable resource *before* the user holds a slot,
+        // which is what the "On-demand" badge and request button hang off.
+        Map<String, Resource> resourceEntities = new HashMap<>();
+        for (Resource r : Resource.<Resource>list("id in ?1", resourceIds)) {
+            resourceEntities.put(r.id, r);
+        }
+        Instant now = Instant.now();
+        Map<String, ResourceReservation> myOpenByResource = new HashMap<>();
+        Map<String, List<ResourceDto.ReservationHolder>> holdersByResource = new HashMap<>();
+        List<String> gatedIds = resourceEntities.values().stream()
+                .filter(Resource::isCapacityLimited).map(r -> r.id).toList();
+        if (!gatedIds.isEmpty()) {
+            for (ResourceReservation rr : ResourceReservation.<ResourceReservation>list(
+                    "resourceId in ?1 and status in ?2", gatedIds,
+                    List.of(ResourceReservation.PENDING, ResourceReservation.ACTIVE))) {
+                if (rr.userId.equals(userId)) myOpenByResource.put(rr.resourceId, rr);
+                if (rr.isLiveAt(now)) {
+                    de.chriscohnen.islandr.user.User holder =
+                            de.chriscohnen.islandr.user.User.findById(rr.userId);
+                    holdersByResource.computeIfAbsent(rr.resourceId, k -> new ArrayList<>())
+                            .add(new ResourceDto.ReservationHolder(rr.userId,
+                                    holder == null ? rr.userId : holder.name, rr.endsAt));
+                }
+            }
+        }
+
         List<ResourceDto.MyAccessResource> out = new ArrayList<>(resRows.size());
         for (Object[] r : resRows) {
             String rid = (String) r[0];
@@ -191,6 +221,8 @@ public class AclResolutionService {
             List<ResourceDto.PortResponse> granted = grant.allPorts()
                     ? allPorts
                     : allPorts.stream().filter(p -> grant.portIds().contains(p.id())).toList();
+            Resource entity = resourceEntities.get(rid);
+            ResourceReservation mine = myOpenByResource.get(rid);
             out.add(new ResourceDto.MyAccessResource(
                     rid,
                     (String) r[1],
@@ -199,7 +231,14 @@ public class AclResolutionService {
                     (String) r[3],
                     (String) r[4],
                     (String) r[5],
-                    granted));
+                    granted,
+                    entity == null ? null : entity.maxConcurrentUsers,
+                    entity == null ? null : entity.maxReservationMinutes,
+                    entity == null || entity.autoApproveReservations,
+                    mine == null ? null : mine.id,
+                    mine == null ? null : mine.status,
+                    mine == null ? null : mine.endsAt,
+                    holdersByResource.getOrDefault(rid, List.of())));
         }
         return out;
     }

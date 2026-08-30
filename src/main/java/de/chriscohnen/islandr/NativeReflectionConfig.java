@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr;
 
 import de.chriscohnen.islandr.acl.PortGroupDto;
+import de.chriscohnen.islandr.acl.ReservationDto;
 import de.chriscohnen.islandr.acl.ResourceDto;
 import de.chriscohnen.islandr.acl.RoleDto;
 import de.chriscohnen.islandr.acl.SiteDto;
@@ -74,6 +75,14 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         ResourceDto.PortRequest.class,
         ResourceDto.BulkDeleteRequest.class,
         ResourceDto.BulkDeleteResult.class,
+        // Issue #72 — nested records must each be listed explicitly; a
+        // top-level container does not pull them in (see this file's own
+        // targets array, which enumerates every one).
+        ResourceDto.ReservationHolder.class,
+        ReservationDto.Response.class,
+        ReservationDto.CreateRequest.class,
+        ReservationDto.HolderResponse.class,
+        ReservationDto.AtCapacityResponse.class,
 
         PortGroupDto.Response.class,
         PortGroupDto.UpsertRequest.class,

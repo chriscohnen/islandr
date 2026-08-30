@@ -26,6 +26,12 @@ export default defineComponent({
       peers: [],
       grants: [],       // resources this user has access to
       grantsLoading: true,
+      // Exclusive-capacity reservations (#72), keyed by resource id: the
+      // duration currently picked, the in-flight request, and the last error
+      // (kept per resource so one failure doesn't blank another card).
+      rsvMinutes: {},
+      rsvBusy: null,
+      rsvError: {},
       loading: true,
       error: null,
       // Grants section tabs: "list" (default), "topology", "map", "activity" —
@@ -148,6 +154,80 @@ export default defineComponent({
       }
     },
 
+    // -- exclusive-capacity reservations (#72) ------------------------------
+    /**
+     * True when the resource is capacity-limited and this user holds no live
+     * slot — the ports are listed (the grant is real) but nftables will drop
+     * traffic to them until a reservation is held, so the UI must not present
+     * them as ready to click.
+     */
+    needsReservation(r) {
+      return !!r.maxConcurrentUsers && r.myReservationStatus !== 'active';
+    },
+    /** The offered ladder, trimmed to the resource's own ceiling. */
+    durationChoices(r) {
+      const all = [60, 240, 1440, 10080];
+      if (!r.maxReservationMinutes) return all;
+      const fits = all.filter(m => m <= r.maxReservationMinutes);
+      // Always offer at least the shortest option, even on a resource capped
+      // below it — the server trims to the ceiling anyway, and an empty
+      // picker would leave the user unable to ask at all.
+      return fits.length ? fits : [all[0]];
+    },
+    durationLabel(minutes) {
+      if (minutes % 1440 === 0) return t('myaccess.rsv_days', { n: minutes / 1440 });
+      if (minutes % 60 === 0) return t('myaccess.rsv_hours', { n: minutes / 60 });
+      return t('myaccess.rsv_minutes', { n: minutes });
+    },
+    shortTime(iso) {
+      if (!iso) return "";
+      try {
+        return new Date(iso).toLocaleTimeString(locale.current === 'de' ? 'de-DE' : 'en-GB',
+            { hour: '2-digit', minute: '2-digit' });
+      } catch (e) { return ""; }
+    },
+    async requestReservation(r) {
+      this.rsvBusy = r.id;
+      this.rsvError = { ...this.rsvError, [r.id]: "" };
+      try {
+        const minutes = this.rsvMinutes[r.id] || this.durationChoices(r)[0];
+        const res = await fetch("/api/v1/reservations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resourceId: r.id, minutes }),
+        });
+        if (res.status === 409) {
+          // At capacity — name the holder rather than a bare failure, which
+          // is the whole point of rejecting instead of queueing (#72).
+          const body = await res.json();
+          const h = (body.holders || [])[0];
+          this.rsvError = { ...this.rsvError, [r.id]: h
+              ? t('myaccess.rsv_at_capacity_by', { name: h.userName, time: this.shortTime(h.until) })
+              : t('myaccess.rsv_at_capacity') };
+          return;
+        }
+        if (!res.ok) throw new Error(await res.text());
+        await this.loadGrants();
+      } catch (e) {
+        this.rsvError = { ...this.rsvError, [r.id]: t('myaccess.rsv_failed') };
+      } finally {
+        this.rsvBusy = null;
+      }
+    },
+    async releaseReservation(r) {
+      if (!r.myReservationId) return;
+      this.rsvBusy = r.id;
+      this.rsvError = { ...this.rsvError, [r.id]: "" };
+      try {
+        const res = await fetch("/api/v1/reservations/" + r.myReservationId, { method: "DELETE" });
+        if (!res.ok) throw new Error(await res.text());
+        await this.loadGrants();
+      } catch (e) {
+        this.rsvError = { ...this.rsvError, [r.id]: t('myaccess.rsv_failed') };
+      } finally {
+        this.rsvBusy = null;
+      }
+    },
     async loadGrants() {
       this.grantsLoading = true;
       try {
@@ -159,6 +239,16 @@ export default defineComponent({
         const data = await res.json();
         this.grants = data.resources;
         this.ironRdpEnabled = !!data.ironRdpEnabled;
+        // Seed the duration picker per reservable resource. Without this the
+        // v-model is undefined, matches no <option>, and the select renders
+        // blank — the user would have to open it before the button works.
+        const seeded = { ...this.rsvMinutes };
+        for (const r of this.grants) {
+          if (r.maxConcurrentUsers && seeded[r.id] == null) {
+            seeded[r.id] = this.durationChoices(r)[0];
+          }
+        }
+        this.rsvMinutes = seeded;
       } catch {
         // non-fatal — grants section simply stays empty
       } finally {
@@ -911,7 +1001,45 @@ export default defineComponent({
                 <div class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
               </div>
             </div>
-            <div class="myaccess-ports">
+            <!-- Exclusive-capacity resource (#72): a grant puts it in this
+                 list, but reaching it needs a live reservation on top. -->
+            <div v-if="r.maxConcurrentUsers" class="myaccess-reservation">
+              <template v-if="r.myReservationStatus === 'active'">
+                <span class="badge badge-success">
+                  <Icon name="clock" :size="12" />
+                  {{ t('myaccess.rsv_held_until', { time: shortTime(r.myReservationEndsAt) }) }}
+                </span>
+                <button class="btn btn-ghost btn-sm" :disabled="rsvBusy === r.id"
+                        @click="releaseReservation(r)">{{ t('myaccess.rsv_release') }}</button>
+              </template>
+              <template v-else-if="r.myReservationStatus === 'pending'">
+                <span class="badge badge-warning">
+                  <Icon name="clock" :size="12" />{{ t('myaccess.rsv_pending') }}
+                </span>
+                <button class="btn btn-ghost btn-sm" :disabled="rsvBusy === r.id"
+                        @click="releaseReservation(r)">{{ t('myaccess.rsv_withdraw') }}</button>
+              </template>
+              <template v-else>
+                <span class="badge badge-neutral">
+                  <Icon name="clock" :size="12" />{{ t('myaccess.rsv_on_demand') }}
+                </span>
+                <span v-if="r.holders && r.holders.length"
+                      style="font-size:var(--text-xs);color:var(--fg3)">
+                  {{ t('myaccess.rsv_in_use_by', {
+                       name: r.holders[0].userName, time: shortTime(r.holders[0].until) }) }}
+                </span>
+                <select class="select select-sm" v-model.number="rsvMinutes[r.id]"
+                        :aria-label="t('myaccess.rsv_duration')">
+                  <option v-for="d in durationChoices(r)" :key="d" :value="d">{{ durationLabel(d) }}</option>
+                </select>
+                <button class="btn btn-primary btn-sm" :disabled="rsvBusy === r.id"
+                        @click="requestReservation(r)">{{ t('myaccess.rsv_request') }}</button>
+              </template>
+              <span v-if="rsvError[r.id]" style="font-size:var(--text-xs);color:var(--danger)">{{ rsvError[r.id] }}</span>
+            </div>
+            <div class="myaccess-ports"
+                 :class="{ 'myaccess-ports--locked': needsReservation(r) }"
+                 :title="needsReservation(r) ? t('myaccess.rsv_ports_locked') : null">
               <span v-if="r.grantedPorts.length === 0" style="font-size:var(--text-xs);color:var(--fg3)">{{ t('myaccess.no_ports') }}</span>
               <template v-for="p in r.grantedPorts" :key="p.id">
                 <a v-if="isWebPort(p)"

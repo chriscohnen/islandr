@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -54,5 +55,30 @@ public class AclService {
                 .setParameter(2, resourceId)
                 .getResultList();
         return !rows.isEmpty() && rows.get(0).intValue() > 0;
+    }
+
+    /**
+     * Reservation-aware access check (issue #72): eligibility
+     * ({@link #hasAnyGrant}) <em>and</em>, for a capacity-limited resource, a
+     * live {@link ResourceReservation}.
+     *
+     * <p>This is the question every enforcement path should ask — nftables
+     * rule generation and the DNS resolver alike. {@link #hasAnyGrant} on its
+     * own answers only "is this user allowed to ask for it", which is what
+     * {@link ReservationService#request} needs and nothing else should use to
+     * gate actual reachability: a resource with one session and three
+     * role-granted users would otherwise be reachable by all three.
+     */
+    public boolean canReachNow(String userId, String resourceId) {
+        if (!hasAnyGrant(userId, resourceId)) return false;
+        Resource res = Resource.findById(resourceId);
+        if (res == null || !res.isCapacityLimited()) return true;
+        Instant now = Instant.now();
+        for (ResourceReservation r : ResourceReservation.<ResourceReservation>list(
+                "userId = ?1 and resourceId = ?2 and status = ?3",
+                userId, resourceId, ResourceReservation.ACTIVE)) {
+            if (r.isLiveAt(now)) return true;
+        }
+        return false;
     }
 }

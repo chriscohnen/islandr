@@ -241,6 +241,19 @@ public class ConfigExportDto {
         String ip,
         String description,
         String type,
+        // Exclusive-capacity config (issue #72). Boxed so an export written
+        // before #72 imports cleanly: absent means "no capacity limit", which
+        // is exactly the pre-#72 behaviour. autoApproveReservations is boxed
+        // for the same reason and falls back to the entity default (true) when
+        // the key is missing, rather than silently importing as false.
+        //
+        // The reservations themselves are deliberately NOT exported — same
+        // reasoning as #70's ad-hoc temporary grants: they carry an expiry,
+        // they are transient by design, and a restore should not resurrect
+        // somebody's half-finished session from whenever the backup was taken.
+        Integer maxConcurrentUsers,
+        Integer maxReservationMinutes,
+        Boolean autoApproveReservations,
         Instant createdAt
     ) {}
 

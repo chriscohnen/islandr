@@ -223,7 +223,10 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false };
+      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false,
+        // #72: empty string, not 0 — the field is "unlimited" until the admin
+        // types a number, and 0 would mean "nobody may ever reach it".
+        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true };
       this.formError = null;
     },
     openEdit(r) {
@@ -235,6 +238,9 @@ export default defineComponent({
       this.form = {
         name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer",
         dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat,
+        maxConcurrentUsers: r.maxConcurrentUsers == null ? "" : r.maxConcurrentUsers,
+        maxReservationMinutes: r.maxReservationMinutes == null ? "" : r.maxReservationMinutes,
+        autoApproveReservations: r.autoApproveReservations !== false,
       };
       this.formError = null;
     },
@@ -267,7 +273,16 @@ export default defineComponent({
         const res = await fetch(url, {
           method,
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(this.form),
+          // Blank capacity fields go over the wire as null ("unlimited" /
+          // "no ceiling"), not as 0 or "" — the server distinguishes absent
+          // from zero and the entity treats null as "not reservable".
+          body: JSON.stringify({
+            ...this.form,
+            maxConcurrentUsers: this.form.maxConcurrentUsers === "" || this.form.maxConcurrentUsers == null
+                ? null : Number(this.form.maxConcurrentUsers),
+            maxReservationMinutes: this.form.maxReservationMinutes === "" || this.form.maxReservationMinutes == null
+                ? null : Number(this.form.maxReservationMinutes),
+          }),
         });
         if (!res.ok) {
           const body = await res.text();
@@ -828,6 +843,31 @@ export default defineComponent({
               </label>
               <div v-if="form.dnsName" class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_dns_flat_hint') }}</div>
             </div>
+
+            <!-- Exclusive capacity (#72). Left empty, the resource behaves
+                 exactly as before: a grant alone reaches it. -->
+            <div class="field" style="margin: var(--space-4) 0 0">
+              <label for="resMaxUsers">{{ t('resources.field_capacity') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <input id="resMaxUsers" class="input mono" type="number" min="1" step="1"
+                     v-model="form.maxConcurrentUsers"
+                     :placeholder="t('resources.field_capacity_ph')" />
+              <div class="field-hint">{{ t('resources.field_capacity_hint') }}</div>
+            </div>
+
+            <template v-if="form.maxConcurrentUsers">
+              <div class="field" style="margin: var(--space-3) 0 0">
+                <label for="resMaxRsv">{{ t('resources.field_max_reservation') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+                <input id="resMaxRsv" class="input mono" type="number" min="5" step="5"
+                       v-model="form.maxReservationMinutes"
+                       :placeholder="t('resources.field_max_reservation_ph')" />
+                <div class="field-hint">{{ t('resources.field_max_reservation_hint') }}</div>
+              </div>
+              <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; margin-top: var(--space-3); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                <input type="checkbox" v-model="form.autoApproveReservations" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                <span>{{ t('resources.field_auto_approve_label') }}</span>
+              </label>
+              <div class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_auto_approve_hint') }}</div>
+            </template>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('common.cancel') }}</button>

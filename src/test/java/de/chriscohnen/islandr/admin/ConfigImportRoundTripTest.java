@@ -687,4 +687,94 @@ class ConfigImportRoundTripTest {
                 .isNotNull();
         assertThat(reloadedKey.keyHash).isEqualTo("deadbeef".repeat(8));
     }
+
+    /**
+     * The exclusive-capacity config (issue #72) is per-resource admin
+     * configuration, so it must travel with an export — unlike the
+     * reservations themselves, which are transient session state and are
+     * deliberately left out (same reasoning as #70's temporary grants).
+     */
+    @Test
+    void resourceReservationConfigSurvivesTheRoundTrip() {
+        String resourceId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RT-Cap-Site", "10.93.0.0/24", null);
+            site.persist();
+            Resource r = Resource.createNew(site.id, "RT-Cap-Res", "10.93.0.10", null, "computer");
+            r.maxConcurrentUsers = 1;
+            r.maxReservationMinutes = 240;
+            r.autoApproveReservations = false;
+            r.persist();
+            return r.id;
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        assertThat(export.resources())
+                .filteredOn(r -> r.id().equals(resourceId))
+                .singleElement()
+                .satisfies(r -> {
+                    assertThat(r.maxConcurrentUsers()).isEqualTo(1);
+                    assertThat(r.maxReservationMinutes()).isEqualTo(240);
+                    assertThat(r.autoApproveReservations()).isFalse();
+                });
+
+        configService.importConfig(export);
+
+        Resource reloaded =
+                QuarkusTransaction.requiringNew().call(() -> Resource.findById(resourceId));
+        assertThat(reloaded.maxConcurrentUsers).isEqualTo(1);
+        assertThat(reloaded.maxReservationMinutes).isEqualTo(240);
+        assertThat(reloaded.autoApproveReservations).isFalse();
+    }
+
+    /**
+     * A pre-#72 export has no capacity fields at all. Importing it must leave
+     * every resource unlimited and auto-approving — the old behaviour — rather
+     * than importing autoApprove as false and quietly requiring an admin
+     * decision for requests that never needed one.
+     */
+    @Test
+    void legacyExportWithoutReservationConfigFallsBackToDefaults() {
+        String resourceId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RT-Legacy-Site", "10.94.0.0/24", null);
+            site.persist();
+            Resource r = Resource.createNew(site.id, "RT-Legacy-Res", "10.94.0.10", null, "computer");
+            r.persist();
+            return r.id;
+        });
+
+        ConfigExportDto.Export original =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        List<ConfigExportDto.ResourceSnapshot> legacyResources = original.resources().stream()
+                .map(r -> new ConfigExportDto.ResourceSnapshot(
+                        r.id(), r.siteId(), r.name(), r.ip(), r.description(), r.type(),
+                        null, null, null, r.createdAt()))
+                .toList();
+
+        configService.importConfig(withResources(original, legacyResources));
+
+        Resource reloaded =
+                QuarkusTransaction.requiringNew().call(() -> Resource.findById(resourceId));
+        assertThat(reloaded.maxConcurrentUsers).isNull();
+        assertThat(reloaded.maxReservationMinutes).isNull();
+        assertThat(reloaded.autoApproveReservations)
+                .as("absent in the export must mean the entity default, not false")
+                .isTrue();
+    }
+
+    /** Rebuilds an Export with a different resource list, leaving everything else alone. */
+    private static ConfigExportDto.Export withResources(
+            ConfigExportDto.Export original, List<ConfigExportDto.ResourceSnapshot> resources) {
+        return new ConfigExportDto.Export(
+                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.settings(), original.oidcProviders(), original.users(), original.roles(),
+                original.roleMemberships(), original.peers(), original.sites(),
+                resources, original.resourcePorts(), original.portGroups(),
+                original.portGroupMembers(), original.roleResourceGrants(),
+                original.grantPortLinks(), original.roleResourceTypeGrants(),
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks(),
+                original.peerSchedules(),
+                original.oidcCustomProviders(), original.apiKeys());
+    }
 }
