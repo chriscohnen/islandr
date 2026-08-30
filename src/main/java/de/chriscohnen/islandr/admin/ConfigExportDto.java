@@ -5,9 +5,39 @@ import java.util.List;
 
 public class ConfigExportDto {
 
+    /**
+     * Format version of the export envelope. Bump this whenever a change to
+     * the snapshot shape cannot be absorbed by the "add a field, tolerate its
+     * absence" pattern the individual snapshots use — i.e. when an older
+     * islandr would import a newer file *wrongly* rather than merely
+     * ignorantly.
+     *
+     * <p>Version history:
+     * <ul>
+     *   <li>1 — initial envelope.</li>
+     *   <li>2 — exclusive-capacity config moved from the resource onto the
+     *       individual port (issue #72). A v1 file still imports cleanly: its
+     *       ports simply carry no capacity, which is the correct "unlimited"
+     *       default.</li>
+     * </ul>
+     *
+     * <p>The important guarantee runs the other way. An export written by a
+     * <em>newer</em> islandr is refused rather than imported, because silently
+     * dropping fields this build does not know about would restore a
+     * configuration that quietly differs from the one that was backed up —
+     * exactly the situation a restore must never produce.
+     */
+    public static final int CURRENT_VERSION = 2;
+
     public record Export(
+        // Envelope format version, see CURRENT_VERSION. Null in the very first
+        // exports written before this carried meaning — read as version 1.
         String version,
         Instant exportedAt,
+        // Which islandr wrote this file. Purely informational: it never gates
+        // an import, it is here so a support question about a broken restore
+        // can be answered without guessing.
+        String appVersion,
         boolean privateKeysIncluded,
         SettingsSnapshot settings,
         List<OidcProviderSnapshot> oidcProviders,

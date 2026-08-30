@@ -15,6 +15,7 @@ import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.user.User;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The import writes its rows with native INSERTs, which bypasses Hibernate's timestamp
@@ -183,7 +185,7 @@ class ConfigImportRoundTripTest {
                 null, null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
-                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
                 legacySettings, original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
@@ -295,7 +297,7 @@ class ConfigImportRoundTripTest {
                 null, null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
-                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
                 legacySettings, original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
@@ -456,7 +458,7 @@ class ConfigImportRoundTripTest {
                 null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
-                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
                 legacySettings, original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
@@ -773,7 +775,7 @@ class ConfigImportRoundTripTest {
     private static ConfigExportDto.Export withResourcePorts(
             ConfigExportDto.Export original, List<ConfigExportDto.ResourcePortSnapshot> ports) {
         return new ConfigExportDto.Export(
-                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
                 original.settings(), original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), ports, original.portGroups(),
@@ -783,5 +785,88 @@ class ConfigImportRoundTripTest {
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
                 original.peerSchedules(),
                 original.oidcCustomProviders(), original.apiKeys());
+    }
+
+    // -- envelope format version --------------------------------------------
+
+    @Test
+    void export_stampsTheCurrentFormatVersionAndTheWritingBuild() {
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        assertThat(export.version()).isEqualTo(String.valueOf(ConfigExportDto.CURRENT_VERSION));
+        assertThat(export.appVersion())
+                .as("informational, but must not be blank — it is what a support question quotes")
+                .isNotBlank();
+    }
+
+    /**
+     * The guarantee that makes the version worth carrying: a file from a newer
+     * islandr is refused, not imported. Importing it would silently drop every
+     * field this build has no snapshot for, restoring a configuration that
+     * quietly differs from the one that was backed up.
+     */
+    @Test
+    void importFromANewerIslandr_isRefused() {
+        assertThatThrownBy(() -> ConfigService.requireSupportedVersion(
+                String.valueOf(ConfigExportDto.CURRENT_VERSION + 1)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("newer islandr");
+    }
+
+    @Test
+    void importOfAnOlderOrCurrentVersion_isAccepted() {
+        assertThat(ConfigService.requireSupportedVersion("1")).isEqualTo(1);
+        assertThat(ConfigService.requireSupportedVersion(
+                String.valueOf(ConfigExportDto.CURRENT_VERSION)))
+                .isEqualTo(ConfigExportDto.CURRENT_VERSION);
+    }
+
+    @Test
+    void importWithoutAVersion_isReadAsVersionOne() {
+        assertThat(ConfigService.requireSupportedVersion(null))
+                .as("files written before the field carried meaning are version 1")
+                .isEqualTo(1);
+        assertThat(ConfigService.requireSupportedVersion("  ")).isEqualTo(1);
+    }
+
+    @Test
+    void importWithAGarbledVersion_isRefusedRatherThanGuessed() {
+        assertThatThrownBy(() -> ConfigService.requireSupportedVersion("2.0-beta"))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    /**
+     * A refused import must not have torn anything down on its way to failing —
+     * the existing configuration has to survive intact.
+     */
+    @Test
+    void aRefusedImportLeavesTheExistingConfigurationUntouched() {
+        String siteId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RT-Version-Site", "10.97.0.0/24", null);
+            site.persist();
+            return site.id;
+        });
+
+        ConfigExportDto.Export original =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        ConfigExportDto.Export fromTheFuture = new ConfigExportDto.Export(
+                String.valueOf(ConfigExportDto.CURRENT_VERSION + 1),
+                original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
+                original.settings(), original.oidcProviders(), original.users(), original.roles(),
+                original.roleMemberships(), original.peers(), original.sites(),
+                original.resources(), original.resourcePorts(), original.portGroups(),
+                original.portGroupMembers(), original.roleResourceGrants(),
+                original.grantPortLinks(), original.roleResourceTypeGrants(),
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks(),
+                original.peerSchedules(), original.oidcCustomProviders(), original.apiKeys());
+
+        assertThatThrownBy(() -> configService.importConfig(fromTheFuture))
+                .isInstanceOf(BadRequestException.class);
+
+        Site survived = QuarkusTransaction.requiringNew().call(() -> Site.findById(siteId));
+        assertThat(survived)
+                .as("the refusal must happen before any tear-down")
+                .isNotNull();
     }
 }

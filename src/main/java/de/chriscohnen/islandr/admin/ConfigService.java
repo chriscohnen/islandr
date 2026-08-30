@@ -12,6 +12,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.BadRequestException;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -23,6 +24,11 @@ public class ConfigService {
 
     @Inject
     EntityManager em;
+
+    /** Stamped into the export purely so a support question can name the writer. */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(
+            name = "quarkus.application.version", defaultValue = "dev")
+    String appVersion;
 
     public ConfigExportDto.Export export(boolean includePrivateKeys) {
         Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -181,7 +187,8 @@ public class ConfigService {
                 .toList();
 
         return new ConfigExportDto.Export(
-                "1", Instant.now(), includePrivateKeys,
+                String.valueOf(ConfigExportDto.CURRENT_VERSION), Instant.now(), appVersion,
+                includePrivateKeys,
                 settings, providers, users, roles, memberships, peers,
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
@@ -189,8 +196,39 @@ public class ConfigService {
                 customProviders, apiKeys);
     }
 
+    /**
+     * Reads the envelope's format version, defaulting to 1 for files written
+     * before it carried meaning.
+     *
+     * @throws BadRequestException when the file was written by a newer islandr.
+     *         Refusing is the point: an import silently drops every field this
+     *         build has no snapshot for, so a "successful" restore of a newer
+     *         file would come back subtly different from what was backed up.
+     */
+    static int requireSupportedVersion(String rawVersion) {
+        if (rawVersion == null || rawVersion.isBlank()) return 1;
+        int version;
+        try {
+            version = Integer.parseInt(rawVersion.trim());
+        } catch (NumberFormatException e) {
+            throw new BadRequestException(
+                    "unrecognised export format version '" + rawVersion + "'");
+        }
+        if (version > ConfigExportDto.CURRENT_VERSION) {
+            throw new BadRequestException(
+                    "this export was written by a newer islandr (format version " + version
+                    + ", this build understands up to " + ConfigExportDto.CURRENT_VERSION
+                    + ") — upgrade islandr before restoring it");
+        }
+        return version;
+    }
+
     @Transactional
     public ConfigExportDto.ImportResult importConfig(ConfigExportDto.Export p) {
+        // Checked before anything is deleted: a refused import must leave the
+        // existing configuration untouched, not half-torn-down.
+        requireSupportedVersion(p.version());
+
         // --- Tear-down in FK order -------------------------------------------
         // Reservations (issue #72) FK both resources and users, so they go
         // first. They are never re-inserted — reservations are transient
