@@ -403,6 +403,18 @@ export const PATHS = {
     '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   ],
 
+  // clock — Reservierungsfenster/Restlaufzeit (#72). Lucide "clock", MIT.
+  clock: [
+    '<circle cx="12" cy="12" r="9"/>',
+    '<path d="M12 7v5l3.5 2"/>',
+  ],
+
+  // mail — Kontaktlink zum aktuellen Slot-Inhaber (#72). Lucide "mail", MIT.
+  mail: [
+    '<rect x="2" y="4" width="20" height="16" rx="2"/>',
+    '<path d="m2.5 6.5 8.6 5.7a2 2 0 0 0 2.2 0l8.7-5.7"/>',
+  ],
+
   // atlas — Kreise-in-Kreisen-Sinnbild für den Atlas-View (Lucide "orbit", MIT)
   atlas: [
     '<circle cx="12" cy="12" r="3"/>',

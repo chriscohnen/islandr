@@ -241,6 +241,17 @@ public class ConfigExportDto {
         String ip,
         String description,
         String type,
+        Instant createdAt
+    ) {}
+
+    public record ResourcePortSnapshot(
+        String id,
+        String resourceId,
+        int port,
+        Integer portEnd,
+        String transport,
+        String protocol,
+        String label,
         // Exclusive-capacity config (issue #72). Boxed so an export written
         // before #72 imports cleanly: absent means "no capacity limit", which
         // is exactly the pre-#72 behaviour. autoApproveReservations is boxed
@@ -254,17 +265,6 @@ public class ConfigExportDto {
         Integer maxConcurrentUsers,
         Integer maxReservationMinutes,
         Boolean autoApproveReservations,
-        Instant createdAt
-    ) {}
-
-    public record ResourcePortSnapshot(
-        String id,
-        String resourceId,
-        int port,
-        Integer portEnd,
-        String transport,
-        String protocol,
-        String label,
         Instant createdAt
     ) {}
 

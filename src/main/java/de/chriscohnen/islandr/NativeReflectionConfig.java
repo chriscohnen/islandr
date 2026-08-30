@@ -79,6 +79,7 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         // top-level container does not pull them in (see this file's own
         // targets array, which enumerates every one).
         ResourceDto.ReservationHolder.class,
+        ResourceDto.MyAccessPort.class,
         ReservationDto.Response.class,
         ReservationDto.CreateRequest.class,
         ReservationDto.HolderResponse.class,

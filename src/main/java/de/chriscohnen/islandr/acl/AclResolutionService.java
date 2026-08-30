@@ -158,20 +158,50 @@ public class AclResolutionService {
         @SuppressWarnings("unchecked")
         List<Object[]> portRows = em.createNativeQuery(
                         "SELECT id, resource_id, port, port_end, transport, protocol, label, path_prefix, " +
-                        "rdp_clipboard, rdp_file_transfer, rdp_access_mode " +
+                        "rdp_clipboard, rdp_file_transfer, rdp_access_mode, " +
+                        "max_concurrent_users, max_reservation_minutes, auto_approve_reservations " +
                         "FROM resource_ports WHERE resource_id IN ?1 ORDER BY port")
                 .setParameter(1, resourceIds)
                 .getResultList();
-        Map<String, List<ResourceDto.PortResponse>> portsByResource = new HashMap<>();
+
+        // Exclusive-capacity state (issue #72), loaded once for the whole list
+        // rather than per port. Ports keep appearing here on the strength of
+        // the grant alone — that is the point: the portal must be able to show
+        // a reservable port *before* the user holds a slot, which is what the
+        // "On demand" badge and request button hang off.
+        Instant now = Instant.now();
+        Map<String, ResourceReservation> myOpenByPort = new HashMap<>();
+        Map<String, List<ResourceDto.ReservationHolder>> holdersByPort = new HashMap<>();
+        for (ResourceReservation rr : ResourceReservation.<ResourceReservation>list(
+                "resourceId in ?1 and status in ?2", resourceIds,
+                List.of(ResourceReservation.PENDING, ResourceReservation.ACTIVE))) {
+            if (rr.userId.equals(userId)) myOpenByPort.put(rr.portId, rr);
+            if (rr.isLiveAt(now)) {
+                de.chriscohnen.islandr.user.User holder =
+                        de.chriscohnen.islandr.user.User.findById(rr.userId);
+                holdersByPort.computeIfAbsent(rr.portId, k -> new ArrayList<>())
+                        .add(new ResourceDto.ReservationHolder(rr.userId,
+                                holder == null ? rr.userId : holder.name,
+                                holder == null ? null : holder.email,
+                                rr.endsAt));
+            }
+        }
+
+        Map<String, List<ResourceDto.MyAccessPort>> portsByResource = new HashMap<>();
         for (Object[] p : portRows) {
             String rid = (String) p[1];
+            String portId = (String) p[0];
             Integer portEnd = p[3] == null ? null : ((Number) p[3]).intValue();
             boolean rdpClipboard = p[8] == null || ((Number) p[8]).intValue() != 0;
             boolean rdpFileTransfer = p[9] != null && ((Number) p[9]).intValue() != 0;
             String rdpAccessMode = p[10] != null ? (String) p[10] : "native";
+            Integer maxUsers = p[11] == null ? null : ((Number) p[11]).intValue();
+            Integer maxMinutes = p[12] == null ? null : ((Number) p[12]).intValue();
+            boolean autoApprove = p[13] == null || ((Number) p[13]).intValue() != 0;
+            ResourceReservation mine = myOpenByPort.get(portId);
             portsByResource.computeIfAbsent(rid, k -> new ArrayList<>()).add(
-                    new ResourceDto.PortResponse(
-                            (String) p[0],
+                    new ResourceDto.MyAccessPort(
+                            portId,
                             ((Number) p[2]).intValue(),
                             portEnd,
                             (String) p[4],
@@ -181,48 +211,21 @@ public class AclResolutionService {
                             rdpClipboard,
                             rdpFileTransfer,
                             rdpAccessMode,
-                            null));
-        }
-
-        // Exclusive-capacity state (issue #72), loaded once for the whole
-        // list rather than per resource. Resources keep appearing here on the
-        // strength of the grant alone — that is the point: the portal must be
-        // able to show a reservable resource *before* the user holds a slot,
-        // which is what the "On-demand" badge and request button hang off.
-        Map<String, Resource> resourceEntities = new HashMap<>();
-        for (Resource r : Resource.<Resource>list("id in ?1", resourceIds)) {
-            resourceEntities.put(r.id, r);
-        }
-        Instant now = Instant.now();
-        Map<String, ResourceReservation> myOpenByResource = new HashMap<>();
-        Map<String, List<ResourceDto.ReservationHolder>> holdersByResource = new HashMap<>();
-        List<String> gatedIds = resourceEntities.values().stream()
-                .filter(Resource::isCapacityLimited).map(r -> r.id).toList();
-        if (!gatedIds.isEmpty()) {
-            for (ResourceReservation rr : ResourceReservation.<ResourceReservation>list(
-                    "resourceId in ?1 and status in ?2", gatedIds,
-                    List.of(ResourceReservation.PENDING, ResourceReservation.ACTIVE))) {
-                if (rr.userId.equals(userId)) myOpenByResource.put(rr.resourceId, rr);
-                if (rr.isLiveAt(now)) {
-                    de.chriscohnen.islandr.user.User holder =
-                            de.chriscohnen.islandr.user.User.findById(rr.userId);
-                    holdersByResource.computeIfAbsent(rr.resourceId, k -> new ArrayList<>())
-                            .add(new ResourceDto.ReservationHolder(rr.userId,
-                                    holder == null ? rr.userId : holder.name, rr.endsAt));
-                }
-            }
+                            maxUsers, maxMinutes, autoApprove,
+                            mine == null ? null : mine.id,
+                            mine == null ? null : mine.status,
+                            mine == null ? null : mine.endsAt,
+                            holdersByPort.getOrDefault(portId, List.of())));
         }
 
         List<ResourceDto.MyAccessResource> out = new ArrayList<>(resRows.size());
         for (Object[] r : resRows) {
             String rid = (String) r[0];
             EffectiveGrant grant = effective.get(rid);
-            List<ResourceDto.PortResponse> allPorts = portsByResource.getOrDefault(rid, List.of());
-            List<ResourceDto.PortResponse> granted = grant.allPorts()
+            List<ResourceDto.MyAccessPort> allPorts = portsByResource.getOrDefault(rid, List.of());
+            List<ResourceDto.MyAccessPort> granted = grant.allPorts()
                     ? allPorts
                     : allPorts.stream().filter(p -> grant.portIds().contains(p.id())).toList();
-            Resource entity = resourceEntities.get(rid);
-            ResourceReservation mine = myOpenByResource.get(rid);
             out.add(new ResourceDto.MyAccessResource(
                     rid,
                     (String) r[1],
@@ -231,14 +234,7 @@ public class AclResolutionService {
                     (String) r[3],
                     (String) r[4],
                     (String) r[5],
-                    granted,
-                    entity == null ? null : entity.maxConcurrentUsers,
-                    entity == null ? null : entity.maxReservationMinutes,
-                    entity == null || entity.autoApproveReservations,
-                    mine == null ? null : mine.id,
-                    mine == null ? null : mine.status,
-                    mine == null ? null : mine.endsAt,
-                    holdersByResource.getOrDefault(rid, List.of())));
+                    granted));
         }
         return out;
     }

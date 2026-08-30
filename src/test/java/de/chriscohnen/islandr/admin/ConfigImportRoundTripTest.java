@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr.admin;
 
 import de.chriscohnen.islandr.acl.Resource;
+import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleBootstrap;
 import de.chriscohnen.islandr.acl.Site;
@@ -689,39 +690,42 @@ class ConfigImportRoundTripTest {
     }
 
     /**
-     * The exclusive-capacity config (issue #72) is per-resource admin
+     * The exclusive-capacity config (issue #72) is per-port admin
      * configuration, so it must travel with an export — unlike the
      * reservations themselves, which are transient session state and are
      * deliberately left out (same reasoning as #70's temporary grants).
      */
     @Test
-    void resourceReservationConfigSurvivesTheRoundTrip() {
-        String resourceId = QuarkusTransaction.requiringNew().call(() -> {
+    void portReservationConfigSurvivesTheRoundTrip() {
+        String portId = QuarkusTransaction.requiringNew().call(() -> {
             Site site = Site.createNew("RT-Cap-Site", "10.93.0.0/24", null);
             site.persist();
             Resource r = Resource.createNew(site.id, "RT-Cap-Res", "10.93.0.10", null, "computer");
-            r.maxConcurrentUsers = 1;
-            r.maxReservationMinutes = 240;
-            r.autoApproveReservations = false;
             r.persist();
-            return r.id;
+            ResourcePort p = ResourcePort.createNew(r.id, 3389, null, "tcp", "RDP", null,
+                    null, false, false, "native");
+            p.maxConcurrentUsers = 1;
+            p.maxReservationMinutes = 240;
+            p.autoApproveReservations = false;
+            p.persist();
+            return p.id;
         });
 
         ConfigExportDto.Export export =
                 QuarkusTransaction.requiringNew().call(() -> configService.export(false));
-        assertThat(export.resources())
-                .filteredOn(r -> r.id().equals(resourceId))
+        assertThat(export.resourcePorts())
+                .filteredOn(p -> p.id().equals(portId))
                 .singleElement()
-                .satisfies(r -> {
-                    assertThat(r.maxConcurrentUsers()).isEqualTo(1);
-                    assertThat(r.maxReservationMinutes()).isEqualTo(240);
-                    assertThat(r.autoApproveReservations()).isFalse();
+                .satisfies(p -> {
+                    assertThat(p.maxConcurrentUsers()).isEqualTo(1);
+                    assertThat(p.maxReservationMinutes()).isEqualTo(240);
+                    assertThat(p.autoApproveReservations()).isFalse();
                 });
 
         configService.importConfig(export);
 
-        Resource reloaded =
-                QuarkusTransaction.requiringNew().call(() -> Resource.findById(resourceId));
+        ResourcePort reloaded =
+                QuarkusTransaction.requiringNew().call(() -> ResourcePort.findById(portId));
         assertThat(reloaded.maxConcurrentUsers).isEqualTo(1);
         assertThat(reloaded.maxReservationMinutes).isEqualTo(240);
         assertThat(reloaded.autoApproveReservations).isFalse();
@@ -729,32 +733,35 @@ class ConfigImportRoundTripTest {
 
     /**
      * A pre-#72 export has no capacity fields at all. Importing it must leave
-     * every resource unlimited and auto-approving — the old behaviour — rather
+     * every port unlimited and auto-approving — the old behaviour — rather
      * than importing autoApprove as false and quietly requiring an admin
      * decision for requests that never needed one.
      */
     @Test
     void legacyExportWithoutReservationConfigFallsBackToDefaults() {
-        String resourceId = QuarkusTransaction.requiringNew().call(() -> {
+        String portId = QuarkusTransaction.requiringNew().call(() -> {
             Site site = Site.createNew("RT-Legacy-Site", "10.94.0.0/24", null);
             site.persist();
             Resource r = Resource.createNew(site.id, "RT-Legacy-Res", "10.94.0.10", null, "computer");
             r.persist();
-            return r.id;
+            ResourcePort p = ResourcePort.createNew(r.id, 22, null, "tcp", "SSH", null,
+                    null, false, false, "native");
+            p.persist();
+            return p.id;
         });
 
         ConfigExportDto.Export original =
                 QuarkusTransaction.requiringNew().call(() -> configService.export(false));
-        List<ConfigExportDto.ResourceSnapshot> legacyResources = original.resources().stream()
-                .map(r -> new ConfigExportDto.ResourceSnapshot(
-                        r.id(), r.siteId(), r.name(), r.ip(), r.description(), r.type(),
-                        null, null, null, r.createdAt()))
+        List<ConfigExportDto.ResourcePortSnapshot> legacyPorts = original.resourcePorts().stream()
+                .map(p -> new ConfigExportDto.ResourcePortSnapshot(
+                        p.id(), p.resourceId(), p.port(), p.portEnd(), p.transport(),
+                        p.protocol(), p.label(), null, null, null, p.createdAt()))
                 .toList();
 
-        configService.importConfig(withResources(original, legacyResources));
+        configService.importConfig(withResourcePorts(original, legacyPorts));
 
-        Resource reloaded =
-                QuarkusTransaction.requiringNew().call(() -> Resource.findById(resourceId));
+        ResourcePort reloaded =
+                QuarkusTransaction.requiringNew().call(() -> ResourcePort.findById(portId));
         assertThat(reloaded.maxConcurrentUsers).isNull();
         assertThat(reloaded.maxReservationMinutes).isNull();
         assertThat(reloaded.autoApproveReservations)
@@ -762,14 +769,14 @@ class ConfigImportRoundTripTest {
                 .isTrue();
     }
 
-    /** Rebuilds an Export with a different resource list, leaving everything else alone. */
-    private static ConfigExportDto.Export withResources(
-            ConfigExportDto.Export original, List<ConfigExportDto.ResourceSnapshot> resources) {
+    /** Rebuilds an Export with a different port list, leaving everything else alone. */
+    private static ConfigExportDto.Export withResourcePorts(
+            ConfigExportDto.Export original, List<ConfigExportDto.ResourcePortSnapshot> ports) {
         return new ConfigExportDto.Export(
                 original.version(), original.exportedAt(), original.privateKeysIncluded(),
                 original.settings(), original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
-                resources, original.resourcePorts(), original.portGroups(),
+                original.resources(), ports, original.portGroups(),
                 original.portGroupMembers(), original.roleResourceGrants(),
                 original.grantPortLinks(), original.roleResourceTypeGrants(),
                 original.userResourceGrants(), original.userGrantPortLinks(),

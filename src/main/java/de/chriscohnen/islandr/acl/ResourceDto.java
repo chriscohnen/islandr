@@ -24,18 +24,12 @@ public final class ResourceDto {
             // When true, resolves as "<dnsName>.<zone>" directly — no site
             // subdomain (ADR-0023 follow-up). Meaningless unless dnsName is set.
             boolean dnsFlat,
-            // Exclusive-capacity config (issue #72). maxConcurrentUsers null =
-            // unlimited, i.e. not reservable at all — the default for every
-            // resource that predates #72.
-            Integer maxConcurrentUsers,
-            Integer maxReservationMinutes,
-            boolean autoApproveReservations,
             List<PortResponse> ports,
             Instant createdAt
     ) {
         public static Response from(Resource r, List<PortResponse> ports) {
             return new Response(r.id, r.siteId, r.name, r.ip, r.description, r.type, r.dnsName, r.dnsFlat,
-                    r.maxConcurrentUsers, r.maxReservationMinutes, r.autoApproveReservations, ports, r.createdAt);
+                    ports, r.createdAt);
         }
     }
 
@@ -50,11 +44,19 @@ public final class ResourceDto {
             boolean rdpClipboard,
             boolean rdpFileTransfer,
             String rdpAccessMode,
+            // Exclusive-capacity config (issue #72). maxConcurrentUsers null =
+            // unlimited, i.e. not reservable — the default for every port that
+            // predates #72.
+            Integer maxConcurrentUsers,
+            Integer maxReservationMinutes,
+            boolean autoApproveReservations,
             Instant createdAt
     ) {
         public static PortResponse from(ResourcePort p) {
             return new PortResponse(p.id, p.port, p.portEnd, p.transport, p.protocol, p.label,
-                    p.pathPrefix, p.rdpClipboard, p.rdpFileTransfer, p.rdpAccessMode, p.createdAt);
+                    p.pathPrefix, p.rdpClipboard, p.rdpFileTransfer, p.rdpAccessMode,
+                    p.maxConcurrentUsers, p.maxReservationMinutes, p.autoApproveReservations,
+                    p.createdAt);
         }
     }
 
@@ -80,19 +82,7 @@ public final class ResourceDto {
             // Optional — true resolves this resource directly under the zone
             // apex, no site subdomain (ADR-0023 follow-up). Ignored when dnsName
             // is blank.
-            boolean dnsFlat,
-
-            // Exclusive-capacity config (issue #72). Nullable on purpose:
-            // null maxConcurrentUsers means "not capacity-limited", which is
-            // both the default and the way an admin turns the feature back
-            // off for a resource.
-            @Min(value = 1, message = "maxConcurrentUsers must be at least 1")
-            Integer maxConcurrentUsers,
-            @Min(value = 5, message = "maxReservationMinutes must be at least 5")
-            Integer maxReservationMinutes,
-            // Defaults to true (auto-approve when there is room) — matches the
-            // record's boolean default when a client omits the field.
-            boolean autoApproveReservations
+            boolean dnsFlat
     ) {}
 
     /**
@@ -108,27 +98,47 @@ public final class ResourceDto {
             String ip,
             String description,
             String type,
-            List<PortResponse> grantedPorts,
-            // Exclusive-capacity state (issue #72). A grant is what puts a
-            // resource in this list at all; these fields say whether the user
-            // can actually reach it right now or has to reserve it first.
-            // maxConcurrentUsers null = not reservable, and every other field
-            // here is then meaningless — that is the default and covers every
-            // resource that predates #72.
+            List<MyAccessPort> grantedPorts
+    ) {}
+
+    /**
+     * One granted port as the portal sees it (issue #72): the port itself plus
+     * whatever the *calling user* needs to know about its exclusive-capacity
+     * state. Deliberately a separate shape from {@link PortResponse}, which
+     * the admin views share — "my reservation" has no meaning in a listing
+     * that is not scoped to one person.
+     *
+     * <p>Flat rather than wrapping a PortResponse so the portal template keeps
+     * addressing {@code p.port} / {@code p.protocol} directly.
+     */
+    public record MyAccessPort(
+            String id,
+            int port,
+            Integer portEnd,
+            String transport,
+            String protocol,
+            String label,
+            String pathPrefix,
+            boolean rdpClipboard,
+            boolean rdpFileTransfer,
+            String rdpAccessMode,
+            // Null maxConcurrentUsers = not reservable; the rest of the
+            // reservation fields are then meaningless. That is the default.
             Integer maxConcurrentUsers,
             Integer maxReservationMinutes,
             boolean autoApproveReservations,
-            // The caller's own open reservation, if any. Null status = none.
+            // The caller's own open reservation on this port, if any.
             String myReservationId,
             String myReservationStatus,
             java.time.Instant myReservationEndsAt,
-            // Who is holding a slot right now, so the portal can say "in use
-            // by Jane until 14:30" before the user even tries to request one.
+            // Who holds a slot right now, so the portal can say "in use by
+            // Jane until 14:30" — and hand over an address to ask.
             List<ReservationHolder> holders
     ) {}
 
-    /** One current holder of a capacity-limited resource (issue #72). */
-    public record ReservationHolder(String userId, String userName, java.time.Instant until) {}
+    /** One current holder of a capacity-limited port (issue #72). */
+    public record ReservationHolder(String userId, String userName, String userEmail,
+                                    java.time.Instant until) {}
 
     /**
      * Portal view for one user: their granted resources plus the portal-level flags
@@ -154,7 +164,20 @@ public final class ResourceDto {
             boolean rdpClipboard,
             boolean rdpFileTransfer,
             @Pattern(regexp = "^(native|web-only)$", message = "rdpAccessMode must be 'native' or 'web-only'")
-            String rdpAccessMode
+            String rdpAccessMode,
+
+            // Exclusive-capacity config (issue #72). Nullable on purpose: null
+            // maxConcurrentUsers means "not capacity-limited", which is both
+            // the default and how an admin turns the feature back off.
+            @Min(value = 1, message = "maxConcurrentUsers must be at least 1")
+            Integer maxConcurrentUsers,
+            @Min(value = 5, message = "maxReservationMinutes must be at least 5")
+            Integer maxReservationMinutes,
+            // Boxed on purpose: a record's primitive boolean deserialises to
+            // FALSE when the client omits the key, which would silently mean
+            // "every request needs an admin decision" — the opposite of the
+            // intended default. Null here is read as true by the service.
+            Boolean autoApproveReservations
     ) {}
 
     /** Bulk-delete request: the resource ids to remove (missing ids are skipped). */

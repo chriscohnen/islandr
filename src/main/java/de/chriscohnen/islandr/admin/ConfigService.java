@@ -104,15 +104,15 @@ public class ConfigService {
 
         List<ConfigExportDto.ResourceSnapshot> resources = Resource.<Resource>listAll()
                 .stream().map(r -> new ConfigExportDto.ResourceSnapshot(
-                        r.id, r.siteId, r.name, r.ip, r.description, r.type,
-                        r.maxConcurrentUsers, r.maxReservationMinutes, r.autoApproveReservations,
-                        r.createdAt))
+                        r.id, r.siteId, r.name, r.ip, r.description, r.type, r.createdAt))
                 .toList();
 
         List<ConfigExportDto.ResourcePortSnapshot> ports = ResourcePort.<ResourcePort>listAll()
                 .stream().map(p -> new ConfigExportDto.ResourcePortSnapshot(
                         p.id, p.resourceId, p.port, p.portEnd,
-                        p.transport, p.protocol, p.label, p.createdAt))
+                        p.transport, p.protocol, p.label,
+                        p.maxConcurrentUsers, p.maxReservationMinutes, p.autoApproveReservations,
+                        p.createdAt))
                 .toList();
 
         List<ConfigExportDto.PortGroupSnapshot> portGroups = PortGroup.<PortGroup>listAll()
@@ -367,23 +367,15 @@ public class ConfigService {
         // --- Resources -------------------------------------------------------
         for (var res : safe(p.resources())) {
             em.createNativeQuery(
-                            "INSERT INTO resources (id, site_id, name, ip, description, type," +
-                            " max_concurrent_users, max_reservation_minutes, auto_approve_reservations, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)")
+                            "INSERT INTO resources (id, site_id, name, ip, description, type, created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7)")
                     .setParameter(1, res.id())
                     .setParameter(2, res.siteId())
                     .setParameter(3, res.name())
                     .setParameter(4, res.ip())
                     .setParameter(5, res.description())
                     .setParameter(6, res.type())
-                    .setParameter(7, res.maxConcurrentUsers())
-                    .setParameter(8, res.maxReservationMinutes())
-                    // Absent in a pre-#72 export — fall back to the entity
-                    // default rather than importing every resource as
-                    // "needs an admin decision for every request".
-                    .setParameter(9, (res.autoApproveReservations() == null
-                            || res.autoApproveReservations()) ? 1 : 0)
-                    .setParameter(10, ts(res.createdAt()))
+                    .setParameter(7, ts(res.createdAt()))
                     .executeUpdate();
         }
 
@@ -391,8 +383,10 @@ public class ConfigService {
         for (var port : safe(p.resourcePorts())) {
             em.createNativeQuery(
                             "INSERT INTO resource_ports" +
-                            " (id, resource_id, port, port_end, transport, protocol, label, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+                            " (id, resource_id, port, port_end, transport, protocol, label," +
+                            " max_concurrent_users, max_reservation_minutes, auto_approve_reservations," +
+                            " created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
                     .setParameter(1, port.id())
                     .setParameter(2, port.resourceId())
                     .setParameter(3, port.port())
@@ -400,7 +394,14 @@ public class ConfigService {
                     .setParameter(5, port.transport())
                     .setParameter(6, port.protocol())
                     .setParameter(7, port.label())
-                    .setParameter(8, ts(port.createdAt()))
+                    .setParameter(8, port.maxConcurrentUsers())
+                    .setParameter(9, port.maxReservationMinutes())
+                    // Absent in a pre-#72 export — fall back to the entity
+                    // default rather than importing every port as "needs an
+                    // admin decision for every request".
+                    .setParameter(10, (port.autoApproveReservations() == null
+                            || port.autoApproveReservations()) ? 1 : 0)
+                    .setParameter(11, ts(port.createdAt()))
                     .executeUpdate();
         }
 

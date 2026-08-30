@@ -15,13 +15,16 @@ import java.util.List;
 
 /**
  * The reservation half of issue #72 — who holds an exclusive slot on a
- * capacity-limited resource right now.
+ * capacity-limited <em>port</em> right now.
  *
  * <p>Deliberately does not touch the grant model. A grant answers "may this
  * user request this resource at all"; this service answers "does this user
- * hold one of its slots". {@link RuleBuilder} consults both before emitting a
- * rule, which is what makes the reservation *mandatory* rather than an
- * alternative route to access.
+ * hold one of the port's slots". {@link RuleBuilder} consults both before
+ * emitting a rule, which is what makes the reservation *mandatory* rather
+ * than an alternative route to access.
+ *
+ * <p>Capacity is counted per port, not per host: one seat on RDP must not
+ * take SSH on the same machine down with it.
  *
  * <p>Requests that do not fit are rejected outright, never queued
  * ({@link AtCapacityException} carries the current holders so the caller can
@@ -36,8 +39,12 @@ public class ReservationService {
 
     @Inject AclService acl;
 
-    /** One current holder of a slot, for telling a rejected requester who to coordinate with. */
-    public record Holder(String userId, String userName, Instant until) {}
+    /**
+     * One current holder of a slot. Carries the e-mail as well as the name so
+     * a rejected requester can actually go and ask them — the whole point of
+     * naming holders instead of returning a bare "taken".
+     */
+    public record Holder(String userId, String userName, String userEmail, Instant until) {}
 
     /**
      * Thrown when every slot is taken. Carries the holders deliberately
@@ -60,44 +67,45 @@ public class ReservationService {
      * @throws AtCapacityException when no slot is free — never queued.
      */
     @Transactional
-    public ResourceReservation request(String userId, String resourceId, int minutes) {
+    public ResourceReservation request(String userId, String portId, int minutes) {
         Instant now = Instant.now();
-        Resource res = Resource.findById(resourceId);
+        ResourcePort port = ResourcePort.findById(portId);
+        if (port == null) throw new NotFoundException("port not found");
+        Resource res = Resource.findById(port.resourceId);
         if (res == null) throw new NotFoundException("resource not found");
 
-        if (!res.isCapacityLimited()) {
-            // Nothing to reserve: an unlimited resource is reachable on the
+        if (!port.isCapacityLimited()) {
+            // Nothing to reserve: an unlimited port is reachable on the
             // strength of the grant alone, so handing out a reservation would
-            // imply an exclusivity the resource does not actually have.
-            throw new BadRequestException("resource is not reservable");
+            // imply an exclusivity the port does not actually have.
+            throw new BadRequestException("port is not reservable");
         }
         // Checked before anything computes or reports holders: an ineligible
-        // caller must not be able to learn who is using a resource by probing
-        // it. hasAnyGrant is the eligibility half only — deliberately NOT the
+        // caller must not be able to learn who is using a port by probing it.
+        // hasAnyGrant is the eligibility half only — deliberately NOT the
         // reservation-aware canReachNow, which would make requesting a slot
         // require already holding one.
-        if (!acl.hasAnyGrant(userId, resourceId)) {
+        if (!acl.hasAnyGrant(userId, res.id)) {
             throw new ForbiddenException("no grant for this resource");
         }
         if (!DURATION_CHOICES.contains(minutes)) {
             throw new BadRequestException("unsupported duration");
         }
-        int effectiveMinutes = capToResourceCeiling(res, minutes);
+        int effectiveMinutes = capToPortCeiling(port, minutes);
 
-        expireDueFor(resourceId, now);
+        expireDueForPort(portId, now);
 
         for (ResourceReservation existing : ResourceReservation.openFor(userId)) {
-            if (existing.resourceId.equals(resourceId)) {
-                throw new BadRequestException("you already hold or have requested this resource");
+            if (existing.portId.equals(portId)) {
+                throw new BadRequestException("you already hold or have requested this port");
             }
         }
 
-        List<ResourceReservation> active = liveReservations(resourceId, now);
-        boolean hasRoom = active.size() < res.maxConcurrentUsers;
-        if (!hasRoom) throw new AtCapacityException(holdersOf(active));
+        List<ResourceReservation> active = liveReservations(portId, now);
+        if (active.size() >= port.maxConcurrentUsers) throw new AtCapacityException(holdersOf(active));
 
-        ResourceReservation r = ResourceReservation.createPending(userId, resourceId, effectiveMinutes, now);
-        if (res.autoApproveReservations) r.activate(now);
+        ResourceReservation r = ResourceReservation.createPending(userId, portId, res.id, effectiveMinutes, now);
+        if (port.autoApproveReservations) r.activate(now);
         r.persist();
         return r;
     }
@@ -107,9 +115,9 @@ public class ReservationService {
      * picker offers a fixed ladder, and a resource capped at 4h should hand a
      * 24h request a 4h slot rather than an error the user cannot act on.
      */
-    static int capToResourceCeiling(Resource res, int requestedMinutes) {
-        if (res.maxReservationMinutes == null) return requestedMinutes;
-        return Math.min(requestedMinutes, res.maxReservationMinutes);
+    static int capToPortCeiling(ResourcePort port, int requestedMinutes) {
+        if (port.maxReservationMinutes == null) return requestedMinutes;
+        return Math.min(requestedMinutes, port.maxReservationMinutes);
     }
 
     /** Releases a slot early. Only the holder may do this; admins use {@link #revoke}. */
@@ -154,13 +162,13 @@ public class ReservationService {
         if (!ResourceReservation.PENDING.equals(r.status)) {
             throw new BadRequestException("reservation is not pending");
         }
-        Resource res = Resource.findById(r.resourceId);
-        if (res == null || !res.isCapacityLimited()) {
-            throw new BadRequestException("resource is no longer reservable");
+        ResourcePort port = ResourcePort.findById(r.portId);
+        if (port == null || !port.isCapacityLimited()) {
+            throw new BadRequestException("port is no longer reservable");
         }
-        expireDueFor(r.resourceId, now);
-        List<ResourceReservation> active = liveReservations(r.resourceId, now);
-        if (active.size() >= res.maxConcurrentUsers) throw new AtCapacityException(holdersOf(active));
+        expireDueForPort(r.portId, now);
+        List<ResourceReservation> active = liveReservations(r.portId, now);
+        if (active.size() >= port.maxConcurrentUsers) throw new AtCapacityException(holdersOf(active));
 
         r.activate(now);
         r.decidedBy = actor;
@@ -181,10 +189,10 @@ public class ReservationService {
         return r;
     }
 
-    /** Active rows whose window still covers {@code now}. */
-    public List<ResourceReservation> liveReservations(String resourceId, Instant now) {
+    /** Active rows on one port whose window still covers {@code now}. */
+    public List<ResourceReservation> liveReservations(String portId, Instant now) {
         List<ResourceReservation> out = new ArrayList<>();
-        for (ResourceReservation r : ResourceReservation.activeFor(resourceId)) {
+        for (ResourceReservation r : ResourceReservation.activeForPort(portId)) {
             if (r.isLiveAt(now)) out.add(r);
         }
         return out;
@@ -194,7 +202,10 @@ public class ReservationService {
         List<Holder> out = new ArrayList<>();
         for (ResourceReservation r : active) {
             User u = User.findById(r.userId);
-            out.add(new Holder(r.userId, u == null ? r.userId : u.name, r.endsAt));
+            out.add(new Holder(r.userId,
+                    u == null ? r.userId : u.name,
+                    u == null ? null : u.email,
+                    r.endsAt));
         }
         out.sort(Comparator.comparing(Holder::until, Comparator.nullsLast(Comparator.naturalOrder())));
         return out;
@@ -206,9 +217,9 @@ public class ReservationService {
      * already ended, independently of when the expiry job last ticked.
      */
     @Transactional
-    public int expireDueFor(String resourceId, Instant now) {
+    public int expireDueForPort(String portId, Instant now) {
         int n = 0;
-        for (ResourceReservation r : ResourceReservation.activeFor(resourceId)) {
+        for (ResourceReservation r : ResourceReservation.activeForPort(portId)) {
             if (r.endsAt != null && !r.endsAt.isAfter(now)) {
                 r.status = ResourceReservation.EXPIRED;
                 n++;

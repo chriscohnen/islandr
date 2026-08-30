@@ -53,7 +53,7 @@ class ReservationEnforcementTest {
         User.delete("email like ?1", "rsv-%" + suffix + "@example.test");
     }
 
-    record Fixture(String userId, String resourceId, String peerIp, String resourceIp) {}
+    record Fixture(String userId, String resourceId, String portId, String peerIp, String resourceIp) {}
 
     @Transactional
     Fixture buildFixture(Integer capacity) {
@@ -61,10 +61,12 @@ class ReservationEnforcementTest {
         site.persist();
 
         Resource res = Resource.createNew(site.id, "RSV-Res-" + suffix, "10.91.0.10", null, "computer");
-        res.maxConcurrentUsers = capacity;
         res.persist();
+        // The gated port. A second, ungated one lives alongside it in
+        // sshStaysOpen... below — capacity is per port, not per host.
         ResourcePort port = ResourcePort.createNew(res.id, 3389, null, "tcp", "RDP", null,
                 null, false, false, "native");
+        port.maxConcurrentUsers = capacity;
         port.persist();
 
         User u = User.createNew("RSV User " + suffix, "rsv-u-" + suffix + "@example.test");
@@ -79,7 +81,7 @@ class ReservationEnforcementTest {
         Peer p = Peer.createNew(u.id, "rsv-peer-" + suffix, Base64.getEncoder().encodeToString(key), "10.8.9.21");
         p.persist();
 
-        return new Fixture(u.id, res.id, p.assignedIp, res.ip);
+        return new Fixture(u.id, res.id, port.id, p.assignedIp, res.ip);
     }
 
     @Test
@@ -98,7 +100,7 @@ class ReservationEnforcementTest {
     @Test
     void grantWithALiveReservation_emitsTheRule() {
         Fixture f = buildFixture(1);
-        reservations.request(f.userId(), f.resourceId(), 60);
+        reservations.request(f.userId(), f.portId(), 60);
 
         RuleBuilder.Snapshot snap = buildRuleset();
 
@@ -110,7 +112,7 @@ class ReservationEnforcementTest {
     @Test
     void whenTheReservationExpires_theRuleDisappearsAgain() {
         Fixture f = buildFixture(1);
-        ResourceReservation r = reservations.request(f.userId(), f.resourceId(), 60);
+        ResourceReservation r = reservations.request(f.userId(), f.portId(), 60);
         assertThat(buildRuleset().rulesetText()).contains("3389");
 
         backdate(r.id);
@@ -121,12 +123,38 @@ class ReservationEnforcementTest {
     }
 
     /**
-     * The backward-compatibility guarantee: every resource that existed before
+     * The reason capacity is per port: taking the single RDP seat must not
+     * close SSH on the same machine for everybody else.
+     */
+    @Test
+    void anUngatedPortOnTheSameHostStaysOpenWhileTheGatedOneIsHeld() {
+        Fixture f = buildFixture(1);
+        addOpenSshPort(f.resourceId());
+
+        RuleBuilder.Snapshot snap = buildRuleset();
+
+        assertThat(snap.rulesetText())
+                .as("SSH is not capacity-limited, so the grant alone still opens it")
+                .contains(f.resourceIp() + " tcp dport 22");
+        assertThat(snap.rulesetText())
+                .as("RDP is gated and unheld")
+                .doesNotContain(f.resourceIp() + " tcp dport 3389");
+    }
+
+    @Transactional
+    void addOpenSshPort(String resourceId) {
+        ResourcePort ssh = ResourcePort.createNew(resourceId, 22, null, "tcp", "SSH", null,
+                null, false, false, "native");
+        ssh.persist();
+    }
+
+    /**
+     * The backward-compatibility guarantee: every port that existed before
      * #72 has a null capacity and must keep behaving exactly as it did.
      */
     @Test
     @Transactional
-    void resourceWithoutACapacityLimit_stillEmitsOnTheGrantAlone() {
+    void portWithoutACapacityLimit_stillEmitsOnTheGrantAlone() {
         Fixture f = buildFixture(null);
 
         RuleBuilder.Snapshot snap = builder.build();

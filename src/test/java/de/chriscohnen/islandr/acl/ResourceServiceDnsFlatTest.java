@@ -44,10 +44,10 @@ class ResourceServiceDnsFlatTest {
         Site siteB = otherSite(suffix);
 
         resources.create(siteA.id, new ResourceDto.UpsertRequest(
-                "A-" + suffix, "10.85.0.5", null, "computer", dnsName, true, null, null, true));
+                "A-" + suffix, "10.85.0.5", null, "computer", dnsName, true));
 
         assertThatThrownBy(() -> resources.create(siteB.id, new ResourceDto.UpsertRequest(
-                "B-" + suffix, "10.86.0.5", null, "computer", dnsName, true, null, null, true)))
+                "B-" + suffix, "10.86.0.5", null, "computer", dnsName, true)))
                 .isInstanceOf(WebApplicationException.class);
     }
 
@@ -62,9 +62,9 @@ class ResourceServiceDnsFlatTest {
         Site siteB = otherSite(suffix);
 
         Resource a = resources.create(siteA.id, new ResourceDto.UpsertRequest(
-                "A-" + suffix, "10.85.0.6", null, "computer", dnsName, false, null, null, true));
+                "A-" + suffix, "10.85.0.6", null, "computer", dnsName, false));
         Resource b = resources.create(siteB.id, new ResourceDto.UpsertRequest(
-                "B-" + suffix, "10.86.0.6", null, "computer", dnsName, false, null, null, true));
+                "B-" + suffix, "10.86.0.6", null, "computer", dnsName, false));
 
         assertThat(a.dnsName).isEqualTo(dnsName);
         assertThat(b.dnsName).isEqualTo(dnsName);
@@ -81,9 +81,9 @@ class ResourceServiceDnsFlatTest {
         Site site = site(suffix);
 
         Resource flat = resources.create(site.id, new ResourceDto.UpsertRequest(
-                "Flat-" + suffix, "10.85.0.7", null, "computer", dnsName, true, null, null, true));
+                "Flat-" + suffix, "10.85.0.7", null, "computer", dnsName, true));
         Resource nonFlat = resources.create(site.id, new ResourceDto.UpsertRequest(
-                "NonFlat-" + suffix, "10.85.0.8", null, "computer", dnsName, false, null, null, true));
+                "NonFlat-" + suffix, "10.85.0.8", null, "computer", dnsName, false));
 
         assertThat(flat.dnsFlat).isTrue();
         assertThat(nonFlat.dnsFlat).isFalse();
@@ -97,7 +97,7 @@ class ResourceServiceDnsFlatTest {
         Site site = site(suffix);
 
         Resource r = resources.create(site.id, new ResourceDto.UpsertRequest(
-                "NoName-" + suffix, "10.85.0.9", null, "computer", "", true, null, null, true));
+                "NoName-" + suffix, "10.85.0.9", null, "computer", "", true));
 
         assertThat(r.dnsName).isNull();
         assertThat(r.dnsFlat).isFalse();
@@ -113,15 +113,15 @@ class ResourceServiceDnsFlatTest {
 
         // An existing flat resource claims the name globally...
         resources.create(siteA.id, new ResourceDto.UpsertRequest(
-                "A-" + suffix, "10.85.0.10", null, "computer", dnsName, true, null, null, true));
+                "A-" + suffix, "10.85.0.10", null, "computer", dnsName, true));
 
         // ...a second, non-flat resource with the same name is fine to create...
         Resource nonFlat = resources.create(siteB.id, new ResourceDto.UpsertRequest(
-                "B-" + suffix, "10.86.0.10", null, "computer", dnsName, false, null, null, true));
+                "B-" + suffix, "10.86.0.10", null, "computer", dnsName, false));
 
         // ...but flipping it to flat now collides with the first one.
         assertThatThrownBy(() -> resources.update(nonFlat.id, new ResourceDto.UpsertRequest(
-                "B-" + suffix, "10.86.0.10", null, "computer", dnsName, true, null, null, true)))
+                "B-" + suffix, "10.86.0.10", null, "computer", dnsName, true)))
                 .isInstanceOf(WebApplicationException.class);
     }
 }

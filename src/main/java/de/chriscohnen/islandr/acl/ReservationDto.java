@@ -10,7 +10,9 @@ public final class ReservationDto {
     private ReservationDto() {}
 
     public record CreateRequest(
-            @NotBlank String resourceId,
+            // The port being reserved — capacity is counted per port, not per
+            // host, so a request names the port it wants a seat on.
+            @NotBlank String portId,
             // Minutes. Validated against ReservationService.DURATION_CHOICES
             // rather than a range, so the API and the portal's picker cannot
             // drift apart.
@@ -19,6 +21,12 @@ public final class ReservationDto {
 
     public record Response(
             String id,
+            String portId,
+            // Denormalised for display: an admin reviewing a queue needs to see
+            // "Alice -> File Server 3389/tcp RDP", not a pair of UUIDs.
+            int port,
+            String transport,
+            String portLabel,
             String resourceId,
             String resourceName,
             String siteName,
@@ -33,8 +41,12 @@ public final class ReservationDto {
             Instant decidedAt
     ) {}
 
-    /** One current holder, for the at-capacity rejection and the portal's "in use by" line. */
-    public record HolderResponse(String userId, String userName, Instant until) {}
+    /**
+     * One current holder, for the at-capacity rejection and the portal's
+     * "in use by" line. Carries the e-mail so the waiting user can actually go
+     * and ask — a name alone leaves them no way to coordinate.
+     */
+    public record HolderResponse(String userId, String userName, String userEmail, Instant until) {}
 
     /**
      * 409 body when a request is refused for want of a free slot. Names the
@@ -48,7 +60,7 @@ public final class ReservationDto {
         public static AtCapacityResponse of(List<ReservationService.Holder> holders) {
             return new AtCapacityResponse("at_capacity",
                     holders.stream()
-                            .map(h -> new HolderResponse(h.userId(), h.userName(), h.until()))
+                            .map(h -> new HolderResponse(h.userId(), h.userName(), h.userEmail(), h.until()))
                             .toList());
         }
     }

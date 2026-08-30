@@ -11,16 +11,20 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * One user's claim on an exclusive slot of a capacity-limited resource
+ * One user's claim on an exclusive slot of a capacity-limited <em>port</em>
  * (issue #72).
  *
  * <p>This sits <em>on top of</em> the grant model, it does not replace it: a
  * role or direct grant still decides who may see and request the resource at
- * all, and a reservation decides who holds one of its
- * {@link Resource#maxConcurrentUsers} slots right now. Only a resource that
- * declares a capacity takes part — for every other resource (the default,
+ * all, and a reservation decides who holds one of the port's
+ * {@link ResourcePort#maxConcurrentUsers} slots right now. Only a port that
+ * declares a capacity takes part — for every other port (the default,
  * {@code maxConcurrentUsers == null}) reservations are never created and
  * never consulted, so existing deployments behave exactly as before.
+ *
+ * <p>Scoped to the port rather than the whole host on purpose: a machine can
+ * have a single RDP seat while its SSH port stays freely usable, and one
+ * person taking the RDP session should not lock everyone else off the box.
  *
  * <p>Requests at capacity are rejected outright rather than queued: "exclusive"
  * promises the slot you hold, never a turn you are waiting for. The rejection
@@ -45,6 +49,12 @@ public class ResourceReservation extends PanacheEntityBase {
     @Id @Column(name = "id", nullable = false, length = 36)
     public String id;
 
+    /** The port actually held. This is what capacity is counted against. */
+    @Column(name = "port_id", nullable = false, length = 36)
+    public String portId;
+
+    /** Denormalised from the port: every enforcement and display path needs the
+     *  resource too, and carrying it avoids a join on every ruleset rebuild. */
     @Column(name = "resource_id", nullable = false, length = 36)
     public String resourceId;
 
@@ -75,10 +85,12 @@ public class ResourceReservation extends PanacheEntityBase {
     @Column(name = "decided_at")
     public Instant decidedAt;
 
-    public static ResourceReservation createPending(String userId, String resourceId, int minutes, Instant now) {
+    public static ResourceReservation createPending(String userId, String portId, String resourceId,
+                                                    int minutes, Instant now) {
         ResourceReservation r = new ResourceReservation();
         r.id = UUID.randomUUID().toString();
         r.userId = userId;
+        r.portId = portId;
         r.resourceId = resourceId;
         r.status = PENDING;
         r.requestedMinutes = minutes;
@@ -98,8 +110,9 @@ public class ResourceReservation extends PanacheEntityBase {
         return ACTIVE.equals(status) && endsAt != null && endsAt.isAfter(now);
     }
 
-    public static List<ResourceReservation> activeFor(String resourceId) {
-        return list("resourceId = ?1 and status = ?2", resourceId, ACTIVE);
+    /** Active rows on one port — the unit capacity is counted in. */
+    public static List<ResourceReservation> activeForPort(String portId) {
+        return list("portId = ?1 and status = ?2", portId, ACTIVE);
     }
 
     public static List<ResourceReservation> openFor(String userId) {

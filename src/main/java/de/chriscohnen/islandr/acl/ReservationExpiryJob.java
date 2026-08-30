@@ -59,10 +59,12 @@ public class ReservationExpiryJob {
             r.status = ResourceReservation.EXPIRED;
             User user = User.findById(r.userId);
             Resource res = Resource.findById(r.resourceId);
+            ResourcePort port = ResourcePort.findById(r.portId);
             String userName = user == null ? r.userId : user.name;
             String resourceName = res == null ? r.resourceId : res.name;
+            String portLabel = port == null ? r.portId : (resourceName + ":" + port.port);
             audit.logEvent(SYSTEM_ACTOR, "reservation.expire",
-                    "Reservation:" + userName + "/" + resourceName,
+                    "Reservation:" + userName + "/" + portLabel,
                     Map.of("reason", "reservation window elapsed"));
         }
         rulesets.recomputeFromHook();

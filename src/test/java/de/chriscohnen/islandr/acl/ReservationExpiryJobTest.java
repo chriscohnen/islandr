@@ -29,12 +29,15 @@ class ReservationExpiryJobTest {
             Site site = Site.createNew("EXP-Site-" + suffix, "10.95.0.0/24", null);
             site.persist();
             Resource res = Resource.createNew(site.id, "EXP-Res-" + suffix, "10.95.0.10", null, "computer");
-            res.maxConcurrentUsers = 1;
             res.persist();
+            ResourcePort port = ResourcePort.createNew(res.id, 3389, null, "tcp", "RDP", null,
+                    null, false, false, "native");
+            port.maxConcurrentUsers = 1;
+            port.persist();
             User u = User.createNew("EXP User " + suffix, "exp-" + suffix + "@example.test");
             u.persist();
 
-            ResourceReservation r = ResourceReservation.createPending(u.id, res.id, 60, Instant.now());
+            ResourceReservation r = ResourceReservation.createPending(u.id, port.id, res.id, 60, Instant.now());
             r.activate(Instant.now());
             if (alreadyElapsed) {
                 r.startsAt = Instant.now().minusSeconds(7200);

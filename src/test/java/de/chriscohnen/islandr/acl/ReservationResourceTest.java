@@ -36,55 +36,61 @@ class ReservationResourceTest {
                 .extract().path("id");
     }
 
-    private String capacityResource(String cookie, String siteId, int capacity) {
+    private String resourceId(String cookie, String siteId) {
         return given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
                 .body(Map.of("name", "RSVAPI-Res-" + UUID.randomUUID().toString().substring(0, 8),
                         "ip", "10.96.0." + (2 + (int) (Math.random() * 200)),
-                        "type", "computer",
-                        "maxConcurrentUsers", capacity,
-                        "autoApproveReservations", true))
+                        "type", "computer"))
                 .when().post("/api/v1/sites/" + siteId + "/resources")
                 .then().statusCode(201)
                 .extract().path("id");
     }
 
+    /** A port carrying a capacity limit — the unit reservations are counted in. */
+    private String capacityPort(String cookie, String resourceId, int capacity) {
+        return given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
+                .body(Map.of("port", 3389, "transport", "tcp", "protocol", "RDP",
+                        "label", "RDP", "rdpClipboard", false, "rdpFileTransfer", false,
+                        "maxConcurrentUsers", capacity,
+                        "autoApproveReservations", true))
+                .when().post("/api/v1/resources/" + resourceId + "/ports")
+                .then().statusCode(200)
+                .extract().path("id");
+    }
+
     @Test
-    void resourceCreate_acceptsAndReturnsTheCapacityConfig() {
+    void portCreate_acceptsAndReturnsTheCapacityConfig() {
         String cookie = adminCookie();
-        String site = siteId(cookie);
-        String id = given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
-                .body(Map.of("name", "RSVAPI-Cap-" + UUID.randomUUID().toString().substring(0, 8),
-                        "ip", "10.96.0.240", "type", "computer",
+        String res = resourceId(cookie, siteId(cookie));
+        given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
+                .body(Map.of("port", 3389, "transport", "tcp", "protocol", "RDP",
+                        "rdpClipboard", false, "rdpFileTransfer", false,
                         "maxConcurrentUsers", 1,
                         "maxReservationMinutes", 240,
                         "autoApproveReservations", false))
-                .when().post("/api/v1/sites/" + site + "/resources")
-                .then().statusCode(201)
+                .when().post("/api/v1/resources/" + res + "/ports")
+                .then().statusCode(200)
                 .body("maxConcurrentUsers", is(1))
                 .body("maxReservationMinutes", is(240))
-                .body("autoApproveReservations", is(false))
-                .extract().path("id");
+                .body("autoApproveReservations", is(false));
 
         given().cookie("islandr_session", cookie)
-                .when().get("/api/v1/resources/" + id)
+                .when().get("/api/v1/resources/" + res)
                 .then().statusCode(200)
-                .body("maxConcurrentUsers", is(1));
+                .body("ports[0].maxConcurrentUsers", is(1));
     }
 
     @Test
-    void resourceCreate_withoutCapacityFields_staysUnlimited_backwardCompatible() {
+    void portCreate_withoutCapacityFields_staysUnlimited_backwardCompatible() {
         String cookie = adminCookie();
-        String site = siteId(cookie);
+        String res = resourceId(cookie, siteId(cookie));
         given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
-                .body(Map.of("name", "RSVAPI-Unl-" + UUID.randomUUID().toString().substring(0, 8),
-                        "ip", "10.96.0.241", "type", "computer"))
-                .when().post("/api/v1/sites/" + site + "/resources")
-                .then().statusCode(201)
-                .body("maxConcurrentUsers", is(nullValue()));
-    }
-
-    private static org.hamcrest.Matcher<Object> nullValue() {
-        return org.hamcrest.Matchers.nullValue();
+                .body(Map.of("port", 22, "transport", "tcp", "protocol", "SSH",
+                        "rdpClipboard", false, "rdpFileTransfer", false))
+                .when().post("/api/v1/resources/" + res + "/ports")
+                .then().statusCode(200)
+                .body("maxConcurrentUsers", org.hamcrest.Matchers.nullValue())
+                .body("autoApproveReservations", is(true));
     }
 
     @Test
@@ -109,27 +115,27 @@ class ReservationResourceTest {
     @Test
     void request_withoutAGrantOnTheResource_isForbidden() {
         String cookie = adminCookie();
-        String site = siteId(cookie);
-        String res = capacityResource(cookie, site, 1);
+        String res = resourceId(cookie, siteId(cookie));
+        String port = capacityPort(cookie, res, 1);
 
         given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
-                .body(Map.of("resourceId", res, "minutes", 60))
+                .body(Map.of("portId", port, "minutes", 60))
                 .when().post("/api/v1/reservations")
                 .then().statusCode(403);
     }
 
     @Test
-    void request_onAResourceWithoutACapacityLimit_is400NotAReservation() {
+    void request_onAPortWithoutACapacityLimit_is400NotAReservation() {
         String cookie = adminCookie();
-        String site = siteId(cookie);
-        String unlimited = given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
-                .body(Map.of("name", "RSVAPI-NoCap-" + UUID.randomUUID().toString().substring(0, 8),
-                        "ip", "10.96.0.242", "type", "computer"))
-                .when().post("/api/v1/sites/" + site + "/resources")
-                .then().statusCode(201).extract().path("id");
+        String res = resourceId(cookie, siteId(cookie));
+        String openPort = given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
+                .body(Map.of("port", 22, "transport", "tcp", "protocol", "SSH",
+                        "rdpClipboard", false, "rdpFileTransfer", false))
+                .when().post("/api/v1/resources/" + res + "/ports")
+                .then().statusCode(200).extract().path("id");
 
         given().cookie("islandr_session", cookie).contentType(ContentType.JSON)
-                .body(Map.of("resourceId", unlimited, "minutes", 60))
+                .body(Map.of("portId", openPort, "minutes", 60))
                 .when().post("/api/v1/reservations")
                 .then().statusCode(400);
     }

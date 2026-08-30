@@ -558,7 +558,11 @@ export default defineComponent({
       <div v-for="p in pendingReservations" :key="p.id"
            style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; padding:var(--space-2) 0">
         <div style="flex:1; min-width:220px">
-          <div style="font-size:var(--text-sm); font-weight:600">{{ p.userName }} → {{ p.resourceName }}</div>
+          <div style="font-size:var(--text-sm); font-weight:600">
+            {{ p.userName }} → {{ p.resourceName }}
+            <span class="mono" style="font-weight:400; color:var(--fg2)">{{ p.port }}/{{ p.transport }}</span>
+            <span v-if="p.portLabel" style="font-weight:400; color:var(--fg3)">{{ p.portLabel }}</span>
+          </div>
           <div class="muted" style="font-size:var(--text-xs)">
             {{ p.siteName }} · {{ t('acl.rsv_requested_for', { minutes: p.requestedMinutes }) }}
           </div>

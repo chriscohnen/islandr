@@ -63,20 +63,22 @@ public class ReservationResource {
         return toResponses(rows);
     }
 
-    /** Who is holding a resource right now — powers the portal's "in use by" line. */
+    /** Who is holding a port right now — powers the portal's "in use by" line. */
     @GET
-    @Path("/holders/{resourceId}")
+    @Path("/holders/{portId}")
     public List<ReservationDto.HolderResponse> holders(@Context ContainerRequestContext ctx,
-                                                       @PathParam("resourceId") String resourceId) {
+                                                       @PathParam("portId") String portId) {
         AuthContext a = Auth.require(ctx);
+        ResourcePort port = ResourcePort.findById(portId);
+        if (port == null) throw new jakarta.ws.rs.NotFoundException("port not found");
         // Same gate as requesting: only someone eligible for the resource may
-        // see who currently holds it.
-        if (!a.isAdmin() && (a.userId() == null || !acl.hasAnyGrant(a.userId(), resourceId))) {
+        // see who currently holds one of its ports.
+        if (!a.isAdmin() && (a.userId() == null || !acl.hasAnyGrant(a.userId(), port.resourceId))) {
             throw new jakarta.ws.rs.ForbiddenException("no grant for this resource");
         }
-        return reservations.holdersOf(reservations.liveReservations(resourceId, java.time.Instant.now()))
+        return reservations.holdersOf(reservations.liveReservations(portId, java.time.Instant.now()))
                 .stream()
-                .map(h -> new ReservationDto.HolderResponse(h.userId(), h.userName(), h.until()))
+                .map(h -> new ReservationDto.HolderResponse(h.userId(), h.userName(), h.userEmail(), h.until()))
                 .toList();
     }
 
@@ -91,7 +93,7 @@ public class ReservationResource {
         }
         ResourceReservation r;
         try {
-            r = reservations.request(a.userId(), body.resourceId(), body.minutes());
+            r = reservations.request(a.userId(), body.portId(), body.minutes());
         } catch (ReservationService.AtCapacityException e) {
             // 409, not 403: the request is well-formed and the caller is
             // entitled to ask — the resource is simply taken right now.
@@ -99,10 +101,9 @@ public class ReservationResource {
                     .entity(ReservationDto.AtCapacityResponse.of(e.holders))
                     .build();
         }
-        Resource res = Resource.findById(r.resourceId);
         audit.logEvent(a.principal(),
                 ResourceReservation.ACTIVE.equals(r.status) ? "reservation.grant" : "reservation.request",
-                "Reservation:" + a.principal() + "/" + (res == null ? r.resourceId : res.name),
+                "Reservation:" + a.principal() + "/" + auditTarget(r),
                 Map.of("minutes", String.valueOf(r.requestedMinutes),
                        "autoApproved", String.valueOf(ResourceReservation.ACTIVE.equals(r.status))));
         if (ResourceReservation.ACTIVE.equals(r.status)) rulesets.recomputeFromHook();
@@ -120,9 +121,8 @@ public class ReservationResource {
         ResourceReservation r = ownsIt
                 ? reservations.cancelOwn(a.userId(), id)
                 : adminRevoke(ctx, id, a);
-        Resource res = Resource.findById(r.resourceId);
         audit.logEvent(a.principal(), ownsIt ? "reservation.release" : "reservation.revoke",
-                "Reservation:" + r.userId + "/" + (res == null ? r.resourceId : res.name),
+                "Reservation:" + r.userId + "/" + auditTarget(r),
                 Map.of());
         rulesets.recomputeFromHook();
         return toResponse(r);
@@ -145,9 +145,8 @@ public class ReservationResource {
                     .entity(ReservationDto.AtCapacityResponse.of(e.holders))
                     .build();
         }
-        Resource res = Resource.findById(r.resourceId);
         audit.logEvent(a.principal(), "reservation.approve",
-                "Reservation:" + r.userId + "/" + (res == null ? r.resourceId : res.name),
+                "Reservation:" + r.userId + "/" + auditTarget(r),
                 Map.of("minutes", String.valueOf(r.requestedMinutes)));
         rulesets.recomputeFromHook();
         return Response.ok(toResponse(r)).build();
@@ -158,12 +157,19 @@ public class ReservationResource {
     public ReservationDto.Response reject(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
         AuthContext a = Auth.requireAdmin(ctx);
         ResourceReservation r = reservations.reject(id, a.principal());
-        Resource res = Resource.findById(r.resourceId);
         audit.logEvent(a.principal(), "reservation.reject",
-                "Reservation:" + r.userId + "/" + (res == null ? r.resourceId : res.name),
+                "Reservation:" + r.userId + "/" + auditTarget(r),
                 Map.of());
         // No recompute: a rejected request never conferred access.
         return toResponse(r);
+    }
+
+    /** "File Server:3389" — the audit trail should name the port that was held. */
+    private String auditTarget(ResourceReservation r) {
+        Resource res = Resource.findById(r.resourceId);
+        ResourcePort port = ResourcePort.findById(r.portId);
+        String resName = res == null ? r.resourceId : res.name;
+        return port == null ? resName : resName + ":" + port.port;
     }
 
     private List<ReservationDto.Response> toResponses(List<ResourceReservation> rows) {
@@ -175,9 +181,14 @@ public class ReservationResource {
     private ReservationDto.Response toResponse(ResourceReservation r) {
         Resource res = Resource.findById(r.resourceId);
         Site site = res == null ? null : Site.findById(res.siteId);
+        ResourcePort port = ResourcePort.findById(r.portId);
         User u = User.findById(r.userId);
         return new ReservationDto.Response(
-                r.id, r.resourceId,
+                r.id, r.portId,
+                port == null ? 0 : port.port,
+                port == null ? null : port.transport,
+                port == null ? null : (port.label != null && !port.label.isBlank() ? port.label : port.protocol),
+                r.resourceId,
                 res == null ? null : res.name,
                 site == null ? null : site.name,
                 r.userId, u == null ? null : u.name,
