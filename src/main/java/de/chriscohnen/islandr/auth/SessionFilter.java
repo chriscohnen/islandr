@@ -29,8 +29,15 @@ public class SessionFilter implements ContainerRequestFilter {
         if (c == null) return;
         Session s = sessions.findActive(c.getValue());
         if (s == null) return;
+        AuthContext auth = resolveAuth(s);
+        // A session outliving the access it was issued for is no session at
+        // all (issue #53). Without this, disabling a user — or their access
+        // window closing — only took effect at their next login, so anyone
+        // already signed in kept full access for the rest of the session's
+        // lifetime, self-service peer creation included.
+        if (auth == null) return;
         ctx.setProperty(CTX_SESSION, s);
-        ctx.setProperty(CTX_AUTH, resolveAuth(s));
+        ctx.setProperty(CTX_AUTH, auth);
     }
 
     private AuthContext resolveAuth(Session s) {
@@ -43,7 +50,10 @@ public class SessionFilter implements ContainerRequestFilter {
         boolean admin = false;
         if (s.userId != null) {
             User u = User.findById(s.userId);
-            if (u != null) admin = u.isAdmin;
+            // A deleted user's session stops resolving, same as one whose
+            // access has been withdrawn.
+            if (u == null || !u.accessAllowedAt(java.time.Instant.now())) return null;
+            admin = u.isAdmin;
         }
         return new AuthContext(s.principal, s.userId, s.provider, admin);
     }

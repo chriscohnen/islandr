@@ -253,6 +253,11 @@ components:
         isAdmin: { type: boolean }
         preferredLocale: { type: string, nullable: true, enum: [de, en] }
         peerCount: { type: integer }
+        # Access deadline (issue #53). Null means no expiry, which is the
+        # default. Once it passes the user cannot log in and their devices are
+        # switched off; accessExpired is that comparison, already made.
+        validUntil: { type: string, format: date-time, nullable: true }
+        accessExpired: { type: boolean }
         createdAt: { type: string, format: date-time }
 
     Site:

@@ -134,7 +134,10 @@ public class AuthResource {
      * attempt does not leak which usernames exist (design 2026-07-05 §6).
      */
     private boolean verifyLocalPassword(de.chriscohnen.islandr.user.User user, String password) {
-        boolean eligible = user != null && user.enabled && user.passwordHash != null;
+        // accessAllowedAt, not just enabled: an expired access window must
+        // refuse the login too (issue #53).
+        boolean eligible = user != null && user.accessAllowedAt(java.time.Instant.now())
+                && user.passwordHash != null;
         String hash = eligible ? user.passwordHash : dummyHash();
         boolean match = passwordHasher.verify(password, hash);
         return eligible && match;

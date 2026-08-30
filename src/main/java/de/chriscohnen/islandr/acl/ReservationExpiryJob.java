@@ -33,6 +33,13 @@ public class ReservationExpiryJob {
     private static final Logger LOG = Logger.getLogger(ReservationExpiryJob.class);
     private static final String SYSTEM_ACTOR = "system:reservation-expiry";
 
+    // Off in the test profile, same as every other scheduled job here: a
+    // background tick competing with a test's own transaction deadlocks
+    // SQLite's shared cache, and the tests drive the job directly anyway.
+    @org.eclipse.microprofile.config.inject.ConfigProperty(
+            name = "islandr.reservation-expiry.enabled", defaultValue = "true")
+    boolean enabled;
+
     @Inject ReservationService reservations;
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
@@ -41,6 +48,7 @@ public class ReservationExpiryJob {
                identity = "islandr-reservation-expiry",
                concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void tick() {
+        if (!enabled) return;
         try {
             expireDue();
         } catch (Exception ex) {

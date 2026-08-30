@@ -869,4 +869,51 @@ class ConfigImportRoundTripTest {
                 .as("the refusal must happen before any tear-down")
                 .isNotNull();
     }
+
+    /**
+     * A user's access deadline (issue #53) is admin-set configuration with a
+     * date, not a running session — unlike reservations and #70's temporary
+     * grants it must survive a restore. Dropping it would silently hand every
+     * time-boxed contractor unlimited access, the opposite of the safe default.
+     */
+    @Test
+    void userValidUntilSurvivesTheRoundTrip() {
+        Instant deadline = Instant.parse("2027-01-31T12:00:00Z");
+        String userId = QuarkusTransaction.requiringNew().call(() -> {
+            User u = User.createNew("RT-Deadline", "rt-deadline@example.test");
+            u.validUntil = deadline;
+            u.persist();
+            return u.id;
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        assertThat(export.users())
+                .filteredOn(u -> u.id().equals(userId))
+                .singleElement()
+                .satisfies(u -> assertThat(u.validUntil()).isEqualTo(deadline));
+
+        configService.importConfig(export);
+
+        User reloaded = QuarkusTransaction.requiringNew().call(() -> User.findById(userId));
+        assertThat(reloaded.validUntil).isEqualTo(deadline);
+    }
+
+    @Test
+    void userWithoutADeadlineRoundTripsAsUnlimited() {
+        String userId = QuarkusTransaction.requiringNew().call(() -> {
+            User u = User.createNew("RT-NoDeadline", "rt-nodeadline@example.test");
+            u.persist();
+            return u.id;
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        configService.importConfig(export);
+
+        User reloaded = QuarkusTransaction.requiringNew().call(() -> User.findById(userId));
+        assertThat(reloaded.validUntil)
+                .as("no deadline is the default and must stay that way")
+                .isNull();
+    }
 }

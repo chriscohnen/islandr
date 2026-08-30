@@ -56,7 +56,7 @@ public class ConfigService {
                 .stream().map(u -> new ConfigExportDto.UserSnapshot(
                         u.id, u.name, u.email, u.nickname, u.enabled, u.isAdmin,
                         u.oidcProvider, u.oidcSubject, u.preferredLocale, u.createdAt,
-                        u.oidcCustomProviderId))
+                        u.oidcCustomProviderId, u.validUntil))
                 .toList();
 
         List<ConfigExportDto.OidcCustomProviderSnapshot> customProviders =
@@ -299,8 +299,8 @@ public class ConfigService {
             em.createNativeQuery(
                             "INSERT INTO users (id, name, email, nickname, enabled, is_admin," +
                             " oidc_provider, oidc_subject, preferred_locale, created_at," +
-                            " oidc_custom_provider_id)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
+                            " oidc_custom_provider_id, valid_until)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)")
                     .setParameter(1, u.id())
                     .setParameter(2, u.name())
                     .setParameter(3, u.email())
@@ -314,6 +314,9 @@ public class ConfigService {
                     // Pre-issue-#69 exports lack this field → null, same as a user
                     // who never authenticated via a custom provider.
                     .setParameter(11, u.oidcCustomProviderId())
+                    // Access deadline (#53). Absent in a pre-#53 export → null,
+                    // same as a user who simply has no expiry.
+                    .setParameter(12, tsOrNull(u.validUntil()))
                     .executeUpdate();
         }
 
@@ -366,7 +369,7 @@ public class ConfigService {
                     .setParameter(15, peer.locationLabel())
                     // Pre-Peer-Scheduler exports lack these fields → null (no expiry,
                     // no recorded source of the current enabled state).
-                    .setParameter(16, peer.validUntil() != null ? ts(peer.validUntil()) : null)
+                    .setParameter(16, tsOrNull(peer.validUntil()))
                     .setParameter(17, peer.enabledSource())
                     .executeUpdate();
         }
@@ -660,8 +663,23 @@ public class ConfigService {
     private static final DateTimeFormatter DB_TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneOffset.UTC);
 
+    /**
+     * For NOT NULL timestamp columns: a missing value becomes "now" so the
+     * insert cannot fail. Only correct where the column is required —
+     * {@code created_at} and friends.
+     */
     private static String ts(Instant instant) {
         return DB_TIMESTAMP.format(instant != null ? instant : Instant.now());
+    }
+
+    /**
+     * For nullable timestamp columns, where null carries meaning: a user with
+     * no access deadline, a peer with no expiry. Passing these through
+     * {@link #ts} would silently stamp them with "now" — i.e. import them as
+     * already expired.
+     */
+    private static String tsOrNull(Instant instant) {
+        return instant == null ? null : DB_TIMESTAMP.format(instant);
     }
 
     private static <T> List<T> safe(List<T> list) {

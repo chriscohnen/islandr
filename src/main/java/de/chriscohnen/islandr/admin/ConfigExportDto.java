@@ -211,7 +211,17 @@ public class ConfigExportDto {
         // in via a custom provider couldn't be matched back to that provider's
         // row on next login after a restore (see User.findByOidc's 3-way match
         // on provider+subject+customProviderId).
-        String oidcCustomProviderId
+        String oidcCustomProviderId,
+        // Access deadline (issue #53). Null on an export from before the field
+        // existed, and null for a user with no expiry — the same value either
+        // way, so no fallback is needed.
+        //
+        // Unlike the reservations and #70's temporary grants, this one *is*
+        // exported: it is admin-set configuration with a date, not a running
+        // session. A restore that dropped it would silently hand every
+        // time-boxed contractor unlimited access, which is the opposite of the
+        // safe default.
+        Instant validUntil
     ) {}
 
     /**
