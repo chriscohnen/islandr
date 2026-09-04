@@ -137,7 +137,8 @@ public class MockWgAdapter implements WgAdapter {
         // Match SocketWgAdapter's contract: a probe against an unreachable proxy fails with a reason.
         if (forceUnavailable) return ProbeResult.failed("mock: forced unavailable");
         return ProbeResult.ok(new ServerInfo(
-                "MOCK+PublicKey+ProbeResult+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", 51820, 0, "unknown", 0));
+                "MOCK+PublicKey+ProbeResult+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", 51820, 0, "unknown", 0,
+                "10.8.0.0/24", null));
     }
 
     /** Test-only hook to reset state between tests. */

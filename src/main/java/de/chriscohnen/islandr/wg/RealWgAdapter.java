@@ -135,11 +135,105 @@ public class RealWgAdapter implements WgAdapter {
                 LOG.debugf("ip link show %s not available: %s", iface, e.getMessage());
             }
 
-            return ProbeResult.ok(new ServerInfo(publicKey, listenPort, peerCount, ifStatus, mtu));
+            // ip -o addr show <iface> — same posture as ip link: no sudo, optional.
+            String ipv4Cidr = null;
+            String ipv6Cidr = null;
+            try {
+                String ipAddr = runCapture(new String[]{"ip", "-o", "addr", "show", iface}, null, false);
+                ipv4Cidr = parseIfAddr(ipAddr, false);
+                ipv6Cidr = parseIfAddr(ipAddr, true);
+            } catch (Exception e) {
+                LOG.debugf("ip addr show %s not available: %s", iface, e.getMessage());
+            }
+
+            return ProbeResult.ok(new ServerInfo(publicKey, listenPort, peerCount, ifStatus, mtu, ipv4Cidr, ipv6Cidr));
         } catch (WgException e) {
             LOG.infof("wg probe failed for iface %s: %s", iface, e.getMessage());
             return ProbeResult.failed(e.getMessage());
         }
+    }
+
+    /**
+     * Parse {@code ip -o addr show <iface>} and return the interface's network in
+     * CIDR form — {@code 10.77.140.1/24} on the interface becomes
+     * {@code 10.77.140.0/24}. The settings field this pre-fills validates peer IPs
+     * against a subnet, so the host address on its own would be wrong there.
+     *
+     * <p>Link-local addresses (IPv6 {@code scope link}) are skipped; the first
+     * remaining address of the requested family wins. Returns {@code null} when the
+     * family is absent or the output is not parseable — the probe degrades to
+     * "could not determine", never to a guess.
+     */
+    static String parseIfAddr(String ipAddrOutput, boolean ipv6) {
+        if (ipAddrOutput == null || ipAddrOutput.isBlank()) return null;
+        String token = ipv6 ? "inet6" : "inet";
+        for (String line : ipAddrOutput.split("\n")) {
+            if (ipv6 && line.contains("scope link")) continue;
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\\b" + token + " (\\S+)/(\\d+)\\b").matcher(line);
+            if (!m.find()) continue;
+            // "inet" is a prefix of "inet6" — reject an IPv6 line matched as IPv4.
+            if (!ipv6 && m.group(1).contains(":")) continue;
+            String network = toNetworkAddress(m.group(1), Integer.parseInt(m.group(2)));
+            if (network != null) return network + "/" + m.group(2);
+        }
+        return null;
+    }
+
+    /** Mask an address down to its network address. Null when unparseable. */
+    private static String toNetworkAddress(String address, int prefixLen) {
+        byte[] bytes;
+        try {
+            java.net.InetAddress addr = java.net.InetAddress.getByName(address);
+            bytes = addr.getAddress();
+        } catch (Exception e) {
+            return null;
+        }
+        if (prefixLen < 0 || prefixLen > bytes.length * 8) return null;
+        for (int bit = prefixLen; bit < bytes.length * 8; bit++) {
+            bytes[bit / 8] &= (byte) ~(1 << (7 - (bit % 8)));
+        }
+        return bytes.length == 4 ? formatIpv4(bytes) : formatIpv6(bytes);
+    }
+
+    private static String formatIpv4(byte[] b) {
+        return (b[0] & 0xff) + "." + (b[1] & 0xff) + "." + (b[2] & 0xff) + "." + (b[3] & 0xff);
+    }
+
+    /**
+     * RFC 5952 textual form: lowercase hex, no leading zeros, the longest run of
+     * two or more zero groups collapsed to "::". InetAddress.getHostAddress()
+     * returns the uncompressed form, which would not match what an operator
+     * typed into the settings field.
+     */
+    private static String formatIpv6(byte[] b) {
+        int[] groups = new int[8];
+        for (int i = 0; i < 8; i++) groups[i] = ((b[i * 2] & 0xff) << 8) | (b[i * 2 + 1] & 0xff);
+
+        int bestStart = -1, bestLen = 0, start = -1, len = 0;
+        for (int i = 0; i < 8; i++) {
+            if (groups[i] == 0) {
+                if (start < 0) start = i;
+                len++;
+                if (len > bestLen) { bestLen = len; bestStart = start; }
+            } else {
+                start = -1;
+                len = 0;
+            }
+        }
+        if (bestLen < 2) { bestStart = -1; }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 8; i++) {
+            if (bestStart >= 0 && i == bestStart) {
+                sb.append("::");
+                i += bestLen - 1;
+                continue;
+            }
+            if (sb.length() > 0 && !sb.toString().endsWith("::")) sb.append(':');
+            sb.append(Integer.toHexString(groups[i]));
+        }
+        return sb.toString();
     }
 
     /**

@@ -156,6 +156,23 @@ export default defineComponent({
     "form.wgClientAllowedIps"() { this.scheduleAllowedIpsPreview(); },
   },
   computed: {
+    // Port currently written into the endpoint field, so the probe can offer to
+    // adopt the live one only when the two actually disagree.
+    endpointPort() {
+      const m = /:(\d+)$/.exec(this.form.wgServerEndpoint || "");
+      return m ? Number(m[1]) : null;
+    },
+    probedPortDiffers() {
+      return !!this.probeResult && this.probeResult.listenPort !== this.endpointPort;
+    },
+    probedV4Differs() {
+      return !!this.probeResult && !!this.probeResult.ipv4Cidr
+          && this.probeResult.ipv4Cidr !== this.form.wgSubnet;
+    },
+    probedV6Differs() {
+      return !!this.probeResult && !!this.probeResult.ipv6Cidr
+          && this.probeResult.ipv6Cidr !== this.form.wgSubnet6;
+    },
     _lang() { return locale.current; },
     // R-153: a managed cert with no auto-renewal can silently expire. Warn
     // inside a 30-day window; null outside it (including dummy/no-cert state).
@@ -620,7 +637,7 @@ export default defineComponent({
       this.probing = true;
       this.error = null;
       try {
-        const iface = "wg0";
+        const iface = this.wgInterface;
         const res = await fetch("/api/v1/settings/wg-probe?iface=" + encodeURIComponent(iface));
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -639,6 +656,11 @@ export default defineComponent({
       } finally {
         this.probing = false;
       }
+    },
+
+    adoptProbedPort() {
+      const base = (this.form.wgServerEndpoint || "").replace(/:\d+$/, "");
+      this.form.wgServerEndpoint = base + ":" + this.probeResult.listenPort;
     },
 
     async setIfMtu() {
@@ -851,10 +873,26 @@ export default defineComponent({
               <span class="muted">{{ t('settings.probe_port') }} <span class="mono">{{ probeResult.listenPort }}</span></span>
               <span v-if="probeResult.mtu" class="muted">MTU <span class="mono">{{ probeResult.mtu }}</span></span>
               <span class="muted">{{ t('settings.probe_peers') }} <span class="mono">{{ probeResult.peerCount }}</span></span>
-              <button v-if="probeResult.listenPort !== 51820" type="button" class="btn btn-ghost btn-sm"
+              <span v-if="probeResult.ipv4Cidr" class="muted">
+                {{ t('settings.probe_subnet') }} <span class="mono">{{ probeResult.ipv4Cidr }}</span>
+              </span>
+              <span v-if="probeResult.ipv6Cidr" class="muted">
+                {{ t('settings.probe_subnet6') }} <span class="mono">{{ probeResult.ipv6Cidr }}</span>
+              </span>
+              <button v-if="probedPortDiffers" type="button" class="btn btn-ghost btn-sm"
                       style="padding: 0 var(--space-2); height: 20px; font-size: 11px"
-                      @click="form.wgServerEndpoint = form.wgServerEndpoint.replace(/:\d+$/, '') + ':' + probeResult.listenPort">
+                      @click="adoptProbedPort">
                 {{ t('settings.probe_adopt_port', { port: probeResult.listenPort }) }}
+              </button>
+              <button v-if="probedV4Differs" type="button" class="btn btn-ghost btn-sm"
+                      style="padding: 0 var(--space-2); height: 20px; font-size: 11px"
+                      @click="form.wgSubnet = probeResult.ipv4Cidr">
+                {{ t('settings.probe_adopt_subnet', { cidr: probeResult.ipv4Cidr }) }}
+              </button>
+              <button v-if="probedV6Differs" type="button" class="btn btn-ghost btn-sm"
+                      style="padding: 0 var(--space-2); height: 20px; font-size: 11px"
+                      @click="form.wgSubnet6 = probeResult.ipv6Cidr">
+                {{ t('settings.probe_adopt_subnet', { cidr: probeResult.ipv6Cidr }) }}
               </button>
             </div>
           </div>

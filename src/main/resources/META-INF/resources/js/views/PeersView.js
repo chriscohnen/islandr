@@ -42,6 +42,12 @@ export default defineComponent({
     };
   },
   computed: {
+    importSelectable() {
+      return this.importCandidates.filter(c => !c.alreadyExists);
+    },
+    importSelectedCount() {
+      return this.importSelectable.filter(c => c.selected).length;
+    },
     _lang() { return locale.current; },
     modalUserName() {
       const u = this.usersById[this.modalUserId];
@@ -171,17 +177,26 @@ export default defineComponent({
         if (!res.ok) throw new Error("HTTP " + res.status);
         const candidates = await res.json();
         // Pre-populate name from allowedIps and default user to first user
+        // A candidate that already routes networks beyond its own address is a
+        // gateway as far as wg is concerned — default it to site so importing 24
+        // peers does not silently flatten the branch offices into clients.
         this.importCandidates = candidates.map(c => ({
           ...c,
           selected: !c.alreadyExists,
           name: c.assignedIp || c.publicKey.slice(0, 8),
-          userId: this.users[0]?.id || "",
+          type: c.siteAllowedCidrs ? "site" : "client",
+          siteAllowedCidrs: c.siteAllowedCidrs || "",
+          userId: c.siteAllowedCidrs ? "" : (this.users[0]?.id || ""),
         }));
       } catch (e) {
         this.importError = t("peers.import_error_load", { error: e.message });
       } finally {
         this.importLoading = false;
       }
+    },
+
+    setAllImportSelected(selected) {
+      this.importCandidates.forEach(c => { if (!c.alreadyExists) c.selected = selected; });
     },
 
     closeImport() {
@@ -194,6 +209,11 @@ export default defineComponent({
     async submitImport() {
       const toImport = this.importCandidates.filter(c => c.selected && !c.alreadyExists);
       if (toImport.length === 0) return;
+      const siteWithoutCidrs = toImport.find(c => c.type === "site" && !c.siteAllowedCidrs.trim());
+      if (siteWithoutCidrs) {
+        this.importError = t("peers.import_error_site_cidrs", { name: siteWithoutCidrs.name });
+        return;
+      }
       this.importSubmitting = true;
       this.importError = null;
       try {
@@ -204,8 +224,9 @@ export default defineComponent({
             publicKey: c.publicKey,
             name: c.name,
             assignedIp: c.assignedIp,
-            userId: c.userId || null,
-            type: "client",
+            userId: c.type === "site" ? null : (c.userId || null),
+            type: c.type,
+            siteAllowedCidrs: c.type === "site" ? c.siteAllowedCidrs.trim() : null,
           })) }),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -379,6 +400,17 @@ export default defineComponent({
 
           <div v-else>
             <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--text-sm)">{{ t('peers.import_hint') }}</p>
+            <div style="margin-bottom: var(--space-2); display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap">
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :disabled="importSelectedCount === importSelectable.length"
+                      @click="setAllImportSelected(true)">{{ t('peers.import_select_all') }}</button>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :disabled="importSelectedCount === 0"
+                      @click="setAllImportSelected(false)">{{ t('peers.import_select_none') }}</button>
+              <span class="muted" style="font-size: var(--text-sm)">
+                {{ t('peers.import_selected_count', { selected: importSelectedCount, total: importSelectable.length }) }}
+              </span>
+            </div>
             <table class="table" style="font-size: var(--text-sm)">
               <thead>
                 <tr>
@@ -386,6 +418,7 @@ export default defineComponent({
                   <th>{{ t('peers.import_th_key') }}</th>
                   <th>{{ t('peers.import_th_ip') }}</th>
                   <th>{{ t('peers.import_th_name') }}</th>
+                  <th>{{ t('peers.import_th_type') }}</th>
                   <th>{{ t('peers.import_th_user') }}</th>
                 </tr>
               </thead>
@@ -407,11 +440,30 @@ export default defineComponent({
                   </td>
                   <td>
                     <select v-if="!c.alreadyExists" class="select" style="height:28px;font-size:var(--text-sm)"
+                            v-model="c.type" :disabled="!c.selected">
+                      <option value="client">Client</option>
+                      <option value="site">Site</option>
+                    </select>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td>
+                    <select v-if="!c.alreadyExists && c.type === 'client'" class="select" style="height:28px;font-size:var(--text-sm)"
                             v-model="c.userId" :disabled="!c.selected">
                       <option value="">{{ t('peers.import_no_user') }}</option>
                       <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
                     </select>
+                    <span v-else-if="!c.alreadyExists" class="muted">{{ t('peers.import_site_no_user') }}</span>
                     <span v-else class="muted">—</span>
+                  </td>
+                </tr>
+                <tr v-if="!c.alreadyExists && c.type === 'site'" :key="c.publicKey + '-cidrs'">
+                  <td></td>
+                  <td colspan="4" style="padding-top:0">
+                    <label class="eyebrow" style="display:block; margin-bottom:2px">{{ t('peers.import_th_cidrs') }}</label>
+                    <input class="input mono" style="height:28px;font-size:var(--text-sm);padding:2px 6px"
+                           v-model="c.siteAllowedCidrs" :disabled="!c.selected"
+                           placeholder="192.168.50.0/24, 10.20.0.0/16" />
+                    <div class="field-hint" style="margin-top:2px">{{ t('peers.import_cidrs_hint') }}</div>
                   </td>
                 </tr>
               </tbody>

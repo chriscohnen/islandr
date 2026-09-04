@@ -10,8 +10,10 @@
 //   - method onPeerUpdated() (optional)  — called after a successful update
 //
 // The peer-create modal has three key-import modes (generate / public-only /
-// both). The edit modal does NOT show the key import block — type and key are
-// not editable at creation time, only name/IP/site-CIDRs. The public key is
+// both). The edit modal does NOT show the key import block, but the type IS
+// editable there: a peer imported from an existing wg interface arrives as a
+// client unless told otherwise, and correcting that by delete-and-recreate
+// would throw away its activity history. The public key is
 // shown read-only for reference; to actually rotate it, use the "Rotate key"
 // control (issue #46) — server-generates a fresh keypair, replaces it on the
 // hub immediately, and shows the new .conf/QR once, same shape as create.
@@ -56,6 +58,8 @@ export const peerModalMixin = {
       peerType: "client",
       deviceType: "laptop",
       siteAllowedCidrs: "",
+      // Type the edit modal opened with, so a switch can be called out before saving.
+      editOriginalType: "client",
       // Geocoding — meaningful for type='site' only (physical gateway device location).
       siteLat: "",
       siteLng: "",
@@ -232,6 +236,7 @@ export const peerModalMixin = {
       this.editPeerId = peer.id;
       this.editOriginalIp = peer.assignedIp;
       this.editOriginalCidrs = peer.siteAllowedCidrs || null;
+      this.editOriginalType = peer.type || "client";
       this.editPeerPublicKey = peer.publicKey;
       this.editPeerKeyRotatedAt = peer.keyRotatedAt || null;
       this.editPeerPskRotatedAt = peer.pskRotatedAt || null;
@@ -306,6 +311,7 @@ export const peerModalMixin = {
           || this.editKeepalive === undefined || Number.isNaN(this.editKeepalive))
           ? null : this.editKeepalive,
         includeDns: this.editIncludeDns,
+        type: this.peerType,
         // validUntil (#10/#47): the date input is date-only, expire at that
         // day's end (23:59:59 browser-local) rather than midnight-start, so
         // the whole selected day still counts as valid. `new Date("...")`
@@ -665,6 +671,7 @@ export const peerModalTemplate = `
 
           <fieldset class="key-mode">
             <legend>{{ t('peer.key_section') }}</legend>
+            <p class="key-mode-hint" style="margin: 0 0 var(--space-3)">{{ t('peer.key_existing_peer_hint') }}</p>
             <label class="key-mode-option">
               <input type="radio" v-model="importMode" value="generate" />
               <div>
@@ -727,6 +734,28 @@ export const peerModalTemplate = `
           <div v-if="modalUserName && peerType !== 'site'" class="muted" style="margin-bottom: var(--space-3)">
             {{ t('peer.for') }} <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
             <span class="tag" style="margin-left: var(--space-2)">Client</span>
+          </div>
+
+          <fieldset class="key-mode" style="margin-bottom: var(--space-4)">
+            <legend>{{ t('peer.type_label') }}</legend>
+            <label class="key-mode-option">
+              <input type="radio" v-model="peerType" value="client" />
+              <div>
+                <div class="key-mode-title">Client</div>
+                <div class="key-mode-hint">{{ t('peer.type_client_hint') }}</div>
+              </div>
+            </label>
+            <label class="key-mode-option">
+              <input type="radio" v-model="peerType" value="site" />
+              <div>
+                <div class="key-mode-title">Site</div>
+                <div class="key-mode-hint">{{ t('peer.type_site_hint') }}</div>
+              </div>
+            </label>
+          </fieldset>
+
+          <div v-if="peerType !== editOriginalType" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+            {{ peerType === 'site' ? t('peer.type_switch_to_site') : t('peer.type_switch_to_client') }}
           </div>
 
           <div v-if="peerType === 'client'" class="field" style="margin-bottom: var(--space-4)">

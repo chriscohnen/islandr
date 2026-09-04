@@ -258,6 +258,22 @@ public class PeerService {
             validateAssignedIpv6(newIpv6, settings.wgSubnet6, peer.id);
         }
 
+        // Type switch (null = leave alone). Applied before the CIDR validation
+        // below so the new type decides which branch runs.
+        boolean typeChanged = req.type() != null && !req.type().isBlank() && !req.type().equals(peer.type);
+        if (typeChanged) {
+            if (!"client".equals(req.type()) && !"site".equals(req.type())) {
+                throw new BadRequestException("type must be 'client' or 'site'");
+            }
+            if ("site".equals(req.type())) {
+                // A site gateway is owned by the network, not by a user, and a
+                // device category is meaningless for it.
+                peer.userId = null;
+                peer.deviceType = null;
+            }
+            peer.type = req.type();
+        }
+
         String normalisedCidrs;
         if (peer.isSite()) {
             normalisedCidrs = validateSiteCidrs(req.siteAllowedCidrs(), settings.wgSubnet, peer.id);
@@ -312,7 +328,7 @@ public class PeerService {
         peer.updatedAt = java.time.Instant.now();
         peer.persist();
 
-        if ((ipChanged || ip6Changed || cidrsChanged || pskChanged) && peer.enabled) {
+        if ((ipChanged || ip6Changed || cidrsChanged || pskChanged || typeChanged) && peer.enabled) {
             try {
                 wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer),
                         pskChanged ? pskForWg : null);
@@ -324,6 +340,13 @@ public class PeerService {
                 throw new WebApplicationException(
                         "could not update peer on wg: " + e.getMessage(), 500);
             }
+        }
+
+        // A type switch nulls (or frees up) peer.userId, and RuleBuilder derives
+        // every grant for a peer from that field — a stale ruleset would keep
+        // granting a site gateway the access of the user it used to belong to.
+        if (typeChanged) {
+            rulesets.recomputeAndApply("system:peer_type_change:" + peer.id);
         }
 
         String rawKey = (peer.privateKeyPem != null && encSvc.isEncrypted(peer.privateKeyPem))
@@ -716,8 +739,30 @@ public class PeerService {
                     ip4,
                     ip6,
                     ps.endpoint(),
+                    extractRoutedCidrs(ps.allowedIps()),
                     skip);
         }).toList();
+    }
+
+    /**
+     * The networks routed behind a peer: every AllowedIP entry that is not the
+     * peer's own host address (an IPv4 {@code /32} or an IPv6 {@code /128}).
+     * Returns null when there are none — that peer is a plain client.
+     *
+     * <p>This is the only signal wg gives about whether a peer is a gateway.
+     * The hub cannot ask the peer, so the routed prefixes are the evidence.
+     */
+    static String extractRoutedCidrs(String allowedIps) {
+        if (allowedIps == null || allowedIps.isBlank()) return null;
+        java.util.List<String> routed = new java.util.ArrayList<>();
+        for (String entry : allowedIps.split(",")) {
+            String cidr = entry.trim();
+            if (cidr.isEmpty() || !cidr.contains("/")) continue;
+            String prefix = cidr.substring(cidr.lastIndexOf('/') + 1);
+            boolean hostAddress = cidr.contains(":") ? "128".equals(prefix) : "32".equals(prefix);
+            if (!hostAddress) routed.add(cidr);
+        }
+        return routed.isEmpty() ? null : String.join(", ", routed);
     }
 
     private static String extractFirstIpv4(String allowedIps) {
@@ -751,8 +796,22 @@ public class PeerService {
             }
             validateAssignedIp(e.assignedIp(), settings.wgSubnet);
             String type = (e.type() == null || e.type().isBlank()) ? "client" : e.type();
-            Peer p = Peer.createNew(e.userId(), e.name(), e.publicKey(), e.assignedIp());
+            boolean site = "site".equals(type);
+            String siteCidrs;
+            if (site) {
+                siteCidrs = validateSiteCidrs(e.siteAllowedCidrs(), settings.wgSubnet, null);
+            } else {
+                if (e.siteAllowedCidrs() != null && !e.siteAllowedCidrs().isBlank()) {
+                    throw new BadRequestException(
+                            "siteAllowedCidrs is only meaningful for type='site' peers — leave it empty for clients");
+                }
+                siteCidrs = null;
+            }
+            // Site peers have no owning user (see SitePeerNoUserTest) — drop any
+            // userId the caller sent rather than persisting a contradiction.
+            Peer p = Peer.createNew(site ? null : e.userId(), e.name(), e.publicKey(), e.assignedIp());
             p.type = type;
+            p.siteAllowedCidrs = siteCidrs;
             p.persist();
             LOG.infof("wg-import: created peer %s (%s) ip=%s", p.name, p.id, p.assignedIp);
             results.add(new PeerDto.WgImportResult(e.publicKey(), "imported", p.id));

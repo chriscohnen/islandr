@@ -147,7 +147,9 @@ public final class PeerDto {
 
     /**
      * Mutable subset of a peer's state. Type and public key are not editable —
-     * use delete + create for a key rotation or a type switch.
+     * use delete + create for a key rotation. The type IS switchable — an
+     * imported peer that should have been a site gateway would otherwise have to
+     * be deleted and recreated, losing its activity history.
      */
     public record UpdateRequest(
             @NotBlank String name,
@@ -194,7 +196,14 @@ public final class PeerDto {
             // same as every other nullable field in this record; the frontend
             // always sends the peer's current value back unless the admin
             // explicitly changed it.
-            Instant validUntil
+            Instant validUntil,
+
+            // "client" | "site". null (field omitted) leaves the current type
+            // alone — unlike the other nullable fields here, because a client
+            // that silently became a site would drop its owning user.
+            @Pattern(regexp = "^$|^(client|site)$",
+                    message = "type must be 'client' or 'site'")
+            String type
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */
@@ -213,6 +222,11 @@ public final class PeerDto {
             String assignedIp,   // first IPv4 address stripped from allowedIps; null if none
             String assignedIpv6, // first IPv6 address stripped from allowedIps; null if none
             String endpoint,     // last known endpoint IP:port, null if never connected
+            // Networks routed behind this peer: every AllowedIP that is not the
+            // peer's own host address. Non-null means wg is already treating this
+            // as a gateway, which is what makes it a site peer rather than a
+            // client — the import offers it pre-selected as such.
+            String siteAllowedCidrs,
             boolean alreadyExists
     ) {}
 
@@ -222,8 +236,13 @@ public final class PeerDto {
             @NotBlank String name,
             @NotBlank @ValidIpAddress
             String assignedIp,
-            String userId,       // optional — peer may be unassigned
-            String type          // "client" | "site", defaults to "client"
+            String userId,       // optional — peer may be unassigned; ignored for type='site'
+            @Pattern(regexp = "^$|^(client|site)$",
+                    message = "type must be 'client' or 'site'")
+            String type,         // "client" | "site", defaults to "client"
+            // Required for type='site', rejected otherwise. Normally carried over
+            // from what wg already reports as AllowedIPs for this peer.
+            String siteAllowedCidrs
     ) {}
 
     /** Request body for {@code POST /api/v1/peers/wg-import}. */
