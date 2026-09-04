@@ -262,7 +262,9 @@ jobs:
           for arch in amd64 arm64; do
             BINARY=$(ls dist/$arch/islandr-*-runner)
             mv "$BINARY" dist/islandr-runner-linux-$arch
-            sha256sum dist/islandr-runner-linux-$arch > dist/islandr-runner-linux-$arch.sha256
+            # Bare basename, no dist/ prefix — consumers download the asset next to
+            # the checksum file and run `sha256sum -c` in their own directory.
+            (cd dist && sha256sum "islandr-runner-linux-$arch" > "islandr-runner-linux-$arch.sha256")
             chmod +x dist/islandr-runner-linux-$arch
           done
 
