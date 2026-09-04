@@ -470,16 +470,31 @@ output elsewhere, or point `restic backup` at the destination directory instead.
 
 **Native binary:** [`scripts/update.sh`](../scripts/update.sh) downloads the target release (latest
 by default, or a specific version/RC), verifies its checksum, stops the service, swaps the binary,
-and restarts it — the same steps as the manual sequence below, scripted. It assumes the standard
-layout from this page: binary at `/opt/islandr/islandr`, service `islandr.service`.
+and restarts it. It assumes the standard layout from this page — binary at `/opt/islandr/islandr`,
+service `islandr.service`, database at `/var/lib/islandr/data/islandr.db` — which is also what
+[`setup-hub.sh`](install/setup-hub.sh) creates.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/scripts/update.sh -o update.sh
 sudo bash update.sh                 # latest release (including RC)
 sudo bash update.sh v0.16.0         # pin a specific version
+sudo bash update.sh --rollback      # undo the last update
 ```
 
 Read it before piping straight to `sudo bash` if you'd rather not fetch-and-run blind.
+
+Before swapping the binary it copies the current one to `/opt/islandr/islandr.prev` and takes a
+hot `sqlite3 .backup` of the database to `islandr.db.prev`. It then watches the new version for
+15 seconds — longer than the unit's `RestartSec`, so a process that starts and immediately dies is
+not mistaken for a healthy one — and restores both backups if it does not stay up. The database is
+part of that on purpose: Flyway migrates at startup, so a version that migrates and *then* fails
+leaves behind a schema the previous binary refuses to validate, and putting only the binary back
+would not start either. Install `sqlite3` if it is missing; without it the script continues but
+says plainly that this safety net is off.
+
+A crash-looping service counts as "was running" — `systemctl is-active` reports `activating` for
+one, which the script would otherwise read as "was stopped, leave it stopped", exactly in the case
+where an update is meant to fix it.
 
 <details>
 <summary>Or by hand</summary>
