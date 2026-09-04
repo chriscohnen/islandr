@@ -119,9 +119,10 @@ Pre-built binaries for Linux x86_64 and ARM64 are attached to every [GitHub Rele
 
 ```bash
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -fsSL "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}" -o /tmp/islandr
-curl -fsSL "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}.sha256" | sha256sum -c -
-sudo install -m 0755 /tmp/islandr /usr/local/bin/islandr
+BASE="https://github.com/chriscohnen/islandr/releases/latest/download"
+cd /tmp && curl -fsSL -O "$BASE/islandr-runner-linux-${ARCH}" -O "$BASE/islandr-runner-linux-${ARCH}.sha256"
+sha256sum -c "islandr-runner-linux-${ARCH}.sha256"
+sudo install -m 0755 "islandr-runner-linux-${ARCH}" /usr/local/bin/islandr
 ```
 
 Or run the container image (published to GHCR for `amd64` and `arm64`):
@@ -175,6 +176,7 @@ islandr/
 ├── docs/
 │   ├── prd.md                               # Product Requirements Document
 │   ├── install.md                           # Installation guide (native binary, Docker)
+│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md
 │   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
 │   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
 │   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
@@ -297,6 +299,9 @@ binaries, checksums and every change: [GitHub releases](https://github.com/chris
 - **Security fix: sessions outlived the access they were issued for** — disabling a user only took effect at their next login; anyone already signed in kept full access, self-service peer creation included, until the session expired
 - **Hub load on the Dashboard** — CPU, memory and swap of the hub itself, read from `/proc` with no extra dependency, preferring a container's cgroup limit over host totals where one is set. Each metric carries its own status, so a memory warning no longer reads as a CPU problem ([#73](https://github.com/chriscohnen/islandr/issues/73))
 - **Config export** now carries per-port capacity settings and user access deadlines, and its format version is finally enforced: an export from a *newer* Islandr is refused rather than silently imported with unknown fields dropped
+- **Adopting an existing WireGuard hub got a lot less manual** — "Import from wg0" now selects/deselects everything in one click, and lets each candidate be imported as a site gateway rather than always a client. A peer that already routes networks beyond its own address is recognised as a gateway and pre-filled with those networks, which the import previously discarded. A peer's type is also changeable after the fact instead of needing delete-and-recreate, which cost its activity history
+- **Settings "Read from WireGuard" reads the subnet too**, and offers the live listen port whenever it differs from the endpoint field — previously only when it happened not to be 51820. It also queries the configured interface instead of a hardcoded `wg0`, which returned the wrong peer's key on any hub deployed with `ISLANDR_WG_INTERFACE` set to something else
+- **`setup-hub.sh` now checks the things that make a fresh install fail after it finishes** — WireGuard installed and the interface actually up, enough memory (a hub with 112 MB free is SIGKILLed mid-startup with no stack trace), free ports, an active `ufw` without a rule. It downloads and checksums the binary itself, and prints the installed paths, the service and journal commands, and a diagnosis when the service did not come up. The published `.sha256` also names the asset by its plain filename now, so the `sha256sum -c` in the install guide actually verifies instead of failing on a path that only existed on the build machine
 
 **0.19.0**
 - **Generic OIDC provider support** — Auth0, Okta, or any other OIDC-compliant issuer can now be added alongside Microsoft 365/Google Workspace, discovered automatically via `.well-known/openid-configuration`; Auth0/Okta get preset tiles that only ask for a domain, a fully generic tile asks for the issuer URL directly ([#69](https://github.com/chriscohnen/islandr/issues/69))
@@ -341,6 +346,7 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 ## Documentation
 
 - [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
+- [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
 - [docs/arc42/](docs/arc42/) — Architecture documentation (arc42, 12 chapters, C4 diagrams embedded)
