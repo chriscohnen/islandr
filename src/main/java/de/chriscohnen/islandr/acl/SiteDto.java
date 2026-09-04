@@ -43,6 +43,43 @@ public final class SiteDto {
         }
     }
 
+    /**
+     * One network a site-gateway peer already routes but that Islandr does not
+     * know as a Site yet. Returned by {@code GET /api/v1/sites/gateway-import-preview}.
+     *
+     * <p>The gateway's AllowedIPs are the authoritative list of what is reachable
+     * behind it; re-typing them as Sites by hand is transcription work with a
+     * typo budget, and a Site whose CIDR does not match what the gateway routes
+     * grants access to nothing.
+     */
+    public record GatewayNetworkCandidate(
+            String peerId,
+            String peerName,
+            String cidr,
+            String suggestedName,
+            // A Site with this CIDR already exists — its name, so the dialog can
+            // say which one rather than just greying the row out.
+            String existingSiteName
+    ) {}
+
+    /** One entry in a {@code POST /api/v1/sites/gateway-import} request. */
+    public record GatewayNetworkEntry(
+            @NotBlank String peerId,
+            @NotBlank @ValidCidr String cidr,
+            @NotBlank String name,
+            String description
+    ) {}
+
+    /** Request body for {@code POST /api/v1/sites/gateway-import}. */
+    public record GatewayImportRequest(
+            @jakarta.validation.Valid
+            @jakarta.validation.constraints.NotNull
+            java.util.List<GatewayNetworkEntry> networks
+    ) {}
+
+    /** Outcome per entry: "imported" | "skipped" (CIDR already a Site). */
+    public record GatewayImportResult(String cidr, String status, String siteId) {}
+
     public record UpsertRequest(
             @NotBlank String name,
             @NotBlank @ValidCidr

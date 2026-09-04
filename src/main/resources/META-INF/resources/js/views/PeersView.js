@@ -68,6 +68,14 @@ export default defineComponent({
       list.sort((a, b) => {
         let av = a[k], bv = b[k];
         if (k === "name") return d * av.localeCompare(bv);
+        // Sites first ascending — a hub with a handful of gateways among many
+        // clients is the case worth grouping, not the other way round.
+        if (k === "type") {
+          av = a.type === "site" ? 0 : 1;
+          bv = b.type === "site" ? 0 : 1;
+          if (av !== bv) return d * (av - bv);
+          return a.name.localeCompare(b.name);
+        }
         if (k === "enabled") return d * ((av ? 1 : 0) - (bv ? 1 : 0));
         if (k === "user") {
           // Same "—" for a site peer as the Benutzer column, regardless of
@@ -296,7 +304,9 @@ export default defineComponent({
           <th @click="sortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap; width: 22%">
             {{ t('peers.th_name') }} <span class="muted" style="font-size: 10px">{{ sortIcon('name') }}</span>
           </th>
-          <th>{{ t('peers.th_type') }}</th>
+          <th @click="sortBy('type')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_type') }} <span class="muted" style="font-size: 10px">{{ sortIcon('type') }}</span>
+          </th>
           <th @click="sortBy('user')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_user') }} <span class="muted" style="font-size: 10px">{{ sortIcon('user') }}</span>
           </th>

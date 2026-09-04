@@ -21,12 +21,22 @@ export default defineComponent({
       editId: null,
       submitting: false,
       formError: null,
+      // Bulk import of the networks a site gateway already routes.
+      importModal: false,
+      importCandidates: [],
+      importLoading: false,
+      importSubmitting: false,
+      importError: null,
+      importResults: null,
       lang: locale.current,
     };
   },
   async mounted() {
     await this.load();
-    this._offEscape = onEscape(() => { if (this.modal) this.closeModal(); });
+    this._offEscape = onEscape(() => {
+      if (this.importModal) this.closeImport();
+      else if (this.modal) this.closeModal();
+    });
   },
   beforeUnmount() {
     if (this._offEscape) this._offEscape();
@@ -60,6 +70,23 @@ export default defineComponent({
     // breakdown panel below the table. Mirrors ResourcesView's typeLabels
     // pattern — same label keys, so the vocabulary stays consistent between
     // the Networks overview and the per-site Resources view.
+    importSelectable() {
+      return this.importCandidates.filter((c) => !c.existingSiteName);
+    },
+    importSelectedCount() {
+      return this.importSelectable.filter((c) => c.selected).length;
+    },
+    // One gateway can route many networks, so the dialog groups by gateway
+    // rather than listing 20 rows with a repeating peer name.
+    importByGateway() {
+      const groups = [];
+      for (const c of this.importCandidates) {
+        let g = groups.find((x) => x.peerId === c.peerId);
+        if (!g) { g = { peerId: c.peerId, peerName: c.peerName, rows: [] }; groups.push(g); }
+        g.rows.push(c);
+      }
+      return groups;
+    },
     resourceTypeCounts() {
       const counts = {};
       for (const r of this.allResources) {
@@ -71,6 +98,69 @@ export default defineComponent({
   },
   methods: {
     useRange(cidr) { this.form.cidr = cidr; },
+
+    async openImport() {
+      this.importModal = true;
+      this.importError = null;
+      this.importResults = null;
+      this.importLoading = true;
+      try {
+        const res = await fetch("/api/v1/sites/gateway-import-preview");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const candidates = await res.json();
+        this.importCandidates = candidates.map((c) => ({
+          ...c,
+          selected: !c.existingSiteName,
+          name: c.suggestedName,
+        }));
+      } catch (e) {
+        this.importError = t("sites.import_error_load", { error: e.message });
+      } finally {
+        this.importLoading = false;
+      }
+    },
+
+    closeImport() {
+      this.importModal = false;
+      this.importCandidates = [];
+      this.importResults = null;
+      this.importError = null;
+    },
+
+    setAllImportSelected(selected) {
+      this.importCandidates.forEach((c) => { if (!c.existingSiteName) c.selected = selected; });
+    },
+
+    async submitImport() {
+      const toImport = this.importCandidates.filter((c) => c.selected && !c.existingSiteName);
+      if (toImport.length === 0) return;
+      const unnamed = toImport.find((c) => !c.name.trim());
+      if (unnamed) {
+        this.importError = t("sites.import_error_name", { cidr: unnamed.cidr });
+        return;
+      }
+      this.importSubmitting = true;
+      this.importError = null;
+      try {
+        const res = await fetch("/api/v1/sites/gateway-import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ networks: toImport.map((c) => ({
+            peerId: c.peerId,
+            cidr: c.cidr,
+            name: c.name.trim(),
+            description: null,
+          })) }),
+        });
+        if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
+        this.importResults = await res.json();
+        await this.load();
+      } catch (e) {
+        this.importError = t("sites.import_error_save", { error: e.message });
+      } finally {
+        this.importSubmitting = false;
+      }
+    },
 
     t(key, vars) { return t(key, vars); },
     async load() {
@@ -211,7 +301,10 @@ export default defineComponent({
   template: `
     <div class="page-header">
       <h1>{{ t('sites.title') }} <span v-if="sites.length" class="muted" style="font-family: var(--font-mono); font-size: var(--text-md); margin-left: var(--space-3)">{{ sites.length }}</span></h1>
-      <button class="btn btn-primary btn-sm" @click="openCreate">{{ t('sites.create_btn') }}</button>
+      <div style="display: flex; gap: var(--space-2)">
+        <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('sites.import_btn') }}</button>
+        <button class="btn btn-primary btn-sm" @click="openCreate">{{ t('sites.create_btn') }}</button>
+      </div>
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
@@ -273,6 +366,83 @@ export default defineComponent({
           <Icon :name="resourceTypeIcon(type)" :size="16" />
           <span>{{ resourceTypeLabel(type) }}</span>
           <span class="mono muted">{{ count }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import the networks a site gateway already routes -->
+    <div v-if="importModal" class="modal-backdrop" @click.self="closeImport">
+      <div class="modal" style="max-width: 780px">
+        <div class="modal-header">
+          <h2>{{ t('sites.import_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeImport">✕</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="importError" class="error-banner" style="margin-bottom: var(--space-3)">{{ importError }}</div>
+
+          <div v-if="importLoading" class="muted">{{ t('common.loading') }}</div>
+
+          <div v-else-if="importResults">
+            <p style="margin-bottom: var(--space-3)">
+              {{ t('sites.import_done', { count: importResults.filter(r => r.status === 'imported').length }) }}
+            </p>
+            <button class="btn btn-primary btn-sm" @click="closeImport">{{ t('common.close') }}</button>
+          </div>
+
+          <div v-else-if="importCandidates.length === 0" class="muted">
+            {{ t('sites.import_empty') }}
+          </div>
+
+          <div v-else>
+            <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--text-sm)">{{ t('sites.import_hint') }}</p>
+            <div style="margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap">
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :disabled="importSelectedCount === importSelectable.length"
+                      @click="setAllImportSelected(true)">{{ t('sites.import_select_all') }}</button>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :disabled="importSelectedCount === 0"
+                      @click="setAllImportSelected(false)">{{ t('sites.import_select_none') }}</button>
+              <span class="muted" style="font-size: var(--text-sm)">
+                {{ t('sites.import_selected_count', { selected: importSelectedCount, total: importSelectable.length }) }}
+              </span>
+            </div>
+
+            <div v-for="g in importByGateway" :key="g.peerId" style="margin-bottom: var(--space-4)">
+              <div class="eyebrow" style="margin-bottom: var(--space-2)">{{ t('sites.import_gateway') }} {{ g.peerName }}</div>
+              <table class="table" style="font-size: var(--text-sm)">
+                <thead>
+                  <tr>
+                    <th style="width: 32px"></th>
+                    <th style="width: 170px">{{ t('sites.field_cidr') }}</th>
+                    <th>{{ t('sites.field_name') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in g.rows" :key="c.peerId + c.cidr" :style="c.existingSiteName ? 'opacity:0.45' : ''">
+                    <td>
+                      <input type="checkbox" v-model="c.selected" :disabled="!!c.existingSiteName"
+                             style="width:15px;height:15px;accent-color:var(--accent);margin:0" />
+                    </td>
+                    <td class="mono">{{ c.cidr }}</td>
+                    <td>
+                      <input v-if="!c.existingSiteName" class="input"
+                             style="height:28px;font-size:var(--text-sm);padding:2px 6px"
+                             v-model="c.name" :disabled="!c.selected" />
+                      <span v-else class="muted">{{ t('sites.import_exists', { name: c.existingSiteName }) }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display: flex; gap: var(--space-3)">
+              <button class="btn btn-primary btn-sm"
+                      :disabled="importSubmitting || importSelectedCount === 0" @click="submitImport">
+                {{ importSubmitting ? t('common.saving') : t('sites.import_confirm') }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="closeImport">{{ t('common.cancel') }}</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
