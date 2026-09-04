@@ -100,10 +100,15 @@ restore_backups() {
     install -o islandr -g islandr -m 0755 "$PREV_BIN" "$INSTALL_BIN"
   fi
   if [[ -f "$PREV_DB" ]]; then
-    install -o islandr -g islandr -m 0600 "$PREV_DB" "$DB_PATH"
     # A newer schema left behind by the failed version's migration would make
     # the restored binary refuse to start, so the database goes back too.
+    install -o islandr -g islandr -m 0600 "$PREV_DB" "$DB_PATH"
     rm -f "${DB_PATH}-wal" "${DB_PATH}-shm"
+    # Restore the WAL alongside it, or leave none — a write-ahead log from the
+    # failed version's schema next to the old database is worse than neither.
+    if [[ -f "${PREV_DB}-wal" ]]; then
+      install -o islandr -g islandr -m 0600 "${PREV_DB}-wal" "${DB_PATH}-wal"
+    fi
   fi
 }
 
@@ -230,20 +235,25 @@ else
   info "No binary at ${INSTALL_BIN} yet — nothing to back up."
 fi
 
+# The service is stopped by now, so there is no concurrent writer and a plain
+# copy is as safe as SQLite's backup API. sqlite3 is still preferred when
+# present: .backup consolidates any write-ahead log into one file, which makes
+# the restore a single-file operation.
 if [[ -f "$DB_PATH" ]]; then
+  rm -f "$PREV_DB" "${PREV_DB}-wal" "${PREV_DB}-shm"
   if command -v sqlite3 &>/dev/null; then
-    # .backup, not cp — SQLite's own hot-backup API, so the service having
-    # written up to a moment ago cannot leave a torn copy behind.
     sqlite3 "$DB_PATH" ".backup '${PREV_DB}'" \
       || die "database backup failed — refusing to swap the binary"
-    chown islandr:islandr "$PREV_DB"; chmod 0600 "$PREV_DB"
-    info "Database backed up to ${PREV_DB}"
   else
-    printf '\nWARNING: sqlite3 not found — no database backup taken.\n'
-    printf '  A failed update that has already migrated the schema cannot then be\n'
-    printf '  rolled back: the old binary refuses a newer schema. Install sqlite3\n'
-    printf '  (apt-get install -y sqlite3) and re-run to get that safety net.\n\n'
+    cp -p "$DB_PATH" "$PREV_DB" \
+      || die "database backup failed — refusing to swap the binary"
+    # A process that was killed rather than shut down leaves its WAL behind,
+    # and the database file alone would be missing whatever is still in it.
+    [[ -f "${DB_PATH}-wal" ]] && cp -p "${DB_PATH}-wal" "${PREV_DB}-wal"
+    [[ -f "${DB_PATH}-shm" ]] && cp -p "${DB_PATH}-shm" "${PREV_DB}-shm"
   fi
+  chown islandr:islandr "$PREV_DB"; chmod 0600 "$PREV_DB"
+  info "Database backed up to ${PREV_DB}"
 fi
 
 # ── swap binary ───────────────────────────────────────────────────────────────

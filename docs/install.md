@@ -493,10 +493,11 @@ Before swapping the binary it copies the current one to `/opt/islandr/islandr.pr
 hot `sqlite3 .backup` of the database to `islandr.db.prev`. It then watches the new version for
 15 seconds — longer than the unit's `RestartSec`, so a process that starts and immediately dies is
 not mistaken for a healthy one — and restores both backups if it does not stay up. The database is
-part of that on purpose: Flyway migrates at startup, so a version that migrates and *then* fails
-leaves behind a schema the previous binary refuses to validate, and putting only the binary back
-would not start either. Install `sqlite3` if it is missing; without it the script continues but
-says plainly that this safety net is off.
+part of that on purpose: Islandr runs its 70-odd Flyway migrations at startup and ships no undo
+migrations, so a version that migrates and *then* fails leaves behind a schema the previous binary
+refuses to validate — putting only the binary back would not start either. The service is already
+stopped when the copy is taken, so `sqlite3` is preferred (its `.backup` folds any write-ahead log
+into one file) but not required; without it a plain file copy is equally safe.
 
 A crash-looping service counts as "was running" — `systemctl is-active` reports `activating` for
 one, which the script would otherwise read as "was stopped, leave it stopped", exactly in the case
