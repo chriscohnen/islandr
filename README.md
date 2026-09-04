@@ -122,7 +122,16 @@ ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 BASE="https://github.com/chriscohnen/islandr/releases/latest/download"
 cd /tmp && curl -fsSL -O "$BASE/islandr-runner-linux-${ARCH}" -O "$BASE/islandr-runner-linux-${ARCH}.sha256"
 sha256sum -c "islandr-runner-linux-${ARCH}.sha256"
-sudo install -m 0755 "islandr-runner-linux-${ARCH}" /usr/local/bin/islandr
+sudo install -d -o islandr -g islandr /opt/islandr
+sudo install -o islandr -g islandr -m 0755 "islandr-runner-linux-${ARCH}" /opt/islandr/islandr
+```
+
+That is the binary only. [`docs/install/setup-hub.sh`](docs/install/setup-hub.sh) does the whole
+thing — service user, scoped sudo, env file, systemd unit — and checks the prerequisites first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/docs/install/setup-hub.sh -o setup-hub.sh
+less setup-hub.sh && sudo bash setup-hub.sh
 ```
 
 Or run the container image (published to GHCR for `amd64` and `arm64`):
