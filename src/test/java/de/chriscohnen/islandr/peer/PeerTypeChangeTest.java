@@ -50,7 +50,7 @@ class PeerTypeChangeTest {
 
     private PeerDto.UpdateRequest req(Peer p, String type, String cidrs) {
         return new PeerDto.UpdateRequest(p.name, p.assignedIp, p.assignedIpv6, cidrs,
-                null, null, null, null, null, null, null, null, null, type);
+                null, null, null, null, null, null, null, null, null, type, null);
     }
 
     @Test

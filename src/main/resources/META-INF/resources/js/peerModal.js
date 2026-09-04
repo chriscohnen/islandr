@@ -68,6 +68,7 @@ export const peerModalMixin = {
       hub,
       // Type the edit modal opened with, so a switch can be called out before saving.
       editOriginalType: "client",
+      editOriginalUserId: null,
       // Geocoding — meaningful for type='site' only (physical gateway device location).
       siteLat: "",
       siteLng: "",
@@ -240,7 +241,10 @@ export const peerModalMixin = {
 
     async openEditPeer(peer) {
       this.modalMode = "edit";
-      this.modalUserId = peer.userId;
+      // `?? null` so the select's "no user" option matches: an unassigned peer
+      // comes back from the API with userId absent, not empty-string.
+      this.modalUserId = peer.userId ?? null;
+      this.editOriginalUserId = peer.userId ?? null;
       this.editPeerId = peer.id;
       this.editOriginalIp = peer.assignedIp;
       this.editOriginalCidrs = peer.siteAllowedCidrs || null;
@@ -320,6 +324,10 @@ export const peerModalMixin = {
           ? null : this.editKeepalive,
         includeDns: this.editIncludeDns,
         type: this.peerType,
+        // "" unassigns, an id assigns; null (site) leaves the field alone,
+        // because the type switch to site already clears the owner server-side
+        // and sending an id alongside type='site' is rejected.
+        userId: this.peerType === "site" ? null : (this.modalUserId || ""),
         // validUntil (#10/#47): the date input is date-only, expire at that
         // day's end (23:59:59 browser-local) rather than midnight-start, so
         // the whole selected day still counts as valid. `new Date("...")`
@@ -739,10 +747,6 @@ export const peerModalTemplate = `
         <div class="modal-body">
           <div v-if="peerError" class="error-banner">{{ peerError }}</div>
 
-          <div v-if="modalUserName && peerType !== 'site'" class="muted" style="margin-bottom: var(--space-3)">
-            {{ t('peer.for') }} <strong style="color: var(--fg1); font-family: var(--font-sans)">{{ modalUserName }}</strong>
-            <span class="tag" style="margin-left: var(--space-2)">Client</span>
-          </div>
 
           <fieldset class="key-mode" style="margin-bottom: var(--space-4)">
             <legend>{{ t('peer.type_label') }}</legend>
@@ -764,6 +768,20 @@ export const peerModalTemplate = `
 
           <div v-if="peerType !== editOriginalType" class="callout callout-warn" style="margin-bottom: var(--space-4)">
             {{ peerType === 'site' ? t('peer.type_switch_to_site') : t('peer.type_switch_to_client') }}
+          </div>
+
+          <div v-if="peerType === 'client'" class="field" style="margin-bottom: var(--space-4)">
+            <label for="editOwner">{{ t('peer.owner_label') }}</label>
+            <select id="editOwner" class="select" v-model="modalUserId">
+              <option :value="null">{{ t('peer.owner_none') }}</option>
+              <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }} ({{ u.email }})</option>
+            </select>
+            <div class="field-hint">{{ t('peer.owner_hint') }}</div>
+          </div>
+
+          <div v-if="peerType === 'client' && modalUserId !== editOriginalUserId"
+               class="callout callout-warn" style="margin-bottom: var(--space-4)">
+            {{ modalUserId ? t('peer.owner_changed') : t('peer.owner_cleared') }}
           </div>
 
           <div v-if="peerType === 'client'" class="field" style="margin-bottom: var(--space-4)">

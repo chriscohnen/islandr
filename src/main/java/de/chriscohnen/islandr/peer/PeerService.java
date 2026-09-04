@@ -274,6 +274,25 @@ public class PeerService {
             peer.type = req.type();
         }
 
+        // Owner reassignment (null = leave alone, "" = unassign, id = assign).
+        // Runs after the type switch so "site" has already cleared the owner and
+        // the contradiction below is judged against the peer's final type.
+        boolean userChanged = false;
+        if (req.userId() != null) {
+            String newUserId = req.userId().isBlank() ? null : req.userId();
+            if (newUserId != null) {
+                if (peer.isSite()) {
+                    throw new BadRequestException(
+                            "userId is only meaningful for type='client' peers — a site gateway is owned by the network");
+                }
+                if (User.<User>findById(newUserId) == null) {
+                    throw new NotFoundException("user not found: " + newUserId);
+                }
+            }
+            userChanged = !java.util.Objects.equals(peer.userId, newUserId);
+            peer.userId = newUserId;
+        }
+
         String normalisedCidrs;
         if (peer.isSite()) {
             normalisedCidrs = validateSiteCidrs(req.siteAllowedCidrs(), settings.wgSubnet, peer.id);
@@ -345,8 +364,10 @@ public class PeerService {
         // A type switch nulls (or frees up) peer.userId, and RuleBuilder derives
         // every grant for a peer from that field — a stale ruleset would keep
         // granting a site gateway the access of the user it used to belong to.
-        if (typeChanged) {
-            rulesets.recomputeAndApply("system:peer_type_change:" + peer.id);
+        // A straight reassignment moves the same field and is no different: the
+        // peer must lose the old owner's grants and gain the new owner's.
+        if (typeChanged || userChanged) {
+            rulesets.recomputeAndApply((typeChanged ? "system:peer_type_change:" : "system:peer_user_change:") + peer.id);
         }
 
         String rawKey = (peer.privateKeyPem != null && encSvc.isEncrypted(peer.privateKeyPem))

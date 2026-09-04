@@ -69,6 +69,13 @@ export default defineComponent({
   methods: {
     t(key, vars) { return t(key, vars); },
 
+    // The edit modal can move a peer to a different user, and this view groups
+    // its rows by user — without the reload the peer would still show under the
+    // old owner until the next manual refresh.
+    onPeerUpdated() {
+      this.load();
+    },
+
     async load() {
       this.loading = true;
       this.error = null;

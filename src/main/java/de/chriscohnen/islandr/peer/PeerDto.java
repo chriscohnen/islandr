@@ -203,7 +203,16 @@ public final class PeerDto {
             // that silently became a site would drop its owning user.
             @Pattern(regexp = "^$|^(client|site)$",
                     message = "type must be 'client' or 'site'")
-            String type
+            String type,
+
+            // Owning user. Omitted (null) leaves the current owner alone; ""
+            // unassigns the peer; an id assigns it. Deliberately NOT the
+            // omitted-means-cleared rule the other nullable fields here use:
+            // RuleBuilder derives every ACL grant from peer.userId, so a
+            // request that merely forgot the field must not strip a client of
+            // all its access. Rejected for type='site' — a site gateway is
+            // owned by the network, not by a person.
+            String userId
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */
