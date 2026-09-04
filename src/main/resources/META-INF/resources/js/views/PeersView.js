@@ -366,7 +366,7 @@ export default defineComponent({
 
     <!-- wg import modal -->
     <div v-if="importModal" class="modal-backdrop" @click.self="closeImport">
-      <div class="modal" style="max-width: 680px">
+      <div class="modal" style="max-width: 880px">
         <div class="modal-header">
           <h2>{{ t('peers.import_title') }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeImport">✕</button>
@@ -413,13 +413,16 @@ export default defineComponent({
             </div>
             <table class="table" style="font-size: var(--text-sm)">
               <thead>
+                <!-- Explicit widths: .input/.select are width:100%, so without
+                     them the browser squeezes a column down to its control's
+                     chevron and the value looks missing rather than clipped. -->
                 <tr>
                   <th style="width: 32px"></th>
-                  <th>{{ t('peers.import_th_key') }}</th>
-                  <th>{{ t('peers.import_th_ip') }}</th>
+                  <th style="width: 150px">{{ t('peers.import_th_key') }}</th>
+                  <th style="width: 120px">{{ t('peers.import_th_ip') }}</th>
                   <th>{{ t('peers.import_th_name') }}</th>
-                  <th>{{ t('peers.import_th_type') }}</th>
-                  <th>{{ t('peers.import_th_user') }}</th>
+                  <th style="width: 110px">{{ t('peers.import_th_type') }}</th>
+                  <th style="width: 190px">{{ t('peers.import_th_user') }}</th>
                 </tr>
               </thead>
               <tbody>
