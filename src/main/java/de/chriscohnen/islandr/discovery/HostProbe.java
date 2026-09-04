@@ -64,6 +64,7 @@ public class HostProbe {
     private final int udpProbePort;
     private final int timeoutMillis;
     private final String dnsServerIp;
+    private final LinkScope linkScope = new LinkScope();
 
     public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout) {
         this(tcpPorts, udpProbePort, timeout, null);
@@ -123,6 +124,12 @@ public class HostProbe {
      * the start, which is why on such a hub it used to be the only source that
      * ever produced a name.
      *
+     * <p>Targeting the host directly is necessary but not sufficient: mDNS and
+     * LLMNR responders reject an off-link querier by specification (see
+     * {@link LinkScope}), so those two are skipped unless the target sits in
+     * one of the hub's own subnets. Off-link they cannot answer, and asking
+     * anyway would spend the budget the sources that <em>can</em> answer need.
+     *
      * <p>The order among the self-reports is by how much of a hostname each
      * actually is: mDNS and LLMNR answer the machine's own name, NetBIOS the
      * same name truncated to 15 characters, and SSDP a human-facing product
@@ -140,11 +147,13 @@ public class HostProbe {
         String system = reverseLookup(ip);
         if (system != null) return system;
 
-        Optional<String> mdns = MdnsLookup.lookup(ip, budget);
-        if (mdns.isPresent()) return mdns.get();
+        if (linkScope.isOnLink(ip)) {
+            Optional<String> mdns = MdnsLookup.lookup(ip, budget);
+            if (mdns.isPresent()) return mdns.get();
 
-        Optional<String> llmnr = LlmnrLookup.lookup(ip, budget);
-        if (llmnr.isPresent()) return llmnr.get();
+            Optional<String> llmnr = LlmnrLookup.lookup(ip, budget);
+            if (llmnr.isPresent()) return llmnr.get();
+        }
 
         Optional<String> netbios = NetBiosLookup.lookup(ip, budget);
         if (netbios.isPresent()) return netbios.get();
