@@ -188,8 +188,9 @@ islandr/
 │   │   └── 02-roadmap.md                    # roadmap page
 │   └── diagrams/                            # generated C4 PNGs + .puml, embedded in arc42
 ├── scripts/
-│   ├── update.sh                            # download, verify, swap the binary, restart the service
-│   └── backup.sh                            # gzip-compressed, rotated SQLite backup via `sqlite3 .backup`
+│   ├── update.sh                            # download, verify, swap the binary, roll back if it fails
+│   ├── backup.sh                            # gzip-compressed, rotated SQLite backup via `sqlite3 .backup`
+│   └── check-templates.mjs                  # compiles every inline Vue template in CI (no npm, uses the vendored Vue)
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
 │   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang", port reservations (#72)
@@ -301,6 +302,7 @@ binaries, checksums and every change: [GitHub releases](https://github.com/chris
 - **Config export** now carries per-port capacity settings and user access deadlines, and its format version is finally enforced: an export from a *newer* Islandr is refused rather than silently imported with unknown fields dropped
 - **Adopting an existing WireGuard hub got a lot less manual** — "Import from wg0" now selects/deselects everything in one click, and lets each candidate be imported as a site gateway rather than always a client. A peer that already routes networks beyond its own address is recognised as a gateway and pre-filled with those networks, which the import previously discarded. A peer's type is also changeable after the fact instead of needing delete-and-recreate, which cost its activity history
 - **Settings "Read from WireGuard" reads the subnet too**, and offers the live listen port whenever it differs from the endpoint field — previously only when it happened not to be 51820. It also queries the configured interface instead of a hardcoded `wg0`, which returned the wrong peer's key on any hub deployed with `ISLANDR_WG_INTERFACE` set to something else
+- **Every inline Vue template is compiled in CI** — the frontend has no build step, so a template that references a `v-for` variable from outside its loop compiles fine and then throws at render time, taking the whole view with it. That shipped once, in an unreleased candidate, and left the peer import dialog unable to open. The check uses the Vue build already vendored in the repo and the runner's own Node: nothing is installed, so it adds no dependency that could be compromised
 - **`update.sh` can undo a failed update** — it backs up the binary *and* the database before swapping, watches the new version past the unit's restart delay instead of glancing at it after two seconds, and restores both if it does not stay up. `--rollback` does it on demand. With no argument it now installs the latest *stable* release rather than the newest one including candidates — `--pre` opts back in. The database matters here: Flyway migrates at startup, so a version that migrates and then fails leaves a schema the old binary refuses
 - **`setup-hub.sh` now checks the things that make a fresh install fail after it finishes** — WireGuard installed and the interface actually up, enough memory (a hub with 112 MB free is SIGKILLed mid-startup with no stack trace), free ports, an active `ufw` without a rule. It downloads and checksums the binary itself, and prints the installed paths, the service and journal commands, and a diagnosis when the service did not come up. The published `.sha256` also names the asset by its plain filename now, so the `sha256sum -c` in the install guide actually verifies instead of failing on a path that only existed on the build machine
 
