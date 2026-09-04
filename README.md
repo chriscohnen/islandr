@@ -235,7 +235,7 @@ islandr/
 │   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 809 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 839 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
