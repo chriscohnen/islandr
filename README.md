@@ -211,7 +211,7 @@ islandr/
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
 │   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014)
-│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), unrelated PTR/mDNS/NetBIOS reverse lookups for discovery's hostname suggestion (#45, #48)
+│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), plus PTR/mDNS/LLMNR/NetBIOS/SSDP name lookups for discovery's hostname suggestion (#45, #48)
 │   │   ├── external/    # /api/external/v1 facade: API-key auth, peers/users/sites/resources/roles (ADR-0026)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── hosthealth/  # hub CPU/memory/swap sampler, hand-rolled from /proc (issue #73)
@@ -309,6 +309,7 @@ binaries, checksums and every change: [GitHub releases](https://github.com/chris
 - **Security fix: sessions outlived the access they were issued for** — disabling a user only took effect at their next login; anyone already signed in kept full access, self-service peer creation included, until the session expired
 - **Hub load on the Dashboard** — CPU, memory and swap of the hub itself, read from `/proc` with no extra dependency, preferring a container's cgroup limit over host totals where one is set. Each metric carries its own status, so a memory warning no longer reads as a CPU problem ([#73](https://github.com/chriscohnen/islandr/issues/73))
 - **Config export** now carries per-port capacity settings and user access deadlines, and its format version is finally enforced: an export from a *newer* Islandr is refused rather than silently imported with unknown fields dropped
+- **Discovery finally names hosts behind a site gateway** — the mDNS query was multicast, which never crosses a router, so for networks reached through a gateway only NetBIOS ever answered and everything non-Windows came back as "computer-42". mDNS now asks the host directly, and **LLMNR** (Windows, on by default) and **SSDP/UPnP** join the chain — the latter reads a device's own `friendlyName`, which is the first name a printer, NAS or camera ever gives up
 - **Fixed: the Admin Console named the WireGuard interface `wg0` regardless of what it is called** — on a hub deployed with `ISLANDR_WG_INTERFACE=wg1` the import button, the empty-state and the public-key hint all pointed at an interface that does not exist
 - **The Peers table sorts by IP and by type** — numerically, since as text `10.77.140.9` sorts after `10.77.140.21`
 - **A site gateway's routed networks can be imported as Networks** — a gateway carrying five CIDRs no longer means typing those five CIDRs again on the Networks page, where a typo fails silently: a Network whose CIDR does not match what the gateway routes grants access to nothing. Grouped by gateway, with a name per row and existing networks shown rather than hidden.
