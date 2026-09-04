@@ -476,10 +476,16 @@ service `islandr.service`, database at `/var/lib/islandr/data/islandr.db` — wh
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/scripts/update.sh -o update.sh
-sudo bash update.sh                 # latest release (including RC)
+sudo bash update.sh                 # latest stable release
+sudo bash update.sh --pre           # latest release, candidates included
 sudo bash update.sh v0.16.0         # pin a specific version
 sudo bash update.sh --rollback      # undo the last update
 ```
+
+With no argument it takes whatever GitHub's `/releases/latest` returns — the newest release that is
+neither a draft nor a prerelease, the same one the Admin Console's version check compares against.
+You do not need to know the version number. Release candidates are only installed when you ask for
+them, by `--pre` or by naming the tag.
 
 Read it before piping straight to `sudo bash` if you'd rather not fetch-and-run blind.
 

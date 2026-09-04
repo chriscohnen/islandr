@@ -2,10 +2,16 @@
 # update.sh — install the latest Islandr release (including RCs) on a production hub
 #
 # Usage:
-#   sudo bash update.sh               # latest release (including RC)
+#   sudo bash update.sh               # latest stable release
+#   sudo bash update.sh --pre         # latest release including release candidates
 #   sudo bash update.sh v0.9.0        # specific version
 #   sudo bash update.sh v0.9.0-rc.5   # specific RC
 #   sudo bash update.sh --rollback    # undo the last update from its backups
+#
+# "Stable" means what GitHub's /releases/latest returns: the newest release
+# that is neither a draft nor a prerelease — the same one Islandr's own version
+# check in the Admin Console compares against. Release candidates are for
+# testing a hub before the real thing and are never picked up by default.
 #
 # Requires: curl, sha256sum, systemctl (sqlite3 for the database backup)
 # Assumes the standard install layout from docs/install.md and setup-hub.sh:
@@ -127,27 +133,55 @@ case "$(uname -m)" in
 esac
 
 # ── resolve target version ────────────────────────────────────────────────────
-if [[ ${1:-} ]]; then
-  TARGET="$1"
-  # normalise: strip leading v if present, then re-add — keeps both "v0.9.0" and "0.9.0" working
-  TARGET="v${TARGET#v}"
-else
-  info "Fetching latest release from GitHub (including RC) ..."
-  JSON=$(curl -fsSL \
+# Pull tag_name out of an API response, with or without jq. The jq filter
+# differs because /releases/latest returns one object and /releases an array.
+tag_from() {
+  local json="$1" filter="$2"
+  if command -v jq &>/dev/null; then
+    printf '%s' "$json" | jq -r "$filter"
+  else
+    printf '%s' "$json" | grep -m1 '"tag_name"' \
+      | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/'
+  fi
+}
+
+github_api() {
+  curl -fsSL \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    "${API_BASE}/releases?per_page=1")
+    "$1"
+}
 
-  if command -v jq &>/dev/null; then
-    TARGET=$(printf '%s' "$JSON" | jq -r '.[0].tag_name')
-  else
-    # Fallback — no jq required
-    TARGET=$(printf '%s' "$JSON" | grep -m1 '"tag_name"' \
-      | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-  fi
-  [[ -n "$TARGET" && "$TARGET" != "null" ]] \
-    || die "could not read tag_name from GitHub API response"
-fi
+case "${1:-}" in
+  --pre|--prerelease|--rc)
+    info "Fetching the newest release, prereleases included ..."
+    # /releases is newest-first and includes prereleases; /releases/latest never does.
+    TARGET=$(tag_from "$(github_api "${API_BASE}/releases?per_page=1")" '.[0].tag_name')
+    ;;
+  "")
+    info "Fetching the latest stable release ..."
+    # /releases/latest is GitHub's own "newest non-draft, non-prerelease". It
+    # 404s when only prereleases exist — a meaningful answer, not a transport
+    # error, so it is reported as such rather than as a failed download.
+    if JSON=$(github_api "${API_BASE}/releases/latest" 2>/dev/null); then
+      TARGET=$(tag_from "$JSON" '.tag_name')
+    else
+      TARGET=""
+    fi
+    if [[ -z "$TARGET" || "$TARGET" == "null" ]]; then
+      die "no stable release found (only prereleases so far?).
+  Install a release candidate explicitly:  sudo bash $0 --pre
+  or name a version:                       sudo bash $0 v0.19.0"
+    fi
+    ;;
+  *)
+    # normalise: strip leading v if present, then re-add — keeps both "v0.9.0" and "0.9.0" working
+    TARGET="v${1#v}"
+    ;;
+esac
+
+[[ -n "$TARGET" && "$TARGET" != "null" ]] \
+  || die "could not read tag_name from the GitHub API response"
 
 # ── show plan ─────────────────────────────────────────────────────────────────
 ASSET="islandr-runner-linux-${ARCH}"
