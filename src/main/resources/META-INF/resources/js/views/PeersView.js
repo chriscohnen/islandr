@@ -423,7 +423,8 @@ export default defineComponent({
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="c in importCandidates" :key="c.publicKey" :style="c.alreadyExists ? 'opacity:0.45' : ''">
+                <template v-for="c in importCandidates" :key="c.publicKey">
+                <tr :style="c.alreadyExists ? 'opacity:0.45' : ''">
                   <td>
                     <input type="checkbox" v-model="c.selected" :disabled="c.alreadyExists"
                            style="width:15px;height:15px;accent-color:var(--accent);margin:0" />
@@ -456,9 +457,9 @@ export default defineComponent({
                     <span v-else class="muted">—</span>
                   </td>
                 </tr>
-                <tr v-if="!c.alreadyExists && c.type === 'site'" :key="c.publicKey + '-cidrs'">
+                <tr v-if="!c.alreadyExists && c.type === 'site'">
                   <td></td>
-                  <td colspan="4" style="padding-top:0">
+                  <td colspan="5" style="padding-top:0">
                     <label class="eyebrow" style="display:block; margin-bottom:2px">{{ t('peers.import_th_cidrs') }}</label>
                     <input class="input mono" style="height:28px;font-size:var(--text-sm);padding:2px 6px"
                            v-model="c.siteAllowedCidrs" :disabled="!c.selected"
@@ -466,6 +467,7 @@ export default defineComponent({
                     <div class="field-hint" style="margin-top:2px">{{ t('peers.import_cidrs_hint') }}</div>
                   </td>
                 </tr>
+                </template>
               </tbody>
             </table>
             <div style="margin-top: var(--space-4); display:flex; gap:var(--space-3)">
