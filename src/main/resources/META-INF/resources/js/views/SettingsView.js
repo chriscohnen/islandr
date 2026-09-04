@@ -862,7 +862,7 @@ export default defineComponent({
                 <span v-else>{{ t('settings.wg_probe_btn') }}</span>
               </button>
             </div>
-            <div class="field-hint">{{ t('settings.field_pubkey_hint') }}</div>
+            <div class="field-hint">{{ t('settings.field_pubkey_hint', { iface: wgInterface }) }}</div>
             <div v-if="probeResult" style="margin-top: var(--space-2); display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-sm); font-family: var(--font-sans)">
               <span>
                 {{ t('settings.probe_status') }}

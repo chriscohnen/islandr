@@ -19,8 +19,13 @@
 // hub immediately, and shows the new .conf/QR once, same shape as create.
 import { t, formatDate } from "/js/i18n.js";
 import { onEscape } from "/js/keyboard.js";
+import { hub, loadHub } from "/js/hub.js";
 
 export const peerModalMixin = {
+  created() {
+    // UsersView opens this modal too and never loads settings itself.
+    loadHub();
+  },
   data() {
     return {
       modalMode: null, // null | "create" | "edit" | "secret"
@@ -58,6 +63,9 @@ export const peerModalMixin = {
       peerType: "client",
       deviceType: "laptop",
       siteAllowedCidrs: "",
+      // Deployment's WireGuard interface — the key-import copy names it, and a
+      // hardcoded "wg0" would tell an operator on wg1 to run the wrong command.
+      hub,
       // Type the edit modal opened with, so a switch can be called out before saving.
       editOriginalType: "client",
       // Geocoding — meaningful for type='site' only (physical gateway device location).
@@ -671,7 +679,7 @@ export const peerModalTemplate = `
 
           <fieldset class="key-mode">
             <legend>{{ t('peer.key_section') }}</legend>
-            <p class="key-mode-hint" style="margin: 0 0 var(--space-3)">{{ t('peer.key_existing_peer_hint') }}</p>
+            <p class="key-mode-hint" style="margin: 0 0 var(--space-3)">{{ t('peer.key_existing_peer_hint', { iface: hub.wgInterface }) }}</p>
             <label class="key-mode-option">
               <input type="radio" v-model="importMode" value="generate" />
               <div>

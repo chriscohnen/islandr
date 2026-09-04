@@ -4,6 +4,7 @@ import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
 import { onEscape } from "/js/keyboard.js";
+import { hub, loadHub } from "/js/hub.js";
 
 // Flat list of every peer across every user. This is the main working surface
 // for sysadmins ("show me everything connected"). User-scoped peer creation
@@ -42,6 +43,9 @@ export default defineComponent({
     };
   },
   computed: {
+    // The interface these peers live on. Named in the import copy, so a hub
+    // deployed with ISLANDR_WG_INTERFACE=wg1 does not read "Import from wg0".
+    wgInterface() { return hub.wgInterface; },
     importSelectable() {
       return this.importCandidates.filter(c => !c.alreadyExists);
     },
@@ -68,6 +72,15 @@ export default defineComponent({
       list.sort((a, b) => {
         let av = a[k], bv = b[k];
         if (k === "name") return d * av.localeCompare(bv);
+        if (k === "assignedIp") {
+          const diff = this.ipKey(a.assignedIp) - this.ipKey(b.assignedIp);
+          // Ties are the routed networks below the IP: a gateway with more of
+          // them is the bigger site, which is the useful order here.
+          if (diff !== 0) return d * diff;
+          const ac = (a.siteAllowedCidrs || "").split(",").filter((x) => x.trim()).length;
+          const bc = (b.siteAllowedCidrs || "").split(",").filter((x) => x.trim()).length;
+          return d * (bc - ac);
+        }
         // Sites first ascending — a hub with a handful of gateways among many
         // clients is the case worth grouping, not the other way round.
         if (k === "type") {
@@ -94,6 +107,7 @@ export default defineComponent({
     },
   },
   async mounted() {
+    loadHub();
     await this.load();
     this._offEscape = onEscape(() => { if (this.importModal) this.closeImport(); });
   },
@@ -256,6 +270,16 @@ export default defineComponent({
       return this.usersById[userId]?.name || "?";
     },
 
+    // Sortable as a number, not as text: "10.77.140.9" sorts after
+    // "10.77.140.21" as a string, which is the opposite of what an operator
+    // scanning a subnet expects. Peers with no IPv4 (v6-only) sort last.
+    ipKey(ip) {
+      if (!ip) return Number.MAX_SAFE_INTEGER;
+      const parts = ip.split(".");
+      if (parts.length !== 4) return Number.MAX_SAFE_INTEGER;
+      return parts.reduce((acc, p) => acc * 256 + (parseInt(p, 10) || 0), 0);
+    },
+
     sortBy(key) {
       if (this.sortKey === key) this.sortDir *= -1;
       else { this.sortKey = key; this.sortDir = 1; }
@@ -285,7 +309,7 @@ export default defineComponent({
           <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
         </select>
         <button class="btn btn-primary btn-sm" @click="openCreate" :disabled="users.length === 0">{{ t('peers.create_btn') }}</button>
-        <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('peers.import_btn') }}</button>
+        <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('peers.import_btn', { iface: wgInterface }) }}</button>
       </div>
     </div>
 
@@ -310,7 +334,9 @@ export default defineComponent({
           <th @click="sortBy('user')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_user') }} <span class="muted" style="font-size: 10px">{{ sortIcon('user') }}</span>
           </th>
-          <th>{{ t('peers.th_ip') }}</th>
+          <th @click="sortBy('assignedIp')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_ip') }} <span class="muted" style="font-size: 10px">{{ sortIcon('assignedIp') }}</span>
+          </th>
           <th @click="sortBy('enabled')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_status') }} <span class="muted" style="font-size: 10px">{{ sortIcon('enabled') }}</span>
           </th>
@@ -378,7 +404,7 @@ export default defineComponent({
     <div v-if="importModal" class="modal-backdrop" @click.self="closeImport">
       <div class="modal" style="max-width: 880px">
         <div class="modal-header">
-          <h2>{{ t('peers.import_title') }}</h2>
+          <h2>{{ t('peers.import_title', { iface: wgInterface }) }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeImport">✕</button>
         </div>
         <div class="modal-body">
@@ -405,11 +431,11 @@ export default defineComponent({
           </div>
 
           <div v-else-if="importCandidates.length === 0" class="muted">
-            {{ t('peers.import_empty') }}
+            {{ t('peers.import_empty', { iface: wgInterface }) }}
           </div>
 
           <div v-else>
-            <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--text-sm)">{{ t('peers.import_hint') }}</p>
+            <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--text-sm)">{{ t('peers.import_hint', { iface: wgInterface }) }}</p>
             <div style="margin-bottom: var(--space-2); display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap">
               <button type="button" class="btn btn-ghost btn-sm"
                       :disabled="importSelectedCount === importSelectable.length"
