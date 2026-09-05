@@ -150,6 +150,12 @@ public class ConfigService {
                         g.id, g.roleId, g.siteId, g.resourceType, g.createdAt))
                 .toList();
 
+        List<ConfigExportDto.NetworkGrantSnapshot> networkGrants =
+                de.chriscohnen.islandr.acl.RoleNetworkGrant.<de.chriscohnen.islandr.acl.RoleNetworkGrant>listAll()
+                .stream().map(g -> new ConfigExportDto.NetworkGrantSnapshot(
+                        g.id, g.roleId, g.siteId, g.createdAt))
+                .toList();
+
         // Ad-hoc temporary grants (#70) are deliberately excluded from a config
         // snapshot: they carry a validUntil and are meant to expire on their own via
         // UserGrantExpiryJob. Restoring a backup should never resurrect a grant that
@@ -193,7 +199,7 @@ public class ConfigService {
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
                 siteGrants, siteGrantPortLinks, peerSchedules,
-                customProviders, apiKeys, List.of());
+                customProviders, apiKeys, networkGrants);
     }
 
     /**
@@ -240,6 +246,7 @@ public class ConfigService {
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_type_grants").executeUpdate();
+        em.createNativeQuery("DELETE FROM role_network_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM user_resource_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM site_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM site_resource_grants").executeUpdate();
@@ -499,6 +506,19 @@ public class ConfigService {
                     .setParameter(3, g.siteId())
                     .setParameter(4, g.resourceType())
                     .setParameter(5, ts(g.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- ACL network grants (whole-site-CIDR role grants, #78/ADR-0029) --
+        for (var g : safe(p.roleNetworkGrants())) {
+            em.createNativeQuery(
+                            "INSERT INTO role_network_grants" +
+                            " (id, role_id, site_id, created_at)" +
+                            " VALUES (?1,?2,?3,?4)")
+                    .setParameter(1, g.id())
+                    .setParameter(2, g.roleId())
+                    .setParameter(3, g.siteId())
+                    .setParameter(4, ts(g.createdAt()))
                     .executeUpdate();
         }
 
