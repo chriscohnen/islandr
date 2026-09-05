@@ -722,7 +722,8 @@ export default defineComponent({
             <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
                     :fill="circle.color" fill-opacity="0.07"
                     :stroke="networkGrantedCircleIds.has(circle.id) ? 'var(--accent)' : circle.color"
-                    :stroke-width="networkGrantedCircleIds.has(circle.id) ? 3 : 1.5" />
+                    :stroke-width="networkGrantedCircleIds.has(circle.id) ? 3 : 1.5"
+                    :stroke-dasharray="networkGrantedCircleIds.has(circle.id) ? '8 5' : (circle.kind === 'mobile' ? '2 4' : null)" />
             <text :x="circle.cx" :y="circle.cy - circle.r - (circle.cidr ? 24 : 10)" text-anchor="middle"
                   :fill="circle.color" font-size="13" font-weight="600"
                   style="text-transform: uppercase; letter-spacing: 0.06em">{{ circle.name }}</text>
@@ -731,7 +732,9 @@ export default defineComponent({
           </g>
 
           <path v-for="line in edgeLines" :key="line.key" :d="line.path"
-                fill="none" stroke="var(--accent)" stroke-width="1.5"
+                fill="none" stroke="var(--accent)"
+                :stroke-width="line.edge.kind === 'network-grant' ? 2.5 : 1.5"
+                :stroke-dasharray="line.edge.kind === 'network-grant' ? '8 5' : null"
                 :stroke-opacity="tool === 'revoke' ? 0.85 : 0.55"
                 :style="tool === 'revoke' ? 'cursor: pointer' : ''"
                 marker-end="url(#atlas-arrow)"
