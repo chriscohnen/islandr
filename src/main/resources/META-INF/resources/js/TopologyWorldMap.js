@@ -228,19 +228,62 @@ export default defineComponent({
     // (reported 2026-07-29: a Munich site landed in the Balkans). Comparing
     // degrees directly keeps the threshold meaning what it says regardless
     // of the projection's px/degree scale.
+    // Two gateways can just as easily share the same physical address as a
+    // gateway and the hub — two routers in the same office is not a
+    // hypothetical, it is exactly the "office-router"/second-router case
+    // this file already handles for hub-vs-gateway. Cluster gateways whose
+    // coordinates collide with each other (same COLLISION_DEG threshold as
+    // the hub check below) and fan each cluster's members out evenly around
+    // their shared point, instead of stacking pin, label, and per-network
+    // grid exactly on top of one another.
     gatewayPoints() {
       const COLLISION_DEG = 0.05; // ~5 km — same building/campus, not just "nearby"
       const NUDGE_PX = 18;
-      return this.gatewayGroups.map((g) => {
-        let p = project(g.gatewayLat, g.gatewayLng);
-        if (this.hasHub) {
-          const dLat = g.gatewayLat - this.hubLat, dLng = g.gatewayLng - this.hubLon;
+      const FAN_RADIUS_PX = 22;
+
+      const groups = this.gatewayGroups;
+      const clusters = [];
+      const assigned = new Array(groups.length).fill(false);
+      for (let i = 0; i < groups.length; i++) {
+        if (assigned[i]) continue;
+        const cluster = [groups[i]];
+        assigned[i] = true;
+        for (let j = i + 1; j < groups.length; j++) {
+          if (assigned[j]) continue;
+          const dLat = groups[j].gatewayLat - groups[i].gatewayLat;
+          const dLng = groups[j].gatewayLng - groups[i].gatewayLng;
           if (Math.hypot(dLat, dLng) < COLLISION_DEG) {
-            p = { x: p.x + NUDGE_PX, y: p.y + NUDGE_PX * 0.6 };
+            cluster.push(groups[j]);
+            assigned[j] = true;
           }
         }
-        return { gateway: g, ...p };
-      });
+        clusters.push(cluster);
+      }
+
+      const out = [];
+      for (const cluster of clusters) {
+        const g0 = cluster[0];
+        let base = project(g0.gatewayLat, g0.gatewayLng);
+        if (this.hasHub) {
+          const dLat = g0.gatewayLat - this.hubLat, dLng = g0.gatewayLng - this.hubLon;
+          if (Math.hypot(dLat, dLng) < COLLISION_DEG) {
+            base = { x: base.x + NUDGE_PX, y: base.y + NUDGE_PX * 0.6 };
+          }
+        }
+        if (cluster.length === 1) {
+          out.push({ gateway: cluster[0], ...base });
+          continue;
+        }
+        cluster.forEach((g, idx) => {
+          const angle = (2 * Math.PI * idx) / cluster.length - Math.PI / 2;
+          out.push({
+            gateway: g,
+            x: base.x + FAN_RADIUS_PX * Math.cos(angle),
+            y: base.y + FAN_RADIUS_PX * Math.sin(angle),
+          });
+        });
+      }
+      return out;
     },
     // One <path> per land polygon (~124), not one giant combined path across
     // all of them. Was combined originally for fewer DOM nodes, but 124
