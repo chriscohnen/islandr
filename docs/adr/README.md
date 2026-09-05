@@ -35,6 +35,7 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0025](0025-network-diagnostic-helpers.md) | Network diagnostic helpers (ping/path latency) via unprivileged-shell CLI tools, surfaced on Atlas | Accepted | 2026-08-22 |
 | [0026](0026-external-api-facade.md) | External API facade: API keys, separate resource surface, hand-written OpenAPI spec | Accepted | 2026-08-22 |
 | [0027](0027-mcp-server-for-llm-administration.md) | MCP server for LLM-assisted administration: separate adapter process over the external API facade | Proposed | 2026-08-23 |
+| [0028](0028-webauthn-library-and-integration.md) | WebAuthn for the recovery admin: Vert.x auth as an engine, Islandr keeps the login flow | Proposed | 2026-09-05 |
 
 ## Status legend
 
