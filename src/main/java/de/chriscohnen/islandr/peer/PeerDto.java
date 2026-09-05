@@ -268,11 +268,16 @@ public final class PeerDto {
             String peerId    // null when skipped
     ) {}
 
-    /** One row of the dashboard's connection activity heatmap (#32). */
+    /** One row of the dashboard's connection activity heatmap (#32, #77).
+     *  {@code deviceType} lets the row show the same laptop/desktop/mobile/
+     *  tablet/server icon PeersView.js already uses — null for a site peer
+     *  (rendered with a distinct gateway icon instead) or an unset client
+     *  peer. */
     public record ActivityHeatmapRow(
             String peerId,
             String name,
             String type,   // "client" | "site"
+            String deviceType,  // laptop | desktop | mobile | tablet | server | other | null
             java.util.List<Integer> sampleHits,  // one entry per day in ActivityHeatmapResponse.days, same order
             java.util.List<Long> rxBytes,        // ditto — rx bytes for that day
             java.util.List<Long> txBytes         // ditto — tx bytes for that day

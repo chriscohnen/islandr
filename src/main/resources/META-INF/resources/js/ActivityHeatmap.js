@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import { t, formatDate, locale } from "/js/i18n.js";
+import { Icon } from "/js/Icons.js";
 
 // Connection activity heatmap (#32): peers x days, GitHub-contribution-graph
 // style. Inverted from GitHub's layout (days as columns, not weeks) since
@@ -7,6 +8,7 @@ import { t, formatDate, locale } from "/js/i18n.js";
 // column table pattern already used by the ACL matrix (AclMatrixView.js).
 export default defineComponent({
   name: "ActivityHeatmap",
+  components: { Icon },
   props: {
     days: { type: Number, default: 30 },
   },
@@ -58,6 +60,22 @@ export default defineComponent({
   },
   methods: {
     t,
+    // Same icon/label mapping PeersView.js already uses for a peer row —
+    // a site gateway gets its own distinct icon (reused from elsewhere in
+    // the app, e.g. TopologyDiagram's gateway box) rather than a device icon,
+    // since it represents a router, not a laptop/phone.
+    peerIconName(p) {
+      if (p.type === "site") return "router";
+      return p.deviceType && p.deviceType !== "other" ? p.deviceType : "peers";
+    },
+    peerIconTitle(p) {
+      if (p.type === "site") return t("peers.type_site");
+      const labels = {
+        laptop: t("peers.dev_laptop"), desktop: t("peers.dev_desktop"), mobile: t("peers.dev_mobile"),
+        tablet: t("peers.dev_tablet"), server: t("peers.dev_server"), other: t("peers.dev_other"),
+      };
+      return labels[p.deviceType] || t("peers.dev_other");
+    },
     async load() {
       this.loading = true;
       this.error = null;
@@ -174,7 +192,10 @@ export default defineComponent({
           <tbody>
             <tr v-for="p in result.peers" :key="p.peerId">
               <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle; font-size: var(--text-sm); height: 20px; padding-top: 0; padding-bottom: 0">
-                {{ p.name }}
+                <span style="display: inline-flex; align-items: center; gap: 6px">
+                  <Icon :name="peerIconName(p)" :size="13" :title="peerIconTitle(p)" style="flex-shrink: 0; opacity: 0.75" />
+                  {{ p.name }}
+                </span>
               </td>
               <td v-for="(d, i) in result.days" :key="d" :title="cellTitle(p, i)"
                   :class="'heatmap-cell heatmap-l' + level(metricValue(p, i), i)"
