@@ -354,7 +354,7 @@ public class AclResolutionService {
             boolean allPorts = (Boolean) g[4];
             List<String> portLabels = allPorts ? List.of() : portLabelsByGrant.getOrDefault(grantId, List.of());
             for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
-                edges.add(new AtlasDto.Edge("user", userId, resourceId, "role", roleId, roleName, allPorts, portLabels));
+                edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "role", roleId, roleName, allPorts, portLabels));
             }
         }
 
@@ -368,7 +368,7 @@ public class AclResolutionService {
         for (Object[] g : typeGrantRows) {
             String roleId = (String) g[0], roleName = (String) g[1], resourceId = (String) g[2];
             for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
-                edges.add(new AtlasDto.Edge("user", userId, resourceId, "type-grant", roleId, roleName, true, List.of()));
+                edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "type-grant", roleId, roleName, true, List.of()));
             }
         }
 
@@ -400,7 +400,7 @@ public class AclResolutionService {
             String grantId = (String) g[0], userId = (String) g[1], resourceId = (String) g[2];
             boolean allPorts = (Boolean) g[3];
             List<String> portLabels = allPorts ? List.of() : portLabelsByUserGrant.getOrDefault(grantId, List.of());
-            edges.add(new AtlasDto.Edge("user", userId, resourceId, "user-direct", null, null, allPorts, portLabels));
+            edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "user-direct", null, null, allPorts, portLabels));
         }
 
         // Direct site grants — already site-scoped, no fan-out, symmetric to
@@ -432,7 +432,7 @@ public class AclResolutionService {
             String grantId = (String) g[0], siteId = (String) g[1], resourceId = (String) g[2];
             boolean allPorts = (Boolean) g[3];
             List<String> portLabels = allPorts ? List.of() : portLabelsBySiteGrant.getOrDefault(grantId, List.of());
-            edges.add(new AtlasDto.Edge("site", siteId, resourceId, "site-direct", null, null, allPorts, portLabels));
+            edges.add(new AtlasDto.Edge("site", siteId, resourceId, null, "site-direct", null, null, allPorts, portLabels));
         }
 
         return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions, siteNodes,

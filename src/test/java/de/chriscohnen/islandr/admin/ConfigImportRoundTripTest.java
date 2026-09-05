@@ -194,7 +194,7 @@ class ConfigImportRoundTripTest {
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
                 original.peerSchedules(),
-                original.oidcCustomProviders(), original.apiKeys());
+                original.oidcCustomProviders(), original.apiKeys(), original.roleNetworkGrants());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -306,7 +306,7 @@ class ConfigImportRoundTripTest {
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
                 original.peerSchedules(),
-                original.oidcCustomProviders(), original.apiKeys());
+                original.oidcCustomProviders(), original.apiKeys(), original.roleNetworkGrants());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -467,7 +467,7 @@ class ConfigImportRoundTripTest {
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
                 original.peerSchedules(),
-                original.oidcCustomProviders(), original.apiKeys());
+                original.oidcCustomProviders(), original.apiKeys(), original.roleNetworkGrants());
 
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -784,7 +784,7 @@ class ConfigImportRoundTripTest {
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
                 original.peerSchedules(),
-                original.oidcCustomProviders(), original.apiKeys());
+                original.oidcCustomProviders(), original.apiKeys(), original.roleNetworkGrants());
     }
 
     // -- envelope format version --------------------------------------------
@@ -859,7 +859,7 @@ class ConfigImportRoundTripTest {
                 original.grantPortLinks(), original.roleResourceTypeGrants(),
                 original.userResourceGrants(), original.userGrantPortLinks(),
                 original.siteResourceGrants(), original.siteGrantPortLinks(),
-                original.peerSchedules(), original.oidcCustomProviders(), original.apiKeys());
+                original.peerSchedules(), original.oidcCustomProviders(), original.apiKeys(), original.roleNetworkGrants());
 
         assertThatThrownBy(() -> configService.importConfig(fromTheFuture))
                 .isInstanceOf(BadRequestException.class);

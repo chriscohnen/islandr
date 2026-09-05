@@ -76,5 +76,19 @@ public final class RoleDto {
             @NotBlank String resourceType
     ) {}
 
+    /** A "reach every host in this site's CIDR" grant — see {@link RoleNetworkGrant}. */
+    public record NetworkGrantResponse(
+            String id,
+            String roleId,
+            String siteId,
+            String siteName,
+            Instant createdAt
+    ) {}
+
+    public record NetworkGrantRequest(
+            @NotBlank String roleId,
+            @NotBlank String siteId
+    ) {}
+
     private RoleDto() {}
 }
