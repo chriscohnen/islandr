@@ -15,6 +15,14 @@ Two constraints narrow the library choice before any of them is compared:
 - **GraalVM native image (ADR-0001).** A library that needs aggressive runtime reflection, bytecode generation, or JNI bindings either fails to compile into a native image or needs hand-maintained `reflect-config.json` that silently rots between releases.
 - **No frontend build step (ADR-0002).** This one turns out not to discriminate: WebAuthn is reached through the browser's own `navigator.credentials` API, so every option below is implemented in the frontend as plain ES modules with no npm dependency. It is recorded because it is the constraint an outside recommendation would expect to be decisive, and it is not.
 
+### Why this account specifically
+
+The recovery admin is not "the login for people without OIDC". It is a **break-glass account**, and each of its three defining properties argues for a second factor rather than against one:
+
+- **It exists to be independent of the IdP.** If Entra ID or Google Workspace is down, or Islandr's own OIDC configuration is wrong, this account is the only remaining way in. Its value comes precisely from not depending on the provider — which is also why the provider's MFA policy cannot protect it.
+- **That independence is currently also an MFA bypass.** Every org-enforced Conditional Access rule stops at the OIDC path. A single static password from an environment variable guards the account that can rewrite every ACL and every peer on the hub. The stronger the org's OIDC policy, the more attractive the account that sidesteps it.
+- **It should not be tied to one person.** Break-glass credentials outlive the admin who set them up. Rotating `ISLANDR_ADMIN_PASSWORD` on offboarding is straightforward; a *physical* second factor is not, unless several can be registered at once. With multiple credentials the successor enrols their own authenticator during handover and the predecessor's is removed afterwards — a clean revocation with no window in which nobody can get in.
+
 A third constraint is specific to this codebase and is decisive.
 
 **Islandr owns its authentication surface end to end.** There is no `quarkus-security` dependency, no `quarkus-oidc`, no `@RolesAllowed`. Sessions are a JPA `Session` row behind the `islandr_session` cookie; `SessionFilter` resolves that cookie on every request and `Auth.requireAdmin` enforces at the endpoint. Even OIDC is hand-rolled — `OidcAuthResource` performs the code exchange itself and then mints an ordinary Islandr session.
@@ -25,7 +33,9 @@ That single chokepoint is load-bearing, and recently so. Two security fixes in 0
 
 Use **`io.vertx:vertx-auth-webauthn`** as the WebAuthn *engine* — challenge generation, CBOR decoding, attestation-format handling, signature and counter verification — and keep registration, authentication and session issuance inside Islandr's own `auth` package, ending in the same `Session` row and `islandr_session` cookie every other login produces.
 
-Concretely: `WebAuthnResource` under `/api/v1/auth/...` exposes register-challenge, register-verify, login-challenge and login-verify; a `WebAuthnCredential` entity stores credential id, public key and signature counter for the recovery admin; a successful assertion calls the existing `SessionService` rather than a parallel one.
+Concretely: `WebAuthnResource` under `/api/v1/auth/...` exposes register-challenge, register-verify, login-challenge and login-verify; a `WebAuthnCredential` entity stores credential id, public key and signature counter; a successful assertion calls the existing `SessionService` rather than a parallel one.
+
+Two details of the store follow from what this account is. **Several credentials are registrable**, because a single one makes handover impossible without a gap in coverage. And the store is scoped to *the local recovery admin* as a singleton, **not keyed by the configured username** — the ENV admin has no row in `users` (`Session.userId` is null for it, identity is the `principal` string), so keying on that string would mean renaming `ISLANDR_ADMIN_USER` silently orphans every registered authenticator. A rename is a configuration change; it must not be an authentication event.
 
 Vert.x is not a new dependency. Quarkus runs on it, and `io.vertx:vertx-core:4.5.22` is already on the runtime classpath — `vertx-auth-webauthn` is published on the same line and inherits the Vert.x ecosystem's GraalVM configuration.
 
@@ -57,7 +67,9 @@ C and D are both capable and standards-correct. They lose on the native-image cr
 
 **A Vert.x 5 platform upgrade forces a migration** — creates **R-187**. `vertx-auth-webauthn` is superseded by `vertx-auth-webauthn4j` in the Vert.x 5 line, and the rename is not source-compatible. Choosing the extension would have let Quarkus absorb that migration; choosing the engine directly means Islandr performs it. Bounded — the call sites are the four endpoints above — but real, and it lands whenever the pinned platform moves.
 
-**Enforcing a second factor on the break-glass account can lock the operator out** — creates **R-188**. The recovery admin exists to regain access when OIDC is unavailable. A lost or broken authenticator with WebAuthn *required* removes the last way in. Any implementation must therefore keep WebAuthn opt-in per instance and preserve a documented recovery path (a configuration flag readable at boot), or the feature converts a login-availability risk into a total-lockout risk.
+**Enforcing a second factor on the break-glass account can lock the operator out** — creates **R-188**, and the design answers it rather than deferring it. Registration *is* the opt-in: with no credential registered the account behaves exactly as today, and the factor is required only once at least one exists, after the password has been verified. Recovery is an offline path — a CLI command on the hub that clears the registered credentials — so losing every authenticator costs a shell session, not the instance.
+
+That offline reset is deliberately not treated as a backdoor, because it does not widen the trust boundary: anyone who can run it already has shell access on the hub, and with it the database, the environment file holding `ISLANDR_ADMIN_PASSWORD`, and the ability to restart the service. It must, however, be audit-logged like any other credential change — the operator who resets it is not necessarily the one who notices afterwards.
 
 **A new credential store becomes a target** — ties **T-021** (§8.1), mitigation in §8.2. WebAuthn public keys are not secrets, but the signature counter is integrity-relevant: a store that accepts a non-increasing counter without notice loses the clone-detection property the standard provides.
 
