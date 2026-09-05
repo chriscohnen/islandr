@@ -276,6 +276,46 @@ public class RuleBuilder {
                     peerRoles.addAll(autoAllRoleIds);
                     boolean granted = peerRoles.stream().anyMatch(grantedRoleIds::contains);
                     if (!granted) continue;
+
+                    // Exclusive-capacity carve-out (issue #72 interaction): the
+                    // broad accept below would otherwise hand this peer every
+                    // port on every resource in the site, including ports that
+                    // are only supposed to open for whoever currently holds the
+                    // live reservation. nftables has no "more specific rule
+                    // wins" semantics — the first matching rule in the chain
+                    // decides — so a narrow drop for each such port must be
+                    // inserted into rulesByKey *before* the accept-all rule
+                    // emitted further down in this same peer's iteration.
+                    for (Resource res : resourceById.values()) {
+                        if (!site.id.equals(res.siteId)) continue;
+                        for (ResourcePort rp : portsByResource.getOrDefault(res.id, List.of())) {
+                            if (!reservationBlocksPort(gatedPortIds, liveReservationKeys, peer.userId, rp.id)) continue;
+                            for (String peerIp : peerIpsOf(peer)) {
+                                if (isV6(peerIp) != isV6(res.ip)) continue;
+                                String family = isV6(peerIp) ? "ip6" : "ip";
+                                for (String[] td : expandTransport(rp)) {
+                                    String effectiveTransport = td[0];
+                                    String dportClause = td[1];
+                                    String dropKey = peerIp + "|networkdrop|" + res.ip + "|"
+                                            + effectiveTransport + "|" + rp.port + "|"
+                                            + (rp.portEnd == null ? "" : rp.portEnd);
+                                    if (rulesByKey.containsKey(dropKey)) continue;
+                                    String dropComment = "islandr:role=network peer=" + escape(peer.name)
+                                            + " user=" + escape(userName.getOrDefault(peer.userId, "?"))
+                                            + " resource=" + escape(res.name) + " reservation-required, no active reservation";
+                                    String dropRule = dportClause.isEmpty()
+                                            ? String.format(
+                                                    "    iifname \"%s\" %s saddr %s %s daddr %s %s drop comment \"%s\"",
+                                                    wgInterface, family, peerIp, family, res.ip, effectiveTransport, dropComment)
+                                            : String.format(
+                                                    "    iifname \"%s\" %s saddr %s %s daddr %s %s %s drop comment \"%s\"",
+                                                    wgInterface, family, peerIp, family, res.ip, effectiveTransport, dportClause, dropComment);
+                                    rulesByKey.put(dropKey, dropRule);
+                                }
+                            }
+                        }
+                    }
+
                     // Single-CIDR, family-inferred-from-string — same
                     // (non-dual-stack) behavior SiteResourceGrant's own block
                     // already has via emitRulesForGrant's isV6 skip.

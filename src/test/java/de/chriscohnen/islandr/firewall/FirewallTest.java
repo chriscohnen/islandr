@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
@@ -472,6 +473,72 @@ class FirewallTest {
                 .contains("ip daddr 10.73.0.9")
                 .contains("tcp dport 631")
                 .contains("ip daddr 10.73.0.0/16");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_capacityLimitedPortBlockedWithoutLiveReservation() {
+        // Issue #72 interaction: a network grant's broad accept must not
+        // silently open a port that's supposed to require an active
+        // reservation — nftables has no "more specific rule wins" semantics,
+        // so an explicit drop for that one port is the only way to keep the
+        // reservation gate meaningful once a whole-network grant is in play.
+        User user = persistUser("rachel@example.test", "Rachel");
+        Role role = persistRole("NetworkAdmins5");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("BranchNet5", "10.75.0.0/16");
+        Resource res = persistResource(site.id, "Terminal5", "10.75.0.9");
+        ResourcePort rdp = persistPort(res.id, 3389, "tcp", "RDP");
+        rdp.maxConcurrentUsers = 1;
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "rachel-laptop", "10.8.0.75");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).contains("ip daddr 10.75.0.0/16"); // the broad network-grant rule still exists
+
+        String dropLine = java.util.Arrays.stream(text.split("\n"))
+                .filter(l -> l.contains("ip daddr 10.75.0.9"))
+                .findFirst().orElse(null);
+        assertThat(dropLine)
+                .as("expected a rule targeting the gated resource's own IP")
+                .isNotNull()
+                .contains("tcp dport 3389")
+                .contains("drop")
+                .doesNotContain("accept");
+
+        int dropPos = text.indexOf("ip daddr 10.75.0.9");
+        int acceptPos = text.indexOf("ip daddr 10.75.0.0/16");
+        assertThat(dropPos)
+                .as("the narrow drop for the gated port must come before the broad accept, "
+                        + "since nftables takes the first matching rule")
+                .isLessThan(acceptPos);
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_capacityLimitedPortAllowedWithLiveReservation() {
+        User user = persistUser("sam@example.test", "Sam");
+        Role role = persistRole("NetworkAdmins6");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("BranchNet6", "10.76.0.0/16");
+        Resource res = persistResource(site.id, "Terminal6", "10.76.0.9");
+        ResourcePort rdp = persistPort(res.id, 3389, "tcp", "RDP");
+        rdp.maxConcurrentUsers = 1;
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "sam-laptop", "10.8.0.76");
+
+        Instant now = Instant.now();
+        de.chriscohnen.islandr.acl.ResourceReservation rr =
+                de.chriscohnen.islandr.acl.ResourceReservation.createPending(user.id, rdp.id, res.id, 60, now);
+        rr.activate(now);
+        rr.persist();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip daddr 10.76.0.0/16")
+                .doesNotContain("ip daddr 10.76.0.9"); // no need for a per-port drop or accept — covered by the broad rule
     }
 
     // -- RulesetService ------------------------------------------------------
