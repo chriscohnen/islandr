@@ -342,4 +342,46 @@ public class RoleService {
         if (g == null) throw new NotFoundException("type grant not found: " + id);
         g.delete();
     }
+
+    // -- Network grants (Role × Site, whole-CIDR) ------------------------------
+    // "This role's peers reach every host in this site's subnet." See
+    // RoleNetworkGrant's own doc comment and ADR-0029 for the always-full-reach,
+    // role-only scoping decision.
+
+    public List<RoleDto.NetworkGrantResponse> listNetworkGrants() {
+        List<RoleNetworkGrant> grants = RoleNetworkGrant.<RoleNetworkGrant>listAll(Sort.by("createdAt"));
+        if (grants.isEmpty()) return List.of();
+        Map<String, String> siteNames = new HashMap<>();
+        for (Site s : Site.<Site>list("id in ?1", grants.stream().map(g -> g.siteId).distinct().toList())) {
+            siteNames.put(s.id, s.name);
+        }
+        List<RoleDto.NetworkGrantResponse> out = new ArrayList<>(grants.size());
+        for (RoleNetworkGrant g : grants) {
+            out.add(new RoleDto.NetworkGrantResponse(
+                    g.id, g.roleId, g.siteId, siteNames.getOrDefault(g.siteId, g.siteId), g.createdAt));
+        }
+        return out;
+    }
+
+    @Transactional
+    public RoleNetworkGrant createNetworkGrant(RoleDto.NetworkGrantRequest req) {
+        if (Role.findById(req.roleId()) == null) {
+            throw new NotFoundException("role not found: " + req.roleId());
+        }
+        if (Site.findById(req.siteId()) == null) {
+            throw new NotFoundException("site not found: " + req.siteId());
+        }
+        RoleNetworkGrant existing = RoleNetworkGrant.findByRoleSite(req.roleId(), req.siteId());
+        if (existing != null) return existing;  // re-granting the same network is a no-op, not a conflict
+        RoleNetworkGrant g = RoleNetworkGrant.createNew(req.roleId(), req.siteId());
+        g.persist();
+        return g;
+    }
+
+    @Transactional
+    public void deleteNetworkGrant(String id) {
+        RoleNetworkGrant g = RoleNetworkGrant.findById(id);
+        if (g == null) throw new NotFoundException("network grant not found: " + id);
+        g.delete();
+    }
 }
