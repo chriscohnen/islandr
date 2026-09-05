@@ -20,9 +20,8 @@ class RoleServiceNetworkGrantTest {
     @AfterEach
     @Transactional
     void cleanup() {
-        RoleNetworkGrant.deleteAll();
-        Role.deleteAll();
-        Site.deleteAll();
+        Role.delete("name like ?1", "NetSvcRole%");
+        Site.delete("name like ?1", "NetSvcSite%");
     }
 
     @Transactional

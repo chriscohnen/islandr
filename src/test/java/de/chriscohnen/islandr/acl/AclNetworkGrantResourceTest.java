@@ -37,9 +37,14 @@ class AclNetworkGrantResourceTest {
 
     @Transactional
     void wipeAll() {
-        RoleNetworkGrant.deleteAll();
-        Site.deleteAll();
-        Role.deleteAll();
+        Role.delete("name like ?1", "Netzwerkverwalter%");
+        // Match only this test's own bare "Homeoffice"/"HomeofficeN" fixtures —
+        // NOT "Homeoffice-<uuid>", which DnsQueryHandlerTest seeds (with a
+        // hyphenated suffix) and never cleans up. A loose "Homeoffice%" would
+        // eventually try to delete those leftover rows too and hit the same
+        // FK-constraint failure this fix is meant to eliminate, since their
+        // Resource children lack ON DELETE CASCADE to sites (see V9/V13/V39).
+        Site.delete("name = ?1 or name like ?2", "Homeoffice", "Homeoffice_");
         AuditLog.deleteAll();
         roleBootstrap.seedEveryoneRole();
     }
