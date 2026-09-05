@@ -37,7 +37,7 @@ jobs:
           for attempt in 1 2 3; do
             ./gradlew --version --no-daemon && exit 0
             echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
-            sleep $((attempt * 15))
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 15))
           done
           echo "::error::could not fetch the Gradle distribution after 3 attempts"
           exit 1
@@ -90,7 +90,7 @@ jobs:
           for attempt in 1 2 3; do
             ./gradlew --version --no-daemon && exit 0
             echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
-            sleep $((attempt * 15))
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 15))
           done
           echo "::error::could not fetch the Gradle distribution after 3 attempts"
           exit 1
@@ -207,7 +207,7 @@ jobs:
           for attempt in 1 2 3; do
             ./gradlew --version --no-daemon && exit 0
             echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
-            sleep $((attempt * 15))
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 15))
           done
           echo "::error::could not fetch the Gradle distribution after 3 attempts"
           exit 1
@@ -553,7 +553,7 @@ jobs:
           for attempt in 1 2 3; do
             ./gradlew --version --no-daemon && exit 0
             echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
-            sleep $((attempt * 15))
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 15))
           done
           echo "::error::could not fetch the Gradle distribution after 3 attempts"
           exit 1
