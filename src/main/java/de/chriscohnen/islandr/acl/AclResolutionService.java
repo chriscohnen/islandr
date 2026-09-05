@@ -60,6 +60,17 @@ public class AclResolutionService {
                 .setParameter(1, roleIds)
                 .getResultList();
 
+        // Network grants (#78, ADR-0029): every resource in a network-granted
+        // site is reachable, regardless of type — same union pattern as
+        // type-grant resolution above, just scoped by site alone.
+        @SuppressWarnings("unchecked")
+        List<String> networkGrantResourceIds = em.createNativeQuery(
+                        "SELECT r.id FROM resources r " +
+                        "JOIN role_network_grants g ON g.site_id = r.site_id " +
+                        "WHERE g.role_id IN ?1")
+                .setParameter(1, roleIds)
+                .getResultList();
+
         // Direct user grants (ADR-0024) — bypass the role model entirely,
         // so they're keyed on userId directly, not roleIds.
         @SuppressWarnings("unchecked")
@@ -68,7 +79,8 @@ public class AclResolutionService {
                 .setParameter(1, userId)
                 .getResultList();
 
-        if (grantRows.isEmpty() && typeGrantResourceIds.isEmpty() && userGrantRows.isEmpty()) return List.of();
+        if (grantRows.isEmpty() && typeGrantResourceIds.isEmpty() && userGrantRows.isEmpty()
+                && networkGrantResourceIds.isEmpty()) return List.of();
 
         Set<String> grantIds = new HashSet<>();
         for (Object[] row : grantRows) if (!(Boolean) row[2]) grantIds.add((String) row[0]);
@@ -143,6 +155,12 @@ public class AclResolutionService {
         // safe here (idempotent whether or not a narrower grant already set
         // this resourceId; all-ports is always the correct, widest result).
         for (String resourceId : typeGrantResourceIds) {
+            effective.put(resourceId, new EffectiveGrant(true, Set.of()));
+        }
+
+        // Network grants always widen to all-ports too, same reasoning as the
+        // type-grant merge above.
+        for (String resourceId : networkGrantResourceIds) {
             effective.put(resourceId, new EffectiveGrant(true, Set.of()));
         }
 
