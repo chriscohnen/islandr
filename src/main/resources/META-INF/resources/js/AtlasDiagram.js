@@ -698,6 +698,23 @@ export default defineComponent({
     diamondPath(cx, cy, r) {
       return `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
     },
+    // One color per grant kind so a busy graph reads at a glance instead of
+    // every edge blending into the same accent line. Chosen from the
+    // existing semantic tokens rather than new hex values, loosely by risk/
+    // breadth: role stays the default accent (the common case); type-grant
+    // (all resources of a type) and user-direct (one ad-hoc exception) are
+    // the two narrower, resource-scoped kinds; site-direct and network-grant
+    // both widen a whole CIDR (source and destination side respectively) —
+    // network-grant is the broadest of all (ADR-0029 R-189), hence danger.
+    edgeColor(kind) {
+      switch (kind) {
+        case "type-grant": return "var(--success-solid)";
+        case "user-direct": return "var(--info-solid)";
+        case "site-direct": return "var(--warning-solid)";
+        case "network-grant": return "var(--danger-solid)";
+        default: return "var(--accent)"; // "role"
+      }
+    },
   },
   template: `
     <div ref="container" style="position: relative">
@@ -712,8 +729,10 @@ export default defineComponent({
               @pointerdown="onBackgroundPointerDown" />
 
         <defs>
-          <marker id="atlas-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-            <path d="M0,0 L8,4 L0,8 Z" fill="var(--accent)" />
+          <marker v-for="kind in ['role', 'type-grant', 'user-direct', 'site-direct', 'network-grant']"
+                  :key="kind" :id="'atlas-arrow-' + kind"
+                  markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" :fill="edgeColor(kind)" />
           </marker>
         </defs>
 
@@ -721,7 +740,7 @@ export default defineComponent({
           <g v-for="circle in layout" :key="circle.id">
             <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
                     :fill="circle.color" fill-opacity="0.07"
-                    :stroke="networkGrantedCircleIds.has(circle.id) ? 'var(--accent)' : circle.color"
+                    :stroke="networkGrantedCircleIds.has(circle.id) ? edgeColor('network-grant') : circle.color"
                     :stroke-width="networkGrantedCircleIds.has(circle.id) ? 3 : 1.5"
                     :stroke-dasharray="networkGrantedCircleIds.has(circle.id) ? '8 5' : (circle.kind === 'mobile' ? '2 4' : null)" />
             <text :x="circle.cx" :y="circle.cy - circle.r - (circle.cidr ? 24 : 10)" text-anchor="middle"
@@ -732,12 +751,12 @@ export default defineComponent({
           </g>
 
           <path v-for="line in edgeLines" :key="line.key" :d="line.path"
-                fill="none" stroke="var(--accent)"
+                fill="none" :stroke="edgeColor(line.edge.kind)"
                 :stroke-width="line.edge.kind === 'network-grant' ? 2.5 : 1.5"
                 :stroke-dasharray="line.edge.kind === 'network-grant' ? '8 5' : null"
                 :stroke-opacity="tool === 'revoke' ? 0.85 : 0.55"
                 :style="tool === 'revoke' ? 'cursor: pointer' : ''"
-                marker-end="url(#atlas-arrow)"
+                :marker-end="'url(#atlas-arrow-' + line.edge.kind + ')'"
                 @click="onEdgeClick(line.edge)" />
 
           <line v-if="(dragFromUserId || dragFromResourceId) && dragPointer"
