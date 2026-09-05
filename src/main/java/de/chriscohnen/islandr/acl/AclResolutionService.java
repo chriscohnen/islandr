@@ -334,7 +334,8 @@ public class AclResolutionService {
         // to zero edges gracefully on their own when there are no users).
         String[] hubIps = hubIps();
 
-        if (resourceNodes.isEmpty()) {
+        boolean anyNetworkGrants = RoleNetworkGrant.count() > 0;
+        if (resourceNodes.isEmpty() && !anyNetworkGrants) {
             return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions, siteNodes,
                     hubIps[0], hubIps[1]);
         }
@@ -451,6 +452,21 @@ public class AclResolutionService {
             boolean allPorts = (Boolean) g[3];
             List<String> portLabels = allPorts ? List.of() : portLabelsBySiteGrant.getOrDefault(grantId, List.of());
             edges.add(new AtlasDto.Edge("site", siteId, resourceId, null, "site-direct", null, null, allPorts, portLabels));
+        }
+
+        // Network grants (#78, ADR-0029), same fan-out-to-every-role-member
+        // pattern as the role/type-grant blocks above — but resourceId is
+        // null (there is no single resource) and siteId carries the target.
+        @SuppressWarnings("unchecked")
+        List<Object[]> networkGrantRows = em.createNativeQuery(
+                        "SELECT g.role_id, rl.name, g.site_id FROM role_network_grants g "
+                                + "JOIN roles rl ON rl.id = g.role_id")
+                .getResultList();
+        for (Object[] g : networkGrantRows) {
+            String roleId = (String) g[0], roleName = (String) g[1], siteId = (String) g[2];
+            for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
+                edges.add(new AtlasDto.Edge("user", userId, null, siteId, "network-grant", roleId, roleName, true, List.of()));
+            }
         }
 
         return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions, siteNodes,
