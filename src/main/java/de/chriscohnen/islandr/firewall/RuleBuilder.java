@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.ResourceReservation;
 import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
+import de.chriscohnen.islandr.acl.RoleNetworkGrant;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.RoleResourceTypeGrant;
 import de.chriscohnen.islandr.acl.Site;
@@ -24,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Generates the {@code inet islandr} nftables ruleset from the current DB state.
@@ -242,6 +244,53 @@ public class RuleBuilder {
                     emitRulesForGrant(site.name, "(site)", siteCidrs, g.resourceId, g.allPorts, grantedPortIds,
                             "(site-direct)", resourceById, portsByResource, rulesByKey, icmpPairs,
                             gatedPortIds, liveReservationKeys, null);
+                }
+            }
+        }
+
+        // Whole-network role grants (issue #78, ADR-0029): a role reaches every
+        // host in a site's CIDR, not one resource — bypasses emitRulesForGrant
+        // entirely (that helper is resource+port shaped) since there is no
+        // resource and no port list here, just a bare CIDR destination with
+        // every protocol/port implicitly open. Deliberately does not add to
+        // icmpPairs: the rule below already has no protocol clause and passes
+        // ICMP on its own, so a separate implicit-ICMP entry would be redundant.
+        Map<String, List<RoleNetworkGrant>> networkGrantsBySite = new HashMap<>();
+        for (RoleNetworkGrant g : RoleNetworkGrant.<RoleNetworkGrant>listAll()) {
+            networkGrantsBySite.computeIfAbsent(g.siteId, k -> new ArrayList<>()).add(g);
+        }
+        if (!networkGrantsBySite.isEmpty()) {
+            for (Site site : Site.<Site>listAll()) {
+                List<RoleNetworkGrant> siteNetGrants = networkGrantsBySite.getOrDefault(site.id, List.of());
+                if (siteNetGrants.isEmpty()) continue;
+                Set<String> grantedRoleIds = siteNetGrants.stream().map(g -> g.roleId).collect(Collectors.toSet());
+                for (Peer peer : peers) {
+                    if (peer.userId == null) continue; // site/gateway peers are routing, not users
+                    // rolesByUser holds only explicit user_roles membership —
+                    // unlike the per-peer loop earlier in this method (which
+                    // builds its own local userRoles copy and adds
+                    // autoAllRoleIds to that copy), rolesByUser itself is
+                    // never mutated with auto-all roles. Auto-all ("Everyone")
+                    // must be added explicitly here too.
+                    List<String> peerRoles = new ArrayList<>(rolesByUser.getOrDefault(peer.userId, List.of()));
+                    peerRoles.addAll(autoAllRoleIds);
+                    boolean granted = peerRoles.stream().anyMatch(grantedRoleIds::contains);
+                    if (!granted) continue;
+                    // Single-CIDR, family-inferred-from-string — same
+                    // (non-dual-stack) behavior SiteResourceGrant's own block
+                    // already has via emitRulesForGrant's isV6 skip.
+                    for (String peerIp : peerIpsOf(peer)) {
+                        if (isV6(peerIp) != isV6(site.cidr)) continue;
+                        String family = isV6(peerIp) ? "ip6" : "ip";
+                        String key = peerIp + "|network|" + site.id;
+                        if (rulesByKey.containsKey(key)) continue;
+                        String rule = String.format(
+                                "    iifname \"%s\" %s saddr %s %s daddr %s accept comment \"%s\"",
+                                wgInterface, family, peerIp, family, site.cidr,
+                                "islandr:role=network peer=" + escape(peer.name) + " user="
+                                        + escape(userName.getOrDefault(peer.userId, "?")) + " network=" + escape(site.name));
+                        rulesByKey.put(key, rule);
+                    }
                 }
             }
         }

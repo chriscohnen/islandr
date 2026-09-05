@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.firewall;
 import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
+import de.chriscohnen.islandr.acl.RoleNetworkGrant;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.acl.UserResourceGrant;
@@ -96,6 +97,7 @@ class FirewallTest {
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         RoleResourceGrant.deleteAll();
         de.chriscohnen.islandr.acl.RoleResourceTypeGrant.deleteAll();
+        RoleNetworkGrant.deleteAll();
         em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
         ResourcePort.deleteAll();
         Resource.deleteAll();
@@ -391,6 +393,85 @@ class FirewallTest {
         assertThat(text)
                 .contains("ip saddr 10.66.0.0/16")
                 .contains("icmp type echo-request");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_producesOneRulePerPeerWithSiteCidr() {
+        User user = persistUser("nadia@example.test", "Nadia");
+        Role role = persistRole("NetworkAdmins");
+        addUserToRole(user.id, role.id);
+        Site grantedSite = persistSite("BranchNet", "10.70.0.0/16");
+        RoleNetworkGrant.createNew(role.id, grantedSite.id).persist();
+        persistPeer(user.id, "nadia-laptop", "10.8.0.70");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.8.0.70")
+                .contains("ip daddr 10.70.0.0/16")
+                .contains("accept");
+        // No port/protocol clause at all — full-reach, not TCP/UDP-specific.
+        assertThat(text).doesNotContain("dport");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_userWithoutRole_getsNoRule() {
+        Role role = persistRole("NetworkAdmins2");
+        Site grantedSite = persistSite("BranchNet2", "10.71.0.0/16");
+        RoleNetworkGrant.createNew(role.id, grantedSite.id).persist();
+        User unrelated = persistUser("otto@example.test", "Otto");
+        persistPeer(unrelated.id, "otto-laptop", "10.8.0.71");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).doesNotContain("10.71.0.0/16");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_autoAllRole_reachesEveryUserLinkedPeer() {
+        Role everyone = persistRole("EveryoneNet");
+        everyone.autoAll = true;
+        everyone.persist();
+        Site grantedSite = persistSite("BranchNet3", "10.72.0.0/16");
+        RoleNetworkGrant.createNew(everyone.id, grantedSite.id).persist();
+        User user = persistUser("paula@example.test", "Paula");
+        // No explicit user_roles row — membership comes only from autoAll.
+        persistPeer(user.id, "paula-phone", "10.8.0.72");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.8.0.72")
+                .contains("ip daddr 10.72.0.0/16");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_coexistsWithConcreteResourceGrant() {
+        User user = persistUser("quentin@example.test", "Quentin");
+        Role role = persistRole("NetworkAdmins3");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("BranchNet4", "10.73.0.0/16");
+        Resource res = persistResource(site.id, "Printer4", "10.73.0.9");
+        ResourcePort port = persistPort(res.id, 631, "tcp", "IPP");
+        RoleResourceGrant concreteGrant = RoleResourceGrant.createNew(role.id, res.id, false);
+        concreteGrant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, concreteGrant.id).setParameter(2, port.id).executeUpdate();
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "quentin-laptop", "10.8.0.73");
+
+        String text = builder.build().rulesetText();
+
+        // Both the concrete-resource rule and the whole-network rule appear —
+        // the two grant kinds don't collide or dedup against each other.
+        assertThat(text)
+                .contains("ip daddr 10.73.0.9")
+                .contains("tcp dport 631")
+                .contains("ip daddr 10.73.0.0/16");
     }
 
     // -- RulesetService ------------------------------------------------------
