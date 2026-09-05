@@ -50,8 +50,18 @@ class ConfigNetworkGrantRoundTripTest {
         assertThat(stillPresent).isTrue();
 
         // Cleanup — importConfig's own teardown wipes and fully rebuilds every
-        // ACL table from the export, so nothing extra to clean beyond
-        // reseeding the auto_all "Everyone" role the teardown removes.
+        // ACL table from the export, so the reseed of the auto_all
+        // "Everyone" role the teardown removes is needed either way. But the
+        // import step re-inserts this test's own RoleNetworkGrant/Role/Site
+        // rows from the export (that's the whole point of the round-trip
+        // assertion above) and nothing removes them afterward — delete them
+        // by their own recorded ids so this test doesn't leave rows behind
+        // for a later test's global-count assertion over RoleNetworkGrant.
+        QuarkusTransaction.requiringNew().run(() -> {
+            RoleNetworkGrant.delete("roleId = ?1 and siteId = ?2", roleId, siteId);
+            Role.deleteById(roleId);
+            Site.deleteById(siteId);
+        });
         QuarkusTransaction.requiringNew().run(roleBootstrap::seedEveryoneRole);
     }
 }

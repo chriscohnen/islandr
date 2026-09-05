@@ -352,6 +352,13 @@ export default defineComponent({
       let source = this.graph.edges;
       if (this.selectedUserId) source = source.filter((e) => e.subjectType === "user" && e.subjectId === this.selectedUserId);
       else if (this.selectedResourceId) source = source.filter((e) => e.resourceId === this.selectedResourceId);
+      // Network-grant edges are a deliberate exception to the "unfiltered
+      // default view shows everything" rule every other edge kind follows:
+      // confirmed with the user, a network grant's circle highlight/arrow
+      // must never appear unless the granted user is actually selected —
+      // not in the default view, and not while a resource is focused
+      // instead (a network grant isn't resource-focused at all).
+      source = source.filter((e) => e.kind !== "network-grant" || (this.selectedUserId && e.subjectId === this.selectedUserId));
       return source
           .filter((e) => {
             if (!this.nodesById.has(e.subjectId)) return false;

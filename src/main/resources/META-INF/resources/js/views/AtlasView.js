@@ -185,7 +185,11 @@ export default defineComponent({
       const userSet = this.activeUserIds.length > 0 ? new Set(this.activeUserIds) : null;
       return this.graph.edges
           .filter((e) => {
-            if (typeActive) {
+            // A network-grant edge has no resourceId at all — it isn't
+            // scoped to a resource type, so the type filter simply doesn't
+            // apply to it (same reasoning that would exempt any other
+            // whole-network row from a per-type filter).
+            if (typeActive && e.kind !== "network-grant") {
               const res = resById[e.resourceId];
               if (!res || !this.activeTypes.has(res.type)) return false;
             }
@@ -196,10 +200,21 @@ export default defineComponent({
             const subjectName = e.subjectType === "site"
                 ? t("atlas.subject_site", { site: (sitesById[e.subjectId] || {}).name || e.subjectId })
                 : (usersById[e.subjectId] || {}).name || e.subjectId;
+            // A network-grant edge targets a whole site (via siteId), not a
+            // single resource (resourceId is always null for this kind) —
+            // show the site's name with a "whole network" label instead of
+            // an empty cell.
+            const resourceName = e.kind === "network-grant"
+                ? t("atlas.resource_whole_network", { site: (sitesById[e.siteId] || {}).name || e.siteId })
+                : (resById[e.resourceId] || {}).name || e.resourceId;
             return {
-              key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || ""),
+              // resourceId is null for every network-grant edge, so siteId
+              // must be part of the key too — otherwise one user holding
+              // network grants on two different sites via the same role
+              // would produce two rows with an identical key.
+              key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.siteId + "|" + e.kind + "|" + (e.roleId || ""),
               userName: subjectName,
-              resourceName: (resById[e.resourceId] || {}).name || e.resourceId,
+              resourceName,
               roleName: e.kind === "user-direct" ? t("atlas.mode_direct")
                   : e.kind === "site-direct" ? t("atlas.mode_direct_site")
                   : e.roleName,
@@ -439,6 +454,10 @@ export default defineComponent({
       }
       if (edge.kind === "type-grant") {
         this.error = t("atlas.revoke_type_grant_blocked");
+        return;
+      }
+      if (edge.kind === "network-grant") {
+        this.error = t("atlas.revoke_network_grant_blocked");
         return;
       }
       const roleLabel = edge.kind === "role" ? edge.roleName

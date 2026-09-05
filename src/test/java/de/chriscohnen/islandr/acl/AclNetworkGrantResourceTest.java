@@ -85,8 +85,11 @@ class AclNetworkGrantResourceTest {
 
         given().when().get("/api/v1/acl/network-grants")
                 .then().statusCode(200)
-                .body("$", hasSize(1))
-                .body("[0].siteName", equalTo("Homeoffice"));
+                // Scoped to this test's own siteId rather than a global
+                // count — the global list isn't guaranteed empty otherwise,
+                // only incidentally so depending on other tests' cleanup.
+                .body("findAll { it.siteId == '" + site.id + "' }", hasSize(1))
+                .body("findAll { it.siteId == '" + site.id + "' }[0].siteName", equalTo("Homeoffice"));
     }
 
     @Test
@@ -101,7 +104,10 @@ class AclNetworkGrantResourceTest {
                 .when().post("/api/v1/acl/network-grants").then().statusCode(201);
 
         given().when().get("/api/v1/acl/network-grants")
-                .then().statusCode(200).body("$", hasSize(1));
+                .then().statusCode(200)
+                // Scoped to this test's own siteId — same reasoning as
+                // create_thenList_returnsTheGrantWithSiteName above.
+                .body("findAll { it.siteId == '" + site.id + "' }", hasSize(1));
     }
 
     @Test

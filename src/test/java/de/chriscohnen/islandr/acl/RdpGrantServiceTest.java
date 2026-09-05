@@ -144,5 +144,19 @@ class RdpGrantServiceTest {
         assertThat(target).isNotNull();
         assertThat(target.host()).isEqualTo(res.ip);
         assertThat(target.port()).isEqualTo(3389);
+
+        // This class has no shared before/after cleanup for any of its
+        // fixtures (every other test here seeds a random suffix and leaves
+        // its rows in place too) — this stays scoped to exactly what this
+        // one test created, to avoid the network-grant row surviving into a
+        // later test that asserts a global count over RoleNetworkGrant.
+        RoleNetworkGrant.delete("roleId = ?1 and siteId = ?2", role.id, site.id);
+        em.createNativeQuery("DELETE FROM user_roles WHERE user_id = ?1 AND role_id = ?2")
+                .setParameter(1, user.id).setParameter(2, role.id).executeUpdate();
+        rdp.delete();
+        res.delete();
+        site.delete();
+        role.delete();
+        user.delete();
     }
 }

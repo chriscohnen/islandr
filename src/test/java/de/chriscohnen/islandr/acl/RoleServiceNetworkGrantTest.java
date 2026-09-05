@@ -66,7 +66,10 @@ class RoleServiceNetworkGrantTest {
         RoleNetworkGrant second = roles.createNetworkGrant(new RoleDto.NetworkGrantRequest(role.id, site.id));
 
         assertThat(second.id).isEqualTo(first.id);
-        assertThat(RoleNetworkGrant.<RoleNetworkGrant>listAll()).hasSize(1);
+        // Scoped to this test's own role/site rather than a global count —
+        // the table isn't guaranteed empty otherwise, only incidentally so
+        // depending on other tests' cleanup/ordering.
+        assertThat(RoleNetworkGrant.<RoleNetworkGrant>list("roleId = ?1 and siteId = ?2", role.id, site.id)).hasSize(1);
     }
 
     @Test
