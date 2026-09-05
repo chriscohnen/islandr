@@ -253,6 +253,11 @@ components:
         isAdmin: { type: boolean }
         preferredLocale: { type: string, nullable: true, enum: [de, en] }
         peerCount: { type: integer }
+        # Access deadline (issue #53). Null means no expiry, which is the
+        # default. Once it passes the user cannot log in and their devices are
+        # switched off; accessExpired is that comparison, already made.
+        validUntil: { type: string, format: date-time, nullable: true }
+        accessExpired: { type: boolean }
         createdAt: { type: string, format: date-time }
 
     Site:
@@ -295,6 +300,14 @@ components:
         id: { type: string }
         port: { type: integer }
         portEnd: { type: integer, nullable: true }
+        # Exclusive-capacity config (issue #72). maxConcurrentUsers null means
+        # unlimited — the port is reachable on a grant alone, which is the
+        # default and the behaviour of every port created before #72. With a
+        # value set, users must additionally hold a reservation on this port;
+        # other ports of the same resource are unaffected.
+        maxConcurrentUsers: { type: integer, nullable: true }
+        maxReservationMinutes: { type: integer, nullable: true }
+        autoApproveReservations: { type: boolean }
         transport: { type: string }
         protocol: { type: string, nullable: true }
         label: { type: string, nullable: true }

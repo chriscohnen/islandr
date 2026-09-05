@@ -19,6 +19,69 @@ command used during install/upgrade checks.
 docker compose logs -f islandr
 ```
 
+## The service dies with `code=killed, signal=KILL` and no error in the log
+
+That is the kernel, not Islandr. A SIGKILL leaves no stack trace, which is why
+`journalctl -u islandr` shows nothing but systemd's own restart lines. On a
+small VPS the cause is almost always the OOM killer:
+
+```bash
+free -m
+sudo dmesg -T | grep -iE "oom|killed process"
+sudo journalctl -k -b | grep -iE "oom|killed process"   # if dmesg is restricted
+```
+
+Look for `Out of memory: Killed process ... (islandr)`. The native binary needs
+about 128 MB resident and 256 MB with headroom; below roughly 192 MB available
+it is killed part-way through startup, typically after half a second of CPU
+time. Add swap:
+
+```bash
+sudo fallocate -l 1G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+sudo systemctl start islandr
+```
+
+`setup-hub.sh` refuses to install below this threshold and prints the same
+commands.
+
+## The service runs and `curl` works on the host, but the browser cannot reach it
+
+Two causes, in this order.
+
+**Check the bind address first:**
+
+```bash
+ss -ltnp | grep islandr
+```
+
+`127.0.0.1:8080` means loopback only. A local `curl` succeeds, everything else
+— including a browser coming in over the WireGuard tunnel — gets no connection.
+That is correct when a reverse proxy on the same host front-ends Islandr, and
+wrong in every other case. To reach the Admin Console over the tunnel, bind to
+the WireGuard address instead:
+
+```bash
+WG_IP=$(ip -4 -o addr show wg0 | awk '{print $4}' | cut -d/ -f1)
+sudo sed -i "s|^QUARKUS_HTTP_HOST=.*|QUARKUS_HTTP_HOST=$WG_IP|" /etc/default/islandr
+sudo systemctl restart islandr
+```
+
+`0.0.0.0` listens on every interface, the public one included — only do that if
+you want the console reachable from the internet, and it is what the built-in
+TLS/ACME setup expects.
+
+**Then check the host firewall.** `ufw` never blocks loopback, so a working
+local `curl` says nothing about it:
+
+```bash
+sudo ufw status verbose
+sudo ufw allow in on wg0 to any port 8080 proto tcp   # tunnel only
+```
+
 ## How do I check which peers are configured on the WireGuard interface?
 
 ```bash

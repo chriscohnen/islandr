@@ -120,7 +120,7 @@ public class MyAccessResource {
                 settings.get().hubLon);
     }
 
-    private static String portLabel(ResourceDto.PortResponse p) {
+    private static String portLabel(ResourceDto.MyAccessPort p) {
         String transport = p.transport() == null ? "" : p.transport().toUpperCase();
         String protocol = p.protocol();
         return protocol == null || protocol.isBlank() || "CUSTOM".equalsIgnoreCase(protocol)

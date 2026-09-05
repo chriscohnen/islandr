@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr.admin;
 
 import de.chriscohnen.islandr.acl.Resource;
+import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleBootstrap;
 import de.chriscohnen.islandr.acl.Site;
@@ -14,6 +15,7 @@ import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.user.User;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The import writes its rows with native INSERTs, which bypasses Hibernate's timestamp
@@ -182,7 +185,7 @@ class ConfigImportRoundTripTest {
                 null, null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
-                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
                 legacySettings, original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
@@ -294,7 +297,7 @@ class ConfigImportRoundTripTest {
                 null, null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
-                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
                 legacySettings, original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
@@ -455,7 +458,7 @@ class ConfigImportRoundTripTest {
                 null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
-                original.version(), original.exportedAt(), original.privateKeysIncluded(),
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
                 legacySettings, original.oidcProviders(), original.users(), original.roles(),
                 original.roleMemberships(), original.peers(), original.sites(),
                 original.resources(), original.resourcePorts(), original.portGroups(),
@@ -686,5 +689,231 @@ class ConfigImportRoundTripTest {
                         "raw value is unrecoverable, not the hash row that verifies it")
                 .isNotNull();
         assertThat(reloadedKey.keyHash).isEqualTo("deadbeef".repeat(8));
+    }
+
+    /**
+     * The exclusive-capacity config (issue #72) is per-port admin
+     * configuration, so it must travel with an export — unlike the
+     * reservations themselves, which are transient session state and are
+     * deliberately left out (same reasoning as #70's temporary grants).
+     */
+    @Test
+    void portReservationConfigSurvivesTheRoundTrip() {
+        String portId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RT-Cap-Site", "10.93.0.0/24", null);
+            site.persist();
+            Resource r = Resource.createNew(site.id, "RT-Cap-Res", "10.93.0.10", null, "computer");
+            r.persist();
+            ResourcePort p = ResourcePort.createNew(r.id, 3389, null, "tcp", "RDP", null,
+                    null, false, false, "native");
+            p.maxConcurrentUsers = 1;
+            p.maxReservationMinutes = 240;
+            p.autoApproveReservations = false;
+            p.persist();
+            return p.id;
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        assertThat(export.resourcePorts())
+                .filteredOn(p -> p.id().equals(portId))
+                .singleElement()
+                .satisfies(p -> {
+                    assertThat(p.maxConcurrentUsers()).isEqualTo(1);
+                    assertThat(p.maxReservationMinutes()).isEqualTo(240);
+                    assertThat(p.autoApproveReservations()).isFalse();
+                });
+
+        configService.importConfig(export);
+
+        ResourcePort reloaded =
+                QuarkusTransaction.requiringNew().call(() -> ResourcePort.findById(portId));
+        assertThat(reloaded.maxConcurrentUsers).isEqualTo(1);
+        assertThat(reloaded.maxReservationMinutes).isEqualTo(240);
+        assertThat(reloaded.autoApproveReservations).isFalse();
+    }
+
+    /**
+     * A pre-#72 export has no capacity fields at all. Importing it must leave
+     * every port unlimited and auto-approving — the old behaviour — rather
+     * than importing autoApprove as false and quietly requiring an admin
+     * decision for requests that never needed one.
+     */
+    @Test
+    void legacyExportWithoutReservationConfigFallsBackToDefaults() {
+        String portId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RT-Legacy-Site", "10.94.0.0/24", null);
+            site.persist();
+            Resource r = Resource.createNew(site.id, "RT-Legacy-Res", "10.94.0.10", null, "computer");
+            r.persist();
+            ResourcePort p = ResourcePort.createNew(r.id, 22, null, "tcp", "SSH", null,
+                    null, false, false, "native");
+            p.persist();
+            return p.id;
+        });
+
+        ConfigExportDto.Export original =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        List<ConfigExportDto.ResourcePortSnapshot> legacyPorts = original.resourcePorts().stream()
+                .map(p -> new ConfigExportDto.ResourcePortSnapshot(
+                        p.id(), p.resourceId(), p.port(), p.portEnd(), p.transport(),
+                        p.protocol(), p.label(), null, null, null, p.createdAt()))
+                .toList();
+
+        configService.importConfig(withResourcePorts(original, legacyPorts));
+
+        ResourcePort reloaded =
+                QuarkusTransaction.requiringNew().call(() -> ResourcePort.findById(portId));
+        assertThat(reloaded.maxConcurrentUsers).isNull();
+        assertThat(reloaded.maxReservationMinutes).isNull();
+        assertThat(reloaded.autoApproveReservations)
+                .as("absent in the export must mean the entity default, not false")
+                .isTrue();
+    }
+
+    /** Rebuilds an Export with a different port list, leaving everything else alone. */
+    private static ConfigExportDto.Export withResourcePorts(
+            ConfigExportDto.Export original, List<ConfigExportDto.ResourcePortSnapshot> ports) {
+        return new ConfigExportDto.Export(
+                original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
+                original.settings(), original.oidcProviders(), original.users(), original.roles(),
+                original.roleMemberships(), original.peers(), original.sites(),
+                original.resources(), ports, original.portGroups(),
+                original.portGroupMembers(), original.roleResourceGrants(),
+                original.grantPortLinks(), original.roleResourceTypeGrants(),
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks(),
+                original.peerSchedules(),
+                original.oidcCustomProviders(), original.apiKeys());
+    }
+
+    // -- envelope format version --------------------------------------------
+
+    @Test
+    void export_stampsTheCurrentFormatVersionAndTheWritingBuild() {
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        assertThat(export.version()).isEqualTo(String.valueOf(ConfigExportDto.CURRENT_VERSION));
+        assertThat(export.appVersion())
+                .as("informational, but must not be blank — it is what a support question quotes")
+                .isNotBlank();
+    }
+
+    /**
+     * The guarantee that makes the version worth carrying: a file from a newer
+     * islandr is refused, not imported. Importing it would silently drop every
+     * field this build has no snapshot for, restoring a configuration that
+     * quietly differs from the one that was backed up.
+     */
+    @Test
+    void importFromANewerIslandr_isRefused() {
+        assertThatThrownBy(() -> ConfigService.requireSupportedVersion(
+                String.valueOf(ConfigExportDto.CURRENT_VERSION + 1)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("newer islandr");
+    }
+
+    @Test
+    void importOfAnOlderOrCurrentVersion_isAccepted() {
+        assertThat(ConfigService.requireSupportedVersion("1")).isEqualTo(1);
+        assertThat(ConfigService.requireSupportedVersion(
+                String.valueOf(ConfigExportDto.CURRENT_VERSION)))
+                .isEqualTo(ConfigExportDto.CURRENT_VERSION);
+    }
+
+    @Test
+    void importWithoutAVersion_isReadAsVersionOne() {
+        assertThat(ConfigService.requireSupportedVersion(null))
+                .as("files written before the field carried meaning are version 1")
+                .isEqualTo(1);
+        assertThat(ConfigService.requireSupportedVersion("  ")).isEqualTo(1);
+    }
+
+    @Test
+    void importWithAGarbledVersion_isRefusedRatherThanGuessed() {
+        assertThatThrownBy(() -> ConfigService.requireSupportedVersion("2.0-beta"))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    /**
+     * A refused import must not have torn anything down on its way to failing —
+     * the existing configuration has to survive intact.
+     */
+    @Test
+    void aRefusedImportLeavesTheExistingConfigurationUntouched() {
+        String siteId = QuarkusTransaction.requiringNew().call(() -> {
+            Site site = Site.createNew("RT-Version-Site", "10.97.0.0/24", null);
+            site.persist();
+            return site.id;
+        });
+
+        ConfigExportDto.Export original =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        ConfigExportDto.Export fromTheFuture = new ConfigExportDto.Export(
+                String.valueOf(ConfigExportDto.CURRENT_VERSION + 1),
+                original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
+                original.settings(), original.oidcProviders(), original.users(), original.roles(),
+                original.roleMemberships(), original.peers(), original.sites(),
+                original.resources(), original.resourcePorts(), original.portGroups(),
+                original.portGroupMembers(), original.roleResourceGrants(),
+                original.grantPortLinks(), original.roleResourceTypeGrants(),
+                original.userResourceGrants(), original.userGrantPortLinks(),
+                original.siteResourceGrants(), original.siteGrantPortLinks(),
+                original.peerSchedules(), original.oidcCustomProviders(), original.apiKeys());
+
+        assertThatThrownBy(() -> configService.importConfig(fromTheFuture))
+                .isInstanceOf(BadRequestException.class);
+
+        Site survived = QuarkusTransaction.requiringNew().call(() -> Site.findById(siteId));
+        assertThat(survived)
+                .as("the refusal must happen before any tear-down")
+                .isNotNull();
+    }
+
+    /**
+     * A user's access deadline (issue #53) is admin-set configuration with a
+     * date, not a running session — unlike reservations and #70's temporary
+     * grants it must survive a restore. Dropping it would silently hand every
+     * time-boxed contractor unlimited access, the opposite of the safe default.
+     */
+    @Test
+    void userValidUntilSurvivesTheRoundTrip() {
+        Instant deadline = Instant.parse("2027-01-31T12:00:00Z");
+        String userId = QuarkusTransaction.requiringNew().call(() -> {
+            User u = User.createNew("RT-Deadline", "rt-deadline@example.test");
+            u.validUntil = deadline;
+            u.persist();
+            return u.id;
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        assertThat(export.users())
+                .filteredOn(u -> u.id().equals(userId))
+                .singleElement()
+                .satisfies(u -> assertThat(u.validUntil()).isEqualTo(deadline));
+
+        configService.importConfig(export);
+
+        User reloaded = QuarkusTransaction.requiringNew().call(() -> User.findById(userId));
+        assertThat(reloaded.validUntil).isEqualTo(deadline);
+    }
+
+    @Test
+    void userWithoutADeadlineRoundTripsAsUnlimited() {
+        String userId = QuarkusTransaction.requiringNew().call(() -> {
+            User u = User.createNew("RT-NoDeadline", "rt-nodeadline@example.test");
+            u.persist();
+            return u.id;
+        });
+
+        ConfigExportDto.Export export =
+                QuarkusTransaction.requiringNew().call(() -> configService.export(false));
+        configService.importConfig(export);
+
+        User reloaded = QuarkusTransaction.requiringNew().call(() -> User.findById(userId));
+        assertThat(reloaded.validUntil)
+                .as("no deadline is the default and must stay that way")
+                .isNull();
     }
 }

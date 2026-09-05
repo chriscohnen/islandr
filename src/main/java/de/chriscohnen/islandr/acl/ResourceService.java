@@ -95,6 +95,7 @@ public class ResourceService {
         return r;
     }
 
+
     /** Blank → null (never resolves); otherwise lowercased for a case-insensitive lookup key. */
     private static String normalizeDnsName(String dnsName) {
         return (dnsName == null || dnsName.isBlank()) ? null : dnsName.strip().toLowerCase(java.util.Locale.ROOT);
@@ -143,6 +144,7 @@ public class ResourceService {
         ResourcePort p = ResourcePort.createNew(r.id, req.port(), req.portEnd(), req.transport(),
                 req.protocol(), req.label(), req.pathPrefix(),
                 req.rdpClipboard(), req.rdpFileTransfer(), req.rdpAccessMode());
+        applyReservationConfig(p, req);
         p.persist();
         return p;
     }
@@ -170,7 +172,24 @@ public class ResourceService {
         p.rdpClipboard = req.rdpClipboard();
         p.rdpFileTransfer = req.rdpFileTransfer();
         p.rdpAccessMode = req.rdpAccessMode() != null ? req.rdpAccessMode() : "native";
+        applyReservationConfig(p, req);
         return p;
+    }
+
+    /**
+     * Exclusive-capacity config (issue #72). Turning the limit off (a null
+     * maxConcurrentUsers) deliberately leaves any existing reservation rows
+     * alone rather than deleting them: they simply stop being consulted, and
+     * an admin who flips the limit back on within the hour gets the still-live
+     * ones back instead of having silently evicted everyone. The expiry job
+     * closes them on schedule either way.
+     */
+    private static void applyReservationConfig(ResourcePort p, ResourceDto.PortRequest req) {
+        p.maxConcurrentUsers = req.maxConcurrentUsers();
+        p.maxReservationMinutes = req.maxReservationMinutes();
+        // Absent (null) means the default, auto-approve — see PortRequest.
+        p.autoApproveReservations = req.autoApproveReservations() == null
+                || req.autoApproveReservations();
     }
 
     @Transactional

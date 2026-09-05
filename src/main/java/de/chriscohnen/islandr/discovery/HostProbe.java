@@ -1,8 +1,10 @@
 package de.chriscohnen.islandr.discovery;
 
+import de.chriscohnen.islandr.dns.LlmnrLookup;
 import de.chriscohnen.islandr.dns.MdnsLookup;
 import de.chriscohnen.islandr.dns.NetBiosLookup;
 import de.chriscohnen.islandr.dns.PtrLookup;
+import de.chriscohnen.islandr.dns.SsdpLookup;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -62,6 +64,7 @@ public class HostProbe {
     private final int udpProbePort;
     private final int timeoutMillis;
     private final String dnsServerIp;
+    private final LinkScope linkScope = new LinkScope();
 
     public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout) {
         this(tcpPorts, udpProbePort, timeout, null);
@@ -107,27 +110,55 @@ public class HostProbe {
     }
 
     /**
-     * Resolution order (issue #48, following on from #45): a router-registered
-     * PTR name (targeted against the site's configured DNS server, or the
-     * JVM's system resolver) is authoritative and tried first; mDNS and
-     * NetBIOS are both device-self-reported fallbacks for hosts no
-     * router/local resolver knows a name for. Any step may legitimately come
-     * up empty — the admin-typed baseline (handled by the caller, not here)
-     * is the final fallback when all three do.
+     * Resolution order, most authoritative first: a registered PTR name
+     * (targeted at the site's own DNS server, else the JVM's system resolver)
+     * is what an authority says the host is called. Everything after it is
+     * device-self-reported — what the host claims about itself over mDNS,
+     * LLMNR, NetBIOS or SSDP. Any step may legitimately come up empty; the
+     * admin-typed baseline (handled by the caller) is the final fallback.
+     *
+     * <p>The self-report protocols all target the host directly rather than a
+     * multicast group. For a hub scanning a network behind a site gateway —
+     * the case Islandr exists for — a multicast query never gets there, and
+     * the source would silently contribute nothing. NetBIOS was unicast from
+     * the start, which is why on such a hub it used to be the only source that
+     * ever produced a name.
+     *
+     * <p>Targeting the host directly is necessary but not sufficient: mDNS and
+     * LLMNR responders reject an off-link querier by specification (see
+     * {@link LinkScope}), so those two are skipped unless the target sits in
+     * one of the hub's own subnets. Off-link they cannot answer, and asking
+     * anyway would spend the budget the sources that <em>can</em> answer need.
+     *
+     * <p>The order among the self-reports is by how much of a hostname each
+     * actually is: mDNS and LLMNR answer the machine's own name, NetBIOS the
+     * same name truncated to 15 characters, and SSDP a human-facing product
+     * label ("Brother HL-L2350DW") that names the device rather than the host.
+     * Last is still far better than "computer-42" for the printers, NAS boxes
+     * and cameras that answer nothing else.
      */
     private String resolveHostname(String ip) {
+        Duration budget = Duration.ofMillis(Math.min(timeoutMillis, 1500));
+
         if (dnsServerIp != null && !dnsServerIp.isBlank()) {
-            Optional<String> targeted = PtrLookup.lookup(ip, dnsServerIp, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
+            Optional<String> targeted = PtrLookup.lookup(ip, dnsServerIp, budget);
             if (targeted.isPresent()) return targeted.get();
         }
         String system = reverseLookup(ip);
         if (system != null) return system;
 
-        Optional<String> mdns = MdnsLookup.lookup(ip, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
-        if (mdns.isPresent()) return mdns.get();
+        if (linkScope.isOnLink(ip)) {
+            Optional<String> mdns = MdnsLookup.lookup(ip, budget);
+            if (mdns.isPresent()) return mdns.get();
 
-        Optional<String> netbios = NetBiosLookup.lookup(ip, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
-        return netbios.orElse(null);
+            Optional<String> llmnr = LlmnrLookup.lookup(ip, budget);
+            if (llmnr.isPresent()) return llmnr.get();
+        }
+
+        Optional<String> netbios = NetBiosLookup.lookup(ip, budget);
+        if (netbios.isPresent()) return netbios.get();
+
+        return SsdpLookup.lookup(ip, budget).orElse(null);
     }
 
     /** Bounded reverse-DNS (PTR) lookup; returns the name, or null if none / on timeout. */

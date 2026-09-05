@@ -1,6 +1,7 @@
 package de.chriscohnen.islandr.firewall;
 
 import de.chriscohnen.islandr.acl.Resource;
+import de.chriscohnen.islandr.acl.ResourceReservation;
 import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
@@ -15,6 +16,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -144,6 +146,28 @@ public class RuleBuilder {
                     .add((String) row[1]);
         }
 
+        // Exclusive-capacity ports (issue #72): a grant establishes only
+        // eligibility for these, an active reservation establishes the slot.
+        // Both lookups are built once here rather than queried per grant —
+        // this method already runs on every ruleset recompute.
+        Set<String> gatedPortIds = new HashSet<>();
+        for (List<ResourcePort> ports : portsByResource.values()) {
+            for (ResourcePort rp : ports) {
+                if (rp.isCapacityLimited()) gatedPortIds.add(rp.id);
+            }
+        }
+        // "userId|portId" for every reservation live right now. Deliberately
+        // computed from the same clock as the rest of the build, so a ruleset
+        // is internally consistent even if generation straddles an expiry.
+        Set<String> liveReservationKeys = new HashSet<>();
+        if (!gatedPortIds.isEmpty()) {
+            Instant now = Instant.now();
+            for (ResourceReservation rr : ResourceReservation.<ResourceReservation>list(
+                    "status", ResourceReservation.ACTIVE)) {
+                if (rr.isLiveAt(now)) liveReservationKeys.add(rr.userId + "|" + rr.portId);
+            }
+        }
+
         Map<String, String> rulesByKey = new LinkedHashMap<>();
         // (peerIp, resource.ip) pairs with at least one grant — for implicit ICMP
         Set<String> icmpPairs = new HashSet<>();
@@ -169,7 +193,8 @@ public class RuleBuilder {
                     Set<String> grantedPortIds = g.allPorts ? Set.of() : portsByGrant.getOrDefault(g.id, Set.of());
                     emitRulesForGrant(peer.name, userName.getOrDefault(peer.userId, "?"), peerIps,
                             g.resourceId, g.allPorts, grantedPortIds,
-                            escape(role.name), resourceById, portsByResource, rulesByKey, icmpPairs);
+                            escape(role.name), resourceById, portsByResource, rulesByKey, icmpPairs,
+                            gatedPortIds, liveReservationKeys, peer.userId);
                 }
             }
 
@@ -181,7 +206,8 @@ public class RuleBuilder {
                 Set<String> grantedPortIds = g.allPorts ? Set.of() : portsByUserGrant.getOrDefault(g.id, Set.of());
                 emitRulesForGrant(peer.name, userName.getOrDefault(peer.userId, "?"), peerIps,
                         g.resourceId, g.allPorts, grantedPortIds,
-                        "(direct)", resourceById, portsByResource, rulesByKey, icmpPairs);
+                        "(direct)", resourceById, portsByResource, rulesByKey, icmpPairs,
+                        gatedPortIds, liveReservationKeys, peer.userId);
             }
         }
 
@@ -210,8 +236,12 @@ public class RuleBuilder {
                 List<String> siteCidrs = List.of(site.cidr);
                 for (SiteResourceGrant g : siteGrants) {
                     Set<String> grantedPortIds = g.allPorts ? Set.of() : portsBySiteGrant.getOrDefault(g.id, Set.of());
+                    // subjectUserId = null: a site grant has no user behind it
+                    // to hold a slot, so its gated ports are never rendered —
+                    // routing a whole subnet in would defeat the capacity limit.
                     emitRulesForGrant(site.name, "(site)", siteCidrs, g.resourceId, g.allPorts, grantedPortIds,
-                            "(site-direct)", resourceById, portsByResource, rulesByKey, icmpPairs);
+                            "(site-direct)", resourceById, portsByResource, rulesByKey, icmpPairs,
+                            gatedPortIds, liveReservationKeys, null);
                 }
             }
         }
@@ -266,19 +296,45 @@ public class RuleBuilder {
      * CIDR — nftables {@code saddr} accepts a network the same as a host IP,
      * so no template change is needed either way.
      */
+    /**
+     * True when a port must not be rendered because it is capacity-limited
+     * (issue #72) and this subject holds no live reservation on it.
+     *
+     * <p>A null {@code userId} is a site/gateway grant, which has no user to
+     * hold a slot. Those are blocked from gated ports outright rather than
+     * waved through: a whole routed subnet reaching an exclusive
+     * single-session port would defeat the capacity limit entirely.
+     */
+    private static boolean reservationBlocksPort(Set<String> gatedPortIds, Set<String> liveKeys,
+                                                 String userId, String portId) {
+        if (!gatedPortIds.contains(portId)) return false;
+        if (userId == null) return true;
+        return !liveKeys.contains(userId + "|" + portId);
+    }
+
     private void emitRulesForGrant(
             String subjectLabel, String subjectUserLabel, List<String> subjectIps,
             String resourceId, boolean allPorts,
             Set<String> grantedPortIds, String roleLabel,
             Map<String, Resource> resourceById, Map<String, List<ResourcePort>> portsByResource,
-            Map<String, String> rulesByKey, Set<String> icmpPairs) {
+            Map<String, String> rulesByKey, Set<String> icmpPairs,
+            Set<String> gatedPortIds, Set<String> liveReservationKeys, String subjectUserId) {
         Resource res = resourceById.get(resourceId);
         if (res == null) return;
         List<ResourcePort> resPorts = portsByResource.getOrDefault(res.id, List.of());
         if (resPorts.isEmpty()) return;
-        List<ResourcePort> grantedPorts = allPorts
+        List<ResourcePort> grantedPorts = (allPorts
                 ? resPorts
-                : resPorts.stream().filter(rp -> grantedPortIds.contains(rp.id)).toList();
+                : resPorts.stream().filter(rp -> grantedPortIds.contains(rp.id)).toList())
+                .stream()
+                // The reservation gate is applied per port, not per resource:
+                // one seat taken on RDP must leave SSH on the same host open.
+                .filter(rp -> !reservationBlocksPort(gatedPortIds, liveReservationKeys, subjectUserId, rp.id))
+                .toList();
+        // Every granted port is gated and unheld — emit nothing at all, not
+        // even the implicit ICMP rule, or the host would still answer pings it
+        // has no open port for.
+        if (grantedPorts.isEmpty()) return;
 
         for (String peerIp : subjectIps) {
             if (isV6(peerIp) != isV6(res.ip)) continue;

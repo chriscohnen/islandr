@@ -21,6 +21,13 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      # The frontend has no build step (ADR-0002), so a broken inline template
+      # is only discovered when a user opens the page. Uses the runner's
+      # preinstalled Node and the Vue build already vendored in the repo —
+      # nothing is installed, so this adds no dependency to attack.
+      - name: Check Vue templates
+        run: node scripts/check-templates.mjs
+
       - name: Run tests
         run: ./gradlew test jacocoTestReport --no-daemon
         # No datasource env vars — the %test profile in application.properties
@@ -262,7 +269,9 @@ jobs:
           for arch in amd64 arm64; do
             BINARY=$(ls dist/$arch/islandr-*-runner)
             mv "$BINARY" dist/islandr-runner-linux-$arch
-            sha256sum dist/islandr-runner-linux-$arch > dist/islandr-runner-linux-$arch.sha256
+            # Bare basename, no dist/ prefix — consumers download the asset next to
+            # the checksum file and run `sha256sum -c` in their own directory.
+            (cd dist && sha256sum "islandr-runner-linux-$arch" > "islandr-runner-linux-$arch.sha256")
             chmod +x dist/islandr-runner-linux-$arch
           done
 

@@ -157,6 +157,14 @@ public class MyPeerResource {
         if (!settings.get().selfServicePeerCreation) {
             throw new ForbiddenException("self-service peer creation is disabled by the administrator");
         }
+        // The bypass issue #53 is actually about: a user whose access window
+        // has closed could create a brand-new, unlimited peer here and carry
+        // on. SessionFilter already rejects them, but this states the rule at
+        // the place it protects rather than relying on a distant filter.
+        de.chriscohnen.islandr.user.User me = de.chriscohnen.islandr.user.User.findById(userId);
+        if (me == null || !me.accessAllowedAt(java.time.Instant.now())) {
+            throw new ForbiddenException("your access has expired — ask an administrator to extend it");
+        }
         // IP is server-chosen for self-service; user never picks a CIDR slot.
         // Type is forced to "client" — site peers are an admin operation.
         Integer autoMtu = body.deviceType() != null && MOBILE_DEVICE_TYPES.contains(body.deviceType())

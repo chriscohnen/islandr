@@ -28,6 +28,7 @@ import jakarta.ws.rs.core.UriBuilder;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.time.Instant;
 import java.util.Map;
 
 @Path("/api/v1/users")
@@ -47,8 +48,10 @@ public class UserResource {
         AuthContext a = Auth.require(ctx);
         if (a.userId() == null) {
             // Local ENV-admin has no User row — return a synthetic minimal response.
+            // The ENV admin has no row and therefore no deadline: never
+            // expired, always allowed.
             return new UserDto.Response(null, a.principal(), null, a.principal(),
-                    null, true, true, null, 0, null);
+                    null, true, true, null, 0, null, false, null);
         }
         User u = User.findById(a.userId());
         if (u == null) throw new jakarta.ws.rs.NotFoundException("user not found");
@@ -170,6 +173,42 @@ public class UserResource {
             for (Peer peer : Peer.<Peer>list("userId", u.id)) {
                 if (peer.enabled) peers.setEnabled(peer.id, false);
             }
+        }
+        return UserDto.Response.from(u);
+    }
+
+    /**
+     * Sets or clears the user's access deadline (issue #53).
+     *
+     * <p>Extending or clearing a deadline deliberately does not switch the
+     * user's peers back on. The expiry job disabled them as an enforcement
+     * action, and some may also have been off for unrelated reasons; deciding
+     * a device may reconnect stays an explicit, per-peer admin action — the
+     * same rule the manual user-disable cascade already follows.
+     */
+    @PUT
+    @Path("/{id}/valid-until")
+    @Transactional
+    public UserDto.Response setValidUntil(@Context ContainerRequestContext ctx,
+                                          @PathParam("id") String id,
+                                          UserDto.ValidUntilRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        User u = User.findById(id);
+        if (u == null) throw new NotFoundException("user not found: " + id);
+        Instant previous = u.validUntil;
+        u.validUntil = body == null ? null : body.validUntil();
+        audit.logUpdate(a.principal(), "user.set_valid_until", "User:" + u.name + " (" + u.id + ")",
+                Map.of("validUntil", previous == null ? "" : previous.toString()),
+                Map.of("validUntil", u.validUntil == null ? "" : u.validUntil.toString()));
+
+        // Shortening a deadline into the past is an immediate revocation, not
+        // something to leave sitting until the next scheduled tick.
+        if (u.isExpiredAt(Instant.now())) {
+            boolean any = false;
+            for (Peer peer : Peer.<Peer>list("userId", u.id)) {
+                if (peer.enabled) { peers.setEnabled(peer.id, false); any = true; }
+            }
+            if (any) rulesets.recomputeFromHook();
         }
         return UserDto.Response.from(u);
     }

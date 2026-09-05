@@ -13,12 +13,42 @@ Both paths require a **Linux host (Ubuntu 22.04+ or Debian 12+)** with:
 - WireGuard kernel module loaded (`modprobe wireguard`)
 - `nftables` installed and the `nft` CLI available
 - A configured `wg0` interface (a keypair + `[Interface]` section — Islandr manages peers, not the interface itself)
+- **256 MB RAM.** The native binary needs ~128 MB resident, 256 MB with headroom. Below roughly 192 MB the kernel OOM killer terminates it mid-startup: the service shows `code=killed, signal=KILL`, `journalctl -u islandr` carries no stack trace, and only `dmesg`/`journalctl -k` names the cause. A 1 GB swap file is enough on a small VPS.
+- **Ports 80 and 443 free.** Islandr terminates TLS itself ([ADR-0015](adr/0015-builtin-tls-termination.md)) and needs port 80 for the ACME HTTP-01 challenge, which RFC 8555 always validates on port 80 — not configurable on either side. On a host that already runs nginx/apache/caddy, bind Islandr to loopback ports instead and put that proxy in front ([reverse-proxy.md](install/reverse-proxy.md)).
 
 macOS and Windows are dev-only. Without `ISLANDR_WG_MODE=real` the binary defaults to a mock adapter — no real tunnel is configured.
 
 ---
 
 ## Native binary + systemd
+
+### Scripted, or by hand
+
+[`install/setup-hub.sh`](install/setup-hub.sh) does everything in this section
+in one go — it checks the prerequisites, downloads and verifies the binary,
+creates the user, writes the sudoers entry, the env file and the unit, and
+prints the installed paths plus the start/stop/journal commands at the end:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/docs/install/setup-hub.sh -o setup-hub.sh
+less setup-hub.sh          # read before you run it as root
+sudo bash setup-hub.sh
+# Interface other than wg0, or a pinned version:
+sudo WG_INTERFACE=wg1 ISLANDR_VERSION=v0.20.0 bash setup-hub.sh
+# Ports 80/443 already taken by a proxy — bind to loopback instead:
+sudo ISLANDR_HTTP_HOST=127.0.0.1 ISLANDR_HTTP_PORT=8080 ISLANDR_HTTPS_PORT=8443 bash setup-hub.sh
+# Admin Console reachable over the WireGuard tunnel only:
+sudo ISLANDR_HTTP_HOST=10.0.0.1 bash setup-hub.sh    # the hub's wg0 address
+```
+
+`ISLANDR_HTTP_HOST` decides who can reach the console. `0.0.0.0` is every
+interface including the public one and is what the built-in TLS/ACME setup
+needs; the WireGuard address restricts it to tunnel clients; `127.0.0.1` means
+this host only, which is right when a reverse proxy sits in front and wrong
+otherwise — a local `curl` will still succeed and hide the mistake.
+
+The steps below are the same thing by hand, and are what you want if you are
+adapting the install to a host that is not a fresh Debian/Ubuntu VPS.
 
 ### 1. Download the binary
 
@@ -27,13 +57,14 @@ macOS and Windows are dev-only. Without `ISLANDR_WG_MODE=real` the binary defaul
 ARCH=$(dpkg --print-architecture)   # on Debian/Ubuntu
 # ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')  # alternative
 
-curl -L "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}" \
-     -o /tmp/islandr
-curl -L "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}.sha256" \
-     -o /tmp/islandr.sha256
+cd /tmp
+BASE="https://github.com/chriscohnen/islandr/releases/latest/download"
+curl -fL -O "$BASE/islandr-runner-linux-${ARCH}"
+curl -fL -O "$BASE/islandr-runner-linux-${ARCH}.sha256"
 
-# Verify checksum
-cd /tmp && sha256sum -c islandr.sha256
+# Verify checksum — this must print "OK" before you install anything
+sha256sum -c "islandr-runner-linux-${ARCH}.sha256"
+mv "islandr-runner-linux-${ARCH}" /tmp/islandr
 ```
 
 ### 2. Create a dedicated system user
@@ -77,7 +108,7 @@ sudo visudo -c -f /etc/sudoers.d/islandr
 
 `visudo -c` must exit with `parsed OK` before you continue. If `nft` or `wg` live under a different path on your distro, adjust with `which nft` and `which wg`.
 
-The 30s activity poller's `wg show wg0`/`wg show wg0 dump` calls do generate three journal lines per tick (sudo's own log line plus PAM session open/close) — this is noisy but **don't** try to silence it with a scoped `Defaults!cmnd_alias !pam_session` rule: `islandr.service` runs with `ProtectSystem=strict`, which makes `/run` read-only for the service and everything it spawns (including `sudo`). Sudo tolerates the resulting `/run/sudo/ts: Read-only file system` when it can still complete a PAM session, but disabling `pam_session` removes that tolerance and sudo falls back to demanding interactive auth — breaking **every** sudo call, including `nft`, not just the noisy one. Confirmed the hard way in production 2026-07-21.
+The 30s activity poller makes these `wg show` calls noisy in the journal — three lines per tick. Do **not** silence that with a scoped `Defaults!cmnd_alias !pam_session` rule; it breaks every sudo call, `nft` included. [install/hardening.md](install/hardening.md#do-not-silence-the-journal-noise-with-pam_session) explains why.
 
 If your WireGuard interface isn't named `wg0`, replace `wg0` in **both** places it appears here — and set `ISLANDR_WG_INTERFACE` to match in step 5. The interface name is baked into the sudoers rules (`wg set wg0 *`, etc.); running the service against a different interface than what sudoers grants fails silently with permission errors in `journalctl`. ([setup-hub.sh](install/setup-hub.sh) takes this as `WG_INTERFACE=wg1 sudo ./setup-hub.sh` instead.)
 
@@ -135,6 +166,8 @@ sudo tee /etc/systemd/system/islandr.service > /dev/null << 'EOF'
 Description=Islandr — WireGuard access management
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 User=islandr
@@ -143,32 +176,23 @@ WorkingDirectory=/var/lib/islandr
 EnvironmentFile=/etc/default/islandr
 ExecStart=/opt/islandr/islandr
 
-# islandr calls nft/wg via sudo (ADR-0011). NoNewPrivileges=true blocks the
-# setuid bit that sudo relies on to become root, so it must stay off — leaving
-# it on fails silently until the first sudo call, e.g. "sudo: unable to
-# change to root gid: Operation not permitted".
+# Do not "harden" the next four lines without reading install/hardening.md —
+# NoNewPrivileges=true and a CapabilityBoundingSet each break every sudo
+# nft/wg call, silently, until the first one runs.
 NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/islandr
-PrivateTmp=false
+PrivateTmp=true
 
-# Needed for built-in TLS on ports 80/443 (if you switch off the loopback:8080
-# setup above) and for the optional resource DNS resolver on port 53
-# (Settings, ADR-0023) — both are privileged ports the unprivileged islandr
-# user can't bind without this. Harmless to leave in even if you use neither;
-# it grants nothing beyond "may bind ports <1024", not root.
-#
-# Deliberately NOT paired with CapabilityBoundingSet=CAP_NET_BIND_SERVICE:
-# the bounding set applies to the whole process tree, including `sudo`
-# children (ADR-0011). Restricting it there denies sudo the CAP_SETUID/
-# CAP_SETGID it needs to actually become root after its setuid-root exec,
-# breaking every sudo nft/wg call with "unable to change to root gid:
-# Operation not permitted" — confirmed the hard way 2026-08-08.
+# Lets the unprivileged user bind 80/443 (TLS) and 53 (resource DNS). Grants
+# nothing else — not root, not CAP_NET_ADMIN.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
+# Slow on purpose: a crash loop at 3s floods the journal past the first, only
+# useful stack trace. StartLimit* above gives up rather than looping forever.
 Restart=on-failure
-RestartSec=3
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -178,6 +202,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now islandr
 sudo systemctl status islandr
 ```
+
+Several of these settings look wrong for a hardened unit and are load-bearing —
+`NoNewPrivileges=false`, the missing `CapabilityBoundingSet`, `PrivateTmp`,
+the restart timing. [install/hardening.md](install/hardening.md) explains each
+one and the outage it prevents. Read it before you tighten anything.
 
 ### 7. Verify
 
@@ -190,7 +219,30 @@ ssh -L 8080:127.0.0.1:8080 user@your-hub
 # then open http://localhost:8080
 ```
 
-### 8. TLS (required for production)
+### 8. First start: the firewall is not enforced yet
+
+A fresh install comes up in **dry-run mode** (`firewall_dry_run = 1`). Islandr
+builds the WireGuard peer set and the nftables ruleset, validates them with
+`nft -c -f`, and logs what it *would* do — but writes nothing. `nft list table
+inet islandr` stays empty and existing peers on the interface are untouched.
+
+This is deliberate: installing on a VPS you are currently reaching *through*
+that same WireGuard tunnel must not cut your own session. Configure resources,
+groups and the ACL matrix first, look at the generated ruleset, then activate.
+
+Turn it off in **Settings → Firewall** ("Firewall-Schreiben pausieren"). The
+Dashboard carries a banner for as long as dry-run is on, so a paused install
+does not look like a working one.
+
+Before you activate, over a WireGuard-only SSH session: confirm the ACL matrix
+grants your own peer access to this host on port 22. If you do lock yourself
+out, the fix needs console or rescue access from the provider:
+
+```bash
+sudo nft delete table inet islandr   # drop islandr's ruleset, tunnel comes back
+```
+
+### 9. TLS (required for production)
 
 Islandr binds to `127.0.0.1:8080`. Put a reverse proxy in front for TLS.
 
@@ -214,7 +266,7 @@ server {
 }
 ```
 
-### 9. Encrypted private key retention (optional, recommended for compliance)
+### 10. Encrypted private key retention (optional, recommended for compliance)
 
 By default, private keys are never stored (`retention=never`). If you enable `retention=plaintext`
 you can switch to `retention=encrypted` so keys are AES-256-GCM encrypted at rest. A DB-only
@@ -418,16 +470,38 @@ output elsewhere, or point `restic backup` at the destination directory instead.
 
 **Native binary:** [`scripts/update.sh`](../scripts/update.sh) downloads the target release (latest
 by default, or a specific version/RC), verifies its checksum, stops the service, swaps the binary,
-and restarts it — the same steps as the manual sequence below, scripted. It assumes the standard
-layout from this page: binary at `/opt/islandr/islandr`, service `islandr.service`.
+and restarts it. It assumes the standard layout from this page — binary at `/opt/islandr/islandr`,
+service `islandr.service`, database at `/var/lib/islandr/data/islandr.db` — which is also what
+[`setup-hub.sh`](install/setup-hub.sh) creates.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/scripts/update.sh -o update.sh
-sudo bash update.sh                 # latest release (including RC)
+sudo bash update.sh                 # latest stable release
+sudo bash update.sh --pre           # latest release, candidates included
 sudo bash update.sh v0.16.0         # pin a specific version
+sudo bash update.sh --rollback      # undo the last update
 ```
 
+With no argument it takes whatever GitHub's `/releases/latest` returns — the newest release that is
+neither a draft nor a prerelease, the same one the Admin Console's version check compares against.
+You do not need to know the version number. Release candidates are only installed when you ask for
+them, by `--pre` or by naming the tag.
+
 Read it before piping straight to `sudo bash` if you'd rather not fetch-and-run blind.
+
+Before swapping the binary it copies the current one to `/opt/islandr/islandr.prev` and takes a
+hot `sqlite3 .backup` of the database to `islandr.db.prev`. It then watches the new version for
+15 seconds — longer than the unit's `RestartSec`, so a process that starts and immediately dies is
+not mistaken for a healthy one — and restores both backups if it does not stay up. The database is
+part of that on purpose: Islandr runs its 70-odd Flyway migrations at startup and ships no undo
+migrations, so a version that migrates and *then* fails leaves behind a schema the previous binary
+refuses to validate — putting only the binary back would not start either. The service is already
+stopped when the copy is taken, so `sqlite3` is preferred (its `.backup` folds any write-ahead log
+into one file) but not required; without it a plain file copy is equally safe.
+
+A crash-looping service counts as "was running" — `systemctl is-active` reports `activating` for
+one, which the script would otherwise read as "was stopped, leave it stopped", exactly in the case
+where an update is meant to fix it.
 
 <details>
 <summary>Or by hand</summary>
@@ -435,13 +509,14 @@ Read it before piping straight to `sudo bash` if you'd rather not fetch-and-run 
 ```bash
 # 1. Download the new binary
 ARCH=$(dpkg --print-architecture)
-curl -L "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}" \
-     -o /tmp/islandr-new
-curl -L "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}.sha256" \
-     -o /tmp/islandr-new.sha256
+cd /tmp
+BASE="https://github.com/chriscohnen/islandr/releases/latest/download"
+curl -fL -O "$BASE/islandr-runner-linux-${ARCH}"
+curl -fL -O "$BASE/islandr-runner-linux-${ARCH}.sha256"
 
-# 2. Verify checksum
-cd /tmp && sha256sum -c islandr-new.sha256
+# 2. Verify checksum — this must print "OK"
+sha256sum -c "islandr-runner-linux-${ARCH}.sha256"
+mv "islandr-runner-linux-${ARCH}" /tmp/islandr-new
 
 # 3. Swap the binary
 sudo systemctl stop islandr

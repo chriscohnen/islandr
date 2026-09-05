@@ -90,6 +90,79 @@ public class SiteService {
         return s;
     }
 
+    /**
+     * Every network a site-gateway peer routes that is not a Site yet.
+     *
+     * <p>A gateway's {@code siteAllowedCidrs} is already the authoritative list
+     * of what sits behind it — the admin typed it once, when importing or
+     * creating the peer. Asking them to type the same CIDRs again as Sites is
+     * transcription work whose typos are silent: a Site whose CIDR does not
+     * match what the gateway routes grants access to nothing.
+     */
+    public List<SiteDto.GatewayNetworkCandidate> gatewayImportPreview() {
+        Map<String, String> siteNameByCidr = Site.<Site>listAll().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        s -> s.cidr.trim(), s -> s.name, (a, b) -> a));
+
+        List<SiteDto.GatewayNetworkCandidate> out = new java.util.ArrayList<>();
+        for (Peer p : Peer.<Peer>list("type", "site")) {
+            if (p.siteAllowedCidrs == null || p.siteAllowedCidrs.isBlank()) continue;
+            for (String raw : p.siteAllowedCidrs.split(",")) {
+                String cidr = raw.trim();
+                if (cidr.isEmpty()) continue;
+                out.add(new SiteDto.GatewayNetworkCandidate(
+                        p.id, p.name, cidr,
+                        suggestSiteName(p.name, cidr),
+                        siteNameByCidr.get(cidr)));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * A name the admin will probably keep. Site names are unique, so a gateway
+     * routing five networks cannot simply reuse the peer's name for all of them
+     * — the network part of the CIDR disambiguates without inventing meaning
+     * that isn't there.
+     */
+    private static String suggestSiteName(String peerName, String cidr) {
+        String base = (peerName == null || peerName.isBlank()) ? "Site" : peerName.trim();
+        String candidate = base + " " + cidr;
+        if (Site.count("name", candidate) == 0) return candidate;
+        for (int i = 2; i < 100; i++) {
+            String numbered = candidate + " (" + i + ")";
+            if (Site.count("name", numbered) == 0) return numbered;
+        }
+        return candidate;
+    }
+
+    /**
+     * Create a Site per entry, wired to the gateway that routes it. An entry
+     * whose CIDR is already a Site is skipped rather than rejected: the dialog
+     * shows the whole gateway, and a partly-imported gateway must stay
+     * re-runnable.
+     */
+    @Transactional
+    public List<SiteDto.GatewayImportResult> gatewayImport(List<SiteDto.GatewayNetworkEntry> entries) {
+        List<SiteDto.GatewayImportResult> results = new java.util.ArrayList<>();
+        for (SiteDto.GatewayNetworkEntry e : entries) {
+            String cidr = e.cidr().trim();
+            if (Site.count("cidr", cidr) > 0) {
+                results.add(new SiteDto.GatewayImportResult(cidr, "skipped", null));
+                continue;
+            }
+            Peer gateway = Peer.findById(e.peerId());
+            if (gateway == null || !gateway.isSite()) {
+                throw new jakarta.ws.rs.BadRequestException(
+                        "peerId " + e.peerId() + " is not a site peer");
+            }
+            Site s = create(new SiteDto.UpsertRequest(
+                    e.name().trim(), cidr, e.description(), gateway.id, null, null));
+            results.add(new SiteDto.GatewayImportResult(cidr, "imported", s.id));
+        }
+        return results;
+    }
+
     @Transactional
     public Site update(String id, SiteDto.UpsertRequest req) {
         Site s = get(id);

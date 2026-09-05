@@ -119,9 +119,19 @@ Pre-built binaries for Linux x86_64 and ARM64 are attached to every [GitHub Rele
 
 ```bash
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -fsSL "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}" -o /tmp/islandr
-curl -fsSL "https://github.com/chriscohnen/islandr/releases/latest/download/islandr-runner-linux-${ARCH}.sha256" | sha256sum -c -
-sudo install -m 0755 /tmp/islandr /usr/local/bin/islandr
+BASE="https://github.com/chriscohnen/islandr/releases/latest/download"
+cd /tmp && curl -fsSL -O "$BASE/islandr-runner-linux-${ARCH}" -O "$BASE/islandr-runner-linux-${ARCH}.sha256"
+sha256sum -c "islandr-runner-linux-${ARCH}.sha256"
+sudo install -d -o islandr -g islandr /opt/islandr
+sudo install -o islandr -g islandr -m 0755 "islandr-runner-linux-${ARCH}" /opt/islandr/islandr
+```
+
+That is the binary only. [`docs/install/setup-hub.sh`](docs/install/setup-hub.sh) does the whole
+thing — service user, scoped sudo, env file, systemd unit — and checks the prerequisites first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/docs/install/setup-hub.sh -o setup-hub.sh
+less setup-hub.sh && sudo bash setup-hub.sh
 ```
 
 Or run the container image (published to GHCR for `amd64` and `arm64`):
@@ -175,6 +185,7 @@ islandr/
 ├── docs/
 │   ├── prd.md                               # Product Requirements Document
 │   ├── install.md                           # Installation guide (native binary, Docker)
+│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md
 │   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
 │   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
 │   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
@@ -186,11 +197,12 @@ islandr/
 │   │   └── 02-roadmap.md                    # roadmap page
 │   └── diagrams/                            # generated C4 PNGs + .puml, embedded in arc42
 ├── scripts/
-│   ├── update.sh                            # download, verify, swap the binary, restart the service
-│   └── backup.sh                            # gzip-compressed, rotated SQLite backup via `sqlite3 .backup`
+│   ├── update.sh                            # download, verify, swap the binary, roll back if it fails
+│   ├── backup.sh                            # gzip-compressed, rotated SQLite backup via `sqlite3 .backup`
+│   └── check-templates.mjs                  # compiles every inline Vue template in CI (no npm, uses the vendored Vue)
 ├── src/
 │   ├── main/java/de/chriscohnen/islandr/
-│   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang"
+│   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang", port reservations (#72)
 │   │   ├── acme/        # hand-rolled RFC 8555 ACME client — Let's Encrypt auto-provisioning
 │   │   ├── admin/       # config export/import, version check
 │   │   ├── apikey/      # admin-issued API keys for the external automation API (ADR-0026)
@@ -198,17 +210,18 @@ islandr/
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
-│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014)
-│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), unrelated PTR/mDNS/NetBIOS reverse lookups for discovery's hostname suggestion (#45, #48)
+│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014), plus the link-scope gate that skips mDNS/LLMNR for off-link targets
+│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), plus PTR/mDNS/LLMNR/NetBIOS/SSDP name lookups for discovery's hostname suggestion (#45, #48)
 │   │   ├── external/    # /api/external/v1 facade: API-key auth, peers/users/sites/resources/roles (ADR-0026)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
+│   │   ├── hosthealth/  # hub CPU/memory/swap sampler, hand-rolled from /proc (issue #73)
 │   │   ├── identity/    # OidcProvider + OidcCustomProvider (issue #69), JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
 │   │   ├── network/     # network diagnostics: ping/tracepath/mtr over an unprivileged shell (ADR-0025)
 │   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
 │   │   ├── proxy/       # Docker socket-proxy client + reconciler (ADR-0012)
 │   │   ├── settings/    # singleton settings (WG topology, retention mode, hub geocoding)
 │   │   ├── tls/         # built-in TLS termination, cert hot-swap (ADR-0015)
-│   │   ├── user/        # User + Resource + AvatarService + Google Workspace import
+│   │   ├── user/        # User + Resource + AvatarService + Google Workspace import + access expiry (#53)
 │   │   ├── validation/  # @ValidIpAddress / @ValidCidr custom validators
 │   │   ├── webhook/     # outbound event webhooks (issue #68)
 │   │   ├── wg/          # WgAdapter (real shells out, mock for dev/CI)
@@ -222,7 +235,7 @@ islandr/
 │   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 727 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 854 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -289,6 +302,23 @@ islandr/
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
+**0.20.0**
+- **Exclusive ports** — a resource port can declare how many people may hold it at once. A grant then decides who may *ask*; a reservation decides who holds the slot right now. For the shared-function-account case (an RDP box with one session), where until now an admin coordinated by hand or several people all believed they had exclusive access. Capacity is per **port**, not per host, so one seat on RDP leaves the same machine's SSH freely usable. Users reserve and release from the self-service portal; requests at capacity are refused outright, naming who holds it, how long the wait is, and their e-mail to ask ([#72](https://github.com/chriscohnen/islandr/issues/72))
+- **User-level access expiry** — a user can carry a deadline of their own, closing a bypass: the Peer-Scheduler time-boxes a *device*, so a contractor whose peer had expired could enrol a fresh unlimited one from the portal. The deadline is checked at login and on every request, and withdraws access when it passes, cascading to the user's peers ([#53](https://github.com/chriscohnen/islandr/issues/53))
+- **Security fix: the OIDC login path never checked whether an account was enabled** — a disabled user could sign in through an identity provider even though the local-password path refused them
+- **Security fix: sessions outlived the access they were issued for** — disabling a user only took effect at their next login; anyone already signed in kept full access, self-service peer creation included, until the session expired
+- **Hub load on the Dashboard** — CPU, memory and swap of the hub itself, read from `/proc` with no extra dependency, preferring a container's cgroup limit over host totals where one is set. Each metric carries its own status, so a memory warning no longer reads as a CPU problem ([#73](https://github.com/chriscohnen/islandr/issues/73))
+- **Config export** now carries per-port capacity settings and user access deadlines, and its format version is finally enforced: an export from a *newer* Islandr is refused rather than silently imported with unknown fields dropped
+- **Discovery names more devices, and stops asking questions that cannot be answered** — the mDNS query was multicast, which never crosses a router, so for networks reached through a gateway only NetBIOS ever answered and everything non-Windows came back as "computer-42". mDNS now asks the host directly, and **SSDP/UPnP** joins the chain, reading a device's own `friendlyName` — the first name a printer, NAS or camera ever gives up. **LLMNR** is in the chain too, but it and mDNS are link-scope protocols whose responders are required to ignore an off-link querier (RFC 6762 §11, RFC 4795 §2.5), so both are skipped unless the target is in one of the hub's own subnets — off-link they only spend the budget the sources that can answer need
+- **Fixed: the Admin Console named the WireGuard interface `wg0` regardless of what it is called** — on a hub deployed with `ISLANDR_WG_INTERFACE=wg1` the import button, the empty-state and the public-key hint all pointed at an interface that does not exist
+- **The Peers table sorts by IP and by type** — numerically, since as text `10.77.140.9` sorts after `10.77.140.21`
+- **A site gateway's routed networks can be imported as Networks** — a gateway carrying five CIDRs no longer means typing those five CIDRs again on the Networks page, where a typo fails silently: a Network whose CIDR does not match what the gateway routes grants access to nothing. Grouped by gateway, with a name per row and existing networks shown rather than hidden.
+- **Adopting an existing WireGuard hub got a lot less manual** — "Import from wg0" now selects/deselects everything in one click, and lets each candidate be imported as a site gateway rather than always a client. A peer that already routes networks beyond its own address is recognised as a gateway and pre-filled with those networks, which the import previously discarded. A peer's type and its owning user are also changeable after the fact instead of needing delete-and-recreate, which cost its activity history and handed the person a new key — setting up a hub goes import-then-invite, so every imported client starts out owned by nobody and the edit dialog had no way to change that
+- **Settings "Read from WireGuard" reads the subnet too**, and offers the live listen port whenever it differs from the endpoint field — previously only when it happened not to be 51820. It also queries the configured interface instead of a hardcoded `wg0`, which returned the wrong peer's key on any hub deployed with `ISLANDR_WG_INTERFACE` set to something else
+- **Every inline Vue template is compiled in CI** — the frontend has no build step, so a template that references a `v-for` variable from outside its loop compiles fine and then throws at render time, taking the whole view with it. That shipped once, in an unreleased candidate, and left the peer import dialog unable to open. The check uses the Vue build already vendored in the repo and the runner's own Node: nothing is installed, so it adds no dependency that could be compromised
+- **`update.sh` can undo a failed update** — it backs up the binary *and* the database before swapping, watches the new version past the unit's restart delay instead of glancing at it after two seconds, and restores both if it does not stay up. `--rollback` does it on demand. With no argument it now installs the latest *stable* release rather than the newest one including candidates — `--pre` opts back in. The database matters here: Flyway migrates at startup, so a version that migrates and then fails leaves a schema the old binary refuses
+- **`setup-hub.sh` now checks the things that make a fresh install fail after it finishes** — WireGuard installed and the interface actually up, enough memory (a hub with 112 MB free is SIGKILLed mid-startup with no stack trace), free ports, an active `ufw` without a rule. It downloads and checksums the binary itself, and prints the installed paths, the service and journal commands, and a diagnosis when the service did not come up. The published `.sha256` also names the asset by its plain filename now, so the `sha256sum -c` in the install guide actually verifies instead of failing on a path that only existed on the build machine
+
 **0.19.0**
 - **Generic OIDC provider support** — Auth0, Okta, or any other OIDC-compliant issuer can now be added alongside Microsoft 365/Google Workspace, discovered automatically via `.well-known/openid-configuration`; Auth0/Okta get preset tiles that only ask for a domain, a fully generic tile asks for the issuer URL directly ([#69](https://github.com/chriscohnen/islandr/issues/69))
 - **Outgoing webhooks** — configure any URL to receive peer connect/disconnect, ACL grant, discovery-scan, and certificate-renewal events, filtered per webhook to only the event types it wants; HMAC-SHA256-signed by default, or a Gotify-native payload format for instances already running a Gotify server, plus an optional extra auth header (`Authorization`, `X-API-Key`, ...) for receivers that need one ([#68](https://github.com/chriscohnen/islandr/issues/68))
@@ -332,6 +362,7 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 ## Documentation
 
 - [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
+- [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
 - [docs/arc42/](docs/arc42/) — Architecture documentation (arc42, 12 chapters, C4 diagrams embedded)

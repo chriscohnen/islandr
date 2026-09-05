@@ -92,15 +92,21 @@ public interface WgAdapter {
 
     /**
      * State of the WireGuard server interface as read by the probe.
-     * Fields sourced from {@code wg show <iface> dump} and {@code ip link show <iface>}.
-     * {@code ifStatus} and {@code mtu} are "unknown" when {@code ip link} is not accessible.
+     * Fields sourced from {@code wg show <iface> dump}, {@code ip link show <iface>}
+     * and {@code ip -o addr show <iface>}. {@code ifStatus} and {@code mtu} are
+     * "unknown" when {@code ip link} is not accessible; the CIDR fields are null
+     * when {@code ip addr} is not accessible or the interface carries no address
+     * of that family. WireGuard itself does not know the interface's addresses —
+     * they belong to the kernel network stack — so they cannot come from wg.
      */
     record ServerInfo(
             String publicKey,
             int listenPort,
             int peerCount,
-            String ifStatus,  // "up" | "down" | "unknown"
-            int mtu           // 0 when unknown
+            String ifStatus,   // "up" | "down" | "unknown"
+            int mtu,           // 0 when unknown
+            String ipv4Cidr,   // interface network, e.g. "10.8.0.0/24"; null when unknown
+            String ipv6Cidr    // interface network, e.g. "fd11::/64"; null when unknown
     ) {}
 
     /** Outcome of {@link #probeServerDetailed}: success carries {@code info}, failure carries {@code error}. */

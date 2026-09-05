@@ -68,8 +68,38 @@ public class ResourcePort extends PanacheEntityBase {
     @Column(name = "rdp_access_mode", nullable = false, length = 16)
     public String rdpAccessMode = "native";
 
+    /** Exclusive-capacity limit (issue #72): how many users may hold this
+     *  port at the same time. {@code null} — the default, and every port that
+     *  existed before #72 — means unlimited, i.e. a grant alone reaches it,
+     *  exactly as before. Any non-null value opts the port into the
+     *  reservation layer: a standing grant then establishes only
+     *  *eligibility*, and an active {@link ResourceReservation} on this port
+     *  is additionally required to actually reach it.
+     *
+     *  <p>Deliberately per port rather than per resource: a host can have one
+     *  seat on RDP while its SSH port stays freely usable, and locking the
+     *  whole machine for that would be wrong. */
+    @Column(name = "max_concurrent_users")
+    public Integer maxConcurrentUsers;
+
+    /** Ceiling on a single self-service reservation of this port, in minutes.
+     *  {@code null} = no ceiling beyond the duration picker's own options. */
+    @Column(name = "max_reservation_minutes")
+    public Integer maxReservationMinutes;
+
+    /** When true (default), a request that fits the remaining capacity is
+     *  granted immediately; when false every request waits for an admin
+     *  decision even on an idle port. */
+    @Column(name = "auto_approve_reservations", nullable = false, columnDefinition = "INTEGER")
+    public boolean autoApproveReservations = true;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
+
+    /** True when this port takes part in the reservation layer at all. */
+    public boolean isCapacityLimited() {
+        return maxConcurrentUsers != null;
+    }
 
     public static ResourcePort createNew(String resourceId, int port, Integer portEnd,
                                          String transport, String protocol, String label,

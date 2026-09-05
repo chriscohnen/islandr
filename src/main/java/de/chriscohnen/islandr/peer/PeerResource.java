@@ -218,6 +218,9 @@ public class PeerResource {
         afterMap.put("name", out.peer().name());
         afterMap.put("assignedIp", out.peer().assignedIp());
         afterMap.put("siteAllowedCidrs", out.peer().siteAllowedCidrs() == null ? "" : out.peer().siteAllowedCidrs());
+        // Reassigning the owner changes what the peer may reach, so the audit
+        // trail has to show it — not just the name and address.
+        afterMap.put("userId", out.peer().userId() == null ? "" : out.peer().userId());
         audit.logUpdate(a.principal(), "peer.update", "Peer:" + out.peer().name() + " (" + id + ")", beforeMap, afterMap);
         rulesets.recomputeFromHook();
         return out;
@@ -444,6 +447,7 @@ public class PeerResource {
         m.put("name", p.name);
         m.put("assignedIp", p.assignedIp);
         m.put("siteAllowedCidrs", p.siteAllowedCidrs == null ? "" : p.siteAllowedCidrs);
+        m.put("userId", p.userId == null ? "" : p.userId);
         return m;
     }
 }

@@ -4,6 +4,7 @@ import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
 import { onEscape } from "/js/keyboard.js";
+import { hub, loadHub } from "/js/hub.js";
 
 // Flat list of every peer across every user. This is the main working surface
 // for sysadmins ("show me everything connected"). User-scoped peer creation
@@ -42,6 +43,15 @@ export default defineComponent({
     };
   },
   computed: {
+    // The interface these peers live on. Named in the import copy, so a hub
+    // deployed with ISLANDR_WG_INTERFACE=wg1 does not read "Import from wg0".
+    wgInterface() { return hub.wgInterface; },
+    importSelectable() {
+      return this.importCandidates.filter(c => !c.alreadyExists);
+    },
+    importSelectedCount() {
+      return this.importSelectable.filter(c => c.selected).length;
+    },
     _lang() { return locale.current; },
     modalUserName() {
       const u = this.usersById[this.modalUserId];
@@ -62,6 +72,23 @@ export default defineComponent({
       list.sort((a, b) => {
         let av = a[k], bv = b[k];
         if (k === "name") return d * av.localeCompare(bv);
+        if (k === "assignedIp") {
+          const diff = this.ipKey(a.assignedIp) - this.ipKey(b.assignedIp);
+          // Ties are the routed networks below the IP: a gateway with more of
+          // them is the bigger site, which is the useful order here.
+          if (diff !== 0) return d * diff;
+          const ac = (a.siteAllowedCidrs || "").split(",").filter((x) => x.trim()).length;
+          const bc = (b.siteAllowedCidrs || "").split(",").filter((x) => x.trim()).length;
+          return d * (bc - ac);
+        }
+        // Sites first ascending — a hub with a handful of gateways among many
+        // clients is the case worth grouping, not the other way round.
+        if (k === "type") {
+          av = a.type === "site" ? 0 : 1;
+          bv = b.type === "site" ? 0 : 1;
+          if (av !== bv) return d * (av - bv);
+          return a.name.localeCompare(b.name);
+        }
         if (k === "enabled") return d * ((av ? 1 : 0) - (bv ? 1 : 0));
         if (k === "user") {
           // Same "—" for a site peer as the Benutzer column, regardless of
@@ -80,6 +107,7 @@ export default defineComponent({
     },
   },
   async mounted() {
+    loadHub();
     await this.load();
     this._offEscape = onEscape(() => { if (this.importModal) this.closeImport(); });
   },
@@ -171,17 +199,26 @@ export default defineComponent({
         if (!res.ok) throw new Error("HTTP " + res.status);
         const candidates = await res.json();
         // Pre-populate name from allowedIps and default user to first user
+        // A candidate that already routes networks beyond its own address is a
+        // gateway as far as wg is concerned — default it to site so importing 24
+        // peers does not silently flatten the branch offices into clients.
         this.importCandidates = candidates.map(c => ({
           ...c,
           selected: !c.alreadyExists,
           name: c.assignedIp || c.publicKey.slice(0, 8),
-          userId: this.users[0]?.id || "",
+          type: c.siteAllowedCidrs ? "site" : "client",
+          siteAllowedCidrs: c.siteAllowedCidrs || "",
+          userId: c.siteAllowedCidrs ? "" : (this.users[0]?.id || ""),
         }));
       } catch (e) {
         this.importError = t("peers.import_error_load", { error: e.message });
       } finally {
         this.importLoading = false;
       }
+    },
+
+    setAllImportSelected(selected) {
+      this.importCandidates.forEach(c => { if (!c.alreadyExists) c.selected = selected; });
     },
 
     closeImport() {
@@ -194,6 +231,11 @@ export default defineComponent({
     async submitImport() {
       const toImport = this.importCandidates.filter(c => c.selected && !c.alreadyExists);
       if (toImport.length === 0) return;
+      const siteWithoutCidrs = toImport.find(c => c.type === "site" && !c.siteAllowedCidrs.trim());
+      if (siteWithoutCidrs) {
+        this.importError = t("peers.import_error_site_cidrs", { name: siteWithoutCidrs.name });
+        return;
+      }
       this.importSubmitting = true;
       this.importError = null;
       try {
@@ -204,8 +246,9 @@ export default defineComponent({
             publicKey: c.publicKey,
             name: c.name,
             assignedIp: c.assignedIp,
-            userId: c.userId || null,
-            type: "client",
+            userId: c.type === "site" ? null : (c.userId || null),
+            type: c.type,
+            siteAllowedCidrs: c.type === "site" ? c.siteAllowedCidrs.trim() : null,
           })) }),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -225,6 +268,16 @@ export default defineComponent({
 
     userNameFor(userId) {
       return this.usersById[userId]?.name || "?";
+    },
+
+    // Sortable as a number, not as text: "10.77.140.9" sorts after
+    // "10.77.140.21" as a string, which is the opposite of what an operator
+    // scanning a subnet expects. Peers with no IPv4 (v6-only) sort last.
+    ipKey(ip) {
+      if (!ip) return Number.MAX_SAFE_INTEGER;
+      const parts = ip.split(".");
+      if (parts.length !== 4) return Number.MAX_SAFE_INTEGER;
+      return parts.reduce((acc, p) => acc * 256 + (parseInt(p, 10) || 0), 0);
     },
 
     sortBy(key) {
@@ -256,7 +309,7 @@ export default defineComponent({
           <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
         </select>
         <button class="btn btn-primary btn-sm" @click="openCreate" :disabled="users.length === 0">{{ t('peers.create_btn') }}</button>
-        <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('peers.import_btn') }}</button>
+        <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('peers.import_btn', { iface: wgInterface }) }}</button>
       </div>
     </div>
 
@@ -275,11 +328,15 @@ export default defineComponent({
           <th @click="sortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap; width: 22%">
             {{ t('peers.th_name') }} <span class="muted" style="font-size: 10px">{{ sortIcon('name') }}</span>
           </th>
-          <th>{{ t('peers.th_type') }}</th>
+          <th @click="sortBy('type')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_type') }} <span class="muted" style="font-size: 10px">{{ sortIcon('type') }}</span>
+          </th>
           <th @click="sortBy('user')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_user') }} <span class="muted" style="font-size: 10px">{{ sortIcon('user') }}</span>
           </th>
-          <th>{{ t('peers.th_ip') }}</th>
+          <th @click="sortBy('assignedIp')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_ip') }} <span class="muted" style="font-size: 10px">{{ sortIcon('assignedIp') }}</span>
+          </th>
           <th @click="sortBy('enabled')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_status') }} <span class="muted" style="font-size: 10px">{{ sortIcon('enabled') }}</span>
           </th>
@@ -345,9 +402,9 @@ export default defineComponent({
 
     <!-- wg import modal -->
     <div v-if="importModal" class="modal-backdrop" @click.self="closeImport">
-      <div class="modal" style="max-width: 680px">
+      <div class="modal" style="max-width: 880px">
         <div class="modal-header">
-          <h2>{{ t('peers.import_title') }}</h2>
+          <h2>{{ t('peers.import_title', { iface: wgInterface }) }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeImport">✕</button>
         </div>
         <div class="modal-body">
@@ -374,23 +431,39 @@ export default defineComponent({
           </div>
 
           <div v-else-if="importCandidates.length === 0" class="muted">
-            {{ t('peers.import_empty') }}
+            {{ t('peers.import_empty', { iface: wgInterface }) }}
           </div>
 
           <div v-else>
-            <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--text-sm)">{{ t('peers.import_hint') }}</p>
+            <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--text-sm)">{{ t('peers.import_hint', { iface: wgInterface }) }}</p>
+            <div style="margin-bottom: var(--space-2); display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap">
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :disabled="importSelectedCount === importSelectable.length"
+                      @click="setAllImportSelected(true)">{{ t('peers.import_select_all') }}</button>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      :disabled="importSelectedCount === 0"
+                      @click="setAllImportSelected(false)">{{ t('peers.import_select_none') }}</button>
+              <span class="muted" style="font-size: var(--text-sm)">
+                {{ t('peers.import_selected_count', { selected: importSelectedCount, total: importSelectable.length }) }}
+              </span>
+            </div>
             <table class="table" style="font-size: var(--text-sm)">
               <thead>
+                <!-- Explicit widths: .input/.select are width:100%, so without
+                     them the browser squeezes a column down to its control's
+                     chevron and the value looks missing rather than clipped. -->
                 <tr>
                   <th style="width: 32px"></th>
-                  <th>{{ t('peers.import_th_key') }}</th>
-                  <th>{{ t('peers.import_th_ip') }}</th>
+                  <th style="width: 150px">{{ t('peers.import_th_key') }}</th>
+                  <th style="width: 120px">{{ t('peers.import_th_ip') }}</th>
                   <th>{{ t('peers.import_th_name') }}</th>
-                  <th>{{ t('peers.import_th_user') }}</th>
+                  <th style="width: 110px">{{ t('peers.import_th_type') }}</th>
+                  <th style="width: 190px">{{ t('peers.import_th_user') }}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="c in importCandidates" :key="c.publicKey" :style="c.alreadyExists ? 'opacity:0.45' : ''">
+                <template v-for="c in importCandidates" :key="c.publicKey">
+                <tr :style="c.alreadyExists ? 'opacity:0.45' : ''">
                   <td>
                     <input type="checkbox" v-model="c.selected" :disabled="c.alreadyExists"
                            style="width:15px;height:15px;accent-color:var(--accent);margin:0" />
@@ -407,13 +480,33 @@ export default defineComponent({
                   </td>
                   <td>
                     <select v-if="!c.alreadyExists" class="select" style="height:28px;font-size:var(--text-sm)"
+                            v-model="c.type" :disabled="!c.selected">
+                      <option value="client">Client</option>
+                      <option value="site">Site</option>
+                    </select>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td>
+                    <select v-if="!c.alreadyExists && c.type === 'client'" class="select" style="height:28px;font-size:var(--text-sm)"
                             v-model="c.userId" :disabled="!c.selected">
                       <option value="">{{ t('peers.import_no_user') }}</option>
                       <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
                     </select>
+                    <span v-else-if="!c.alreadyExists" class="muted">{{ t('peers.import_site_no_user') }}</span>
                     <span v-else class="muted">—</span>
                   </td>
                 </tr>
+                <tr v-if="!c.alreadyExists && c.type === 'site'">
+                  <td></td>
+                  <td colspan="5" style="padding-top:0">
+                    <label class="eyebrow" style="display:block; margin-bottom:2px">{{ t('peers.import_th_cidrs') }}</label>
+                    <input class="input mono" style="height:28px;font-size:var(--text-sm);padding:2px 6px"
+                           v-model="c.siteAllowedCidrs" :disabled="!c.selected"
+                           placeholder="192.168.50.0/24, 10.20.0.0/16" />
+                    <div class="field-hint" style="margin-top:2px">{{ t('peers.import_cidrs_hint') }}</div>
+                  </td>
+                </tr>
+                </template>
               </tbody>
             </table>
             <div style="margin-top: var(--space-4); display:flex; gap:var(--space-3)">

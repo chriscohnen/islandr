@@ -34,6 +34,14 @@ public class User extends PanacheEntityBase {
     @Column(name = "enabled", nullable = false)
     public boolean enabled = true;
 
+    /** Access deadline (issue #53). Null — the default — means no expiry.
+     *  Deliberately separate from {@link #enabled}: that records an admin's
+     *  standing decision, this records a deadline. Access needs both, so an
+     *  admin extending the deadline never silently undoes a deliberate
+     *  disable. */
+    @Column(name = "valid_until")
+    public Instant validUntil;
+
     @Column(name = "is_admin", nullable = false)
     public boolean isAdmin = false;
 
@@ -81,6 +89,24 @@ public class User extends PanacheEntityBase {
     /** "de" | "en" | null. Set from OIDC locale claim on first login; updated by user preference. */
     @Column(name = "preferred_locale", length = 8)
     public String preferredLocale;
+
+    /**
+     * Whether this user may hold access at {@code now} — enabled by an admin
+     * <em>and</em> inside their access window (issue #53).
+     *
+     * <p>The single question every gate should ask: local login, OIDC login,
+     * every authenticated request, and self-service peer creation. Checking
+     * {@code enabled} alone is what let a contractor whose peer had just
+     * expired create a fresh, unlimited one from the portal.
+     */
+    public boolean accessAllowedAt(Instant now) {
+        return enabled && (validUntil == null || validUntil.isAfter(now));
+    }
+
+    /** True when a deadline was set and has passed. */
+    public boolean isExpiredAt(Instant now) {
+        return validUntil != null && !validUntil.isAfter(now);
+    }
 
     public static User createNew(String name, String email) {
         User u = new User();

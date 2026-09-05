@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -54,5 +55,54 @@ public class AclService {
                 .setParameter(2, resourceId)
                 .getResultList();
         return !rows.isEmpty() && rows.get(0).intValue() > 0;
+    }
+
+    /**
+     * Reservation-aware access check (issue #72): eligibility
+     * ({@link #hasAnyGrant}) <em>and</em>, when the resource has any
+     * capacity-limited port, a live {@link ResourceReservation} on at least
+     * one port the caller could use.
+     *
+     * <p>Answers a resource-level question ("should this name resolve, is this
+     * host reachable at all"), which is what the DNS resolver needs. Capacity
+     * itself is per port, so a host whose SSH port is open and whose RDP port
+     * is taken still resolves — only a host where <em>every</em> port is gated
+     * and unheld does not.
+     *
+     * <p>{@link #hasAnyGrant} on its own answers only "is this user allowed to
+     * ask for it", which is what {@link ReservationService#request} needs and
+     * nothing else should use to gate actual reachability.
+     */
+    public boolean canReachNow(String userId, String resourceId) {
+        if (!hasAnyGrant(userId, resourceId)) return false;
+        List<ResourcePort> ports = ResourcePort.list("resourceId", resourceId);
+        if (ports.isEmpty()) return true;   // nothing gated, nothing to check
+
+        Instant now = Instant.now();
+        boolean anyGated = false;
+        for (ResourcePort port : ports) {
+            if (!port.isCapacityLimited()) return true;   // an open port is enough
+            anyGated = true;
+            for (ResourceReservation r : ResourceReservation.<ResourceReservation>list(
+                    "userId = ?1 and portId = ?2 and status = ?3",
+                    userId, port.id, ResourceReservation.ACTIVE)) {
+                if (r.isLiveAt(now)) return true;
+            }
+        }
+        return !anyGated;
+    }
+
+    /** Per-port variant — "may this user actually use this specific port right now". */
+    public boolean canReachPortNow(String userId, ResourcePort port) {
+        if (port == null) return false;
+        if (!hasAnyGrant(userId, port.resourceId)) return false;
+        if (!port.isCapacityLimited()) return true;
+        Instant now = Instant.now();
+        for (ResourceReservation r : ResourceReservation.<ResourceReservation>list(
+                "userId = ?1 and portId = ?2 and status = ?3",
+                userId, port.id, ResourceReservation.ACTIVE)) {
+            if (r.isLiveAt(now)) return true;
+        }
+        return false;
     }
 }

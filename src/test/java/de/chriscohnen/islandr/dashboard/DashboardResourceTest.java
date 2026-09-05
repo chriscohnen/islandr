@@ -230,4 +230,19 @@ class DashboardResourceTest {
                 .then().statusCode(200).extract().jsonPath();
         assertThat(body.getList("recentAudit").size()).isLessThanOrEqualTo(8);
     }
+
+    /**
+     * The sampler is disabled in tests (%test.islandr.host-health.poll-enabled=false,
+     * same reasoning as ActivityPoller) — the field must still always be present
+     * (never null), reporting "unavailable" rather than the dashboard endpoint
+     * ever failing or omitting it because no sample has ever been taken.
+     */
+    @Test
+    void dashboard_hostHealth_alwaysPresent_unavailableWhenSamplerDisabled() {
+        given().when().get("/api/v1/dashboard")
+                .then().statusCode(200)
+                .body("hostHealth", org.hamcrest.Matchers.notNullValue())
+                .body("hostHealth.status", org.hamcrest.Matchers.is("unavailable"))
+                .body("hostHealth.cpuPercent", org.hamcrest.Matchers.nullValue());
+    }
 }

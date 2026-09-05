@@ -35,7 +35,10 @@ export default defineComponent({
       formError: null,
       // Inline port form (one per resource at a time)
       portFormFor: null,
-      portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "" },
+      portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
+        // #72: empty string, not 0 — the port is "unlimited" until the admin
+        // types a number, and 0 would mean "nobody may ever reach it".
+        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true },
       portError: null,
       // Port-group apply (separate inline form, one resource at a time)
       portGroups: [],
@@ -330,7 +333,8 @@ export default defineComponent({
     },
     openPortForm(resourceId) {
       this.portFormFor = resourceId;
-      this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "" };
+      this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
+        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true };
       this.portError = null;
       // Close the group-apply UI to keep only one inline form open at a time.
       this.groupFormFor = null;
@@ -368,6 +372,14 @@ export default defineComponent({
             protocol: this.portForm.protocol,
             label: this.portForm.label || null,
             pathPrefix: this.portForm.pathPrefix || null,
+            // Blank capacity fields go over the wire as null ("unlimited" /
+            // "no ceiling"), not as 0 or "" — the server distinguishes absent
+            // from zero and the entity treats null as "not reservable".
+            maxConcurrentUsers: this.portForm.maxConcurrentUsers === "" || this.portForm.maxConcurrentUsers == null
+                ? null : Number(this.portForm.maxConcurrentUsers),
+            maxReservationMinutes: this.portForm.maxReservationMinutes === "" || this.portForm.maxReservationMinutes == null
+                ? null : Number(this.portForm.maxReservationMinutes),
+            autoApproveReservations: this.portForm.autoApproveReservations,
           }),
         });
         if (!res.ok) {
@@ -723,6 +735,30 @@ export default defineComponent({
                   <button type="submit" class="btn btn-primary btn-sm">{{ t('resources.add_btn') }}</button>
                 </div>
               </div>
+              <!-- Exclusive capacity (#72). Left empty, the port behaves
+                   exactly as before: a grant alone reaches it. -->
+              <div style="display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: flex-start; margin-top: var(--space-3)">
+                <div class="field" style="margin: 0; flex: 1; min-width: 180px">
+                  <label for="portMaxUsers">{{ t('resources.field_capacity') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+                  <input id="portMaxUsers" class="input mono" type="number" min="1" step="1"
+                         v-model="portForm.maxConcurrentUsers"
+                         :placeholder="t('resources.field_capacity_ph')" />
+                </div>
+                <div v-if="portForm.maxConcurrentUsers" class="field" style="margin: 0; flex: 1; min-width: 180px">
+                  <label for="portMaxRsv">{{ t('resources.field_max_reservation') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+                  <input id="portMaxRsv" class="input mono" type="number" min="5" step="5"
+                         v-model="portForm.maxReservationMinutes"
+                         :placeholder="t('resources.field_max_reservation_ph')" />
+                </div>
+              </div>
+              <div class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_capacity_hint') }}</div>
+              <template v-if="portForm.maxConcurrentUsers">
+                <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; margin-top: var(--space-2); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                  <input type="checkbox" v-model="portForm.autoApproveReservations" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                  <span>{{ t('resources.field_auto_approve_label') }}</span>
+                </label>
+                <div class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_auto_approve_hint') }}</div>
+              </template>
               <div v-if="portForm.protocol === 'RDP' && !ironRdpEnabled" class="callout callout-info" style="margin-top: var(--space-3)">
                 {{ t('resources.iron_rdp_disabled_hint') }}
                 <router-link :to="{ name: 'settings' }">{{ t('resources.iron_rdp_disabled_link') }}</router-link>
@@ -828,6 +864,7 @@ export default defineComponent({
               </label>
               <div v-if="form.dnsName" class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_dns_flat_hint') }}</div>
             </div>
+
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('common.cancel') }}</button>

@@ -7,6 +7,7 @@ import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.audit.AuditLog;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.firewall.FirewallState;
+import de.chriscohnen.islandr.hosthealth.HostHealthSampler;
 import de.chriscohnen.islandr.identity.OidcProvider;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.settings.Settings;
@@ -53,6 +54,7 @@ public class DashboardResource {
     static final Duration TOPOLOGY_LIVE_WINDOW = Duration.ofMinutes(5);
 
     @PersistenceContext EntityManager em;
+    @jakarta.inject.Inject HostHealthSampler hostHealth;
 
     @GET
     public DashboardDto.Response get(@Context ContainerRequestContext ctx) {
@@ -220,7 +222,7 @@ public class DashboardResource {
                 new DashboardDto.UserStats(userTotal, userAdmins),
                 new DashboardDto.RoleStats(roleTotal, rolesWithGrants),
                 new DashboardDto.ResourceStats(siteTotal, resTotal, portTotal),
-                setup, firewallStatus, audit, peers, topology);
+                setup, firewallStatus, audit, peers, topology, hostHealth.latest());
     }
 
     /**

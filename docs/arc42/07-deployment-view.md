@@ -19,12 +19,14 @@
 ### Service layout on the hub
 
 ```
-/usr/local/bin/islandr              ← native binary
-/etc/islandr/                       ← config (env file for systemd)
-/var/lib/islandr/islandr.db         ← SQLite database
-/etc/nftables.conf                  ← stub that loads the islandr table
+/opt/islandr/islandr                ← native binary
+/etc/default/islandr                ← config (env file for systemd)
+/var/lib/islandr/data/islandr.db    ← SQLite database
+/etc/sudoers.d/islandr              ← scoped sudo for nft and wg (ADR-0011)
 /etc/systemd/system/islandr.service ← systemd unit
 ```
+
+Created by [setup-hub.sh](../install/setup-hub.sh); the same layout `update.sh` and `backup.sh` assume.
 
 ### Systemd unit (abbreviated)
 
@@ -32,11 +34,18 @@
 [Service]
 User=islandr
 Group=islandr
-EnvironmentFile=/etc/islandr/env
-ExecStart=/usr/local/bin/islandr
+EnvironmentFile=/etc/default/islandr
+ExecStart=/opt/islandr/islandr
 Restart=on-failure
-AmbientCapabilities=CAP_NET_ADMIN   ; alternative to sudoers entries
+NoNewPrivileges=false                    ; sudo needs the setuid bit (ADR-0011)
+AmbientCapabilities=CAP_NET_BIND_SERVICE ; bind 80/443/53 unprivileged
 ```
+
+The privileged work goes through the scoped sudo grant, not through
+`CAP_NET_ADMIN` on the process ([ADR-0011](../adr/0011-process-privilege-model.md)).
+Several of these settings look wrong for a hardened unit and are load-bearing —
+[install/hardening.md](../install/hardening.md) explains each and the outage it
+prevents.
 
 See [docs/install.md](../install.md) for the full installation guide.
 

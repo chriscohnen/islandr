@@ -47,7 +47,9 @@ class MdnsLookupTest {
         assertThat(result).isEmpty();
     }
 
-    private static byte[] ptrResponse(int id, byte[] queryData, int questionEnd, String targetName) throws Exception {
+    /** Package-visible: LlmnrLookupTest builds the same DNS-shaped reply, since
+     *  RFC 4795 reuses the DNS wire format verbatim. */
+    static byte[] ptrResponse(int id, byte[] queryData, int questionEnd, String targetName) throws Exception {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         writeU16(out, id);
         writeU16(out, 0x8180);

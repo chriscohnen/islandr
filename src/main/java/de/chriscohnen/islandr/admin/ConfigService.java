@@ -12,6 +12,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.BadRequestException;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -23,6 +24,11 @@ public class ConfigService {
 
     @Inject
     EntityManager em;
+
+    /** Stamped into the export purely so a support question can name the writer. */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(
+            name = "quarkus.application.version", defaultValue = "dev")
+    String appVersion;
 
     public ConfigExportDto.Export export(boolean includePrivateKeys) {
         Settings s = Settings.findById(Settings.SINGLETON_ID);
@@ -50,7 +56,7 @@ public class ConfigService {
                 .stream().map(u -> new ConfigExportDto.UserSnapshot(
                         u.id, u.name, u.email, u.nickname, u.enabled, u.isAdmin,
                         u.oidcProvider, u.oidcSubject, u.preferredLocale, u.createdAt,
-                        u.oidcCustomProviderId))
+                        u.oidcCustomProviderId, u.validUntil))
                 .toList();
 
         List<ConfigExportDto.OidcCustomProviderSnapshot> customProviders =
@@ -110,7 +116,9 @@ public class ConfigService {
         List<ConfigExportDto.ResourcePortSnapshot> ports = ResourcePort.<ResourcePort>listAll()
                 .stream().map(p -> new ConfigExportDto.ResourcePortSnapshot(
                         p.id, p.resourceId, p.port, p.portEnd,
-                        p.transport, p.protocol, p.label, p.createdAt))
+                        p.transport, p.protocol, p.label,
+                        p.maxConcurrentUsers, p.maxReservationMinutes, p.autoApproveReservations,
+                        p.createdAt))
                 .toList();
 
         List<ConfigExportDto.PortGroupSnapshot> portGroups = PortGroup.<PortGroup>listAll()
@@ -179,7 +187,8 @@ public class ConfigService {
                 .toList();
 
         return new ConfigExportDto.Export(
-                "1", Instant.now(), includePrivateKeys,
+                String.valueOf(ConfigExportDto.CURRENT_VERSION), Instant.now(), appVersion,
+                includePrivateKeys,
                 settings, providers, users, roles, memberships, peers,
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
@@ -187,9 +196,46 @@ public class ConfigService {
                 customProviders, apiKeys);
     }
 
+    /**
+     * Reads the envelope's format version, defaulting to 1 for files written
+     * before it carried meaning.
+     *
+     * @throws BadRequestException when the file was written by a newer islandr.
+     *         Refusing is the point: an import silently drops every field this
+     *         build has no snapshot for, so a "successful" restore of a newer
+     *         file would come back subtly different from what was backed up.
+     */
+    static int requireSupportedVersion(String rawVersion) {
+        if (rawVersion == null || rawVersion.isBlank()) return 1;
+        int version;
+        try {
+            version = Integer.parseInt(rawVersion.trim());
+        } catch (NumberFormatException e) {
+            throw new BadRequestException(
+                    "unrecognised export format version '" + rawVersion + "'");
+        }
+        if (version > ConfigExportDto.CURRENT_VERSION) {
+            throw new BadRequestException(
+                    "this export was written by a newer islandr (format version " + version
+                    + ", this build understands up to " + ConfigExportDto.CURRENT_VERSION
+                    + ") — upgrade islandr before restoring it");
+        }
+        return version;
+    }
+
     @Transactional
     public ConfigExportDto.ImportResult importConfig(ConfigExportDto.Export p) {
+        // Checked before anything is deleted: a refused import must leave the
+        // existing configuration untouched, not half-torn-down.
+        requireSupportedVersion(p.version());
+
         // --- Tear-down in FK order -------------------------------------------
+        // Reservations (issue #72) FK both resources and users, so they go
+        // first. They are never re-inserted — reservations are transient
+        // session state, deliberately outside the export (see
+        // ConfigExportDto.ResourceSnapshot) — a restore starts with nobody
+        // holding anything, which is the honest state after a rebuild.
+        em.createNativeQuery("DELETE FROM resource_reservations").executeUpdate();
         em.createNativeQuery("DELETE FROM user_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_grants").executeUpdate();
@@ -253,8 +299,8 @@ public class ConfigService {
             em.createNativeQuery(
                             "INSERT INTO users (id, name, email, nickname, enabled, is_admin," +
                             " oidc_provider, oidc_subject, preferred_locale, created_at," +
-                            " oidc_custom_provider_id)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
+                            " oidc_custom_provider_id, valid_until)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)")
                     .setParameter(1, u.id())
                     .setParameter(2, u.name())
                     .setParameter(3, u.email())
@@ -268,6 +314,9 @@ public class ConfigService {
                     // Pre-issue-#69 exports lack this field → null, same as a user
                     // who never authenticated via a custom provider.
                     .setParameter(11, u.oidcCustomProviderId())
+                    // Access deadline (#53). Absent in a pre-#53 export → null,
+                    // same as a user who simply has no expiry.
+                    .setParameter(12, tsOrNull(u.validUntil()))
                     .executeUpdate();
         }
 
@@ -320,7 +369,7 @@ public class ConfigService {
                     .setParameter(15, peer.locationLabel())
                     // Pre-Peer-Scheduler exports lack these fields → null (no expiry,
                     // no recorded source of the current enabled state).
-                    .setParameter(16, peer.validUntil() != null ? ts(peer.validUntil()) : null)
+                    .setParameter(16, tsOrNull(peer.validUntil()))
                     .setParameter(17, peer.enabledSource())
                     .executeUpdate();
         }
@@ -375,8 +424,10 @@ public class ConfigService {
         for (var port : safe(p.resourcePorts())) {
             em.createNativeQuery(
                             "INSERT INTO resource_ports" +
-                            " (id, resource_id, port, port_end, transport, protocol, label, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+                            " (id, resource_id, port, port_end, transport, protocol, label," +
+                            " max_concurrent_users, max_reservation_minutes, auto_approve_reservations," +
+                            " created_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
                     .setParameter(1, port.id())
                     .setParameter(2, port.resourceId())
                     .setParameter(3, port.port())
@@ -384,7 +435,14 @@ public class ConfigService {
                     .setParameter(5, port.transport())
                     .setParameter(6, port.protocol())
                     .setParameter(7, port.label())
-                    .setParameter(8, ts(port.createdAt()))
+                    .setParameter(8, port.maxConcurrentUsers())
+                    .setParameter(9, port.maxReservationMinutes())
+                    // Absent in a pre-#72 export — fall back to the entity
+                    // default rather than importing every port as "needs an
+                    // admin decision for every request".
+                    .setParameter(10, (port.autoApproveReservations() == null
+                            || port.autoApproveReservations()) ? 1 : 0)
+                    .setParameter(11, ts(port.createdAt()))
                     .executeUpdate();
         }
 
@@ -605,8 +663,23 @@ public class ConfigService {
     private static final DateTimeFormatter DB_TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneOffset.UTC);
 
+    /**
+     * For NOT NULL timestamp columns: a missing value becomes "now" so the
+     * insert cannot fail. Only correct where the column is required —
+     * {@code created_at} and friends.
+     */
     private static String ts(Instant instant) {
         return DB_TIMESTAMP.format(instant != null ? instant : Instant.now());
+    }
+
+    /**
+     * For nullable timestamp columns, where null carries meaning: a user with
+     * no access deadline, a peer with no expiry. Passing these through
+     * {@link #ts} would silently stamp them with "now" — i.e. import them as
+     * already expired.
+     */
+    private static String tsOrNull(Instant instant) {
+        return instant == null ? null : DB_TIMESTAMP.format(instant);
     }
 
     private static <T> List<T> safe(List<T> list) {

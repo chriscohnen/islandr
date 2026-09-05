@@ -62,6 +62,14 @@
   width: 100%;
 }
 .input::placeholder, .textarea::placeholder { color: var(--fg3); }
+/* Compact select, matching .btn-sm's height so the two line up when they sit
+   side by side (e.g. the reservation strip's duration picker + button, #72).
+   width:auto because these are inline controls, not form-column fields. */
+.select-sm {
+  height: var(--control-h-sm); padding: 0 var(--space-2);
+  font-size: var(--text-sm); width: auto;
+}
+
 .input:hover, .textarea:hover, .select:hover { border-color: var(--neutral-400); }
 .input:focus, .textarea:focus, .select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-bg); }
 .textarea { height: auto; padding: var(--space-3); min-height: 84px; line-height: var(--leading-normal); resize: vertical; }

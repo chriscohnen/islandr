@@ -20,6 +20,11 @@ export default defineComponent({
       resources: [],   // all resources across all sites, each with .ports
       roles: [],
       grants: [],      // backend snapshot: GrantCell[]
+      // Reservation requests awaiting a decision (#72) — only non-empty when
+      // some resource has auto-approve turned off.
+      pendingReservations: [],
+      rsvBusy: null,
+      rsvError: null,
       loading: true,
       error: null,
       activeSiteId: null,
@@ -175,10 +180,43 @@ export default defineComponent({
   methods: {
     t(key, vars) { return t(key, vars); },
 
+    async loadPendingReservations() {
+      try {
+        const res = await fetch("/api/v1/reservations?status=pending");
+        this.pendingReservations = res.ok ? await res.json() : [];
+      } catch (e) {
+        // A failure here must not take the ACL matrix down with it — the
+        // panel simply stays empty.
+        this.pendingReservations = [];
+      }
+    },
+    async decideReservation(p, action) {
+      this.rsvBusy = p.id;
+      this.rsvError = null;
+      try {
+        const res = await fetch("/api/v1/reservations/" + p.id + "/" + action, { method: "POST" });
+        if (res.status === 409) {
+          // Filled up between the request and the decision — say so rather
+          // than leaving the row silently unchanged.
+          this.rsvError = t('acl.rsv_at_capacity');
+          await this.loadPendingReservations();
+          return;
+        }
+        if (!res.ok) throw new Error(await res.text());
+        await this.loadPendingReservations();
+      } catch (e) {
+        this.rsvError = t('acl.rsv_failed');
+      } finally {
+        this.rsvBusy = null;
+      }
+    },
+    approveReservation(p) { return this.decideReservation(p, "approve"); },
+    rejectReservation(p) { return this.decideReservation(p, "reject"); },
     async load() {
       this.loading = true;
       this.error = null;
       this.pending = {};
+      this.loadPendingReservations();
       try {
         const [sitesRes, resRes, rolesRes, gRes, tgRes, usersRes, ugRes, sgRes] = await Promise.all([
           fetch("/api/v1/sites"),
@@ -509,6 +547,34 @@ export default defineComponent({
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+
+    <!-- Pending reservation requests (#72). Only rendered when there is
+         something to decide — a resource with auto-approve left on never
+         produces one, so most installs never see this panel at all. -->
+    <div v-if="pendingReservations.length" class="card card-pad" style="margin-bottom: var(--space-4)">
+      <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-3)">
+        {{ t('acl.rsv_pending_title') }}
+      </div>
+      <div v-for="p in pendingReservations" :key="p.id"
+           style="display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; padding:var(--space-2) 0">
+        <div style="flex:1; min-width:220px">
+          <div style="font-size:var(--text-sm); font-weight:600">
+            {{ p.userName }} → {{ p.resourceName }}
+            <span class="mono" style="font-weight:400; color:var(--fg2)">{{ p.port }}/{{ p.transport }}</span>
+            <span v-if="p.portLabel" style="font-weight:400; color:var(--fg3)">{{ p.portLabel }}</span>
+          </div>
+          <div class="muted" style="font-size:var(--text-xs)">
+            {{ p.siteName }} · {{ t('acl.rsv_requested_for', { minutes: p.requestedMinutes }) }}
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" :disabled="rsvBusy === p.id"
+                @click="rejectReservation(p)">{{ t('acl.rsv_reject') }}</button>
+        <button class="btn btn-primary btn-sm" :disabled="rsvBusy === p.id"
+                @click="approveReservation(p)">{{ t('acl.rsv_approve') }}</button>
+      </div>
+      <div v-if="rsvError" style="font-size:var(--text-xs); color:var(--danger); margin-top:var(--space-2)">{{ rsvError }}</div>
+    </div>
+
     <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
 
     <div v-else-if="roles.length === 0 || sites.length === 0" class="empty-state">

@@ -61,6 +61,29 @@ public class SiteResource {
                 .build();
     }
 
+    @GET
+    @Path("/gateway-import-preview")
+    public List<SiteDto.GatewayNetworkCandidate> gatewayImportPreview(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        return sites.gatewayImportPreview();
+    }
+
+    @POST
+    @Path("/gateway-import")
+    public List<SiteDto.GatewayImportResult> gatewayImport(@Context ContainerRequestContext ctx,
+                                                           @Valid SiteDto.GatewayImportRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        List<SiteDto.GatewayImportResult> results = sites.gatewayImport(body.networks());
+        for (SiteDto.GatewayImportResult r : results) {
+            if (!"imported".equals(r.status())) continue;
+            Site s = sites.get(r.siteId());
+            audit.logCreate(a.principal(), "site.create", "Site:" + s.name + " (" + s.id + ")",
+                    Map.of("name", s.name, "cidr", s.cidr, "source", "gateway-import",
+                            "gatewayPeerId", s.gatewayPeerId == null ? "" : s.gatewayPeerId));
+        }
+        return results;
+    }
+
     @PUT
     @Path("/{id}")
     public SiteDto.Response update(@Context ContainerRequestContext ctx,

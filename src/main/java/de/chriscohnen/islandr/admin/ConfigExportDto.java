@@ -5,9 +5,39 @@ import java.util.List;
 
 public class ConfigExportDto {
 
+    /**
+     * Format version of the export envelope. Bump this whenever a change to
+     * the snapshot shape cannot be absorbed by the "add a field, tolerate its
+     * absence" pattern the individual snapshots use — i.e. when an older
+     * islandr would import a newer file *wrongly* rather than merely
+     * ignorantly.
+     *
+     * <p>Version history:
+     * <ul>
+     *   <li>1 — initial envelope.</li>
+     *   <li>2 — exclusive-capacity config moved from the resource onto the
+     *       individual port (issue #72). A v1 file still imports cleanly: its
+     *       ports simply carry no capacity, which is the correct "unlimited"
+     *       default.</li>
+     * </ul>
+     *
+     * <p>The important guarantee runs the other way. An export written by a
+     * <em>newer</em> islandr is refused rather than imported, because silently
+     * dropping fields this build does not know about would restore a
+     * configuration that quietly differs from the one that was backed up —
+     * exactly the situation a restore must never produce.
+     */
+    public static final int CURRENT_VERSION = 2;
+
     public record Export(
+        // Envelope format version, see CURRENT_VERSION. Null in the very first
+        // exports written before this carried meaning — read as version 1.
         String version,
         Instant exportedAt,
+        // Which islandr wrote this file. Purely informational: it never gates
+        // an import, it is here so a support question about a broken restore
+        // can be answered without guessing.
+        String appVersion,
         boolean privateKeysIncluded,
         SettingsSnapshot settings,
         List<OidcProviderSnapshot> oidcProviders,
@@ -181,7 +211,17 @@ public class ConfigExportDto {
         // in via a custom provider couldn't be matched back to that provider's
         // row on next login after a restore (see User.findByOidc's 3-way match
         // on provider+subject+customProviderId).
-        String oidcCustomProviderId
+        String oidcCustomProviderId,
+        // Access deadline (issue #53). Null on an export from before the field
+        // existed, and null for a user with no expiry — the same value either
+        // way, so no fallback is needed.
+        //
+        // Unlike the reservations and #70's temporary grants, this one *is*
+        // exported: it is admin-set configuration with a date, not a running
+        // session. A restore that dropped it would silently hand every
+        // time-boxed contractor unlimited access, which is the opposite of the
+        // safe default.
+        Instant validUntil
     ) {}
 
     /**
@@ -252,6 +292,19 @@ public class ConfigExportDto {
         String transport,
         String protocol,
         String label,
+        // Exclusive-capacity config (issue #72). Boxed so an export written
+        // before #72 imports cleanly: absent means "no capacity limit", which
+        // is exactly the pre-#72 behaviour. autoApproveReservations is boxed
+        // for the same reason and falls back to the entity default (true) when
+        // the key is missing, rather than silently importing as false.
+        //
+        // The reservations themselves are deliberately NOT exported — same
+        // reasoning as #70's ad-hoc temporary grants: they carry an expiry,
+        // they are transient by design, and a restore should not resurrect
+        // somebody's half-finished session from whenever the backup was taken.
+        Integer maxConcurrentUsers,
+        Integer maxReservationMinutes,
+        Boolean autoApproveReservations,
         Instant createdAt
     ) {}
 

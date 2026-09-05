@@ -247,6 +247,8 @@ public class SettingsResource {
         result.put("peerCount", info.peerCount());
         result.put("ifStatus", info.ifStatus());
         result.put("mtu", info.mtu() > 0 ? info.mtu() : null);
+        result.put("ipv4Cidr", info.ipv4Cidr());
+        result.put("ipv6Cidr", info.ipv6Cidr());
         // Auto-save probed MTU so it survives page reloads without manual adoption.
         if (info.mtu() > 0) {
             saveProbedMtu(info.mtu());

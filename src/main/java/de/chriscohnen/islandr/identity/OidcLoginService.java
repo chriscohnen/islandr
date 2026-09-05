@@ -11,6 +11,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.ForbiddenException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -87,6 +88,13 @@ public class OidcLoginService {
         boolean autoProvision = settings.get().oidcAutoProvision;
         UpsertResult upsert = upsertUser(p, claims, autoProvision);
         User u = upsert.user();
+        // The OIDC path never checked this at all: a disabled user could sign
+        // in here even though the local-password path refused them, and after
+        // #53 the same is true of an expired access window. The IdP only
+        // proves who they are, not that Islandr still grants them access.
+        if (!u.accessAllowedAt(java.time.Instant.now())) {
+            throw new ForbiddenException("access for this account is disabled or has expired");
+        }
         cacheAvatar(p, u, claims, tokens.accessToken());
         Session s = sessions.create(p.kind(), u.name, u.id, p.isCustom() ? p.key() : null);
 

@@ -69,6 +69,13 @@ export default defineComponent({
   methods: {
     t(key, vars) { return t(key, vars); },
 
+    // The edit modal can move a peer to a different user, and this view groups
+    // its rows by user — without the reload the peer would still show under the
+    // old owner until the next manual refresh.
+    onPeerUpdated() {
+      this.load();
+    },
+
     async load() {
       this.loading = true;
       this.error = null;
@@ -195,6 +202,45 @@ export default defineComponent({
         this.cancelEmailEdit();
       } catch (e) {
         this.error = t("users.error_email", { error: e.message });
+      }
+    },
+
+    /**
+     * Access deadline (#53). A date prompt rather than a modal: it is a rare,
+     * single-value edit, and the list already carries every other per-user
+     * action inline.
+     */
+    async startValidUntilEdit(u) {
+      const current = u.validUntil ? u.validUntil.slice(0, 10) : "";
+      const answer = window.prompt(t("users.valid_until_prompt"), current);
+      if (answer === null) return;   // cancelled
+
+      let payload;
+      const trimmed = answer.trim();
+      if (trimmed === "") {
+        payload = { validUntil: null };   // clearing = no expiry
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        // End of the chosen day in the browser's own zone, so "valid until the
+        // 31st" means through the 31st rather than expiring at midnight as it
+        // starts.
+        const end = new Date(trimmed + "T23:59:59");
+        if (isNaN(end.getTime())) { this.error = t("users.valid_until_invalid"); return; }
+        payload = { validUntil: end.toISOString() };
+      } else {
+        this.error = t("users.valid_until_invalid");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/v1/users/" + u.id + "/valid-until", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await this.load();
+      } catch (e) {
+        this.error = t("users.valid_until_error", { error: e.message });
       }
     },
 
@@ -449,9 +495,18 @@ export default defineComponent({
             </span>
           </td>
           <td>
-            <span :class="['badge', u.enabled ? 'badge-success' : 'badge-neutral']">
+            <!-- Expiry is shown ahead of enabled: a user can be "enabled" and
+                 still have no access because their window closed (#53), and
+                 the badge must not claim otherwise. -->
+            <span v-if="u.accessExpired" class="badge badge-warning" :title="formatDate(u.validUntil)">
+              <Icon name="clock" :size="12" />{{ t('users.status_expired') }}
+            </span>
+            <span v-else :class="['badge', u.enabled ? 'badge-success' : 'badge-neutral']">
               {{ u.enabled ? t('users.status_active') : t('users.status_disabled') }}
             </span>
+            <div v-if="u.validUntil && !u.accessExpired" class="muted" style="font-size: var(--text-xs); margin-top: 2px">
+              {{ t('users.valid_until_hint', { date: formatDate(u.validUntil) }) }}
+            </div>
           </td>
           <td>
             <button class="btn btn-ghost btn-sm" @click="$router.push({ name: 'peers', query: {} })" style="font-family: var(--font-mono); padding: 2px 8px">
@@ -473,6 +528,9 @@ export default defineComponent({
               <button class="btn btn-ghost btn-sm" @click="toggleEnabled(u)">
                 <Icon :name="u.enabled ? 'pause-circle' : 'play-circle'" :size="13" />
                 {{ u.enabled ? t('users.btn_disable') : t('users.btn_enable') }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="startValidUntilEdit(u)">
+                <Icon name="clock" :size="13" />{{ t('users.btn_valid_until') }}
               </button>
               <button class="btn btn-ghost btn-sm" @click="startPasswordEdit(u)"><Icon name="edit" :size="13" />{{ t('users.btn_password') }}</button>
               <button class="btn btn-secondary btn-sm" @click="openCreatePeer(u.id)"><Icon name="peers" :size="13" />{{ t('users.btn_add_peer') }}</button>

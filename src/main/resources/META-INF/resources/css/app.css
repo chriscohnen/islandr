@@ -1292,11 +1292,15 @@ body {
   text-anchor: middle;
   pointer-events: none;
 }
+/* Absolutely positioned over the .topo SVG's own box (see TopologyDiagram's
+   inline position/inset rules) — no height/centering here on purpose. A
+   fixed height plus center-alignment used to make this box taller than the
+   space actually available above the hub, pushing its vertically-centered
+   text down onto the hub itself; sizing now lives entirely in the inline
+   style so the two can't drift apart again. */
 .topo-empty {
   display: flex;
-  align-items: center;
   justify-content: center;
-  height: 360px;
   color: var(--fg3);
   font-size: var(--text-sm);
 }
@@ -1782,6 +1786,38 @@ td.heatmap-cell.heatmap-l6 { background: var(--accent-600); }
   flex-wrap: wrap;
   gap: var(--space-2);
   padding-left: calc(32px + var(--space-3));
+}
+
+/* A reservation-gated port the user does not currently hold: the grant is
+   real, so it stays visible, but it is not reachable until a slot is held —
+   dimmed rather than hidden, so the user can still see what they would get.
+   Applied per port, not to the whole row: a held RDP seat must not grey out
+   the SSH chip next to it. The wrapper keeps pointer events so the title
+   tooltip still explains why, while the link inside it is inert. */
+/* Contact link to whoever holds the slot (#72) — quiet by default, since it
+   sits inside an informational line, not an action row. */
+.myaccess-holder-mail {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--text-xs); color: var(--fg2);
+  text-decoration: none; border-bottom: 1px dotted var(--border-strong);
+}
+.myaccess-holder-mail:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+.myaccess-port-slot { display: contents; }
+.myaccess-port-slot--locked { display: inline-flex; opacity: 0.45; }
+.myaccess-port-slot--locked a,
+.myaccess-port-slot--locked button { pointer-events: none; }
+
+/* Exclusive-capacity reservation strip (#72) — sits between the resource
+   head and its ports, indented to the same gutter so it reads as belonging
+   to that resource rather than as a page-level notice. */
+.myaccess-reservation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: calc(32px + var(--space-3));
+  margin-bottom: var(--space-2);
 }
 
 .myaccess-port-chip {

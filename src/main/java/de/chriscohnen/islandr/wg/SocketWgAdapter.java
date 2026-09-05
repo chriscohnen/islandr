@@ -157,7 +157,9 @@ public class SocketWgAdapter implements WgAdapter {
         }
         int peerCount = (int) java.util.Arrays.stream(lines).skip(1).filter(l -> !l.isBlank()).count();
         // ifStatus/mtu come from `ip link`, which is not proxied — report unknown.
-        return ProbeResult.ok(new ServerInfo(publicKey, listenPort, peerCount, "unknown", 0));
+        // The socket protocol carries no ip-addr operation, so the container cannot
+        // learn the host interface's addresses — null, not a guess.
+        return ProbeResult.ok(new ServerInfo(publicKey, listenPort, peerCount, "unknown", 0, null, null));
     }
 
     /** A reachable proxy that reports {@code ok:false} is an operational failure → WgException. */
