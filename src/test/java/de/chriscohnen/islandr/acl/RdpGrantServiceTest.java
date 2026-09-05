@@ -120,4 +120,29 @@ class RdpGrantServiceTest {
         assertThat(target.host()).isEqualTo(res.ip);
         assertThat(target.port()).isEqualTo(3389);
     }
+
+    @Test
+    @Transactional
+    void resolveTarget_returnsTarget_whenUserHasOnlyNetworkGrant() {
+        String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
+        User user = User.createNew("NetGrant " + suffix, "netgrant-" + suffix + "@firma.de");
+        user.persist();
+        Role role = Role.createNew("NetGrantRdpRole-" + suffix, null);
+        role.persist();
+        em.createNativeQuery("INSERT INTO user_roles (user_id, role_id) VALUES (?1, ?2)")
+                .setParameter(1, user.id).setParameter(2, role.id).executeUpdate();
+        Site site = Site.createNew("NetGrantRdpSite-" + suffix, "10.62.0.0/16", null);
+        site.persist();
+        Resource res = Resource.createNew(site.id, "NetGrantTerminal-" + suffix, "10.62.0.5", null, "computer");
+        res.persist();
+        ResourcePort rdp = ResourcePort.createNew(res.id, 3389, null, "tcp", "RDP", null, null, false, false, "native");
+        rdp.persist();
+        // No concrete RoleResourceGrant, no type-grant — network grant only.
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+
+        RdpGrantService.RdpTarget target = grants.resolveTarget(rdp.id, user.id, false);
+        assertThat(target).isNotNull();
+        assertThat(target.host()).isEqualTo(res.ip);
+        assertThat(target.port()).isEqualTo(3389);
+    }
 }
