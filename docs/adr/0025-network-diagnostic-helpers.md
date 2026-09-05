@@ -7,7 +7,7 @@
 
 ## Context
 
-Today, answering "why can't peer X reach resource Y?" has no tool inside Islandr — the admin has to SSH into the hub and run `ping`/`traceroute` by hand. That is exactly the class of complaint WGDashboard's own pitch uses against plain `wg show` ("you have to log in and type a command"); Islandr does not currently do better for network reachability, only for WireGuard/ACL state.
+Today, answering "why can't peer X reach resource Y?" has no tool inside Islandr — the admin has to SSH into the hub and run `ping`/`traceroute` by hand. That is exactly the complaint web front-ends for WireGuard are built to answer in the first place — that reading the state means logging in and typing a command; Islandr does not currently do better for network reachability, only for WireGuard/ACL state.
 
 Two things make a hub-originated probe unusually meaningful here, not just a cosmetic nicety:
 
