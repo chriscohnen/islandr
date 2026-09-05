@@ -219,16 +219,16 @@ export default defineComponent({
         }
         bySite.get(r.siteId).resources.push(r);
       }
-      // A site that only ever grants (never receives) access has no
-      // ResourceNode of its own — without this, its gateway node would have
-      // no circle to attach to and the grant it holds would be invisible.
-      // Only add it if it actually holds a site-direct grant; otherwise an
-      // active resource-type filter would fill the canvas with empty
-      // circles for every site that merely has zero matching resources.
+      // A site that only ever grants (site-direct) or only ever receives a
+      // network grant has no ResourceNode of its own — without this, its
+      // gateway node (site-direct) or the network-grant edge's target
+      // (network-grant) would have no circle to attach to.
       const grantingSiteIds = new Set(
           this.graph.edges.filter((e) => e.subjectType === "site").map((e) => e.subjectId));
+      const networkGrantedSiteIds = new Set(
+          this.graph.edges.filter((e) => e.kind === "network-grant" && e.siteId).map((e) => e.siteId));
       for (const site of (this.graph.sites || [])) {
-        if (!bySite.has(site.id) && grantingSiteIds.has(site.id)) {
+        if (!bySite.has(site.id) && (grantingSiteIds.has(site.id) || networkGrantedSiteIds.has(site.id))) {
           bySite.set(site.id, {
             id: site.id, name: site.name, cidr: site.cidr,
             gatewayPeerId: site.gatewayPeerId, gatewayPeerName: site.gatewayPeerName, resources: [],
@@ -336,6 +336,11 @@ export default defineComponent({
       for (const circle of this.layout) for (const n of circle.nodes) m.set(n.id, n);
       return m;
     },
+    circlesById() {
+      const m = new Map();
+      for (const circle of this.layout) m.set(circle.id, circle);
+      return m;
+    },
     edgeLines() {
       // A focused user or resource (click-select) shows only edges touching
       // that one node — every other edge is hidden entirely, not just
@@ -348,12 +353,43 @@ export default defineComponent({
       if (this.selectedUserId) source = source.filter((e) => e.subjectType === "user" && e.subjectId === this.selectedUserId);
       else if (this.selectedResourceId) source = source.filter((e) => e.resourceId === this.selectedResourceId);
       return source
-          .filter((e) => this.nodesById.has(e.subjectId) && this.nodesById.has(e.resourceId))
+          .filter((e) => {
+            if (!this.nodesById.has(e.subjectId)) return false;
+            // A network-grant edge targets a circle (via siteId), every
+            // other kind targets a resource node (via resourceId).
+            return e.kind === "network-grant" ? this.circlesById.has(e.siteId) : this.nodesById.has(e.resourceId);
+          })
           .map((e) => {
             const from = this.nodesById.get(e.subjectId);
-            const to = this.nodesById.get(e.resourceId);
-            return { edge: e, path: curvePath(from.x, from.y, to.x, to.y), key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || "") };
+            let toX, toY;
+            if (e.kind === "network-grant") {
+              // Land the arrowhead on the circle's own rim (nearest point to
+              // the source), not floating over whatever node sits inside it
+              // — the target is the whole network, not a specific resource.
+              const circle = this.circlesById.get(e.siteId);
+              const dx = circle.cx - from.x, dy = circle.cy - from.y;
+              const dist = Math.hypot(dx, dy) || 1;
+              toX = circle.cx - (dx / dist) * circle.r;
+              toY = circle.cy - (dy / dist) * circle.r;
+            } else {
+              const to = this.nodesById.get(e.resourceId);
+              toX = to.x; toY = to.y;
+            }
+            return {
+              edge: e,
+              path: curvePath(from.x, from.y, toX, toY),
+              key: e.subjectType + "|" + e.subjectId + "|" + (e.resourceId || e.siteId) + "|" + e.kind + "|" + (e.roleId || ""),
+            };
           });
+    },
+    // Sites targeted by a currently-visible network-grant edge (i.e. still
+    // present in edgeLines after the selectedUserId/selectedResourceId
+    // filter above) — drives the circle's highlight stroke. Confirmed with
+    // the user: this must only show when the relevant user is selected, not
+    // unconditionally for every network grant system-wide.
+    networkGrantedCircleIds() {
+      return new Set(
+          this.edgeLines.filter((l) => l.edge.kind === "network-grant").map((l) => l.edge.siteId));
     },
     // A single fixed anchor for the Hub (2026-08-22 feedback: previously
     // absent from the graph entirely, even though it's the actual origin of
@@ -678,7 +714,8 @@ export default defineComponent({
           <g v-for="circle in layout" :key="circle.id">
             <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
                     :fill="circle.color" fill-opacity="0.07"
-                    :stroke="circle.color" stroke-width="1.5" />
+                    :stroke="networkGrantedCircleIds.has(circle.id) ? 'var(--accent)' : circle.color"
+                    :stroke-width="networkGrantedCircleIds.has(circle.id) ? 3 : 1.5" />
             <text :x="circle.cx" :y="circle.cy - circle.r - (circle.cidr ? 24 : 10)" text-anchor="middle"
                   :fill="circle.color" font-size="13" font-weight="600"
                   style="text-transform: uppercase; letter-spacing: 0.06em">{{ circle.name }}</text>
