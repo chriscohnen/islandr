@@ -193,7 +193,7 @@ public class ConfigService {
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
                 siteGrants, siteGrantPortLinks, peerSchedules,
-                customProviders, apiKeys);
+                customProviders, apiKeys, List.of());
     }
 
     /**
