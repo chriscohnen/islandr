@@ -25,6 +25,23 @@ jobs:
       # is only discovered when a user opens the page. Uses the runner's
       # preinstalled Node and the Vue build already vendored in the repo —
       # nothing is installed, so this adds no dependency to attack.
+      # The wrapper fetches the Gradle distribution from services.gradle.org on
+      # any cache miss, and a miss is guaranteed on every release: Actions caches
+      # are branch-scoped, so main cannot read the release branch's caches and its
+      # own expired long ago (main is only pushed to at release time). A transient
+      # reset on that download failed the 0.20.0 build on main while the tag build
+      # of the identical commit succeeded. Fetch it once, with retries, before any
+      # step depends on it.
+      - name: Warm the Gradle wrapper
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --version --no-daemon && exit 0
+            echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
+            sleep $((attempt * 15))
+          done
+          echo "::error::could not fetch the Gradle distribution after 3 attempts"
+          exit 1
+
       - name: Check Vue templates
         run: node scripts/check-templates.mjs
 
@@ -61,6 +78,23 @@ jobs:
       # then runs src/native-test/java against it — e.g. DiscoveryNativeIT, which
       # guards native-image serialization regressions JVM @QuarkusTest cannot see
       # (issue #25). One invocation; no separate native build.
+      # The wrapper fetches the Gradle distribution from services.gradle.org on
+      # any cache miss, and a miss is guaranteed on every release: Actions caches
+      # are branch-scoped, so main cannot read the release branch's caches and its
+      # own expired long ago (main is only pushed to at release time). A transient
+      # reset on that download failed the 0.20.0 build on main while the tag build
+      # of the identical commit succeeded. Fetch it once, with retries, before any
+      # step depends on it.
+      - name: Warm the Gradle wrapper
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --version --no-daemon && exit 0
+            echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
+            sleep $((attempt * 15))
+          done
+          echo "::error::could not fetch the Gradle distribution after 3 attempts"
+          exit 1
+
       - name: Build native binary + run native integration tests (SQLite-only, container build)
         run: |
           ./gradlew testNative -Psqlite \
@@ -160,6 +194,23 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
+
+      # The wrapper fetches the Gradle distribution from services.gradle.org on
+      # any cache miss, and a miss is guaranteed on every release: Actions caches
+      # are branch-scoped, so main cannot read the release branch's caches and its
+      # own expired long ago (main is only pushed to at release time). A transient
+      # reset on that download failed the 0.20.0 build on main while the tag build
+      # of the identical commit succeeded. Fetch it once, with retries, before any
+      # step depends on it.
+      - name: Warm the Gradle wrapper
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --version --no-daemon && exit 0
+            echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
+            sleep $((attempt * 15))
+          done
+          echo "::error::could not fetch the Gradle distribution after 3 attempts"
+          exit 1
 
       - name: Build native binary (SQLite-only, container build)
         run: |
@@ -489,6 +540,23 @@ jobs:
           # traverse into it to stat the socket, so this check needs sudo.
           sudo test -S /run/islandr/proxy.sock || { echo "::error::proxy.sock not present after install"; exit 1; }
           echo "✓ islandr-proxy.socket installed and listening"
+
+      # The wrapper fetches the Gradle distribution from services.gradle.org on
+      # any cache miss, and a miss is guaranteed on every release: Actions caches
+      # are branch-scoped, so main cannot read the release branch's caches and its
+      # own expired long ago (main is only pushed to at release time). A transient
+      # reset on that download failed the 0.20.0 build on main while the tag build
+      # of the identical commit succeeded. Fetch it once, with retries, before any
+      # step depends on it.
+      - name: Warm the Gradle wrapper
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --version --no-daemon && exit 0
+            echo "::warning::gradle distribution fetch failed (attempt $attempt/3)"
+            sleep $((attempt * 15))
+          done
+          echo "::error::could not fetch the Gradle distribution after 3 attempts"
+          exit 1
 
       - name: Build JVM application (fast-jar — nothing here needs native-image)
         run: ./gradlew quarkusBuild -x test --no-daemon
