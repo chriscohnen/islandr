@@ -33,6 +33,8 @@ export default defineComponent({
       editId: null,
       submitting: false,
       formError: null,
+      identifying: false,
+      identifyResult: null, // { hostname, mac, vendor } | null, cleared on modal close/open
       // Inline port form (one per resource at a time)
       portFormFor: null,
       portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
@@ -111,6 +113,9 @@ export default defineComponent({
     // as empty as it was, instead of silently keeping a value nobody chose.
     dnsNameSuggestion() {
       return this.form.dnsName ? "" : this.slugifyDnsName(this.form.name);
+    },
+    identifiedVendor() {
+      return this.identifyResult ? this.identifyResult.vendor : null;
     },
     filteredResources() {
       const q = this.quickFilter.trim().toLowerCase();
@@ -226,8 +231,9 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false };
+      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, mac: "" };
       this.formError = null;
+      this.identifyResult = null;
     },
     openEdit(r) {
       this.modal = "edit";
@@ -237,12 +243,40 @@ export default defineComponent({
       // in; accepting it is one explicit click (acceptDnsNameSuggestion).
       this.form = {
         name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer",
-        dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat,
+        dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat, mac: r.mac || "",
       };
       this.formError = null;
+      this.identifyResult = null;
     },
     acceptDnsNameSuggestion() {
       this.form.dnsName = this.dnsNameSuggestion;
+    },
+    // On-demand re-identification (issue #76) for an already-registered
+    // resource — only meaningful once it exists (create-mode has no id to
+    // target yet, so the button is disabled there, see the template).
+    async identifyResource() {
+      if (!this.editId) return;
+      this.identifying = true;
+      this.identifyResult = null;
+      try {
+        const res = await fetch("/api/v1/resources/" + this.editId + "/identify", { method: "POST" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.identifyResult = await res.json();
+        // MAC is low-risk, pre-fill it directly — the admin can still edit
+        // or clear it before Save, same as any other typed field. Hostname
+        // stays a suggestion only (see acceptIdentifiedName) since a
+        // resource's existing name may be deliberately curated.
+        if (this.identifyResult.mac) this.form.mac = this.identifyResult.mac;
+      } catch (e) {
+        this.formError = t("resources.error_identify", { error: e.message });
+      } finally {
+        this.identifying = false;
+      }
+    },
+    acceptIdentifiedName() {
+      if (this.identifyResult && this.identifyResult.hostname) {
+        this.form.name = this.identifyResult.hostname;
+      }
     },
     // Mirrors the backend's DNS-label rule (Resource.dnsName / ResourceDto):
     // lowercase, non [a-z0-9] runs collapsed to a hyphen, no leading/trailing
@@ -258,6 +292,7 @@ export default defineComponent({
       this.modal = null;
       this.editId = null;
       this.formError = null;
+      this.identifyResult = null;
     },
     async submit() {
       this.submitting = true;
@@ -635,6 +670,9 @@ export default defineComponent({
           <div class="res-identity">
             <div class="res-name">{{ r.name }}</div>
             <div class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
+            <div v-if="r.mac" class="mono" style="font-size: var(--text-xs); color: var(--fg3)">
+              {{ r.mac }}<span v-if="r.vendor"> · {{ r.vendor }}</span>
+            </div>
           </div>
           <div class="res-actions">
             <button class="btn btn-ghost btn-sm" @click="openEdit(r)"><Icon name="edit" :size="13" />{{ t('resources.btn_edit') }}</button>
@@ -863,6 +901,23 @@ export default defineComponent({
                 <span>{{ t('resources.field_dns_flat_label') }}</span>
               </label>
               <div v-if="form.dnsName" class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_dns_flat_hint') }}</div>
+            </div>
+
+            <div class="field" style="margin: var(--space-4) 0 0">
+              <label for="resMac">{{ t('resources.field_mac') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <div style="display: flex; gap: var(--space-2); align-items: center">
+                <input id="resMac" class="input mono" v-model="form.mac" :placeholder="t('resources.field_mac_ph')" style="flex: 1" />
+                <button v-if="editId" type="button" class="btn btn-ghost btn-sm" :disabled="identifying" @click="identifyResource">
+                  {{ identifying ? t('resources.identify_running') : t('resources.btn_identify') }}
+                </button>
+              </div>
+              <div v-if="identifiedVendor" class="field-hint">{{ t('resources.field_vendor_of', { vendor: identifiedVendor }) }}</div>
+              <div v-if="identifyResult && identifyResult.hostname" class="field-hint" style="display:flex; align-items:center; gap: var(--space-2)">
+                <span>{{ t('resources.identify_hostname_suggestion', { name: identifyResult.hostname }) }}</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding: 0 var(--space-2); height: auto; min-height: 0; line-height: 1.6"
+                        @click="acceptIdentifiedName">{{ t('resources.field_dns_name_accept') }}</button>
+              </div>
+              <div v-else-if="identifyResult" class="field-hint">{{ t('resources.identify_nothing_found') }}</div>
             </div>
 
           </div>
