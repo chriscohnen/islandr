@@ -26,6 +26,8 @@ export default defineComponent({
       lang: locale.current,
       editingNicknameId: null,
       nicknameInput: "",
+      editingNameId: null, // local (non-SSO) accounts only — see startNameEdit
+      nameInput: "",
       editingEmailId: null,
       emailInput: "",
       editingPasswordId: null,
@@ -174,6 +176,36 @@ export default defineComponent({
         this.cancelNicknameEdit();
       } catch (e) {
         this.error = t("users.error_nickname", { error: e.message });
+      }
+    },
+
+    // Only for local (non-SSO) accounts — an SSO-linked user's name is
+    // re-synced from the IdP on every login, so a direct edit here wouldn't
+    // stick; those use the nickname override above instead.
+    startNameEdit(u) {
+      this.editingNameId = u.id;
+      this.nameInput = u.name || "";
+    },
+    cancelNameEdit() {
+      this.editingNameId = null;
+      this.nameInput = "";
+    },
+    async saveName(userId) {
+      const u = this.users.find((x) => x.id === userId);
+      try {
+        const res = await fetch("/api/v1/users/" + userId, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: this.nameInput, email: u ? u.email : "" }),
+        });
+        if (!res.ok) {
+          const b = await res.text();
+          throw new Error("HTTP " + res.status + (b ? " — " + b.slice(0, 120) : ""));
+        }
+        await this.load();
+        this.cancelNameEdit();
+      } catch (e) {
+        this.error = t("users.error_name", { error: e.message });
       }
     },
 
@@ -453,23 +485,48 @@ export default defineComponent({
           <td>
             <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
               <Avatar :user="u" :size="32" />
-              <span v-if="editingNicknameId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap">
-                <span>{{ u.displayName }}</span>
-                <span v-if="u.nickname" class="muted mono" style="font-size: var(--text-xs)">({{ u.name }})</span>
-                <button @click="startNicknameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_nickname')">
-                  <Icon name="edit" :size="12" />
-                </button>
-              </span>
-              <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
-                <input class="input" style="width: 140px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
-                       v-model="nicknameInput"
-                       :placeholder="u.name"
-                       @keyup.enter="saveNickname(u.id)"
-                       @keyup.escape="cancelNicknameEdit"
-                       autofocus />
-                <button @click="saveNickname(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
-                <button @click="cancelNicknameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
-              </span>
+              <!-- Local accounts: the name itself is directly, durably editable —
+                   nothing re-syncs it, so a plain rename is the honest control. -->
+              <template v-if="!u.ssoLinked">
+                <span v-if="editingNameId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap">
+                  <span>{{ u.name }}</span>
+                  <button @click="startNameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_rename')">
+                    <Icon name="edit" :size="12" />
+                  </button>
+                </span>
+                <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
+                  <input class="input" style="width: 160px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
+                         v-model="nameInput"
+                         @keyup.enter="saveName(u.id)"
+                         @keyup.escape="cancelNameEdit"
+                         autofocus />
+                  <button @click="saveName(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
+                  <button @click="cancelNameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+                </span>
+              </template>
+              <!-- SSO-linked accounts: `name` is overwritten from the IdP's
+                   claim on every login, so it isn't durably editable — the
+                   nickname is a local override that survives that resync,
+                   shown alongside the IdP's own name in parens. -->
+              <template v-else>
+                <span v-if="editingNicknameId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap">
+                  <span>{{ u.displayName }}</span>
+                  <span v-if="u.nickname" class="muted mono" style="font-size: var(--text-xs)">({{ u.name }})</span>
+                  <button @click="startNicknameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_nickname')">
+                    <Icon name="edit" :size="12" />
+                  </button>
+                </span>
+                <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
+                  <input class="input" style="width: 140px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
+                         v-model="nicknameInput"
+                         :placeholder="u.name"
+                         @keyup.enter="saveNickname(u.id)"
+                         @keyup.escape="cancelNicknameEdit"
+                         autofocus />
+                  <button @click="saveNickname(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
+                  <button @click="cancelNicknameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+                </span>
+              </template>
             </span>
           </td>
           <td class="mono">
