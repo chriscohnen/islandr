@@ -711,23 +711,9 @@ export default defineComponent({
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-2)">
+    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-3)">
       {{ t('atlas.legend_hint') }} {{ t('atlas.legend_connected_hint') }}
     </p>
-
-    <!-- Grant-kind color legend — the line color alone would fail
-         color-blind readers, so each swatch carries its own text label
-         (the label, not the color, is what actually distinguishes a kind). -->
-    <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3); font-size: var(--text-xs)">
-      <span v-for="item in edgeKindLegend" :key="item.kind" style="display: inline-flex; align-items: center; gap: 6px">
-        <svg width="20" height="8" style="flex-shrink: 0">
-          <line x1="0" y1="4" x2="20" y2="4" :stroke="item.color"
-                :stroke-width="item.kind === 'network-grant' ? 2.5 : 1.5"
-                :stroke-dasharray="item.kind === 'network-grant' ? '5 3' : null" />
-        </svg>
-        <span class="muted">{{ item.label }}</span>
-      </span>
-    </div>
 
     <!-- Type/user filter chips — same inclusive-filter pattern as the topology
          map's type row (empty selection = show everything; picking one or
@@ -959,6 +945,21 @@ export default defineComponent({
             </template>
           </div>
         </div>
+      </div>
+
+      <!-- Grant-kind color legend, directly under the graph so it isn't
+           missed — the line color alone would fail color-blind readers, so
+           each swatch carries its own text label (the label, not the color,
+           is what actually distinguishes a kind). -->
+      <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-2); font-size: var(--text-xs)">
+        <span v-for="item in edgeKindLegend" :key="item.kind" style="display: inline-flex; align-items: center; gap: 6px">
+          <svg width="20" height="8" style="flex-shrink: 0">
+            <line x1="0" y1="4" x2="20" y2="4" :stroke="item.color"
+                  :stroke-width="item.kind === 'network-grant' ? 2.5 : 1.5"
+                  :stroke-dasharray="item.kind === 'network-grant' ? '5 3' : null" />
+          </svg>
+          <span class="muted">{{ item.label }}</span>
+        </span>
       </div>
 
       <div class="card card-pad" style="margin-top: var(--space-4)">
