@@ -110,7 +110,7 @@ public class ConfigService {
 
         List<ConfigExportDto.ResourceSnapshot> resources = Resource.<Resource>listAll()
                 .stream().map(r -> new ConfigExportDto.ResourceSnapshot(
-                        r.id, r.siteId, r.name, r.ip, r.description, r.type, r.createdAt))
+                        r.id, r.siteId, r.name, r.ip, r.description, r.type, r.createdAt, r.mac))
                 .toList();
 
         List<ConfigExportDto.ResourcePortSnapshot> ports = ResourcePort.<ResourcePort>listAll()
@@ -415,8 +415,8 @@ public class ConfigService {
         // --- Resources -------------------------------------------------------
         for (var res : safe(p.resources())) {
             em.createNativeQuery(
-                            "INSERT INTO resources (id, site_id, name, ip, description, type, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7)")
+                            "INSERT INTO resources (id, site_id, name, ip, description, type, created_at, mac)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
                     .setParameter(1, res.id())
                     .setParameter(2, res.siteId())
                     .setParameter(3, res.name())
@@ -424,6 +424,7 @@ public class ConfigService {
                     .setParameter(5, res.description())
                     .setParameter(6, res.type())
                     .setParameter(7, ts(res.createdAt()))
+                    .setParameter(8, res.mac())
                     .executeUpdate();
         }
 

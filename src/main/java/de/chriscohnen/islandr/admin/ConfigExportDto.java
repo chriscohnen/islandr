@@ -283,7 +283,10 @@ public class ConfigExportDto {
         String ip,
         String description,
         String type,
-        Instant createdAt
+        Instant createdAt,
+        // Issue #76 — vendor is deliberately absent here too: it's derived
+        // from OuiVendorLookup at read time, same as everywhere else.
+        String mac
     ) {}
 
     public record ResourcePortSnapshot(
