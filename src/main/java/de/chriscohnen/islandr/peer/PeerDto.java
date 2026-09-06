@@ -280,7 +280,12 @@ public final class PeerDto {
             String deviceType,  // laptop | desktop | mobile | tablet | server | other | null
             java.util.List<Integer> sampleHits,  // one entry per day in ActivityHeatmapResponse.days, same order
             java.util.List<Long> rxBytes,        // ditto — rx bytes for that day
-            java.util.List<Long> txBytes         // ditto — tx bytes for that day
+            java.util.List<Long> txBytes,        // ditto — tx bytes for that day
+            // So the frontend can tell "no activity because the site gateway
+            // peer didn't exist yet" apart from "no activity because the site
+            // was down" — only the latter is worth flagging (a client peer
+            // going quiet is normal; a site gateway going quiet is not).
+            java.time.Instant createdAt
     ) {}
 
     /** Peers x days activity matrix. {@code days} is ascending ISO-8601 date

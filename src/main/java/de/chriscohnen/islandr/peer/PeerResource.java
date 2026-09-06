@@ -161,7 +161,7 @@ public class PeerResource {
                             .map(d -> byDay.containsKey(d) ? byDay.get(d).rxBytes : 0L).toList();
                     java.util.List<Long> txBytes = days.stream()
                             .map(d -> byDay.containsKey(d) ? byDay.get(d).txBytes : 0L).toList();
-                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, p.deviceType, sampleHits, rxBytes, txBytes);
+                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, p.deviceType, sampleHits, rxBytes, txBytes, p.createdAt);
                 }).toList();
 
         return new PeerDto.ActivityHeatmapResponse(days, peerRows);

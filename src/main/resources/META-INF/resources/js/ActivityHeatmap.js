@@ -76,6 +76,31 @@ export default defineComponent({
       };
       return labels[p.deviceType] || t("peers.dev_other");
     },
+    // A site gateway's icon gets a distinct color, not just a distinct shape —
+    // at 13px in a dense row list the router/device icons alone didn't read
+    // as different at a glance (2026-09-06 feedback).
+    peerIconStyle(p) {
+      return p.type === "site"
+          ? "flex-shrink: 0; color: var(--accent)"
+          : "flex-shrink: 0; opacity: 0.75";
+    },
+    // A day is "before this peer existed" if it's earlier than the peer's
+    // creation date — those days must never be flagged as a site outage, or
+    // every site younger than the visible window would show as permanently
+    // down since its creation. No createdAt (older data / synthetic seed
+    // rows) falls back to "always existed", matching the prior behavior.
+    existedOn(p, dayIndex) {
+      if (!p.createdAt) return true;
+      return this.result.days[dayIndex] >= p.createdAt.slice(0, 10);
+    },
+    // A site gateway going quiet is a real outage worth flagging; a client
+    // peer going quiet (laptop closed, phone off wifi) is normal and must
+    // stay visually unremarkable. Only site rows get the "down" treatment,
+    // and only for days on/after the peer's own creation date.
+    isSiteDown(p, dayIndex) {
+      return p.type === "site" && this.level(this.metricValue(p, dayIndex), dayIndex) === 0
+          && this.existedOn(p, dayIndex);
+    },
     async load() {
       this.loading = true;
       this.error = null;
@@ -151,6 +176,8 @@ export default defineComponent({
         const rx = peer.rxBytes[dayIndex] || 0;
         const tx = peer.txBytes[dayIndex] || 0;
         detail = `↓ ${this.formatMb(rx)} · ↑ ${this.formatMb(tx)}`;
+      } else if (this.isSiteDown(peer, dayIndex)) {
+        detail = t("dashboard.heatmap_site_down");
       } else {
         detail = hits > 0
           ? t("dashboard.heatmap_connected_approx", { duration: this.formatEstimatedDuration(hits) })
@@ -193,12 +220,12 @@ export default defineComponent({
             <tr v-for="p in result.peers" :key="p.peerId">
               <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle; font-size: var(--text-sm); height: 20px; padding-top: 0; padding-bottom: 0">
                 <span style="display: inline-flex; align-items: center; gap: 6px">
-                  <Icon :name="peerIconName(p)" :size="13" :title="peerIconTitle(p)" style="flex-shrink: 0; opacity: 0.75" />
-                  {{ p.name }}
+                  <Icon :name="peerIconName(p)" :size="13" :title="peerIconTitle(p)" :style="peerIconStyle(p)" />
+                  <span :style="p.type === 'site' ? 'font-weight: 600' : ''">{{ p.name }}</span>
                 </span>
               </td>
               <td v-for="(d, i) in result.days" :key="d" :title="cellTitle(p, i)"
-                  :class="'heatmap-cell heatmap-l' + level(metricValue(p, i), i)"
+                  :class="isSiteDown(p, i) ? 'heatmap-cell heatmap-down' : 'heatmap-cell heatmap-l' + level(metricValue(p, i), i)"
                   style="padding: 0"></td>
             </tr>
           </tbody>
