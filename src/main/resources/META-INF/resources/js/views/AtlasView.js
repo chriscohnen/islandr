@@ -482,7 +482,7 @@ export default defineComponent({
         subjectName = user ? user.name : edge.subjectId;
       }
       if (edge.kind === "type-grant") {
-        this.error = t("atlas.revoke_type_grant_blocked");
+        this.openTypeGrantRevokeConfirm(edge, resource, subjectName);
         return;
       }
       if (edge.kind === "network-grant") {
@@ -495,12 +495,50 @@ export default defineComponent({
       this.revokeConfirm = { edge, userName: subjectName, resourceName, roleLabel };
     },
 
+    // A type-grant edge isn't a single (role, resource) row to delete — the
+    // click always means "revoke the whole type-grant" (every resource of
+    // this type in this site, for this role), so look up the actual
+    // RoleResourceTypeGrant row behind the edge and confirm that instead.
+    async openTypeGrantRevokeConfirm(edge, resource, subjectName) {
+      if (!resource) {
+        this.error = t("atlas.revoke_type_grant_blocked");
+        return;
+      }
+      try {
+        const res = await fetch("/api/v1/acl/type-grants");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const typeGrants = await res.json();
+        const match = typeGrants.find(
+            (g) => g.roleId === edge.roleId && g.siteId === resource.siteId && g.resourceType === resource.type
+        );
+        if (!match) {
+          this.error = t("atlas.revoke_type_grant_blocked");
+          return;
+        }
+        this.revokeConfirm = {
+          edge,
+          isTypeGrant: true,
+          typeGrantId: match.id,
+          userName: subjectName,
+          roleLabel: edge.roleName,
+          typeLabel: this.resourceTypeLabels[resource.type] || resource.type,
+          siteName: match.siteName,
+        };
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+      }
+    },
+
     cancelRevokeConfirm() {
       this.revokeConfirm = null;
     },
 
     async confirmRevokeEdge() {
       if (!this.revokeConfirm) return;
+      if (this.revokeConfirm.isTypeGrant) {
+        await this.confirmRevokeTypeGrant();
+        return;
+      }
       const edge = this.revokeConfirm.edge;
       this.revokeSaving = true;
       this.error = null;
@@ -518,6 +556,25 @@ export default defineComponent({
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
+        }
+        this.revokeConfirm = null;
+        await this.load();
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+      } finally {
+        this.revokeSaving = false;
+      }
+    },
+
+    async confirmRevokeTypeGrant() {
+      const typeGrantId = this.revokeConfirm.typeGrantId;
+      this.revokeSaving = true;
+      this.error = null;
+      try {
+        const res = await fetch("/api/v1/acl/type-grants/" + typeGrantId, { method: "DELETE" });
         if (!res.ok) {
           const errBody = await res.text();
           throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
@@ -1050,7 +1107,10 @@ export default defineComponent({
           <button class="btn btn-ghost btn-sm" @click="cancelRevokeConfirm">✕</button>
         </div>
         <div class="modal-body">
-          <p style="margin: 0">
+          <p v-if="revokeConfirm.isTypeGrant" style="margin: 0">
+            {{ t('atlas.revoke_type_grant_confirm', { user: revokeConfirm.userName, type: revokeConfirm.typeLabel, site: revokeConfirm.siteName }) }}
+          </p>
+          <p v-else style="margin: 0">
             {{ t('atlas.revoke_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, resource: revokeConfirm.resourceName }) }}
           </p>
         </div>
