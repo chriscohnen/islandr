@@ -210,8 +210,8 @@ islandr/
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
-│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014), plus the link-scope gate that skips mDNS/LLMNR for off-link targets
-│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), plus PTR/mDNS/LLMNR/NetBIOS/SSDP name lookups for discovery's hostname suggestion (#45, #48)
+│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014), the link-scope gate that skips mDNS/LLMNR for off-link targets, and MAC/OUI vendor lookup (#76)
+│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), plus PTR/mDNS/LLMNR/NetBIOS/SSDP lookups feeding discovery's hostname and MAC suggestions (#45, #48, #76)
 │   │   ├── external/    # /api/external/v1 facade: API-key auth, peers/users/sites/resources/roles (ADR-0026)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── hosthealth/  # hub CPU/memory/swap sampler, hand-rolled from /proc (issue #73)
@@ -228,14 +228,15 @@ islandr/
 │   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V71, portable SQL
+│   │   ├── data/oui-vendors.csv             # bundled IEEE MA-L registry — MAC prefix → vendor, resolved offline (#76)
+│   │   ├── db/migration/                    # Flyway migrations V1–V76, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 854 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 903 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -262,12 +263,14 @@ islandr/
 
 **Networks, resources & firewall**
 - Sites and typed resources (computer, router, printer, NAS, camera, IoT, rack server, KVM host, …)
-- **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports, and bulk-create resources from a reviewable list. Resource-name suggestion tries reverse DNS (PTR, targeted against the site's DNS server or the system resolver), then mDNS, then NetBIOS, in that order — admin can always override, and untried/failed lookups just fall back to the pre-existing typed baseline ([ADR-0014](docs/adr/0014-device-discovery.md), [#45](https://github.com/chriscohnen/islandr/issues/45), [#48](https://github.com/chriscohnen/islandr/issues/48)). Unprivileged sockets only, no new capabilities. A determinate progress bar replaces the running-state spinner during a scan
+- **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports, and bulk-create resources from a reviewable list. Resource-name suggestion tries reverse DNS (PTR, targeted against the site's DNS server or the system resolver), then mDNS and LLMNR for hosts on the hub's own segment, then NetBIOS and SSDP, in that order — admin can always override, and untried/failed lookups just fall back to the pre-existing typed baseline ([ADR-0014](docs/adr/0014-device-discovery.md), [#45](https://github.com/chriscohnen/islandr/issues/45), [#48](https://github.com/chriscohnen/islandr/issues/48)). Unprivileged sockets only, no new capabilities. A determinate progress bar replaces the running-state spinner during a scan
+- **MAC address and hardware vendor** — resources carry the MAC discovery found, and the vendor ("Ubiquiti Networks", "Raspberry Pi Foundation") is resolved from a bundled IEEE OUI table with no lookup ever leaving the host. Two independent sources: the kernel's own ARP cache for hosts on the hub's segment, and the `UNIT_ID` field of a NetBIOS NBSTAT answer, which is an ordinary unicast query and so reaches devices behind a site gateway too. An **Identify** action re-runs both against an existing resource on demand ([#76](https://github.com/chriscohnen/islandr/issues/76))
 - Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
 - **Resource-type ACL grants** — roles → every resource of a type at a site (e.g. "all printers in the home office"), additive to individual grants ([ADR-0022](docs/adr/0022-acl-type-grants.md))
+- **Whole-network grants** — a role can be granted a whole site network at once, present *and* future hosts, as exactly one nftables rule with the site CIDR as destination rather than one rule per resource. Deliberately coarse: always full reach, and it covers hosts Islandr has never registered as a resource ([ADR-0029](docs/adr/0029-whole-network-role-grants.md), [#78](https://github.com/chriscohnen/islandr/issues/78))
 - **Direct user→resource grants** — grant one specific user access to a resource without a role, for one-off exceptions that don't warrant a new role ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md))
 - **Site-to-site grants** — a site's gateway peer can itself be a grant subject, authorizing the whole site's CIDR (not just individual peers) to reach a resource, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52))
-- **Atlas view** — a global map of who/what can reach which resources across the whole tenant, with click-to-focus filtering and drag-to-grant creation (drag either end: user/site → resource or resource → site) ([#49](https://github.com/chriscohnen/islandr/issues/49))
+- **Atlas view** — a global map of who/what can reach which resources across the whole tenant. Click any user, resource or site to narrow the graph and the grants table to it; drag either end to create a grant (user/site → resource, or resource → site); revoke a grant from the edge itself. Edges are colour-coded by grant kind, and the table names that kind in a sortable column, so the colour is reinforcement rather than the only signal ([#49](https://github.com/chriscohnen/islandr/issues/49))
 - **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell (no `sudo`, no new capabilities). Results dock in a panel beside the graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram itself ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66))
 - **World-map topology view** — sites, gateways and live tunnels on a geocoded map, alongside the existing network diagram ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md))
 - **DNS resolver for resource names** — opt-in, hand-rolled UDP/TCP resolver authoritative for the managed resource zone (per-site subdomains), ACL-filtered per querying peer, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
@@ -289,7 +292,7 @@ islandr/
 - **Automatic Let's Encrypt certificates** — set a domain and islandr requests, installs, and renews the certificate itself via a hand-rolled ACME client ([ADR-0019](docs/adr/0019-acme-hand-rolled-client.md))
 - **DNS-01 challenge** as an alternative to HTTP-01, including a manual no-API-token mode for registrars without a supported DNS API ([ADR-0020](docs/adr/0020-dns01-challenge-with-manual-mode.md), [#41](https://github.com/chriscohnen/islandr/issues/41))
 - **CSR generation for the Origin Certificate** — generate a private key + certificate signing request in-app instead of shelling out to `openssl` ([#42](https://github.com/chriscohnen/islandr/issues/42))
-- **Connection activity heatmap** — peers × days, coloured by traffic volume rather than plain presence, so a device gone quiet stands out at a glance and a hover shows connection duration or ↓/↑ MB
+- **Connection activity heatmap** — peers × days, coloured by traffic volume rather than plain presence, so a device gone quiet stands out at a glance and a hover shows connection duration or ↓/↑ MB. Each row carries its peer's device icon, and site gateways are set apart from client devices — a laptop having a quiet day is normal, a gateway having one means the site was unreachable
 - Google Workspace user import (the service-account JSON is encrypted at rest)
 - Audit log with cursor pagination and actor/action/target filters
 - Config **export/import** as a JSON snapshot, with preview and confirm
@@ -301,6 +304,18 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.21.0**
+- **Whole-network grants** — a role can now be given a whole site network instead of naming each host in it. Type-grants ([ADR-0022](docs/adr/0022-acl-type-grants.md)) already covered "all printers at this site", but a mixed network needed one row per type and still missed a type that first appeared later; and either way the firewall expanded the grant to one rule per resource. A network grant is one nftables rule with the site's CIDR as destination — it covers hosts added tomorrow, and hosts Islandr was never told about. That reach is the trade, and it is deliberate: the grant is always full access, with no port scoping, so use it where the network boundary *is* the access boundary ([ADR-0029](docs/adr/0029-whole-network-role-grants.md), [#78](https://github.com/chriscohnen/islandr/issues/78))
+- **Capacity-limited ports stay reservation-gated underneath a network grant** — nftables has no most-specific-rule-wins, so a broad accept would otherwise have quietly reopened every exclusive port ([#72](https://github.com/chriscohnen/islandr/issues/72)) inside the granted network. The ruleset now drops each unreserved gated port explicitly, ahead of the broad accept
+- **MAC address and hardware vendor on resources** — discovery could say a host answers on 9100 but not what it *is*. Resources now carry their MAC, and the vendor is resolved from an IEEE OUI registry bundled with the binary, so nothing is looked up over the network — "Brother", "Ubiquiti Networks" or "Raspberry Pi Foundation" is often all it takes to name a device correctly on the review list. The MAC alone is stored, never the vendor string, so refreshing the bundled table can never leave a stale name behind ([#76](https://github.com/chriscohnen/islandr/issues/76))
+- **…and it works for remote sites, not just the hub's own segment** — the kernel ARP cache only knows hosts the hub is physically adjacent to, which on a VPS hub is close to none of them. A NetBIOS NBSTAT reply also carries the target's hardware address (RFC 1002 §4.2.18), and NBSTAT is a plain unicast query, so it reaches straight through a site gateway. Both paths are tried; on-link the observed ARP entry wins over the host's self-report
+- **Identify** — an on-demand action on an existing resource that re-runs the name and MAC lookups against its current address, for resources created before discovery could find any of this, or ones that have since moved
+- **Atlas is navigable, not just viewable** — site circles are clickable like users and resources, narrowing the graph and grants table to that site; hovering anything selectable now says so, instead of only lighting up mid-drag. Grant edges are coloured by kind with a legend below the graph, and the grants table gained a sortable Type column so the kind is readable as text rather than only as a border colour. Type-grants can be revoked from the graph itself, and the edge turns red under the cursor in revoke mode
+- **The activity heatmap distinguishes a quiet laptop from a site that was down** — every row now carries its peer's device icon, gateways are visually set apart from clients, and a zero-activity day on a gateway row is flagged as an outage rather than rendered like any other idle cell. A site added last week is not shown as having been down before it existed ([#77](https://github.com/chriscohnen/islandr/issues/77))
+- **Local accounts can be renamed** — the name column only ever offered a nickname override. That exists because an SSO-linked account's name is re-synced from the identity provider on every login, so a direct edit would not survive; for a local account nothing overwrites it, and the UI now tells the two cases apart
+- **Fixed: two site gateways at the same coordinates drew on top of each other** on the world map — pin, label and network grid all stacked, garbling both. Colliding gateways now fan out around their shared point
+- **WebAuthn integration decided, not yet built** — [ADR-0028](docs/adr/0028-webauthn-library-and-integration.md) records why the break-glass recovery admin is the account that needs a second factor, and why the WebAuthn ceremony belongs behind Islandr's own session handling rather than an extension that would authenticate requests outside the per-request access re-check added in 0.20.0
 
 **0.20.0**
 - **Exclusive ports** — a resource port can declare how many people may hold it at once. A grant then decides who may *ask*; a reservation decides who holds the slot right now. For the shared-function-account case (an RDP box with one session), where until now an admin coordinated by hand or several people all believed they had exclusive access. Capacity is per **port**, not per host, so one seat on RDP leaves the same machine's SSH freely usable. Users reserve and release from the self-service portal; requests at capacity are refused outright, naming who holds it, how long the wait is, and their e-mail to ask ([#72](https://github.com/chriscohnen/islandr/issues/72))
