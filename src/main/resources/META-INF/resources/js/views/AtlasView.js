@@ -187,7 +187,11 @@ export default defineComponent({
       return this.activeTypes.size > 0 || this.userFilterRoleId !== "";
     },
     // Same type/user-role filters as the diagram above, so the table below
-    // it never contradicts what's currently shown on the graph.
+    // it never contradicts what's currently shown on the graph. Also mirrors
+    // the diagram's click-to-focus state (selectedUserId/selectedResourceId)
+    // — clicking a peer on the graph is a strong "show me just this one"
+    // signal, and the table previously ignored it entirely, still listing
+    // every grant in the system underneath a graph now showing just one.
     grantsForTable() {
       if (!this.graph) return [];
       const usersById = Object.fromEntries(this.graph.users.map((u) => [u.id, u]));
@@ -209,6 +213,16 @@ export default defineComponent({
               if (!res || !this.activeTypes.has(res.type)) return false;
             }
             if (userSet && e.subjectType === "user" && !userSet.has(e.subjectId)) return false;
+            // Click-to-focus, same rule the diagram's own edgeLines() applies:
+            // a selected user narrows to only their edges (and, for a
+            // network-grant edge specifically, only shows it while its own
+            // granted user is the one selected — never unconditionally);
+            // a selected resource narrows to only edges reaching it.
+            if (this.selectedUserId) {
+              if (!(e.subjectType === "user" && e.subjectId === this.selectedUserId)) return false;
+            } else if (this.selectedResourceId) {
+              if (e.resourceId !== this.selectedResourceId) return false;
+            }
             return true;
           })
           .map((e) => {
