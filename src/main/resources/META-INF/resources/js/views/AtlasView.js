@@ -258,6 +258,8 @@ export default defineComponent({
               // would produce two rows with an identical key.
               key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.siteId + "|" + e.kind + "|" + (e.roleId || ""),
               kind: e.kind,
+              kindLabel: (EDGE_KIND_LEGEND.find((k) => k.kind === e.kind) || {}).labelKey
+                  ? t(EDGE_KIND_LEGEND.find((k) => k.kind === e.kind).labelKey) : e.kind,
               userName: subjectName,
               resourceName,
               roleName: e.kind === "user-direct" ? t("atlas.mode_direct")
@@ -1097,6 +1099,9 @@ export default defineComponent({
         <table v-if="grantsForTable.length > 0" class="table">
           <thead>
             <tr>
+              <th @click="grantsSortBy('kindLabel')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_kind') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('kindLabel') }}</span>
+              </th>
               <th @click="grantsSortBy('userName')" style="cursor: pointer; user-select: none; white-space: nowrap">
                 {{ t('atlas.th_subject') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('userName') }}</span>
               </th>
@@ -1113,6 +1118,16 @@ export default defineComponent({
           </thead>
           <tbody>
             <tr v-for="row in pagedGrantsForTable" :key="row.key">
+              <td style="white-space: nowrap">
+                <span style="display: inline-flex; align-items: center; gap: 6px">
+                  <svg width="14" height="8" style="flex-shrink: 0">
+                    <line x1="0" y1="4" x2="14" y2="4" :stroke="kindColor(row.kind)"
+                          :stroke-width="row.kind === 'network-grant' ? 2.5 : 1.5"
+                          :stroke-dasharray="row.kind === 'network-grant' ? '5 3' : null" />
+                  </svg>
+                  {{ row.kindLabel }}
+                </span>
+              </td>
               <td :style="'border-left: 3px solid ' + kindColor(row.kind)">{{ row.userName }}</td>
               <td>{{ row.roleName }}</td>
               <td>{{ row.resourceName }}</td>
