@@ -13,7 +13,10 @@ public final class DiscoveryDto {
     public record ScanStarted(String jobId) {}
 
     public record HostView(String ip, List<Integer> openPorts, String typeGuess,
-                           String hostname, boolean alreadyRegistered) {}
+                           String hostname, boolean alreadyRegistered,
+                           // Issue #76 — on-link only; vendor is derived at
+                           // mapping time (DiscoveryResource), never stored.
+                           String mac, String vendor) {}
 
     public record ScanStatus(String state, int total, int done, int found, List<HostView> hosts, String error) {}
 
@@ -38,7 +41,10 @@ public final class DiscoveryDto {
             // the whole import — see DiscoveryResource#importHosts.
             @Pattern(regexp = "^$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$",
                     message = "must be a DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
-            String dnsName
+            String dnsName,
+            // Optional (issue #76) — pre-filled from the scan row's own MAC;
+            // the admin can edit/clear it per row before importing, same as dnsName.
+            String mac
     ) {}
 
     public record ImportRequest(@Valid List<ImportHost> hosts) {}

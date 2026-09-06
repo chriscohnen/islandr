@@ -157,11 +157,13 @@ public class DiscoveryJobs {
         List<DiscoveredHost> out = new ArrayList<>();
         if (!hostIps.isEmpty()) {
             List<Integer> ports = List.of(3389, 445);
-            out.add(new DiscoveredHost(hostIps.get(0), ports, TypeFingerprint.guess(ports), "mock-pc"));       // computer
+            // b8:27:eb is the real, registered Raspberry Pi Foundation OUI — a
+            // concrete, correct vendor hit in mock/dev mode, not a made-up prefix.
+            out.add(new DiscoveredHost(hostIps.get(0), ports, TypeFingerprint.guess(ports), "mock-pc", "b8:27:eb:00:11:22"));       // computer
         }
         if (hostIps.size() > 1) {
             List<Integer> ports = List.of(554);
-            out.add(new DiscoveredHost(hostIps.get(hostIps.size() - 1), ports, TypeFingerprint.guess(ports), "mock-cam")); // camera
+            out.add(new DiscoveredHost(hostIps.get(hostIps.size() - 1), ports, TypeFingerprint.guess(ports), "mock-cam", null)); // camera
         }
         done.set(hostIps.size());
         found.set(out.size());

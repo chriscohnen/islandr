@@ -86,7 +86,8 @@ public class DiscoveryResource {
         List<DiscoveryDto.HostView> hosts = new ArrayList<>();
         for (DiscoveryScanner.DiscoveredHost h : job.hosts()) {
             boolean known = Resource.count("siteId = ?1 and ip = ?2", siteId, h.ip()) > 0;
-            hosts.add(new DiscoveryDto.HostView(h.ip(), h.openPorts(), h.typeGuess(), h.hostname(), known));
+            String vendor = OuiVendorLookup.vendorFor(h.mac()).orElse(null); // same package — no FQN needed here
+            hosts.add(new DiscoveryDto.HostView(h.ip(), h.openPorts(), h.typeGuess(), h.hostname(), known, h.mac(), vendor));
         }
         return new DiscoveryDto.ScanStatus(
                 job.state().name().toLowerCase(), job.total(), job.done(), job.found(), hosts, job.error());
@@ -130,6 +131,7 @@ public class DiscoveryResource {
             // claimed it in this batch) just leaves this one nameless rather than
             // failing the whole import; the admin can set it by hand afterwards.
             r.dnsName = claimDnsName(siteId, h.dnsName(), claimedDnsNames);
+            r.mac = (h.mac() == null || h.mac().isBlank()) ? null : h.mac().strip().toLowerCase(java.util.Locale.ROOT);
             r.persist();
             // Optionally adopt the discovered open TCP ports as ResourcePorts, so the
             // admin doesn't re-enter them by hand. Protocol is a best-effort label
