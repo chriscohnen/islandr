@@ -9,7 +9,7 @@
 Islandr must call two privileged CLI tools at runtime:
 
 - `nft` — to atomically reload the `inet islandr` nftables table (ADR-0003)
-- `wg` / `wg-quick` — to add, update and remove WireGuard peers on the hub interface
+- `wg` — to add, update and remove WireGuard peers on the hub interface
 
 Both tools require `CAP_NET_ADMIN`. The naive deployment runs the islandr process as `root` or with a full `CAP_NET_ADMIN` grant on the binary. Either approach violates the principle of least privilege: a compromised islandr process would have unrestricted access to all network interfaces, all firewall tables, routing, and — if running as root — the entire filesystem.
 
@@ -46,8 +46,6 @@ islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/ruleset.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg-quick up wg0
-islandr ALL=(root) NOPASSWD: /usr/bin/wg-quick down wg0
 ```
 
 Key constraints:
@@ -71,7 +69,7 @@ The container still requires `--cap-add NET_ADMIN` and `--network host`, but the
 
 ### WireGuard interface ownership
 
-The `wg0` interface is created by the operator before starting islandr (or by `wg-quick up wg0` via the scoped sudo). islandr does not own the interface in the OS sense — it only manages peer entries via `wg set`. This keeps interface creation (a rare, manual operation) separate from peer management (frequent, automated).
+The `wg0` interface is created and brought up by the operator before starting islandr — with `wg-quick`, systemd-networkd, or plain `ip link`, whichever the host already uses. islandr never brings an interface up or down and is granted no privilege to do so; it only manages peer entries via `wg set`. This keeps interface creation (a rare, manual operation) separate from peer management (frequent, automated).
 
 ## Alternatives considered (Pugh Matrix)
 
