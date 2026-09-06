@@ -25,11 +25,18 @@ public final class ResourceDto {
             // subdomain (ADR-0023 follow-up). Meaningless unless dnsName is set.
             boolean dnsFlat,
             List<PortResponse> ports,
-            Instant createdAt
+            Instant createdAt,
+            // Discovered via ARP (import) or the on-demand /identify action
+            // (issue #76). Null = never learned.
+            String mac,
+            // Never persisted — derived from the bundled OUI table at read
+            // time so a later table refresh can't leave a stale name behind.
+            String vendor
     ) {
         public static Response from(Resource r, List<PortResponse> ports) {
             return new Response(r.id, r.siteId, r.name, r.ip, r.description, r.type, r.dnsName, r.dnsFlat,
-                    ports, r.createdAt);
+                    ports, r.createdAt, r.mac,
+                    de.chriscohnen.islandr.discovery.OuiVendorLookup.vendorFor(r.mac).orElse(null));
         }
     }
 
@@ -82,8 +89,21 @@ public final class ResourceDto {
             // Optional — true resolves this resource directly under the zone
             // apex, no site subdomain (ADR-0023 follow-up). Ignored when dnsName
             // is blank.
-            boolean dnsFlat
+            boolean dnsFlat,
+
+            // Optional (issue #76) — discovered via ARP, or typed/accepted from
+            // the on-demand /identify action. No format validation beyond a
+            // loose length cap; malformed input just won't match anything in
+            // the OUI table (ResourceService normalizes/lowercases it).
+            @jakarta.validation.constraints.Size(max = 17)
+            String mac
     ) {}
+
+    /** Read-only result of the on-demand /identify action (issue #76) — never
+     *  persists anything; the admin applies what they want via the ordinary
+     *  save (PUT) afterward. Any field may be null (off-link, mock mode, or
+     *  nothing answered). */
+    public record IdentifyResponse(String hostname, String mac, String vendor) {}
 
     /**
      * Resource as seen by the end-user in their self-service portal.

@@ -63,6 +63,7 @@ public class ResourceService {
         Resource r = Resource.createNew(siteId, req.name().strip(), ip, req.description(), req.type());
         r.dnsName = dnsName;
         r.dnsFlat = dnsName != null && req.dnsFlat();
+        r.mac = normalizeMac(req.mac());
         r.persist();
         return r;
     }
@@ -92,6 +93,7 @@ public class ResourceService {
         }
         r.dnsName = dnsName;
         r.dnsFlat = dnsFlat;
+        r.mac = normalizeMac(req.mac());
         return r;
     }
 
@@ -99,6 +101,13 @@ public class ResourceService {
     /** Blank → null (never resolves); otherwise lowercased for a case-insensitive lookup key. */
     private static String normalizeDnsName(String dnsName) {
         return (dnsName == null || dnsName.isBlank()) ? null : dnsName.strip().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** Blank → null; otherwise trimmed and lowercased (a MAC has no
+     *  meaningful case, and OuiVendorLookup already normalizes for lookup —
+     *  storing it lowercase just keeps every resource visually consistent). */
+    private static String normalizeMac(String mac) {
+        return (mac == null || mac.isBlank()) ? null : mac.strip().toLowerCase(java.util.Locale.ROOT);
     }
 
     /** A flat name has no site label to disambiguate it, so its uniqueness
