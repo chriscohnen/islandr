@@ -520,6 +520,7 @@ export default defineComponent({
               _name: name,
               _dnsName: this.slugifyDnsName(name),
               _type: (h.typeGuess && h.typeGuess !== "unknown") ? h.typeGuess : "computer",
+              _mac: h.mac || "",
             };
           });
           this.scanState = "done";
@@ -562,6 +563,7 @@ export default defineComponent({
           body: JSON.stringify({ hosts: chosen.map((h) => ({
             ip: h.ip, name: h._name, type: h._type, dnsName: h._dnsName || "",
             ports: this.adoptPorts ? (h.openPorts || []) : [],
+            mac: h._mac || "",
           })) }),
         });
         if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
@@ -981,6 +983,8 @@ export default defineComponent({
                     <th>{{ t('discovery.th_ports') }}</th>
                     <th>{{ t('discovery.th_type') }}</th>
                     <th>{{ t('discovery.th_name') }}</th>
+                    <th>{{ t('resources.field_mac') }}</th>
+                    <th>{{ t('discovery.th_vendor') }}</th>
                     <th>{{ t('resources.field_dns_name') }}</th>
                   </tr>
                 </thead>
@@ -999,6 +1003,8 @@ export default defineComponent({
                       </select>
                     </td>
                     <td><input class="input" v-model="h._name" :disabled="h.alreadyRegistered" style="width: 170px" /></td>
+                    <td><input class="input mono" v-model="h._mac" :disabled="h.alreadyRegistered" style="width: 130px" :placeholder="t('resources.field_mac_ph')" /></td>
+                    <td class="muted" style="font-size: var(--text-xs)">{{ h.vendor || '—' }}</td>
                     <td><input class="input mono" v-model="h._dnsName" :disabled="h.alreadyRegistered" style="width: 150px" :placeholder="t('resources.field_dns_name_ph')" /></td>
                   </tr>
                 </tbody>
