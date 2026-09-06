@@ -1,9 +1,12 @@
 package de.chriscohnen.islandr.discovery;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
@@ -100,6 +103,36 @@ class HostProbeTest {
 
             assertThat(r.live()).isTrue();
             assertThat(r.mac()).isNull();
+        }
+    }
+
+    @Test
+    void probe_exposesMac_whenHostIsOnLinkAndArpEntryExists(@TempDir Path tmp) throws IOException {
+        // Positive-path counterpart to probe_exposesMac_andIsNullOverLoopback above:
+        // that test only proves mac() is null over loopback, which would also pass if
+        // resolveMac() always returned null unconditionally. Here we inject a
+        // LinkScope that deterministically treats 127.0.0.1 as on-link (rather than
+        // relying on the build host's real, auto-detected interfaces) and an ArpCache
+        // fixture keyed to 127.0.0.1, then run a live loopback probe and assert the
+        // fixture's MAC comes back through end-to-end.
+        String fixtureMac = "aa:bb:cc:dd:ee:ff";
+        Path arpFile = tmp.resolve("arp");
+        Files.writeString(arpFile,
+                "IP address       HW type     Flags       HW address            Mask     Device\n"
+              + "127.0.0.1        0x1         0x2         " + fixtureMac + "     *        lo\n");
+
+        LinkScope onLinkLoopback = LinkScope.of(List.of("127.0.0.1/32"));
+        ArpCache fixtureArp = new ArpCache(arpFile);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            int port = server.getLocalPort();
+            HostProbe probe = new HostProbe(List.of(port), HostProbe.DEFAULT_UDP_PROBE_PORT, FAST, null,
+                    onLinkLoopback, fixtureArp);
+
+            HostProbe.ProbeResult r = probe.probe("127.0.0.1");
+
+            assertThat(r.live()).isTrue();
+            assertThat(r.mac()).isEqualTo(fixtureMac);
         }
     }
 }

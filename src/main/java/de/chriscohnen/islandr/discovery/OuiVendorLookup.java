@@ -23,6 +23,11 @@ import java.util.Optional;
  * <p>Public — used both from this package ({@link DiscoveryResource}) and
  * from {@code acl.ResourceDto}, unlike {@link ArpCache}/{@link LinkScope}
  * which stay package-private.
+ *
+ * <p>Provenance of the bundled {@code data/oui-vendors.csv}: fetched from
+ * {@code https://standards-oui.ieee.org/oui/oui.csv} and trimmed to just the
+ * {@code PREFIX,Vendor} columns (dropping the Registry and Address columns
+ * the IEEE file also carries) on 2026-09-06, 40,089 rows at that time.
  */
 public final class OuiVendorLookup {
 

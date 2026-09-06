@@ -131,7 +131,7 @@ public class DiscoveryResource {
             // claimed it in this batch) just leaves this one nameless rather than
             // failing the whole import; the admin can set it by hand afterwards.
             r.dnsName = claimDnsName(siteId, h.dnsName(), claimedDnsNames);
-            r.mac = (h.mac() == null || h.mac().isBlank()) ? null : h.mac().strip().toLowerCase(java.util.Locale.ROOT);
+            r.mac = de.chriscohnen.islandr.acl.ResourceService.normalizeMac(h.mac());
             r.persist();
             // Optionally adopt the discovered open TCP ports as ResourcePorts, so the
             // admin doesn't re-enter them by hand. Protocol is a best-effort label

@@ -239,7 +239,11 @@ public class ResourceResource {
         }
         Site site = Site.findById(r.siteId);
         String dnsServerIp = site != null ? site.dnsServerIp : null;
-        HostProbe probe = new HostProbe(HostProbe.DEFAULT_TCP_PORTS, HostProbe.DEFAULT_UDP_PROBE_PORT,
+        // On-demand single-host liveness check only cares whether the host answers
+        // at all, not which of the full discovery-scan port set is open — a small
+        // subset of common always-on services bounds the worst-case request latency
+        // to roughly a third of a full scan's sequential probe (finding: Important 3).
+        HostProbe probe = new HostProbe(List.of(22, 80, 443, 445, 3389), HostProbe.DEFAULT_UDP_PROBE_PORT,
                 hostTimeout, dnsServerIp);
         HostProbe.ProbeResult result = probe.probe(r.ip);
         String vendor = OuiVendorLookup.vendorFor(result.mac()).orElse(null);

@@ -105,8 +105,12 @@ public class ResourceService {
 
     /** Blank → null; otherwise trimmed and lowercased (a MAC has no
      *  meaningful case, and OuiVendorLookup already normalizes for lookup —
-     *  storing it lowercase just keeps every resource visually consistent). */
-    private static String normalizeMac(String mac) {
+     *  storing it lowercase just keeps every resource visually consistent).
+     *  Package-visibility isn't enough for {@code DiscoveryResource} (a
+     *  different package) to reuse this, so it's public — called via FQN
+     *  from there, matching this codebase's existing style for the
+     *  occasional cross-package static call. */
+    public static String normalizeMac(String mac) {
         return (mac == null || mac.isBlank()) ? null : mac.strip().toLowerCase(java.util.Locale.ROOT);
     }
 

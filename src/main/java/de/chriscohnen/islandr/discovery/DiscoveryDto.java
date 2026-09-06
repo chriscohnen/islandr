@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.discovery;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
@@ -44,6 +45,7 @@ public final class DiscoveryDto {
             String dnsName,
             // Optional (issue #76) — pre-filled from the scan row's own MAC;
             // the admin can edit/clear it per row before importing, same as dnsName.
+            @Size(max = 17)
             String mac
     ) {}
 

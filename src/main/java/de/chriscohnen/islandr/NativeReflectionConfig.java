@@ -80,6 +80,7 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         // targets array, which enumerates every one).
         ResourceDto.ReservationHolder.class,
         ResourceDto.MyAccessPort.class,
+        ResourceDto.IdentifyResponse.class,
         ReservationDto.Response.class,
         ReservationDto.CreateRequest.class,
         ReservationDto.HolderResponse.class,

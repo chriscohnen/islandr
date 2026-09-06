@@ -64,8 +64,8 @@ public class HostProbe {
     private final int udpProbePort;
     private final int timeoutMillis;
     private final String dnsServerIp;
-    private final LinkScope linkScope = new LinkScope();
-    private final ArpCache arpCache = new ArpCache();
+    private final LinkScope linkScope;
+    private final ArpCache arpCache;
 
     public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout) {
         this(tcpPorts, udpProbePort, timeout, null);
@@ -75,10 +75,22 @@ public class HostProbe {
      *         #45) for a targeted PTR lookup, tried before the system
      *         resolver; null = original system-resolver-only behavior. */
     public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout, String dnsServerIp) {
+        this(tcpPorts, udpProbePort, timeout, dnsServerIp, new LinkScope(), new ArpCache());
+    }
+
+    /** Test seam (issue #76): lets a test inject a deterministic
+     *  {@link LinkScope} and {@link ArpCache} instead of the real,
+     *  auto-detected interfaces / kernel ARP table, so the mac()
+     *  positive-path can be asserted without depending on the build
+     *  host's own network configuration. */
+    HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout, String dnsServerIp,
+              LinkScope linkScope, ArpCache arpCache) {
         this.tcpPorts = List.copyOf(tcpPorts);
         this.udpProbePort = udpProbePort;
         this.timeoutMillis = (int) Math.max(1, timeout.toMillis());
         this.dnsServerIp = dnsServerIp;
+        this.linkScope = linkScope;
+        this.arpCache = arpCache;
     }
 
     /**

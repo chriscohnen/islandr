@@ -35,6 +35,13 @@ class ResourceIdentifyResourceTest {
                 .body("hostname", nullValue())
                 .body("mac", nullValue())
                 .body("vendor", nullValue());
+
+        // The endpoint is documented as read-only — prove it: re-fetching the
+        // resource must show it unchanged (still no mac persisted), i.e. /identify
+        // never wrote back its probe result onto the Resource entity.
+        given().when().get("/api/v1/resources/" + resourceId)
+                .then().statusCode(200)
+                .body("mac", nullValue());
     }
 
     @Test
