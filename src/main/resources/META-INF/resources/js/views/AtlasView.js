@@ -242,6 +242,7 @@ export default defineComponent({
               // network grants on two different sites via the same role
               // would produce two rows with an identical key.
               key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.siteId + "|" + e.kind + "|" + (e.roleId || ""),
+              kind: e.kind,
               userName: subjectName,
               resourceName,
               roleName: e.kind === "user-direct" ? t("atlas.mode_direct")
@@ -292,6 +293,14 @@ export default defineComponent({
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+
+    // Same color per grant kind as the diagram's edges (EDGE_KIND_LEGEND
+    // mirrors AtlasDiagram.js's edgeColor) — used for the grants table's
+    // row accent so the table reads with the same color coding as the map.
+    kindColor(kind) {
+      const entry = EDGE_KIND_LEGEND.find((e) => e.kind === kind);
+      return entry ? entry.color : "var(--accent)";
+    },
 
     // Clicking a user node: while a role is active, clicking someone who
     // does NOT hold that role switches the whole toolbar to direct mode and
@@ -1040,7 +1049,7 @@ export default defineComponent({
         <table v-if="grantsForTable.length > 0" class="table">
           <thead>
             <tr>
-              <th>{{ t('atlas.th_user') }}</th>
+              <th>{{ t('atlas.th_subject') }}</th>
               <th>{{ t('atlas.th_role') }}</th>
               <th>{{ t('atlas.th_resource') }}</th>
               <th>{{ t('atlas.th_ports') }}</th>
@@ -1048,7 +1057,7 @@ export default defineComponent({
           </thead>
           <tbody>
             <tr v-for="row in pagedGrantsForTable" :key="row.key">
-              <td>{{ row.userName }}</td>
+              <td :style="'border-left: 3px solid ' + kindColor(row.kind)">{{ row.userName }}</td>
               <td>{{ row.roleName }}</td>
               <td>{{ row.resourceName }}</td>
               <td class="mono">{{ row.portsLabel }}</td>
@@ -1108,7 +1117,7 @@ export default defineComponent({
         </div>
         <div class="modal-body">
           <p v-if="revokeConfirm.isTypeGrant" style="margin: 0">
-            {{ t('atlas.revoke_type_grant_confirm', { user: revokeConfirm.userName, type: revokeConfirm.typeLabel, site: revokeConfirm.siteName }) }}
+            {{ t('atlas.revoke_type_grant_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, type: revokeConfirm.typeLabel, site: revokeConfirm.siteName }) }}
           </p>
           <p v-else style="margin: 0">
             {{ t('atlas.revoke_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, resource: revokeConfirm.resourceName }) }}
