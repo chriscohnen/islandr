@@ -55,6 +55,9 @@ export default defineComponent({
       scanHosts: [],         // enriched with _selected / _name / _type for the review table
       scanProgress: { done: 0, total: 0 },
       scanFound: 0,          // live count of hosts found so far
+      // Which name/MAC sources this network's scan can use (issue #79) —
+      // constant for the whole scan, so it rides along on the start response.
+      scanSources: [],
       adoptPorts: true,      // adopt each host's discovered open ports on import
       scanError: null,
       scanCanForce: false,
@@ -107,6 +110,32 @@ export default defineComponent({
       const { done, total } = this.scanProgress;
       if (!total) return 0;
       return Math.min(100, Math.round((done / total) * 100));
+    },
+    // Issue #79: the scan asks several name/MAC sources per host and any of them
+    // may legitimately answer nothing. Naming the ones that will not even be
+    // tried, and why, is what separates "this device stayed quiet" from "we
+    // never asked" — otherwise a half-empty Name column reads as a broken scan.
+    scanActiveSources() {
+      void this._lang;
+      return this.scanSources.filter((s) => s.active).map((s) => t("discovery.src_" + s.id));
+    },
+    // Grouped by reason rather than listed per source: on a remote network three
+    // sources drop out for the one same reason, and repeating it three times
+    // would bury it.
+    scanInactiveSources() {
+      void this._lang;
+      const groups = new Map();
+      for (const s of this.scanSources) {
+        if (s.active) continue;
+        const reason = s.reason || "unavailable";
+        if (!groups.has(reason)) groups.set(reason, []);
+        groups.get(reason).push(t("discovery.src_" + s.id));
+      }
+      return [...groups.entries()].map(([reason, names]) => ({
+        reason,
+        names: names.join(" · "),
+        why: t("discovery.src_why_" + reason),
+      }));
     },
     // Never written into form.dnsName automatically — shown as a placeholder/
     // accept-chip only, so doing nothing before Save leaves the field exactly
@@ -461,6 +490,7 @@ export default defineComponent({
       this.scanError = null;
       this.scanCanForce = false;
       this.scanFound = 0;
+      this.scanSources = [];
     },
     closeScan() {
       if (this.scanPollTimer) { clearTimeout(this.scanPollTimer); this.scanPollTimer = null; }
@@ -491,9 +521,10 @@ export default defineComponent({
           }
           throw new Error(body || "HTTP " + res.status);
         }
-        const jobId = (await res.json()).jobId;
-        if (!jobId) throw new Error("scan response contained no jobId");
-        this.scanJobId = jobId;
+        const started = await res.json();
+        if (!started.jobId) throw new Error("scan response contained no jobId");
+        this.scanJobId = started.jobId;
+        this.scanSources = Array.isArray(started.sources) ? started.sources : [];
         this.pollScan();
       } catch (e) {
         this.scanState = "error";
@@ -949,6 +980,19 @@ export default defineComponent({
           </template>
 
           <template v-else-if="scanState === 'running'">
+            <div v-if="scanSources.length" style="margin-bottom: var(--space-3); font-size: var(--text-sm); line-height: 1.6; display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3)">
+              <template v-if="scanActiveSources.length">
+                <span style="color: var(--fg1); white-space: nowrap"><Icon name="check" :size="14" /> {{ t('discovery.src_active') }}</span>
+                <span style="color: var(--fg1)">{{ scanActiveSources.join(' · ') }}</span>
+              </template>
+              <template v-for="(g, i) in scanInactiveSources" :key="g.reason">
+                <span style="color: var(--fg3); white-space: nowrap">
+                  <template v-if="i === 0"><Icon name="unlink" :size="14" /> {{ t('discovery.src_inactive') }}</template>
+                </span>
+                <span style="color: var(--fg3)">{{ g.names }} — {{ g.why }}</span>
+              </template>
+            </div>
+
             <div class="progress" role="progressbar" :aria-valuenow="scanProgress.done" :aria-valuemin="0" :aria-valuemax="scanProgress.total">
               <div class="progress-fill" :style="{ width: scanProgressPct + '%' }"></div>
             </div>

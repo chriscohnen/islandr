@@ -60,6 +60,23 @@ class DiscoveryResourceTest {
     }
 
     @Test
+    void startScan_reportsWhichNameSourcesTheScanCanUse() {
+        // Issue #79: the operator sees the chain up front rather than inferring
+        // it from an empty Name column. The suite runs in mock mode, where the
+        // honest answer is that none of them run at all.
+        String siteId = createSite("disco-sources", "10.94.0.0/29");
+
+        JsonPath started = given().contentType("application/json")
+                .when().post("/api/v1/sites/" + siteId + "/discovery/scan")
+                .then().statusCode(202).extract().jsonPath();
+
+        assertThat(started.getList("sources.id")).containsExactly(
+                "ptr_site", "ptr_system", "mdns", "llmnr", "netbios", "ssdp", "arp");
+        assertThat(started.getList("sources.active")).containsOnly(false);
+        assertThat(started.getList("sources.reason")).containsOnly("mock_mode");
+    }
+
+    @Test
     void import_createsIdempotently_andMarksAlreadyRegistered() {
         String siteId = createSite("disco-import", "10.91.0.0/29");
         String body = "{\"hosts\":[{\"ip\":\"10.91.0.5\",\"name\":\"cam-1\",\"type\":\"camera\"}]}";

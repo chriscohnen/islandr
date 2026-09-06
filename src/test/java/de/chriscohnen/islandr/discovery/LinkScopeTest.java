@@ -13,6 +13,40 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LinkScopeTest {
 
     @Test
+    void overlaps_isTrue_whenTheWholeCidrSitsInsideALocalSubnet() {
+        LinkScope scope = LinkScope.of(List.of("192.168.178.4/24"));
+
+        assertThat(scope.overlaps("192.168.178.0/24")).isTrue();
+    }
+
+    @Test
+    void overlaps_isFalse_forANetworkBehindAGateway() {
+        // The case the scan dialog needs to report: a remote site's CIDR shares
+        // no addresses with anything the hub is attached to, so mDNS/LLMNR/ARP
+        // cannot contribute anything for it.
+        LinkScope scope = LinkScope.of(List.of("192.168.178.4/24"));
+
+        assertThat(scope.overlaps("10.20.30.0/24")).isFalse();
+    }
+
+    @Test
+    void overlaps_isTrue_whenTheLocalSubnetSitsInsideTheCidr() {
+        // Containment runs both ways — a hub on a /24 inside a site declared as
+        // a /16 still shares addresses with it.
+        LinkScope scope = LinkScope.of(List.of("10.20.30.4/24"));
+
+        assertThat(scope.overlaps("10.20.0.0/16")).isTrue();
+    }
+
+    @Test
+    void overlaps_failsOpen_onAMalformedCidrOrUnknownLocalSubnets() {
+        // Same posture as isOnLink: with no usable knowledge, claim the sources
+        // will be tried rather than promising they are off.
+        assertThat(LinkScope.of(List.of()).overlaps("10.20.30.0/24")).isTrue();
+        assertThat(LinkScope.of(List.of("192.168.178.4/24")).overlaps("not-a-cidr")).isTrue();
+    }
+
+    @Test
     void addressInAnAttachedSubnet_isOnLink() {
         LinkScope scope = LinkScope.of(List.of("192.168.1.5/24"));
 

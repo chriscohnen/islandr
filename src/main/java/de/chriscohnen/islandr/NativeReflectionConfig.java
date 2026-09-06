@@ -120,6 +120,7 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
         AuditDto.Response.class,
 
         DiscoveryDto.ScanStarted.class,
+        DiscoveryDto.NameSource.class,
         DiscoveryDto.HostView.class,
         DiscoveryDto.ScanStatus.class,
         DiscoveryDto.ImportHost.class,

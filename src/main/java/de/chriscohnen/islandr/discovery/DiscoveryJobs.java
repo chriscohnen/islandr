@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.discovery;
 
+import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.discovery.DiscoveryScanner.DiscoveredHost;
 import de.chriscohnen.islandr.webhook.WebhookDispatcher;
 import de.chriscohnen.islandr.webhook.WebhookEventType;
@@ -37,6 +38,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @ApplicationScoped
 public class DiscoveryJobs {
+
+    /**
+     * Which name/MAC sources a scan of {@code site} can draw on (issue #79).
+     * Lives here rather than on the REST resource because the discovery mode
+     * and the probe's collaborators are this class's concern, not the
+     * endpoint's.
+     */
+    public List<DiscoveryDto.NameSource> sourcesFor(Site site) {
+        return ScanSources.forSite(site.cidr, site.dnsServerIp, "real".equalsIgnoreCase(mode),
+                new LinkScope(), new ArpCache());
+    }
 
     /** Finished jobs are swept once older than this (running jobs are never swept). */
     private static final Duration TTL = Duration.ofMinutes(5);

@@ -111,6 +111,38 @@ final class LinkScope {
         }
     }
 
+    /**
+     * True when {@code cidr} shares any address with one of the hub's own
+     * attached subnets — the network-level form of {@link #isOnLink}, used to
+     * tell an operator up front which name sources a scan of that network can
+     * actually use (issue #79).
+     *
+     * <p>Containment is checked both ways: the hub may sit on a small subnet
+     * inside a larger declared site network, or the site may be a subset of
+     * what the hub is attached to. Either way they share addresses.
+     *
+     * <p>Fails <em>open</em> on unknown local subnets or a malformed CIDR, for
+     * the same reason {@link #isOnLink} does — claiming a source will be tried
+     * costs nothing if it then finds nothing, whereas wrongly reporting it off
+     * would explain away a real result.
+     */
+    boolean overlaps(String cidr) {
+        if (localSubnets.isEmpty()) return true;
+        int slash = cidr.indexOf('/');
+        if (slash < 0) return true;
+        try {
+            byte[] network = InetAddress.getByName(cidr.substring(0, slash)).getAddress();
+            int prefixLength = Integer.parseInt(cidr.substring(slash + 1));
+            Subnet other = new Subnet(network, prefixLength);
+            for (Subnet s : localSubnets) {
+                if (s.contains(network) || other.contains(s.network())) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
     private static List<Subnet> enumerateLocalSubnets() {
         List<Subnet> out = new ArrayList<>();
         try {

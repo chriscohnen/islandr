@@ -71,7 +71,10 @@ public class DiscoveryResource {
         // build-time analysis registers ScanStarted for native serialization — a
         // Response-wrapped entity is opaque to that analysis, which left the native
         // image emitting an empty body (no jobId) and the client polling /scan/undefined.
-        return new DiscoveryDto.ScanStarted(job.id);
+        // The available sources follow from the site and the hub, not from any
+        // host, so they are known now — riding along on this response spares the
+        // client a second round trip before it can render the running state.
+        return new DiscoveryDto.ScanStarted(job.id, jobs.sourcesFor(site));
     }
 
     @GET

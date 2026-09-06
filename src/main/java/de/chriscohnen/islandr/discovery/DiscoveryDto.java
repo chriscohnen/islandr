@@ -11,7 +11,16 @@ public final class DiscoveryDto {
 
     private DiscoveryDto() {}
 
-    public record ScanStarted(String jobId) {}
+    /**
+     * One name/MAC source the scan can draw on, and whether it is available for
+     * the network being scanned (issue #79). {@code reason} is a code, not
+     * prose — the wording lives in the frontend's i18n table — and is null when
+     * the source is active. Codes: {@code off_link}, {@code no_site_dns},
+     * {@code no_arp_table}, {@code mock_mode}.
+     */
+    public record NameSource(String id, boolean active, String reason) {}
+
+    public record ScanStarted(String jobId, List<NameSource> sources) {}
 
     public record HostView(String ip, List<Integer> openPorts, String typeGuess,
                            String hostname, boolean alreadyRegistered,

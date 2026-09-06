@@ -37,6 +37,12 @@ final class ArpCache {
         this.arpTable = arpTable;
     }
 
+    /** Whether the kernel's ARP table can be read at all — false on any
+     *  non-Linux host, where {@code /proc/net/arp} simply does not exist. */
+    boolean available() {
+        return Files.isReadable(arpTable);
+    }
+
     Optional<String> lookup(String ip) {
         if (!Files.isReadable(arpTable)) return Optional.empty();
         try (BufferedReader r = Files.newBufferedReader(arpTable)) {
