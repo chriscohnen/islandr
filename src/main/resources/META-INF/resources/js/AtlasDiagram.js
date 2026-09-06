@@ -181,6 +181,7 @@ export default defineComponent({
       hoveredNode: null, // node under the pointer, for the hover tooltip
       hoveredKind: null, // "resource" | "user" | "hub" — which card layout to render
       hoverPos: { x: 0, y: 0 }, // tooltip position, in container px
+      hoveredEdgeKey: null, // edge under the pointer while tool === "revoke"
     };
   },
   computed: {
@@ -675,6 +676,13 @@ export default defineComponent({
       if (this.tool !== "revoke") return;
       this.$emit("revoke-edge", edge);
     },
+    onEdgeHover(key) {
+      if (this.tool !== "revoke") return;
+      this.hoveredEdgeKey = key;
+    },
+    onEdgeLeave() {
+      this.hoveredEdgeKey = null;
+    },
     // Dim/highlight precedence: a focused user (click-select) always wins
     // over the role-membership highlight, since focusing narrows attention
     // to one specific person regardless of which role is active. Resource
@@ -767,6 +775,10 @@ export default defineComponent({
                   markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
             <path d="M0,0 L8,4 L0,8 Z" :fill="edgeColor(kind)" />
           </marker>
+          <marker id="atlas-arrow-revoke-hover"
+                  markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="var(--danger-solid)" />
+          </marker>
         </defs>
 
         <g :transform="contentTransform">
@@ -793,13 +805,24 @@ export default defineComponent({
           </g>
 
           <path v-for="line in edgeLines" :key="line.key" :d="line.path"
-                fill="none" :stroke="edgeColor(line.edge.kind)"
-                :stroke-width="line.edge.kind === 'network-grant' ? 2.5 : 1.5"
+                fill="none"
+                :stroke="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 'var(--danger-solid)' : edgeColor(line.edge.kind)"
+                :stroke-width="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 3.5 : (line.edge.kind === 'network-grant' ? 2.5 : 1.5)"
                 :stroke-dasharray="line.edge.kind === 'network-grant' ? '8 5' : null"
                 :stroke-opacity="tool === 'revoke' ? 0.85 : 0.55"
                 :style="tool === 'revoke' ? 'cursor: pointer' : ''"
-                :marker-end="'url(#atlas-arrow-' + line.edge.kind + ')'"
+                :marker-end="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 'url(#atlas-arrow-revoke-hover)' : ('url(#atlas-arrow-' + line.edge.kind + ')')"
+                @pointerenter="onEdgeHover(line.key)"
+                @pointerleave="onEdgeLeave()"
                 @click="onEdgeClick(line.edge)" />
+          <template v-if="tool === 'revoke'">
+            <path v-for="line in edgeLines" :key="'hit-' + line.key" :d="line.path"
+                  fill="none" stroke="transparent" stroke-width="14"
+                  style="cursor: pointer"
+                  @pointerenter="onEdgeHover(line.key)"
+                  @pointerleave="onEdgeLeave()"
+                  @click="onEdgeClick(line.edge)" />
+          </template>
 
           <line v-if="(dragFromUserId || dragFromResourceId) && dragPointer"
                 :x1="nodesById.get(dragFromUserId || dragFromResourceId).x" :y1="nodesById.get(dragFromUserId || dragFromResourceId).y"
