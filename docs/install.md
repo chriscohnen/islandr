@@ -90,8 +90,9 @@ Create `/etc/sudoers.d/islandr`:
 
 ```bash
 sudo tee /etc/sudoers.d/islandr > /dev/null << 'EOF'
-# Islandr: allow only the exact nft and wg commands the service needs.
-# nft: validate (-c) and atomically apply a fixed file path.
+# Islandr: allow only the nft and wg commands the service needs.
+# nft: validate (-c) and atomically apply a ruleset staged in /var/lib/islandr.
+#      The name pattern is required — a fresh temp file is staged per apply.
 # wg:  manage peers on wg0 only.
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft

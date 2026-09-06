@@ -41,18 +41,22 @@ The `islandr` user:
 # /etc/sudoers.d/islandr
 # Allow islandr to manage its own nftables table and WireGuard interface only.
 # NOPASSWD because the process is non-interactive.
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/ruleset.nft
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/ruleset.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
+islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0
+islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
 ```
 
 Key constraints:
-- Only the **exact nft file path** `/var/lib/islandr/ruleset.nft` is allowed — not arbitrary file paths. islandr writes the ruleset to that fixed path before calling `sudo nft -f`.
+- Only **nft rulesets staged in islandr's own data directory** are loadable — `RealNftablesAdapter` writes a freshly named `islandr-nft-<random>.nft` per apply rather than overwriting one fixed filename, so the grant names that pattern instead of a single path. The directory is the boundary the grant is drawing, which is why the adapter never stages into `/tmp`.
+- That boundary is not airtight, and is not the load-bearing part. sudo matches command arguments with `fnmatch(3)` and no `FNM_PATHNAME`, so a `*` also matches `/` — a crafted argument can traverse out of the directory. It buys an attacker nothing: anyone able to choose that argument already runs as `islandr` and can write into `/var/lib/islandr` anyway. What the grant actually confines is the *verb* — `nft` loading a ruleset, never an arbitrary root command.
 - `wg set` and `wg syncconf` are scoped to `wg0` — not arbitrary interfaces.
 - No wildcard `sudo ALL` is ever granted.
 - `visudo -c` validates the file on deployment.
+- The commands here are the ones the deployment scripts actually install ([`setup-hub.sh`](../install/setup-hub.sh), [docs/install.md](../install.md)); see [hardening.md](../install/hardening.md) for why each line looks the way it does.
 
 ### Docker variant
 
@@ -102,7 +106,7 @@ Notes:
 
 **Risks created**
 
-- **R-110** — The fixed nft file path `/var/lib/islandr/ruleset.nft` must be writable only by the `islandr` user. If another process can write to that path, it can inject arbitrary nftables rules via the sudo grant. Mitigation: `chmod 700 /var/lib/islandr/`; only `islandr` user owns the directory.
+- **R-110** — The data directory `/var/lib/islandr/` must be writable only by the `islandr` user. The sudo grant loads any `islandr-nft-*.nft` staged there, so another process able to write into that directory can inject arbitrary nftables rules. Mitigation: `chmod 700 /var/lib/islandr/`; only the `islandr` user owns the directory.
 - **R-111** — The `wg set wg0 *` wildcard allows any `wg set` arguments for `wg0`. A malicious caller that already has a shell as `islandr` could inject a peer with a crafted public key or allowed-IPs. Mitigation: access as `islandr` already implies islandr is compromised — the blast radius is still bounded to WireGuard peer management on `wg0`.
 - **R-112** — The Docker image cannot safely call `nft`/`wg` on the host without elevated container capabilities (`--cap-add NET_ADMIN`, `--network host`), which violate least-privilege. Mitigation: the demo Docker image uses mock adapters only (demo/dev). Production Docker support is targeted for 0.11.0 (v1 line) via a Unix socket proxy (ADR-0012).
 - **R-113** — A distro update that changes the path of `nft` or `wg` (e.g. from `/usr/sbin/nft` to `/usr/bin/nft`) silently breaks the sudoers rule. Mitigation: deployment script uses `which nft` and `which wg` to verify paths match the sudoers file; CI smoke test calls `sudo -l -U islandr` and asserts the expected commands are listed.
