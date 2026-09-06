@@ -504,7 +504,7 @@ export default defineComponent({
                   <button @click="cancelNameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
                 </span>
               </template>
-              <!-- SSO-linked accounts: `name` is overwritten from the IdP's
+              <!-- SSO-linked accounts: "name" is overwritten from the IdP's
                    claim on every login, so it isn't durably editable — the
                    nickname is a local override that survives that resync,
                    shown alongside the IdP's own name in parens. -->
