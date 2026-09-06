@@ -66,6 +66,15 @@ public class HostProbe {
     private final String dnsServerIp;
     private final LinkScope linkScope;
     private final ArpCache arpCache;
+    private final NodeStatusLookup netbios;
+
+    /** Test seam for the NBSTAT query (issue #76). Production binds this to
+     *  {@link NetBiosLookup#nodeStatus}, which always talks to the fixed
+     *  privileged port 137 and so cannot be pointed at a local fake. */
+    @FunctionalInterface
+    interface NodeStatusLookup {
+        Optional<NetBiosLookup.NodeStatus> lookup(String ip, Duration budget);
+    }
 
     public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout) {
         this(tcpPorts, udpProbePort, timeout, null);
@@ -85,6 +94,14 @@ public class HostProbe {
      *  host's own network configuration. */
     HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout, String dnsServerIp,
               LinkScope linkScope, ArpCache arpCache) {
+        this(tcpPorts, udpProbePort, timeout, dnsServerIp, linkScope, arpCache, NetBiosLookup::nodeStatus);
+    }
+
+    /** As above, plus a stand-in for the NBSTAT query — the MAC path that
+     *  reaches off-link hosts cannot be exercised against the real port 137. */
+    HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout, String dnsServerIp,
+              LinkScope linkScope, ArpCache arpCache, NodeStatusLookup netbios) {
+        this.netbios = netbios;
         this.tcpPorts = List.copyOf(tcpPorts);
         this.udpProbePort = udpProbePort;
         this.timeoutMillis = (int) Math.max(1, timeout.toMillis());
@@ -96,10 +113,11 @@ public class HostProbe {
     /**
      * Result for one host: whether it is up, which probed TCP ports are open, its
      * reverse-DNS name if one could be resolved (null otherwise), and its MAC
-     * address if the host is on-link and the kernel's ARP cache has an entry
-     * (null otherwise — off-link hosts, or a Linux-only feature on a non-Linux
-     * host, never populate this). The hostname is a best-effort convenience for
-     * pre-filling the resource name; the MAC is the same for vendor lookup.
+     * address from either the kernel's ARP cache (on-link hosts on Linux) or
+     * the host's own NBSTAT answer (any host that speaks NetBIOS, near or
+     * remote) — null when neither source has anything. The hostname is a
+     * best-effort convenience for pre-filling the resource name; the MAC is
+     * the same for vendor lookup.
      */
     public record ProbeResult(String ip, boolean live, List<Integer> openPorts, String hostname, String mac) {}
 
@@ -120,21 +138,57 @@ public class HostProbe {
         }
         // Name/MAC only live hosts (bounded count), so a slow resolver or ARP
         // miss never taxes a dead sweep.
-        String hostname = live ? resolveHostname(ip) : null;
-        String mac = live ? resolveMac(ip) : null;
+        // One NBSTAT query per host, shared by both consumers below: the name
+        // table and the UNIT_ID MAC arrive in the same response.
+        NodeStatusOnce nbstat = new NodeStatusOnce(ip);
+        String hostname = live ? resolveHostname(ip, nbstat) : null;
+        String mac = live ? resolveMac(ip, nbstat) : null;
         return new ProbeResult(ip, live, List.copyOf(open), hostname, mac);
     }
 
     /**
-     * A TCP connect() to an on-link host already made the kernel ARP-resolve
-     * it moments ago (issue #76) — read that entry back rather than doing
-     * anything privileged. Off-link is the same boundary {@link #resolveHostname}
-     * already draws for mDNS/LLMNR: an L3-routed WireGuard tunnel has no ARP
-     * entry to read for anything beyond the hub's own local subnet(s).
+     * Two independent MAC sources, most authoritative first (issue #76).
+     *
+     * <p>On-link, a TCP connect() already made the kernel ARP-resolve the host
+     * moments ago — read that entry back rather than doing anything
+     * privileged. That is first-hand L2 truth, but it stops at the hub's own
+     * subnet(s): an L3-routed WireGuard tunnel leaves no ARP entry for
+     * anything behind a site gateway.
+     *
+     * <p>NBSTAT covers exactly that gap. Its response carries the target's
+     * hardware address in the STATISTICS block's UNIT_ID field (RFC 1002
+     * §4.2.18), and being an ordinary unicast query it reaches a remote site
+     * just as well as the local segment — the boundary
+     * {@link #resolveHostname} must respect for mDNS/LLMNR does not apply.
+     * The trade is coverage of a different kind: only hosts that speak
+     * NetBIOS answer at all. It is second because a host reports its own
+     * UNIT_ID, whereas the neighbor table observed the frame.
      */
-    private String resolveMac(String ip) {
-        if (!linkScope.isOnLink(ip)) return null;
-        return arpCache.lookup(ip).orElse(null);
+    private String resolveMac(String ip, NodeStatusOnce nbstat) {
+        if (linkScope.isOnLink(ip)) {
+            Optional<String> arp = arpCache.lookup(ip);
+            if (arp.isPresent()) return arp.get();
+        }
+        return nbstat.get().map(NetBiosLookup.NodeStatus::mac).orElse(null);
+    }
+
+    /** Memoizes one NBSTAT query per probed host — {@link #resolveHostname}
+     *  and {@link #resolveMac} both read from the same response rather than
+     *  each paying for its own round trip. */
+    private final class NodeStatusOnce {
+        private final String ip;
+        private Optional<NetBiosLookup.NodeStatus> cached;
+
+        NodeStatusOnce(String ip) {
+            this.ip = ip;
+        }
+
+        Optional<NetBiosLookup.NodeStatus> get() {
+            if (cached == null) {
+                cached = netbios.lookup(ip, Duration.ofMillis(Math.min(timeoutMillis, 1500)));
+            }
+            return cached;
+        }
     }
 
     /**
@@ -165,7 +219,7 @@ public class HostProbe {
      * Last is still far better than "computer-42" for the printers, NAS boxes
      * and cameras that answer nothing else.
      */
-    private String resolveHostname(String ip) {
+    private String resolveHostname(String ip, NodeStatusOnce nbstat) {
         Duration budget = Duration.ofMillis(Math.min(timeoutMillis, 1500));
 
         if (dnsServerIp != null && !dnsServerIp.isBlank()) {
@@ -183,8 +237,8 @@ public class HostProbe {
             if (llmnr.isPresent()) return llmnr.get();
         }
 
-        Optional<String> netbios = NetBiosLookup.lookup(ip, budget);
-        if (netbios.isPresent()) return netbios.get();
+        Optional<String> netbiosName = nbstat.get().map(NetBiosLookup.NodeStatus::name);
+        if (netbiosName.isPresent()) return netbiosName.get();
 
         return SsdpLookup.lookup(ip, budget).orElse(null);
     }

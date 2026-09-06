@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.discovery;
 
+import de.chriscohnen.islandr.dns.NetBiosLookup;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -9,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -133,6 +136,70 @@ class HostProbeTest {
 
             assertThat(r.live()).isTrue();
             assertThat(r.mac()).isEqualTo(fixtureMac);
+        }
+    }
+
+    @Test
+    void probe_takesTheMacFromNetbios_whenTheHostIsOffLinkAndArpHasNothing(@TempDir Path tmp) throws IOException {
+        // The reach ARP cannot have (issue #76): a resource behind a site
+        // gateway is never on-link, so the kernel neighbor table has nothing —
+        // but its NBSTAT answer carries the MAC anyway.
+        HostProbe.NodeStatusLookup netbios =
+                (ip, budget) -> Optional.of(new NetBiosLookup.NodeStatus("NAS-BASEMENT", "00:1a:2b:3c:4d:5e"));
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            int port = server.getLocalPort();
+            HostProbe probe = new HostProbe(List.of(port), HostProbe.DEFAULT_UDP_PROBE_PORT, FAST, null,
+                    LinkScope.of(List.of("10.99.0.0/24")), new ArpCache(tmp.resolve("no-arp-table")), netbios);
+
+            HostProbe.ProbeResult r = probe.probe("127.0.0.1");
+
+            assertThat(r.mac()).isEqualTo("00:1a:2b:3c:4d:5e");
+        }
+    }
+
+    @Test
+    void probe_prefersTheArpMac_overTheNetbiosOne_forOnLinkHosts(@TempDir Path tmp) throws IOException {
+        // The kernel's own neighbor entry is first-hand L2 truth; NBSTAT's
+        // UNIT_ID is whatever the host reports about itself. On-link, ARP wins.
+        Path arpFile = tmp.resolve("arp");
+        Files.writeString(arpFile,
+                "IP address       HW type     Flags       HW address            Mask     Device\n"
+              + "127.0.0.1        0x1         0x2         aa:bb:cc:dd:ee:ff     *        lo\n");
+        HostProbe.NodeStatusLookup netbios =
+                (ip, budget) -> Optional.of(new NetBiosLookup.NodeStatus("NAS-BASEMENT", "00:1a:2b:3c:4d:5e"));
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            int port = server.getLocalPort();
+            HostProbe probe = new HostProbe(List.of(port), HostProbe.DEFAULT_UDP_PROBE_PORT, FAST, null,
+                    LinkScope.of(List.of("127.0.0.1/32")), new ArpCache(arpFile), netbios);
+
+            HostProbe.ProbeResult r = probe.probe("127.0.0.1");
+
+            assertThat(r.mac()).isEqualTo("aa:bb:cc:dd:ee:ff");
+        }
+    }
+
+    @Test
+    void probe_queriesNbstatOnlyOnce_forNameAndMacTogether(@TempDir Path tmp) throws IOException {
+        // Name and MAC come out of the same NBSTAT response (RFC 1002
+        // §4.2.18) — asking twice would double the per-host UDP cost of a
+        // sweep for nothing.
+        AtomicInteger calls = new AtomicInteger();
+        HostProbe.NodeStatusLookup netbios = (ip, budget) -> {
+            calls.incrementAndGet();
+            return Optional.of(new NetBiosLookup.NodeStatus("NAS-BASEMENT", "00:1a:2b:3c:4d:5e"));
+        };
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            int port = server.getLocalPort();
+            HostProbe probe = new HostProbe(List.of(port), HostProbe.DEFAULT_UDP_PROBE_PORT, FAST, null,
+                    LinkScope.of(List.of("10.99.0.0/24")), new ArpCache(tmp.resolve("no-arp-table")), netbios);
+
+            HostProbe.ProbeResult r = probe.probe("127.0.0.1");
+
+            assertThat(r.mac()).isEqualTo("00:1a:2b:3c:4d:5e");
+            assertThat(calls.get()).isEqualTo(1);
         }
     }
 }
