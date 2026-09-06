@@ -6,6 +6,17 @@ import { onEscape } from "/js/keyboard.js";
 
 const GRANTS_PAGE_SIZE = 20;
 
+// Mirrors AtlasDiagram.js's edgeColor(kind) exactly — kept in sync by hand
+// since it's five CSS var strings, not worth sharing a module for. Order
+// here is the legend's display order, not load-bearing elsewhere.
+const EDGE_KIND_LEGEND = [
+  { kind: "role", color: "var(--accent)", labelKey: "atlas.legend_kind_role" },
+  { kind: "type-grant", color: "var(--success-solid)", labelKey: "atlas.legend_kind_type_grant" },
+  { kind: "user-direct", color: "var(--info-solid)", labelKey: "atlas.mode_direct" },
+  { kind: "site-direct", color: "var(--warning-solid)", labelKey: "atlas.mode_direct_site" },
+  { kind: "network-grant", color: "var(--danger-solid)", labelKey: "atlas.legend_kind_network_grant" },
+];
+
 export default defineComponent({
   name: "AtlasView",
   components: { AtlasDiagram, Icon },
@@ -57,6 +68,10 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    edgeKindLegend() {
+      void this.lang;
+      return EDGE_KIND_LEGEND.map((e) => ({ ...e, label: t(e.labelKey) }));
+    },
     grantModeLabel() {
       void this.lang;
       if (!this.selectedRoleId) return t("atlas.mode_direct");
@@ -696,9 +711,23 @@ export default defineComponent({
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-3)">
+    <p class="muted" style="font-size: var(--text-sm); margin: 0 0 var(--space-2)">
       {{ t('atlas.legend_hint') }} {{ t('atlas.legend_connected_hint') }}
     </p>
+
+    <!-- Grant-kind color legend — the line color alone would fail
+         color-blind readers, so each swatch carries its own text label
+         (the label, not the color, is what actually distinguishes a kind). -->
+    <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3); font-size: var(--text-xs)">
+      <span v-for="item in edgeKindLegend" :key="item.kind" style="display: inline-flex; align-items: center; gap: 6px">
+        <svg width="20" height="8" style="flex-shrink: 0">
+          <line x1="0" y1="4" x2="20" y2="4" :stroke="item.color"
+                :stroke-width="item.kind === 'network-grant' ? 2.5 : 1.5"
+                :stroke-dasharray="item.kind === 'network-grant' ? '5 3' : null" />
+        </svg>
+        <span class="muted">{{ item.label }}</span>
+      </span>
+    </div>
 
     <!-- Type/user filter chips — same inclusive-filter pattern as the topology
          map's type row (empty selection = show everything; picking one or
