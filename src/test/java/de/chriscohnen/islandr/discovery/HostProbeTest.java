@@ -81,4 +81,25 @@ class HostProbeTest {
 
         assertThat(result).isNotNull();
     }
+
+    @Test
+    void probe_exposesMac_andIsNullOverLoopback() throws IOException {
+        // Loopback never populates the kernel's ARP table (ARP is an L2
+        // protocol between physically/virtually adjacent hosts; loopback
+        // bypasses L2 entirely) — true whether or not LinkScope's real,
+        // auto-detected interfaces happen to classify 127.0.0.1 as on-link,
+        // so this holds regardless of the test host's own network config.
+        // The precise on-link/off-link boundary itself is LinkScopeTest's
+        // job, not this one — this just proves probe() now wires mac()
+        // through end-to-end without throwing.
+        try (ServerSocket server = new ServerSocket(0)) {
+            int port = server.getLocalPort();
+            HostProbe probe = new HostProbe(List.of(port), HostProbe.DEFAULT_UDP_PROBE_PORT, FAST);
+
+            HostProbe.ProbeResult r = probe.probe("127.0.0.1");
+
+            assertThat(r.live()).isTrue();
+            assertThat(r.mac()).isNull();
+        }
+    }
 }

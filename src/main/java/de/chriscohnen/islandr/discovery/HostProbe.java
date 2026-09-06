@@ -65,6 +65,7 @@ public class HostProbe {
     private final int timeoutMillis;
     private final String dnsServerIp;
     private final LinkScope linkScope = new LinkScope();
+    private final ArpCache arpCache = new ArpCache();
 
     public HostProbe(List<Integer> tcpPorts, int udpProbePort, Duration timeout) {
         this(tcpPorts, udpProbePort, timeout, null);
@@ -81,13 +82,14 @@ public class HostProbe {
     }
 
     /**
-     * Result for one host: whether it is up, which probed TCP ports are open, and its
-     * reverse-DNS name if one could be resolved (null otherwise). The hostname is a
-     * best-effort convenience for pre-filling the resource name — it depends on the
-     * hub being able to reverse-resolve the address (typical on a LAN with a local
-     * resolver; often absent for a remote site reached over the tunnel).
+     * Result for one host: whether it is up, which probed TCP ports are open, its
+     * reverse-DNS name if one could be resolved (null otherwise), and its MAC
+     * address if the host is on-link and the kernel's ARP cache has an entry
+     * (null otherwise — off-link hosts, or a Linux-only feature on a non-Linux
+     * host, never populate this). The hostname is a best-effort convenience for
+     * pre-filling the resource name; the MAC is the same for vendor lookup.
      */
-    public record ProbeResult(String ip, boolean live, List<Integer> openPorts, String hostname) {}
+    public record ProbeResult(String ip, boolean live, List<Integer> openPorts, String hostname, String mac) {}
 
     public ProbeResult probe(String ip) {
         List<Integer> open = new ArrayList<>();
@@ -104,9 +106,23 @@ public class HostProbe {
         if (!live && probeUdpUnreachable(ip)) {
             live = true;
         }
-        // Name only live hosts (bounded count), so a slow resolver never taxes a dead sweep.
+        // Name/MAC only live hosts (bounded count), so a slow resolver or ARP
+        // miss never taxes a dead sweep.
         String hostname = live ? resolveHostname(ip) : null;
-        return new ProbeResult(ip, live, List.copyOf(open), hostname);
+        String mac = live ? resolveMac(ip) : null;
+        return new ProbeResult(ip, live, List.copyOf(open), hostname, mac);
+    }
+
+    /**
+     * A TCP connect() to an on-link host already made the kernel ARP-resolve
+     * it moments ago (issue #76) — read that entry back rather than doing
+     * anything privileged. Off-link is the same boundary {@link #resolveHostname}
+     * already draws for mDNS/LLMNR: an L3-routed WireGuard tunnel has no ARP
+     * entry to read for anything beyond the hub's own local subnet(s).
+     */
+    private String resolveMac(String ip) {
+        if (!linkScope.isOnLink(ip)) return null;
+        return arpCache.lookup(ip).orElse(null);
     }
 
     /**
