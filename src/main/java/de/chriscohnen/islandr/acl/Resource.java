@@ -64,6 +64,13 @@ public class Resource extends PanacheEntityBase {
     @Column(name = "dns_flat", nullable = false, columnDefinition = "INTEGER")
     public boolean dnsFlat = false;
 
+    /** Discovered via ARP during a scan, or set via the on-demand /identify
+     *  action (issue #76). Canonical lowercase "aa:bb:cc:dd:ee:ff" form.
+     *  Vendor is never stored — always derived from OuiVendorLookup at read
+     *  time, so a later table refresh never leaves a stale name behind. */
+    @Column(name = "mac", length = 17)
+    public String mac;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
