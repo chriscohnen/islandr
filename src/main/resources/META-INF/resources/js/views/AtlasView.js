@@ -29,6 +29,7 @@ export default defineComponent({
       selectedRoleId: "", // "" = direct user-grant mode
       selectedUserId: null, // focused user (click-select in direct mode) — only their edges render
       selectedResourceId: null, // focused resource (click-select) — only edges reaching it render
+      selectedSiteId: null, // focused site circle (click-select) — only that site's own grants (site-direct/network-grant) render
       selectedPeerId: null, // focused site-gateway peer (ADR-0025 diagnostics target) — no edge filtering
       lang: locale.current,
       grantDialog: null, // { subjectType, subjectId, resourceId, subjectName, resourceName, kind, allPorts, portIds, ports }
@@ -43,6 +44,8 @@ export default defineComponent({
       // doesn't scale once a tenant has dozens of them. "" = show everyone.
       userFilterRoleId: "",
       grantsPage: 1,
+      grantsSortKey: "userName",
+      grantsSortDir: 1, // 1 = asc, -1 = desc
       // Network diagnostics (ADR-0025): availability is fetched once so the
       // action can gray itself out instead of offering a probe that will just
       // fail; diagModal holds the live state of one open probe dialog.
@@ -96,6 +99,11 @@ export default defineComponent({
       const r = this.graph.resources.find((r) => r.id === this.selectedResourceId);
       return r ? r.name : this.selectedResourceId;
     },
+    focusedSiteName() {
+      if (!this.selectedSiteId || !this.graph) return "";
+      const s = (this.graph.sites || []).find((s) => s.id === this.selectedSiteId);
+      return s ? s.name : this.selectedSiteId;
+    },
     focusedPeerName() {
       if (!this.selectedPeerId) return "";
       return (this._lastPeerClick && this._lastPeerClick.peerId === this.selectedPeerId)
@@ -113,6 +121,7 @@ export default defineComponent({
     focusLabel() {
       if (this.selectedUserId) return t("atlas.focus_user", { user: this.focusedUserName || " " });
       if (this.selectedResourceId) return t("atlas.focus_resource", { resource: this.focusedResourceName || " " });
+      if (this.selectedSiteId) return t("atlas.focus_site", { site: this.focusedSiteName || " " });
       if (this.selectedPeerId) return t("atlas.focus_peer", { peer: this.focusedPeerName || " " });
       return "";
     },
@@ -222,6 +231,12 @@ export default defineComponent({
               if (!(e.subjectType === "user" && e.subjectId === this.selectedUserId)) return false;
             } else if (this.selectedResourceId) {
               if (e.resourceId !== this.selectedResourceId) return false;
+            } else if (this.selectedSiteId) {
+              // Mirrors the diagram's own edgeLines(): a focused site shows
+              // only grants that name the site itself, not its resources —
+              // site-direct grants it makes, and network-grants it receives.
+              if (!((e.subjectType === "site" && e.subjectId === this.selectedSiteId) ||
+                    (e.kind === "network-grant" && e.siteId === this.selectedSiteId))) return false;
             }
             return true;
           })
@@ -252,15 +267,22 @@ export default defineComponent({
             };
           });
     },
+    sortedGrantsForTable() {
+      const k = this.grantsSortKey;
+      const d = this.grantsSortDir;
+      const list = [...this.grantsForTable];
+      list.sort((a, b) => d * String(a[k] || "").localeCompare(String(b[k] || ""), undefined, { numeric: true }));
+      return list;
+    },
     grantsPageCount() {
-      return Math.max(1, Math.ceil(this.grantsForTable.length / GRANTS_PAGE_SIZE));
+      return Math.max(1, Math.ceil(this.sortedGrantsForTable.length / GRANTS_PAGE_SIZE));
     },
     grantsPageClamped() {
       return Math.min(this.grantsPage, this.grantsPageCount);
     },
     pagedGrantsForTable() {
       const start = (this.grantsPageClamped - 1) * GRANTS_PAGE_SIZE;
-      return this.grantsForTable.slice(start, start + GRANTS_PAGE_SIZE);
+      return this.sortedGrantsForTable.slice(start, start + GRANTS_PAGE_SIZE);
     },
     grantsPageInfo() {
       return t("atlas.grants_page_info", { page: this.grantsPageClamped, total: this.grantsPageCount });
@@ -270,7 +292,7 @@ export default defineComponent({
     // Picking a role from the dropdown shifts intent to role-mode — drop any
     // active user focus so the two selection concepts never coexist visibly.
     selectedRoleId(newVal) {
-      if (newVal) { this.selectedUserId = null; this.selectedResourceId = null; }
+      if (newVal) { this.selectedUserId = null; this.selectedResourceId = null; this.selectedSiteId = null; }
     },
     // A changed filter can shrink the result set below the current page —
     // back to page 1 rather than landing on an empty page.
@@ -285,7 +307,7 @@ export default defineComponent({
       if (this.diagModal) this.closeDiagnostics();
       else if (this.grantDialog) this.cancelGrantDialog();
       else if (this.revokeConfirm) this.cancelRevokeConfirm();
-      else if (this.selectedUserId || this.selectedResourceId || this.selectedPeerId) this.clearFocus();
+      else if (this.selectedUserId || this.selectedResourceId || this.selectedSiteId || this.selectedPeerId) this.clearFocus();
     });
   },
   beforeUnmount() {
@@ -301,6 +323,14 @@ export default defineComponent({
       const entry = EDGE_KIND_LEGEND.find((e) => e.kind === kind);
       return entry ? entry.color : "var(--accent)";
     },
+    grantsSortBy(key) {
+      if (this.grantsSortKey === key) this.grantsSortDir *= -1;
+      else { this.grantsSortKey = key; this.grantsSortDir = 1; }
+    },
+    grantsSortIcon(key) {
+      if (this.grantsSortKey !== key) return "↕";
+      return this.grantsSortDir === 1 ? "↑" : "↓";
+    },
 
     // Clicking a user node: while a role is active, clicking someone who
     // does NOT hold that role switches the whole toolbar to direct mode and
@@ -312,12 +342,14 @@ export default defineComponent({
         if (!this.highlightedUserIds.includes(userId)) {
           this.selectedRoleId = "";
           this.selectedResourceId = null;
+          this.selectedSiteId = null;
           this.selectedPeerId = null;
           this.selectedUserId = userId;
         }
         return;
       }
       this.selectedResourceId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = null;
       this.selectedUserId = this.selectedUserId === userId ? null : userId;
     },
@@ -329,8 +361,21 @@ export default defineComponent({
     onResourceClick(resourceId) {
       this.selectedRoleId = "";
       this.selectedUserId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = null;
       this.selectedResourceId = this.selectedResourceId === resourceId ? null : resourceId;
+    },
+
+    // Clicking a site circle focuses the site itself, not a resource inside
+    // it — shows only that site's own grants (site-direct grants it makes,
+    // network-grants it receives), the two ways a site participates in the
+    // grant graph as a whole rather than through one of its resources.
+    onSiteClick(siteId) {
+      this.selectedRoleId = "";
+      this.selectedUserId = null;
+      this.selectedResourceId = null;
+      this.selectedPeerId = null;
+      this.selectedSiteId = this.selectedSiteId === siteId ? null : siteId;
     },
 
     // Clicking a site's gateway diamond (ADR-0025) — only fires when the
@@ -341,6 +386,7 @@ export default defineComponent({
     onPeerClick({ peerId, peerName, siteName }) {
       this.selectedUserId = null;
       this.selectedResourceId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = this.selectedPeerId === peerId ? null : peerId;
       this._lastPeerClick = { peerId, peerName, siteName };
     },
@@ -348,6 +394,7 @@ export default defineComponent({
     clearFocus() {
       this.selectedUserId = null;
       this.selectedResourceId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = null;
     },
 
@@ -839,9 +886,9 @@ export default defineComponent({
            same user node (select, then click again to deselect), landing
            the second click on whatever node the page reflow put under the
            still-stationary cursor instead of the one the admin meant. -->
-      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId || selectedPeerId) ? 'visible' : 'hidden' }">
+      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId || selectedSiteId || selectedPeerId) ? 'visible' : 'hidden' }">
         {{ focusLabel || ' ' }}
-        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId || selectedPeerId) ? 0 : -1">✕</button>
+        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId || selectedSiteId || selectedPeerId) ? 0 : -1">✕</button>
       </span>
 
       <!-- ADR-0025: a probe target is always a focused, known Resource, the
@@ -900,6 +947,7 @@ export default defineComponent({
     <template v-else-if="graph">
       <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
+                       :selected-site-id="selectedSiteId"
                        :selected-peer-id="selectedPeerId"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
                        :connected-peers-by-user-id="connectedPeersByUserId"
@@ -909,7 +957,7 @@ export default defineComponent({
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
                        :probe-pending="probePending"
-                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />
+                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" @site-click="onSiteClick" />
 
         <!-- Network diagnostics (ADR-0025): docked beside the graph, not a modal —
              the whole point is seeing the probed hub -> [site-gateway] -> target
@@ -1049,10 +1097,18 @@ export default defineComponent({
         <table v-if="grantsForTable.length > 0" class="table">
           <thead>
             <tr>
-              <th>{{ t('atlas.th_subject') }}</th>
-              <th>{{ t('atlas.th_role') }}</th>
-              <th>{{ t('atlas.th_resource') }}</th>
-              <th>{{ t('atlas.th_ports') }}</th>
+              <th @click="grantsSortBy('userName')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_subject') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('userName') }}</span>
+              </th>
+              <th @click="grantsSortBy('roleName')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_role') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('roleName') }}</span>
+              </th>
+              <th @click="grantsSortBy('resourceName')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_resource') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('resourceName') }}</span>
+              </th>
+              <th @click="grantsSortBy('portsLabel')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_ports') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('portsLabel') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>

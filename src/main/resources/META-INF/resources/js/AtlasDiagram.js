@@ -129,6 +129,7 @@ export default defineComponent({
     highlightedUserIds: { type: Array, default: () => [] }, // user ids for the active role filter
     selectedUserId: { type: String, default: null }, // focused user (direct-grant mode) — only their edges render
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
+    selectedSiteId: { type: String, default: null }, // focused site circle — only edges naming it (as subject or network-grant target) render
     selectedPeerId: { type: String, default: null }, // focused site-gateway peer (ADR-0025 diagnostics target) — ring only, no edge filtering
     connectedUserIds: { type: Array, default: () => [] }, // users with a currently-connected client peer (ADR-0025) — also pingable
     // userId -> that user's currently-connected peers (id/name/assignedIp), same
@@ -163,7 +164,7 @@ export default defineComponent({
     // as an outcome nobody has measured yet.
     probePending: { type: Boolean, default: false },
   },
-  emits: ["drag-grant", "revoke-edge", "user-click", "resource-click", "peer-click"],
+  emits: ["drag-grant", "revoke-edge", "user-click", "resource-click", "peer-click", "site-click"],
   data() {
     return {
       dragFromUserId: null,
@@ -182,6 +183,12 @@ export default defineComponent({
       hoveredKind: null, // "resource" | "user" | "hub" — which card layout to render
       hoverPos: { x: 0, y: 0 }, // tooltip position, in container px
       hoveredEdgeKey: null, // edge under the pointer while tool === "revoke"
+      // { type: "user"|"resource"|"circle", id } — whichever clickable
+      // element the pointer plainly hovers (no drag in progress). Merged
+      // with dragHoverTarget by visualHoverTarget() so hovering a
+      // selectable element gets the exact same "activated" ring/fill the
+      // drag-to-grant interaction already shows for its drop targets.
+      hoverActivated: null,
     };
   },
   computed: {
@@ -353,13 +360,25 @@ export default defineComponent({
       let source = this.graph.edges;
       if (this.selectedUserId) source = source.filter((e) => e.subjectType === "user" && e.subjectId === this.selectedUserId);
       else if (this.selectedResourceId) source = source.filter((e) => e.resourceId === this.selectedResourceId);
+      // A focused site shows only grants that name it directly: site-direct
+      // grants where it's the granting subject, and network-grant edges
+      // that target it — the two ways a site itself (not one of its
+      // resources) participates in the grant graph.
+      else if (this.selectedSiteId) {
+        source = source.filter((e) =>
+            (e.subjectType === "site" && e.subjectId === this.selectedSiteId) ||
+            (e.kind === "network-grant" && e.siteId === this.selectedSiteId));
+      }
       // Network-grant edges are a deliberate exception to the "unfiltered
       // default view shows everything" rule every other edge kind follows:
       // confirmed with the user, a network grant's circle highlight/arrow
-      // must never appear unless the granted user is actually selected —
-      // not in the default view, and not while a resource is focused
-      // instead (a network grant isn't resource-focused at all).
-      source = source.filter((e) => e.kind !== "network-grant" || (this.selectedUserId && e.subjectId === this.selectedUserId));
+      // must never appear unless the granted user is actually selected, or
+      // the granted site itself is selected — not in the default view, and
+      // not while a resource is focused instead (a network grant isn't
+      // resource-focused at all).
+      source = source.filter((e) => e.kind !== "network-grant" ||
+          (this.selectedUserId && e.subjectId === this.selectedUserId) ||
+          (this.selectedSiteId && e.siteId === this.selectedSiteId));
       return source
           .filter((e) => {
             if (!this.nodesById.has(e.subjectId)) return false;
@@ -431,6 +450,15 @@ export default defineComponent({
         return null;
       }
       return null;
+    },
+    // What the "activated" ring/fill treatment should point at right now:
+    // the live drag drop-target while a grant-line drag is in progress, else
+    // whichever selectable element (user, resource, site circle) the pointer
+    // plainly hovers. Same shape as dragHoverTarget ({ type, id }) so every
+    // render site that used to check dragHoverTarget can check this instead.
+    visualHoverTarget() {
+      if (this.dragMoved && this.tool === "grant" && this.dragPointer) return this.dragHoverTarget;
+      return this.hoverActivated;
     },
     // A single fixed anchor for the Hub (2026-08-22 feedback: previously
     // absent from the graph entirely, even though it's the actual origin of
@@ -724,6 +752,11 @@ export default defineComponent({
       this.hoveredNode = node;
       this.hoveredKind = kind;
       this.updateHoverPos(evt);
+      // Only user/resource nodes are click-selectable — a gateway/hub hover
+      // still drives the tooltip card above, just not the activated ring.
+      if (kind === "user" || kind === "resource") {
+        this.hoverActivated = { type: kind, id: node.id };
+      }
     },
     updateHoverPos(evt) {
       const rect = this.$refs.container.getBoundingClientRect();
@@ -732,6 +765,21 @@ export default defineComponent({
     onNodeLeave() {
       this.hoveredNode = null;
       this.hoveredKind = null;
+      this.hoverActivated = null;
+    },
+    onCircleEnter(circle) {
+      if (circle.kind !== "site") return; // "mobile" isn't a real network — nothing to select
+      this.hoverActivated = { type: "circle", id: circle.id };
+    },
+    onCircleLeave() {
+      this.hoverActivated = null;
+    },
+    onCircleClick(circle) {
+      if (circle.kind !== "site") return;
+      this.$emit("site-click", circle.id);
+    },
+    circleFocused(circle) {
+      return circle.id === this.selectedSiteId;
     },
     connectedPeersFor(userId) {
       return this.connectedPeersByUserId[userId] || [];
@@ -784,18 +832,34 @@ export default defineComponent({
         <g :transform="contentTransform">
           <g v-for="circle in layout" :key="circle.id">
             <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
-                    :fill="(dragHoverTarget && dragHoverTarget.type === 'circle' && dragHoverTarget.id === circle.id) ? 'var(--success-solid)' : circle.color"
-                    :fill-opacity="(dragHoverTarget && dragHoverTarget.type === 'circle' && dragHoverTarget.id === circle.id) ? 0.18 : 0.07"
+                    :fill="(visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id) ? 'var(--success-solid)' : circle.color"
+                    :fill-opacity="(visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id) ? 0.18 : 0.07"
                     :stroke="networkGrantedCircleIds.has(circle.id) ? edgeColor('network-grant') : circle.color"
                     :stroke-width="networkGrantedCircleIds.has(circle.id) ? 3 : 1.5"
-                    :stroke-dasharray="networkGrantedCircleIds.has(circle.id) ? '8 5' : (circle.kind === 'mobile' ? '2 4' : null)" />
-            <!-- Drag-to-grant hover feedback: this circle is what will be
-                 granted if the pointer is released right now. Animated
-                 "marching ants" ring, on top of the base circle above. -->
-            <circle v-if="dragHoverTarget && dragHoverTarget.type === 'circle' && dragHoverTarget.id === circle.id"
+                    :stroke-dasharray="networkGrantedCircleIds.has(circle.id) ? '8 5' : (circle.kind === 'mobile' ? '2 4' : null)"
+                    :style="circle.kind === 'site' ? 'cursor: pointer' : ''"
+                    @pointerenter="onCircleEnter(circle)"
+                    @pointerleave="onCircleLeave()"
+                    @click="onCircleClick(circle)" />
+            <!-- Hover-activation feedback: this circle is what will be
+                 granted (drag) or selected (plain hover) if the pointer
+                 acts right now. Animated "marching ants" ring, on top of
+                 the base circle above. -->
+            <circle v-if="visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id"
                     :cx="circle.cx" :cy="circle.cy" :r="circle.r + 6"
-                    fill="none" stroke="var(--success-solid)" stroke-width="3" stroke-dasharray="10 6">
+                    fill="none" stroke="var(--success-solid)" stroke-width="3" stroke-dasharray="10 6"
+                    style="pointer-events: none">
               <animate attributeName="stroke-dashoffset" values="32;0" dur="0.8s" repeatCount="indefinite" />
+            </circle>
+            <!-- Selection ring: this site is the current click-selected focus. -->
+            <circle v-if="circleFocused(circle)" :cx="circle.cx" :cy="circle.cy" :r="circle.r + 3"
+                    fill="none" stroke="var(--fg1)" stroke-width="1.5" style="pointer-events: none">
+              <animate attributeName="r" :values="(circle.r + 3) + ';' + (circle.r + 9) + ';' + (circle.r + 3)"
+                       keyTimes="0;0.5;1" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"
+                       dur="2.2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.55;0.05;0.55"
+                       keyTimes="0;0.5;1" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"
+                       dur="2.2s" repeatCount="indefinite" />
             </circle>
             <text :x="circle.cx" :y="circle.cy - circle.r - (circle.cidr ? 24 : 10)" text-anchor="middle"
                   :fill="circle.color" font-size="13" font-weight="600"
@@ -877,13 +941,13 @@ export default defineComponent({
                     :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                     :stroke-width="nodeHighlighted(node) ? 3 : 2" />
               <circle v-else :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
-                      :fill="(!node.isUser && dragHoverTarget && dragHoverTarget.type === 'resource' && dragHoverTarget.id === node.id) ? 'var(--success-solid)' : (node.isUser ? 'var(--accent)' : circle.color)"
+                      :fill="(!node.isUser && visualHoverTarget && visualHoverTarget.type === 'resource' && visualHoverTarget.id === node.id) ? 'var(--success-solid)' : (node.isUser && visualHoverTarget && visualHoverTarget.type === 'user' && visualHoverTarget.id === node.id) ? 'var(--success-solid)' : (node.isUser ? 'var(--accent)' : circle.color)"
                       :fill-opacity="nodeDimmed(node) ? 0.3 : 1"
                       :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                       :stroke-width="nodeHighlighted(node) ? 3 : 2" />
-              <!-- Drag-to-grant hover feedback: this resource is what will be
-                   granted if the pointer is released right now. -->
-              <circle v-if="!node.isUser && !node.isGateway && dragHoverTarget && dragHoverTarget.type === 'resource' && dragHoverTarget.id === node.id"
+              <!-- Hover-activation feedback: this node is what will be granted
+                   (drag) or selected (plain hover) if the pointer acts now. -->
+              <circle v-if="!node.isGateway && visualHoverTarget && visualHoverTarget.type === (node.isUser ? 'user' : 'resource') && visualHoverTarget.id === node.id"
                       :cx="node.x" :cy="node.y" :r="${NODE_RADIUS + 5}"
                       fill="none" stroke="var(--success-solid)" stroke-width="2" stroke-dasharray="5 4">
                 <animate attributeName="stroke-dashoffset" values="18;0" dur="0.6s" repeatCount="indefinite" />
