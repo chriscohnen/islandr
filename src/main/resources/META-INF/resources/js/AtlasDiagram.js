@@ -398,6 +398,39 @@ export default defineComponent({
       return new Set(
           this.edgeLines.filter((l) => l.edge.kind === "network-grant").map((l) => l.edge.siteId));
     },
+    // While actively dragging a grant line, whichever valid drop target the
+    // pointer currently sits over — resolved by geometry against the live
+    // dragPointer, not by DOM hit-testing (that only runs once, on drop).
+    // Drives the "this is what will be granted if you let go now" feedback:
+    // a resource node when dragging from a user/gateway, or the whole site
+    // circle when dragging a resource onto a site's gateway diamond (a
+    // site-direct grant is conceptually "the network", not the diamond icon
+    // itself).
+    dragHoverTarget() {
+      if (!this.dragMoved || this.tool !== "grant" || !this.dragPointer) return null;
+      if (this.dragFromUserId) {
+        for (const circle of this.layout) {
+          for (const node of circle.nodes) {
+            if (node.isUser || node.isGateway) continue;
+            if (Math.hypot(node.x - this.dragPointer.x, node.y - this.dragPointer.y) <= NODE_RADIUS) {
+              return { type: "resource", id: node.id };
+            }
+          }
+        }
+        return null;
+      }
+      if (this.dragFromResourceId) {
+        for (const circle of this.layout) {
+          const gw = circle.nodes.find((n) => n.isGateway);
+          if (!gw) continue;
+          if (Math.hypot(gw.x - this.dragPointer.x, gw.y - this.dragPointer.y) <= NODE_RADIUS) {
+            return { type: "circle", id: circle.id };
+          }
+        }
+        return null;
+      }
+      return null;
+    },
     // A single fixed anchor for the Hub (2026-08-22 feedback: previously
     // absent from the graph entirely, even though it's the actual origin of
     // every probe drawn here). Centered above the packed site cluster —
@@ -739,10 +772,19 @@ export default defineComponent({
         <g :transform="contentTransform">
           <g v-for="circle in layout" :key="circle.id">
             <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
-                    :fill="circle.color" fill-opacity="0.07"
+                    :fill="(dragHoverTarget && dragHoverTarget.type === 'circle' && dragHoverTarget.id === circle.id) ? 'var(--success-solid)' : circle.color"
+                    :fill-opacity="(dragHoverTarget && dragHoverTarget.type === 'circle' && dragHoverTarget.id === circle.id) ? 0.18 : 0.07"
                     :stroke="networkGrantedCircleIds.has(circle.id) ? edgeColor('network-grant') : circle.color"
                     :stroke-width="networkGrantedCircleIds.has(circle.id) ? 3 : 1.5"
                     :stroke-dasharray="networkGrantedCircleIds.has(circle.id) ? '8 5' : (circle.kind === 'mobile' ? '2 4' : null)" />
+            <!-- Drag-to-grant hover feedback: this circle is what will be
+                 granted if the pointer is released right now. Animated
+                 "marching ants" ring, on top of the base circle above. -->
+            <circle v-if="dragHoverTarget && dragHoverTarget.type === 'circle' && dragHoverTarget.id === circle.id"
+                    :cx="circle.cx" :cy="circle.cy" :r="circle.r + 6"
+                    fill="none" stroke="var(--success-solid)" stroke-width="3" stroke-dasharray="10 6">
+              <animate attributeName="stroke-dashoffset" values="32;0" dur="0.8s" repeatCount="indefinite" />
+            </circle>
             <text :x="circle.cx" :y="circle.cy - circle.r - (circle.cidr ? 24 : 10)" text-anchor="middle"
                   :fill="circle.color" font-size="13" font-weight="600"
                   style="text-transform: uppercase; letter-spacing: 0.06em">{{ circle.name }}</text>
@@ -812,10 +854,17 @@ export default defineComponent({
                     :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                     :stroke-width="nodeHighlighted(node) ? 3 : 2" />
               <circle v-else :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
-                      :fill="node.isUser ? 'var(--accent)' : circle.color"
+                      :fill="(!node.isUser && dragHoverTarget && dragHoverTarget.type === 'resource' && dragHoverTarget.id === node.id) ? 'var(--success-solid)' : (node.isUser ? 'var(--accent)' : circle.color)"
                       :fill-opacity="nodeDimmed(node) ? 0.3 : 1"
                       :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                       :stroke-width="nodeHighlighted(node) ? 3 : 2" />
+              <!-- Drag-to-grant hover feedback: this resource is what will be
+                   granted if the pointer is released right now. -->
+              <circle v-if="!node.isUser && !node.isGateway && dragHoverTarget && dragHoverTarget.type === 'resource' && dragHoverTarget.id === node.id"
+                      :cx="node.x" :cy="node.y" :r="${NODE_RADIUS + 5}"
+                      fill="none" stroke="var(--success-solid)" stroke-width="2" stroke-dasharray="5 4">
+                <animate attributeName="stroke-dashoffset" values="18;0" dur="0.6s" repeatCount="indefinite" />
+              </circle>
               <!-- Connected-peer indicator (ADR-0025 follow-up): a small badge, not a
                    recolored node — the node's own fill already carries meaning (dimmed/
                    highlighted/focused) and shape alone tells user/gateway/resource apart
