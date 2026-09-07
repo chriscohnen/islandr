@@ -14,10 +14,12 @@ import java.util.Map;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -98,7 +100,12 @@ public class DiscoveryJobs {
         private final AtomicInteger doneCount = new AtomicInteger();
         private final AtomicInteger foundCount = new AtomicInteger();
         private volatile State state = State.RUNNING;
-        private volatile List<DiscoveredHost> hosts = List.of();
+        /**
+         * Appended to as each host probes live, never replaced (issue #75). That
+         * is what lets a cancelled scan keep what it found: there is no
+         * end-of-run assignment for a cancellation to miss.
+         */
+        private final List<DiscoveredHost> hosts = new CopyOnWriteArrayList<>();
         private volatile String error;
         private final Instant createdAt = Instant.now();
         private volatile Future<?> future;
@@ -114,7 +121,23 @@ public class DiscoveryJobs {
         public int total() { return total; }
         public int done() { return doneCount.get(); }
         public int found() { return foundCount.get(); }
-        public List<DiscoveredHost> hosts() { return hosts; }
+        /**
+         * IP-ordered, not found-order. Probes finish whenever they finish, so a
+         * fast host high up the range lands before a slow one low down; ordering
+         * once here keeps every reader stable rather than leaving each to sort
+         * for itself, and stops rows reshuffling under the pointer while a scan
+         * is still adding to them.
+         */
+        public List<DiscoveredHost> hosts() {
+            List<DiscoveredHost> snapshot = new ArrayList<>(hosts);
+            snapshot.sort(Comparator.comparingLong(h -> CidrHosts.ipv4ToLong(h.ip())));
+            return List.copyOf(snapshot);
+        }
+
+        void addHost(DiscoveredHost host) {
+            hosts.add(host);
+            foundCount.incrementAndGet();
+        }
         public String error() { return error; }
     }
 
@@ -143,14 +166,18 @@ public class DiscoveryJobs {
 
     private void run(Job job, List<String> hostIps, String dnsServerIp) {
         try {
-            List<DiscoveredHost> found = "real".equalsIgnoreCase(mode)
-                    ? realScan(hostIps, job.doneCount, job.foundCount, dnsServerIp)
-                    : mockScan(hostIps, job.doneCount, job.foundCount);
-            job.hosts = found;
+            // Hosts land on the job through job::addHost as they are found, so
+            // there is nothing to assign here — and a cancellation or a failure
+            // partway through leaves everything found so far in place.
+            if ("real".equalsIgnoreCase(mode)) {
+                realScan(hostIps, job, dnsServerIp);
+            } else {
+                mockScan(hostIps, job);
+            }
             if (job.state != State.CANCELLED) {
                 job.state = State.DONE;
                 webhooks.publish(WebhookEventType.DISCOVERY_SCAN_COMPLETED, "system:discovery",
-                        "Site:" + job.siteId, Map.of("siteId", job.siteId, "cidr", job.cidr, "found", found.size()));
+                        "Site:" + job.siteId, Map.of("siteId", job.siteId, "cidr", job.cidr, "found", job.found()));
             }
         } catch (Exception e) {
             job.error = e.getMessage();
@@ -158,28 +185,26 @@ public class DiscoveryJobs {
         }
     }
 
-    private List<DiscoveredHost> realScan(List<String> hostIps, AtomicInteger done, AtomicInteger found, String dnsServerIp) {
+    private void realScan(List<String> hostIps, Job job, String dnsServerIp) {
         HostProbe probe = new HostProbe(HostProbe.DEFAULT_TCP_PORTS, HostProbe.DEFAULT_UDP_PROBE_PORT, hostTimeout, dnsServerIp);
-        return new DiscoveryScanner(concurrency)
-                .scan(hostIps, probe::probe, done::incrementAndGet, found::incrementAndGet);
+        new DiscoveryScanner(concurrency)
+                .scan(hostIps, probe::probe, job.doneCount::incrementAndGet, job::addHost);
     }
 
-    /** Synthetic hosts so dev/CI never touch a real network (ADR-0014 §6). */
-    private List<DiscoveredHost> mockScan(List<String> hostIps, AtomicInteger done, AtomicInteger found) {
-        List<DiscoveredHost> out = new ArrayList<>();
+    /** Synthetic hosts so dev/CI never touch a real network (ADR-0014 §6). Streams
+     *  into the job exactly as the real scan does, so the two paths cannot drift. */
+    private void mockScan(List<String> hostIps, Job job) {
         if (!hostIps.isEmpty()) {
             List<Integer> ports = List.of(3389, 445);
             // b8:27:eb is the real, registered Raspberry Pi Foundation OUI — a
             // concrete, correct vendor hit in mock/dev mode, not a made-up prefix.
-            out.add(new DiscoveredHost(hostIps.get(0), ports, TypeFingerprint.guess(ports), "mock-pc", "b8:27:eb:00:11:22"));       // computer
+            job.addHost(new DiscoveredHost(hostIps.get(0), ports, TypeFingerprint.guess(ports), "mock-pc", "b8:27:eb:00:11:22"));       // computer
         }
         if (hostIps.size() > 1) {
             List<Integer> ports = List.of(554);
-            out.add(new DiscoveredHost(hostIps.get(hostIps.size() - 1), ports, TypeFingerprint.guess(ports), "mock-cam", null)); // camera
+            job.addHost(new DiscoveredHost(hostIps.get(hostIps.size() - 1), ports, TypeFingerprint.guess(ports), "mock-cam", null)); // camera
         }
-        done.set(hostIps.size());
-        found.set(out.size());
-        return out;
+        job.doneCount.set(hostIps.size());
     }
 
     public Job get(String jobId) {

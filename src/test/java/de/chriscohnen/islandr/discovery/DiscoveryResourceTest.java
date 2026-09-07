@@ -77,6 +77,36 @@ class DiscoveryResourceTest {
     }
 
     @Test
+    void cancelledScan_stillReportsItsHostsAndTheCancelledState() {
+        // Issue #75's API contract: a cancelled job answers with what it found and
+        // a "cancelled" state, so the dialog can show partial results.
+        //
+        // Scope of this test, honestly: the suite runs in mock mode, where the scan
+        // has already finished by the time the cancel lands — so it does not
+        // exercise cancelling mid-sweep and would have passed before the change
+        // too. The property that hosts survive an interrupted sweep is covered by
+        // DiscoveryScannerTest (a host is streamed out while another is still
+        // being probed) and holds by construction: the job is appended to as hosts
+        // arrive, and there is no end-of-run assignment left for a cancellation to
+        // miss.
+        String siteId = createSite("disco-cancel", "10.95.0.0/29");
+        String jobId = given().contentType("application/json")
+                .when().post("/api/v1/sites/" + siteId + "/discovery/scan")
+                .then().statusCode(202).extract().path("jobId");
+        JsonPath before = given().when().get("/api/v1/sites/" + siteId + "/discovery/scan/" + jobId)
+                .then().statusCode(200).extract().jsonPath();
+        assertThat(before.getList("hosts")).as("precondition: the scan found something").isNotEmpty();
+
+        given().when().delete("/api/v1/sites/" + siteId + "/discovery/scan/" + jobId).then().statusCode(204);
+
+        JsonPath after = given().when().get("/api/v1/sites/" + siteId + "/discovery/scan/" + jobId)
+                .then().statusCode(200).extract().jsonPath();
+        assertThat(after.getString("state")).isEqualTo("cancelled");
+        assertThat(after.getList("hosts")).hasSameSizeAs(before.getList("hosts"));
+        assertThat(after.getList("hosts.alreadyRegistered")).doesNotContainNull();
+    }
+
+    @Test
     void import_createsIdempotently_andMarksAlreadyRegistered() {
         String siteId = createSite("disco-import", "10.91.0.0/29");
         String body = "{\"hosts\":[{\"ip\":\"10.91.0.5\",\"name\":\"cam-1\",\"type\":\"camera\"}]}";
