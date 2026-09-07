@@ -32,6 +32,12 @@ export default defineComponent({
       emailInput: "",
       editingPasswordId: null,
       passwordInput: "",
+      // Access deadline (#53) — a dialog rather than an inline cell: the
+      // consequences of setting it need saying where the date is chosen, and
+      // that does not fit a table row.
+      validUntilUser: null,
+      validUntilInput: "",
+      validUntilSaving: false,
       // Google Workspace import dialog
       gwsOpen: false,
       gwsLoading: false,
@@ -61,7 +67,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
-    this._offEscape = onEscape(() => { if (this.gwsOpen) this.closeGwsDialog(); });
+    this._offEscape = onEscape(() => {
+      if (this.validUntilUser) this.closeValidUntilDialog();
+      else if (this.gwsOpen) this.closeGwsDialog();
+    });
     this._offSlash = onSlashFocus(() => this.$refs.searchInput);
   },
   beforeUnmount() {
@@ -238,31 +247,33 @@ export default defineComponent({
     },
 
     /**
-     * Access deadline (#53). A date prompt rather than a modal: it is a rare,
-     * single-value edit, and the list already carries every other per-user
-     * action inline.
+     * Access deadline (#53). Same treatment the peer-level expiry already has
+     * in peerModal.js — a native date field plus the consequences underneath —
+     * because they are one concept at two scopes and should not look like two.
      */
-    async startValidUntilEdit(u) {
-      const current = u.validUntil ? u.validUntil.slice(0, 10) : "";
-      const answer = window.prompt(t("users.valid_until_prompt"), current);
-      if (answer === null) return;   // cancelled
-
-      let payload;
-      const trimmed = answer.trim();
-      if (trimmed === "") {
-        payload = { validUntil: null };   // clearing = no expiry
-      } else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    startValidUntilEdit(u) {
+      this.validUntilUser = u;
+      this.validUntilInput = u.validUntil ? u.validUntil.slice(0, 10) : "";
+    },
+    closeValidUntilDialog() {
+      this.validUntilUser = null;
+      this.validUntilInput = "";
+    },
+    async saveValidUntil() {
+      const u = this.validUntilUser;
+      if (!u) return;
+      const day = this.validUntilInput;
+      // A cleared field is the documented way to say "no expiry", so an empty
+      // value is a real choice here, not a missing one.
+      let payload = { validUntil: null };
+      if (day) {
         // End of the chosen day in the browser's own zone, so "valid until the
         // 31st" means through the 31st rather than expiring at midnight as it
         // starts.
-        const end = new Date(trimmed + "T23:59:59");
-        if (isNaN(end.getTime())) { this.error = t("users.valid_until_invalid"); return; }
-        payload = { validUntil: end.toISOString() };
-      } else {
-        this.error = t("users.valid_until_invalid");
-        return;
+        payload = { validUntil: new Date(day + "T23:59:59").toISOString() };
       }
 
+      this.validUntilSaving = true;
       try {
         const res = await fetch("/api/v1/users/" + u.id + "/valid-until", {
           method: "PUT",
@@ -270,9 +281,12 @@ export default defineComponent({
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
+        this.closeValidUntilDialog();
         await this.load();
       } catch (e) {
         this.error = t("users.valid_until_error", { error: e.message });
+      } finally {
+        this.validUntilSaving = false;
       }
     },
 
@@ -386,6 +400,33 @@ export default defineComponent({
     </div>
 
     <!-- Google Workspace Import Dialog -->
+    <!-- Access deadline (#53) — same shape as the peer-level expiry in peerModal.js. -->
+    <div v-if="validUntilUser" class="modal-backdrop" @click.self="closeValidUntilDialog">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2>{{ t('users.valid_until_title', { name: validUntilUser.displayName }) }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeValidUntilDialog">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label for="validUntilInput">{{ t('users.valid_until_label') }}</label>
+            <input id="validUntilInput" type="date" class="input mono" v-model="validUntilInput"
+                   style="width: 200px" @keyup.enter="saveValidUntil" />
+            <div class="field-hint">{{ t('users.valid_until_empty_hint') }}</div>
+          </div>
+          <div class="callout callout-warning" style="margin-top: var(--space-4); margin-bottom: 0">
+            <span>{{ t('users.valid_until_consequences') }}</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" @click="closeValidUntilDialog">{{ t('common.cancel') }}</button>
+          <button type="button" class="btn btn-primary" :disabled="validUntilSaving" @click="saveValidUntil">
+            {{ t('common.save') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="gwsOpen" style="position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: flex; align-items: center; justify-content: center; padding: var(--space-4)">
       <div class="card" style="width: 100%; max-width: 680px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden">
         <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border)">
