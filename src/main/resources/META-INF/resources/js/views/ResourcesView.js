@@ -988,7 +988,7 @@ export default defineComponent({
 
     <!-- Device discovery scan (ADR-0014) -->
     <div v-if="scanOpen" class="modal-backdrop" @click.self="closeScan">
-      <div class="modal modal-lg">
+      <div class="modal modal-xl">
         <div class="modal-header">
           <h2>{{ t('discovery.title') }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeScan">✕</button>
@@ -1023,7 +1023,7 @@ export default defineComponent({
               <p class="mono" style="margin: 0; font-size: var(--text-sm); color: var(--fg1); white-space: nowrap">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }} · {{ t('discovery.found', { n: scanFound }) }}</p>
             </div>
 
-            <div v-if="scanLiveHosts.length" style="overflow-x: auto; margin-top: var(--space-3)">
+            <div v-if="scanLiveHosts.length" class="table-scroll" style="margin-top: var(--space-3); --table-scroll-max: 40vh">
               <table class="table">
                 <thead>
                   <tr>
@@ -1069,7 +1069,7 @@ export default defineComponent({
                   {{ t('discovery.adopt_ports') }}
                 </label>
               </div>
-            <div style="overflow-x: auto">
+            <div class="table-scroll">
               <table class="table">
                 <thead>
                   <tr>

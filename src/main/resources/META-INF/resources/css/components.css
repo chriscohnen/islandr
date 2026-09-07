@@ -153,6 +153,23 @@
   text-align: right;
 }
 
+/* A table inside its own scroll box (see .table-scroll) keeps its header in
+   view while the rows move under it — with eight columns, a header that has
+   scrolled away leaves the reader counting columns to work out which is which.
+   Needs an explicit background: the sticky row would otherwise be transparent
+   and the rows would slide visibly underneath it. */
+.table-scroll {
+  overflow: auto;
+  max-height: var(--table-scroll-max, 46vh);
+}
+
+.table-scroll .table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
 /* ---- Misc ---------------------------------------------------------------- */
 .divider { height: 1px; background: var(--border); border: 0; margin: 0; }
 .kbd { font-family: var(--font-mono); font-size: var(--text-xs); padding: 2px 6px; border-radius: var(--radius-xs); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--fg2); box-shadow: 0 1px 0 var(--border-strong); }
