@@ -2,7 +2,7 @@ import { defineComponent } from "vue";
 import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
-import { t, locale, formatDate } from "/js/i18n.js";
+import { t, locale, formatDate, formatDay } from "/js/i18n.js";
 import { onEscape, onSlashFocus } from "/js/keyboard.js";
 
 // User management. Each row gets a "+ Peer" button that opens the shared
@@ -317,6 +317,7 @@ export default defineComponent({
     },
 
     formatDate(iso) { return formatDate(iso); },
+    formatDay(iso) { return formatDay(iso); },
 
     async openGwsDialog() {
       this.gwsOpen = true;
@@ -596,14 +597,14 @@ export default defineComponent({
             <!-- Expiry is shown ahead of enabled: a user can be "enabled" and
                  still have no access because their window closed (#53), and
                  the badge must not claim otherwise. -->
-            <span v-if="u.accessExpired" class="badge badge-warning" :title="formatDate(u.validUntil)">
+            <span v-if="u.accessExpired" class="badge badge-warning" :title="formatDay(u.validUntil)">
               <Icon name="clock" :size="12" />{{ t('users.status_expired') }}
             </span>
             <span v-else :class="['badge', u.enabled ? 'badge-success' : 'badge-neutral']">
               {{ u.enabled ? t('users.status_active') : t('users.status_disabled') }}
             </span>
             <div v-if="u.validUntil && !u.accessExpired" class="muted" style="font-size: var(--text-xs); margin-top: 2px">
-              {{ t('users.valid_until_hint', { date: formatDate(u.validUntil) }) }}
+              {{ t('users.valid_until_hint', { date: formatDay(u.validUntil) }) }}
             </div>
           </td>
           <td>

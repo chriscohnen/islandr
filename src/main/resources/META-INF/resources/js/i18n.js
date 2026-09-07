@@ -3143,3 +3143,13 @@ export function relativeTime(iso) {
 export function formatDate(iso) {
   return iso ? new Date(iso).toLocaleString(locale.current === "de" ? "de-DE" : "en-US") : t("common.never");
 }
+
+/**
+ * Date only, no time. For values that are a *day* by construction rather than a
+ * moment — an access or peer deadline is stored as the end of the chosen day,
+ * so rendering it as "31.12.2026, 23:59:59" shows the reader an implementation
+ * detail and asks them to work out that it means "through the 31st".
+ */
+export function formatDay(iso) {
+  return iso ? new Date(iso).toLocaleDateString(locale.current === "de" ? "de-DE" : "en-US") : t("common.never");
+}

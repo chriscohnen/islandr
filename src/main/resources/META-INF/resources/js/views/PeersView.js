@@ -1,7 +1,7 @@
 import { defineComponent } from "vue";
 import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import { Icon } from "/js/Icons.js";
-import { t, locale, formatDate } from "/js/i18n.js";
+import { t, locale, formatDate, formatDay } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
 import { onEscape } from "/js/keyboard.js";
 import { hub, loadHub } from "/js/hub.js";
@@ -289,6 +289,7 @@ export default defineComponent({
       return this.sortDir === 1 ? "↑" : "↓";
     },
     formatDate(iso) { return formatDate(iso); },
+    formatDay(iso) { return formatDay(iso); },
     connectionBadgeClass(p) { return connectionBadgeClass(p); },
     connectionLabelKey(p) { return connectionLabelKey(p); },
   },
@@ -376,7 +377,7 @@ export default defineComponent({
             </span>
             <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 2px">
               <span v-if="p.validUntil" class="muted" style="font-size: var(--text-xs)">
-                {{ t('peers.expires_label', { date: formatDate(p.validUntil) }) }}
+                {{ t('peers.expires_label', { date: formatDay(p.validUntil) }) }}
               </span>
               <span v-if="scheduledPeerIds[p.id]" class="muted" style="font-size: var(--text-xs)">
                 {{ t('peers.has_schedule') }}
