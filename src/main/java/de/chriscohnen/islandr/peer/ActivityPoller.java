@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.peer;
 
+import de.chriscohnen.islandr.settings.SettingsService;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import de.chriscohnen.islandr.webhook.WebhookDispatcher;
 import io.quarkus.scheduler.Scheduled;
@@ -42,7 +43,12 @@ public class ActivityPoller {
     @ConfigProperty(name = "islandr.activity.poll-enabled", defaultValue = "true")
     boolean pollEnabled;
 
+    @ConfigProperty(name = "islandr.wg.drift-repush-enabled", defaultValue = "true")
+    boolean driftRepushEnabled;
+
     @Inject WgAdapter wg;
+    @Inject PeerService peerService;
+    @Inject SettingsService settingsSvc;
     @Inject WebhookDispatcher webhooks;
 
     /**
@@ -80,14 +86,21 @@ public class ActivityPoller {
             detectConnectionTransitions(Instant.now());
             return;
         }
-        if (statuses.isEmpty()) {
-            detectConnectionTransitions(Instant.now());
-            return;
-        }
-
         Map<String, WgAdapter.PeerStatus> byPubkey = new HashMap<>();
         for (WgAdapter.PeerStatus s : statuses) {
             byPubkey.put(s.publicKey(), s);
+        }
+
+        // The interface answered, so its key set is authoritative: anything
+        // enabled in the DB and missing from it has drifted away — typically a
+        // `systemctl restart wg-quick@<iface>`, which reloads the file Islandr
+        // never writes to and silently drops every peer set with `wg set`.
+        // An empty list is the most extreme case of that, not a reason to skip.
+        reconcileDrift(byPubkey.keySet());
+
+        if (statuses.isEmpty()) {
+            detectConnectionTransitions(Instant.now());
+            return;
         }
 
         // Single query: pull only peers whose pubkey wg knows. Avoids touching
@@ -122,6 +135,26 @@ public class ActivityPoller {
         }
         if (updated > 0) LOG.debugf("activity poll: updated %d peer(s)", updated);
         detectConnectionTransitions(now);
+    }
+
+    /**
+     * Push back the enabled peers the interface is missing. Dry-run is checked
+     * here rather than left to the adapter so the log says what happened instead
+     * of reporting peers as re-applied when nothing reached the kernel.
+     */
+    private void reconcileDrift(java.util.Set<String> livePublicKeys) {
+        if (!driftRepushEnabled || settingsSvc.get().firewallDryRun) {
+            return;
+        }
+        try {
+            int pushed = peerService.repushMissingPeers(livePublicKeys);
+            if (pushed > 0) {
+                LOG.infof("activity poll: %d enabled peer(s) were missing from '%s' and have been re-applied",
+                        pushed, wgInterface);
+            }
+        } catch (Exception ex) {
+            LOG.warnf("drift repush failed: %s", ex.getMessage());
+        }
     }
 
     // Keyed by peer id, in-memory only — resets on restart, so the very

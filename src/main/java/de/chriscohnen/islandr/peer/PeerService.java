@@ -544,6 +544,37 @@ public class PeerService {
      *
      * @return how many peers were pushed successfully (skipped ones excluded)
      */
+    /**
+     * Re-push only the enabled peers the interface does not currently carry.
+     * Called from the activity poller, which already has the live key set from
+     * its own {@code showPeers} call — so this costs no extra syscall.
+     *
+     * <p>The boot repush in {@code WgBootstrap} covers a host reboot, but the
+     * same drift happens whenever the interface is reloaded underneath a running
+     * Islandr ({@code systemctl restart wg-quick@<iface>}): the peers written by
+     * {@code wg set} are gone and nothing would notice until the next edit.
+     * Convergence has to be a running property, not a startup event.
+     *
+     * @param livePublicKeys the keys {@code wg} currently reports
+     * @return how many peers were pushed back
+     */
+    @Transactional
+    public int repushMissingPeers(java.util.Set<String> livePublicKeys) {
+        int pushed = 0;
+        for (Peer peer : Peer.<Peer>list("enabled", true)) {
+            if (livePublicKeys.contains(peer.publicKey)) continue;
+            try {
+                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+                pushed++;
+            } catch (ProxyUnavailableException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                LOG.errorf(e, "drift repush failed for peer %s — skipping, remaining peers still processed", peer.id);
+            }
+        }
+        return pushed;
+    }
+
     @Transactional
     public int repushEnabledPeers() {
         int pushed = 0;
