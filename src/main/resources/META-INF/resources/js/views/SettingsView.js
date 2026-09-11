@@ -47,6 +47,11 @@ export default defineComponent({
       sitesOutsideSupernetCount: 0,
       allowedIpsPreviewTimer: null,
       encryptionKeyConfigured: false,
+      // Switching dry-run off is the moment a hub that was adopted from an
+      // existing WireGuard setup cuts off every peer Islandr never imported:
+      // the forward chain is policy drop and only known peers get an accept
+      // rule. Nothing else in the UI says so, so ask before it happens.
+      enforceConfirm: null, // { count, candidates } while the dialog is open
       wgInterface: "wg0", // read-only; set via ISLANDR_WG_INTERFACE at deploy time
       form: {
         wgSubnet: "",
@@ -296,6 +301,44 @@ export default defineComponent({
       } finally {
         this.loading = false;
       }
+    },
+
+    /**
+     * Fired when the dry-run checkbox changes. Only the off direction matters
+     * (dry-run off = the firewall starts writing). Peers on the live interface
+     * that Islandr does not manage have no accept rule, so they lose forwarding
+     * at the next apply — surface that before the admin saves.
+     *
+     * A failing preview call must not block the toggle: the check is advisory,
+     * and an admin who cannot reach the endpoint still has to be able to
+     * activate enforcement.
+     */
+    async onDryRunToggle() {
+      if (this.form.firewallDryRun) return; // switched back on — always safe
+      try {
+        const res = await fetch("/api/v1/peers/wg-import-preview");
+        if (!res.ok) return;
+        const all = await res.json();
+        // alreadyExists covers both "Islandr manages this key" and "wg reports
+        // no usable address" — neither loses anything at the next apply.
+        const unmanaged = Array.isArray(all) ? all.filter((c) => !c.alreadyExists) : [];
+        if (unmanaged.length > 0) {
+          this.enforceConfirm = { count: unmanaged.length, candidates: unmanaged };
+        }
+      } catch (e) {
+        // advisory only — leave the toggle as the admin set it
+      }
+    },
+
+    /** Keep dry-run off: the admin accepted the consequence. */
+    acceptEnforce() {
+      this.enforceConfirm = null;
+    },
+
+    /** Put the checkbox back — nothing is saved until the admin hits save anyway. */
+    cancelEnforce() {
+      this.form.firewallDryRun = true;
+      this.enforceConfirm = null;
     },
 
     async save() {
@@ -1353,7 +1396,7 @@ export default defineComponent({
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_firewall') }}</h2>
         <div style="display: flex; flex-direction: column; gap: var(--space-2)">
           <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
-            <input type="checkbox" v-model="form.firewallDryRun" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <input type="checkbox" v-model="form.firewallDryRun" @change="onDryRunToggle" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
             <span>{{ t('settings.firewall_dry_run_label') }}</span>
           </label>
           <div class="field-hint" style="margin-top: 0">{{ t('settings.firewall_dry_run_hint') }}</div>
@@ -1521,6 +1564,37 @@ export default defineComponent({
           sites:     configImportResult.sites,
           resources: configImportResult.resources
         }) }}
+      </div>
+    </div>
+
+    <!-- Switching the firewall from dry-run to live cuts off every peer on the
+         interface that Islandr does not manage (forward chain is policy drop).
+         On an adopted hub that is exactly the set of peers nobody imported yet. -->
+    <div v-if="enforceConfirm" class="modal-backdrop" @click.self="cancelEnforce">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2>{{ t('settings.firewall_enforce_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="cancelEnforce">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="callout callout-warning" style="margin-top: 0">
+            <span>{{ t('settings.firewall_enforce_body', { count: enforceConfirm.count, iface: wgInterface }) }}</span>
+          </div>
+          <ul class="mono" style="margin: var(--space-4) 0 0; padding-left: var(--space-5); font-size: var(--text-sm); color: var(--fg2)">
+            <li v-for="c in enforceConfirm.candidates.slice(0, 8)" :key="c.publicKey">
+              {{ c.assignedIp || c.allowedIps || '—' }}
+            </li>
+          </ul>
+          <div v-if="enforceConfirm.count > 8" class="field-hint">+ {{ enforceConfirm.count - 8 }}</div>
+          <div class="field-hint" style="margin-top: var(--space-3)">{{ t('settings.firewall_enforce_note') }}</div>
+        </div>
+        <div class="modal-footer">
+          <router-link to="/peers" class="btn btn-primary btn-sm" @click="cancelEnforce">
+            {{ t('settings.firewall_enforce_import', { iface: wgInterface }) }}
+          </router-link>
+          <button class="btn btn-ghost btn-sm" @click="cancelEnforce">{{ t('common.cancel') }}</button>
+          <button class="btn btn-danger btn-sm" @click="acceptEnforce">{{ t('settings.firewall_enforce_proceed') }}</button>
+        </div>
       </div>
     </div>
   `,
