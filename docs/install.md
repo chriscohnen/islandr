@@ -20,6 +20,42 @@ macOS and Windows are dev-only. Without `ISLANDR_WG_MODE=real` the binary defaul
 
 ---
 
+## Installing on a hub that already runs WireGuard
+
+Islandr never writes `/etc/wireguard/<iface>.conf`. It configures peers at
+runtime with `wg set`, and the service is not privileged to touch that file
+anyway — its sudo covers `nft` and `wg` ([ADR-0011](adr/0011-process-privilege-model.md),
+[ADR-0030](adr/0030-wireguard-config-file-ownership.md)). Installing it on a
+working hub therefore changes nothing about that hub, and the order below keeps
+it that way:
+
+1. **Install.** Firewall writes are paused on a fresh database, so no nftables
+   table is applied and no peer is touched. Existing peers keep working.
+2. **Import your peers** — Peers → *Import from wg0*. Until a peer is imported,
+   Islandr does not know it: it has no ACL grants, and it is not covered by
+   Islandr's address allocation.
+3. **Activate enforcement** — Settings → Firewall, clear *Pause firewall
+   writes*. This is the step that matters: the generated `forward` chain is
+   `policy drop` with accept rules only for peers Islandr knows, so anything
+   still unimported loses forwarding at that moment. The Admin Console asks
+   before saving if it finds such peers.
+
+Two properties worth knowing once it runs:
+
+- Peers Islandr manages are kernel state. A reboot or a
+  `systemctl restart wg-quick@<iface>` brings the interface back with only the
+  peers in your file; Islandr re-applies its own at startup and repairs the same
+  drift within one activity-poller tick while it is running.
+- Peers in your file that were never imported keep reaching the hub itself —
+  Islandr's ruleset filters forwarded traffic, not traffic to the hub. The
+  Dashboard reports how many there are.
+
+To leave again: **Peers → Export to wg0.conf**, append the downloaded `[Peer]`
+blocks to your server config, then remove the service. The export carries no
+`[Interface]` section.
+
+---
+
 ## Native binary + systemd
 
 ### Scripted, or by hand
@@ -540,6 +576,30 @@ Flyway applies any pending database migrations automatically on startup.
 ---
 
 ## Uninstalling
+
+**Export your peers first, or you lose them.** Islandr configures peers with
+`wg set` and never writes `/etc/wireguard/<iface>.conf`, so the peers it manages
+exist in its database and in kernel state — not in the file `wg-quick` reads.
+Removing the service therefore leaves the peers that were already in your config
+untouched and takes every peer Islandr created with it, at the latest on the next
+interface restart.
+
+Peers → **Export to wg0.conf** downloads them as `[Peer]` blocks. Append those to
+`/etc/wireguard/<iface>.conf` (the export deliberately has no `[Interface]`
+section, so nothing in your interface config is overwritten) and reload:
+
+```bash
+sudo systemctl restart wg-quick@wg0
+sudo wg show wg0 peers          # every peer you appended is back, without Islandr
+```
+
+Also stop the nftables enforcement, which is not removed by deleting the
+service — the ruleset stays in the kernel until it is flushed or the host
+reboots:
+
+```bash
+sudo nft delete table inet islandr
+```
 
 **Native binary:**
 

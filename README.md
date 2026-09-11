@@ -81,6 +81,37 @@ A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Sit
 
 ![QR code & config download](https://islandr-gateway.net/screenshots/light/qr-conf.png)
 
+## How Islandr treats your WireGuard config
+
+**It never writes `/etc/wireguard/<iface>.conf`.** Peers are configured at
+runtime with `wg set`; the interface — private key, listen port, `Address`,
+`PostUp`/`PostDown` — is created by you before Islandr is installed and stays
+yours. The service could not write that file if it wanted to: it runs
+unprivileged, with sudo scoped to `nft` and `wg`
+([ADR-0011](docs/adr/0011-process-privilege-model.md)).
+
+What that means in practice, both ways round:
+
+- **Installing on a hub that already runs WireGuard changes nothing.** Existing
+  peers keep working. Islandr starts with firewall writes paused, so nothing is
+  enforced until you switch it on deliberately — import your peers first, and
+  the Admin Console warns you if any are still unknown when you do.
+- **Peers Islandr manages are kernel state,** so a reboot or a
+  `systemctl restart wg-quick@<iface>` brings the interface back with only the
+  peers in your file. Islandr re-applies its own at startup, and the activity
+  poller repairs the same drift within one tick while it is running — but the
+  peer set does depend on the service running.
+- **Peers in your file that Islandr has not imported keep connecting,** and
+  they reach the hub itself: the generated ruleset filters forwarded traffic,
+  not traffic to the hub. The Dashboard reports how many there are; importing
+  them is how they become governed.
+- **Removing Islandr is survivable.** The Peers view exports every managed peer
+  as `[Peer]` blocks to append to your server config — no `[Interface]`
+  section, that part stays yours on the way out too.
+
+Full rationale, the alternatives weighed, and why `wg syncconf` is not used:
+[ADR-0030](docs/adr/0030-wireguard-config-file-ownership.md).
+
 ## Two surfaces, one brand
 
 | | **Admin Console** | **Self-Service Portal** |
@@ -306,6 +337,11 @@ Only the changes that matter if you actually use it. Earlier versions: [CHANGELO
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
 **0.21.0**
+- **Fixed: a reboot emptied the tunnel.** Peers Islandr manages are configured with `wg set` and live in kernel state — it never writes `/etc/wireguard/<iface>.conf`. A host reboot or a `systemctl restart wg-quick@<iface>` therefore brought the interface back holding only the peers in that file, and nothing put the rest back: measured on a live hub, 12 peers before the restart and 3 after. They stayed gone until an admin edited each one. Islandr now re-applies its peers when it starts, and the activity poller repairs the same drift within one tick while it is running, so a `wg-quick` restart under a running service needs no restart of Islandr ([ADR-0030](docs/adr/0030-wireguard-config-file-ownership.md))
+- **Fixed: an address could be handed out twice on an adopted hub.** The allocator only knew the peers in Islandr's database, so it could assign an address a peer in your config file already holds. That failure is quiet: `AllowedIPs` is also the inbound filter and each address belongs to exactly one peer, so it looks correct until the next interface reload gives the address back and traffic for it reaches a device nobody manages. Both the suggestion and manual assignment now exclude those addresses and point at the import
+- **Export peers to `<iface>.conf`** — the mirror of "Import from wg0": a download of every enabled peer as `[Peer]` blocks to append to your server config, so removing Islandr does not take its peers with it. No `[Interface]` section — that part stays yours
+- **Unmanaged peers are on the Dashboard** — peers on the interface that Islandr does not manage kept connecting and reached the hub itself (the ruleset filters forwarded traffic, not traffic to the hub), but were visible only to an admin who opened the import dialog
+- **Switching firewall writes on asks first** when peers on the interface are still unknown to Islandr — that click is what cuts them off, and the Dashboard used to nudge towards it without saying so
 - **Whole-network grants** — a role can be given a whole site network instead of every host in it one by one, so a device added next month is covered without anyone remembering to grant it. The trade is deliberate and worth knowing before you use it: the grant is always full access with no port scoping, and it reaches hosts Islandr has never been told about. Use it where the network boundary already is the access boundary, and keep the finer grant types where it is not ([ADR-0029](docs/adr/0029-whole-network-role-grants.md), [#78](https://github.com/chriscohnen/islandr/issues/78))
 - **Fixed: a whole-network grant would have reopened capacity-limited ports** inside that network, bypassing the reservation model from 0.20.0 ([#72](https://github.com/chriscohnen/islandr/issues/72))
 - **MAC address and hardware vendor on resources** — a scan result that says "answers on 9100" is hard to name; a vendor next to it usually is not. Where a device gives up its MAC, Islandr records it and names the vendor from a table shipped inside the binary, so nothing is looked up over the network. Honest limit: plenty of devices give up nothing, and it succeeds less often the further a device sits from the hub. Treat it as help with naming a scan, not as an inventory ([#76](https://github.com/chriscohnen/islandr/issues/76))
