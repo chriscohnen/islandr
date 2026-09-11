@@ -18,6 +18,11 @@ import jakarta.persistence.PersistenceContext;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.time.Instant;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -300,9 +305,14 @@ public class RuleBuilder {
                                             + effectiveTransport + "|" + rp.port + "|"
                                             + (rp.portEnd == null ? "" : rp.portEnd);
                                     if (rulesByKey.containsKey(dropKey)) continue;
-                                    String dropComment = "islandr:role=network peer=" + escape(peer.name)
+                                    // Reason first: this is the one comment that
+                                    // has to explain why a drop sits next to an
+                                    // accept, and leading with it keeps that
+                                    // readable even when a long name is trimmed.
+                                    String dropComment = fitComment("islandr:reservation-required role=network peer="
+                                            + escape(peer.name)
                                             + " user=" + escape(userName.getOrDefault(peer.userId, "?"))
-                                            + " resource=" + escape(res.name) + " reservation-required, no active reservation";
+                                            + " resource=" + escape(res.name));
                                     String dropRule = dportClause.isEmpty()
                                             ? String.format(
                                                     "    iifname \"%s\" %s saddr %s %s daddr %s %s drop comment \"%s\"",
@@ -327,8 +337,8 @@ public class RuleBuilder {
                         String rule = String.format(
                                 "    iifname \"%s\" %s saddr %s %s daddr %s accept comment \"%s\"",
                                 wgInterface, family, peerIp, family, site.cidr,
-                                "islandr:role=network peer=" + escape(peer.name) + " user="
-                                        + escape(userName.getOrDefault(peer.userId, "?")) + " network=" + escape(site.name));
+                                fitComment("islandr:role=network peer=" + escape(peer.name) + " user="
+                                        + escape(userName.getOrDefault(peer.userId, "?")) + " network=" + escape(site.name)));
                         rulesByKey.put(key, rule);
                     }
                 }
@@ -346,7 +356,7 @@ public class RuleBuilder {
             String rule = String.format(
                     "    iifname \"%s\" %s saddr %s %s daddr %s %s accept comment \"%s\"",
                     wgInterface, family, peerIp, family, resIp, icmpType,
-                    "islandr:peer=" + peerName + " resource=" + resName + " ping");
+                    fitComment("islandr:peer=" + peerName + " resource=" + resName + " ping"));
             rulesByKey.put(icmpKey, rule);
         }
 
@@ -434,11 +444,11 @@ public class RuleBuilder {
 
             for (ResourcePort rp : grantedPorts) {
                 if ("web-only".equals(rp.rdpAccessMode)) continue;
-                String comment = String.format(
+                String comment = fitComment(String.format(
                         "islandr:role=%s peer=%s user=%s resource=%s %s%s",
                         roleLabel, peerName, uName,
                         escape(res.name), escape(rp.protocol),
-                        rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label));
+                        rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label)));
                 for (String[] td : expandTransport(rp)) {
                     String effectiveTransport = td[0];
                     String dportClause = td[1];
@@ -502,6 +512,41 @@ public class RuleBuilder {
             return java.util.Arrays.asList(new String[]{"tcp", dport}, new String[]{"udp", dport});
         }
         return java.util.Collections.singletonList(new String[]{rp.transport, dport});
+    }
+
+    /**
+     * nftables caps a rule comment at {@code NFTNL_UDATA_COMMENT_MAXLEN} bytes
+     * and rejects the <em>whole ruleset</em> when one exceeds it — so a single
+     * long peer or resource name would otherwise freeze every firewall update
+     * for the tenant, not merely lose its own annotation. Found in production
+     * on a network grant over a capacity-limited RDP port, whose comment
+     * carries the most fixed text of any template here.
+     */
+    public static final int COMMENT_MAX_BYTES = 128;
+
+    /**
+     * Bounds a comment to what nftables accepts, trimming the tail and marking
+     * the cut with {@code ~}.
+     *
+     * <p>Every template here is written so the tail is the part that can be
+     * spared: the reason a rule exists leads, and what gets trimmed last is a
+     * name that the rule's own addresses and ports already identify. Truncation
+     * therefore costs readability, never the ability to tell which rule is
+     * which — and it is unconditional, because nft rejecting the whole file is
+     * not a failure mode worth risking on a name nobody thought to keep short.
+     */
+    static String fitComment(String comment) {
+        byte[] bytes = comment.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= COMMENT_MAX_BYTES) return comment;
+        // Cut on a character boundary: a German name is not all ASCII, and half
+        // a code point would be an invalid string rather than a short one.
+        CharBuffer out = CharBuffer.allocate(comment.length());
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.IGNORE)
+                .onUnmappableCharacter(CodingErrorAction.IGNORE);
+        decoder.decode(ByteBuffer.wrap(bytes, 0, COMMENT_MAX_BYTES - 1), out, true);
+        out.flip();
+        return out.toString() + "~";
     }
 
     private static String escape(String s) {

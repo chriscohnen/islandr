@@ -517,6 +517,47 @@ class FirewallTest {
 
     @Test
     @Transactional
+    void ruleBuilder_neverEmitsACommentLongerThanNftablesAllows() {
+        // Found in production: nft rejects a comment over its limit, and it
+        // rejects the whole FILE — so one long name anywhere freezes every
+        // firewall update, not just its own rule. The worst case is the
+        // network-grant reservation drop, whose fixed text alone is 86
+        // characters, leaving barely 40 for three names.
+        //
+        // The names below are ordinary for a German deployment, not padding.
+        User user = persistUser("katharina.brinkmann@example.test", "Katharina Brinkmann");
+        Role role = persistRole("NetzwerkAdministratoren");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("Standort-Buchhaltung", "10.76.0.0/16");
+        Resource res = persistResource(site.id, "terminal-server-buchhaltung", "10.76.0.9");
+        ResourcePort rdp = persistPort(res.id, 3389, "tcp", "RDP Buchhaltung");
+        rdp.maxConcurrentUsers = 1;
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "katharina-thinkpad-x1", "10.8.0.76");
+
+        String text = builder.build().rulesetText();
+
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("comment \"([^\"]*)\"").matcher(text);
+        java.util.List<String> tooLong = new java.util.ArrayList<>();
+        int seen = 0;
+        while (m.find()) {
+            seen++;
+            String comment = m.group(1);
+            // nft counts bytes, and a German name is not all ASCII.
+            if (comment.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                    > RuleBuilder.COMMENT_MAX_BYTES) {
+                tooLong.add(comment.length() + "B: " + comment);
+            }
+        }
+        assertThat(seen).as("the ruleset should carry commented rules at all").isPositive();
+        assertThat(tooLong)
+                .as("nft rejects the entire ruleset over a single over-long comment")
+                .isEmpty();
+    }
+
+    @Test
+    @Transactional
     void ruleBuilder_networkGrant_capacityLimitedPortAllowedWithLiveReservation() {
         User user = persistUser("sam@example.test", "Sam");
         Role role = persistRole("NetworkAdmins6");
