@@ -113,7 +113,13 @@ public final class DashboardDto {
             // Peers that exchanged a WireGuard handshake at least once in the last 24h.
             // 0 until the activity-poller is wired up — left in the contract so the
             // frontend doesn't have to change once it lands.
-            long lastSeen24h
+            long lastSeen24h,
+            // Peers on the live interface that Islandr does not manage. They come
+            // from the <iface>.conf Islandr never writes, keep working, and reach
+            // the hub itself — the ruleset only filters forwarded traffic. Until
+            // now they were visible only to an admin who opened the import dialog.
+            // -1 means the interface could not be read.
+            long unmanagedOnInterface
     ) {}
 
     public record UserStats(long total, long admins) {}

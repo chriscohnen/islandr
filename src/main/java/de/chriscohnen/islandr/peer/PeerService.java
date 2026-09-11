@@ -187,6 +187,37 @@ public class PeerService {
      *
      * @throws WebApplicationException 409 if every assignable address is taken.
      */
+    /**
+     * Addresses held by peers that are on the interface but not in the database.
+     * Islandr never writes {@code /etc/wireguard/<iface>.conf}, so a hub adopted
+     * from an existing setup carries peers Islandr knows nothing about — and the
+     * database alone would hand their address out a second time. WireGuard would
+     * then move the address to the new peer, which looks like it worked until the
+     * next interface reload gives it back to the foreign peer and traffic for that
+     * address reaches the wrong device.
+     *
+     * <p>Never fatal: if {@code wg} cannot be reached the set is empty and only
+     * the database is consulted. An unreachable enforcement plane must not block
+     * peer creation.
+     *
+     * @param v6 true for the IPv6 addresses, false for IPv4
+     */
+    private java.util.Set<String> foreignAddressesOnInterface(boolean v6) {
+        java.util.Set<String> known = Peer.<Peer>listAll().stream()
+                .map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
+        java.util.Set<String> out = new java.util.HashSet<>();
+        try {
+            for (WgAdapter.PeerStatus ps : wg.showPeers(wgInterface)) {
+                if (known.contains(ps.publicKey())) continue;
+                String addr = v6 ? extractFirstIpv6(ps.allowedIps()) : extractFirstIpv4(ps.allowedIps());
+                if (addr != null) out.add(addr);
+            }
+        } catch (RuntimeException e) {
+            LOG.debugf("could not read live peers for address collision check: %s", e.getMessage());
+        }
+        return out;
+    }
+
     public String suggestNextIp() {
         Settings settings = settingsSvc.get();
         IpSubnet subnet;
@@ -198,7 +229,8 @@ public class PeerService {
         }
         java.util.Set<String> taken = Peer.<Peer>listAll().stream()
                 .map(p -> p.assignedIp)
-                .collect(java.util.stream.Collectors.toSet());
+                .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+        taken.addAll(foreignAddressesOnInterface(false));
         for (String candidate : subnet.assignableHostIps()) {
             if (!taken.contains(candidate)) return candidate;
         }
@@ -231,7 +263,8 @@ public class PeerService {
         java.util.Set<String> taken = Peer.<Peer>listAll().stream()
                 .filter(p -> p.assignedIpv6 != null)
                 .map(p -> p.assignedIpv6)
-                .collect(java.util.stream.Collectors.toSet());
+                .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+        taken.addAll(foreignAddressesOnInterface(true));
         for (String candidate : subnet.assignableHostIps()) {
             if (!taken.contains(candidate)) return candidate;
         }
@@ -739,6 +772,13 @@ public class PeerService {
                             .entity("IP " + ip + " is already assigned to another peer")
                             .build());
         }
+        if (foreignAddressesOnInterface(false).contains(ip)) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("IP " + ip + " is in use by a peer on " + wgInterface
+                                    + " that Islandr does not manage — import it first, or pick another address")
+                            .build());
+        }
     }
 
     private void validateAssignedIpv6(String ip6, String wgSubnet6, String excludePeerId) {
@@ -768,6 +808,13 @@ public class PeerService {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
                             .entity("IPv6 " + ip6 + " is already assigned to another peer")
+                            .build());
+        }
+        if (foreignAddressesOnInterface(true).contains(ip6)) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("IPv6 " + ip6 + " is in use by a peer on " + wgInterface
+                                    + " that Islandr does not manage — import it first, or pick another address")
                             .build());
         }
     }
