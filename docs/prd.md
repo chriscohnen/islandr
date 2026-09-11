@@ -22,7 +22,7 @@ The cost of the manual workflow is: errors in firewall rules (drift between spre
 
 Islandr exists to do four things:
 
-- **G-1** — Replace manual `wg`/`wg-quick` CLI for peer creation with a web UI that generates the keypair, assigns an IP from the pool, and shows the resulting `.conf` + QR code exactly once.
+- **G-1** — Replace the manual `wg`/`wg-quick` CLI workflow an operator would otherwise run by hand for peer creation, with a web UI that generates the keypair, assigns an IP from the pool, and shows the resulting `.conf` + QR code exactly once.
 - **G-2** — Model access as **roles granting access to named resources**: a user has one or more roles; roles are granted access to specific resources (machines, services) inside sites; the firewall is recomputed from that model. End users see "RDP zu Terminal-01", not raw CIDR. See [ADR-0006](adr/0006-resource-level-acl.md).
 - **G-3** — Generate and atomically reload nftables rules from the ACL model. No drift. No hand-edited rules.
 - **G-4** — Give end users a self-service portal where they enroll their own devices via QR/`.conf` without an admin in the loop, with German-language, non-technical wording — and a meaningful access list ("Worauf du zugreifen darfst") in resource-level terms.
@@ -259,7 +259,7 @@ A `Role` grant with `allPorts=true` produces one rule per declared `ResourcePort
 
 ### Why two activity tables
 
-WireGuard doesn't persist session history. `wg show` reports only the most recent handshake per peer, and `wg-quick down` wipes the in-kernel state. To answer "when did Lena's laptop last connect?" or "show me usage over 7 days", the poller writes:
+WireGuard doesn't persist session history. `wg show` reports only the most recent handshake per peer, and taking the interface down wipes the in-kernel state. To answer "when did Lena's laptop last connect?" or "show me usage over 7 days", the poller writes:
 
 1. **Aggregated state on `WireGuardPeer`** (`lastSeenAt`, `totalRxBytes/TxBytes`) — survives `wg` restarts, fast to read.
 2. **Time-series in `PeerActivitySample`** — bounded retention (30d default), for charts and timelines.
@@ -276,7 +276,7 @@ sequenceDiagram
     participant UI as Admin Console
     participant API as Islandr API
     participant DB
-    participant WG as wg / wg-quick
+    participant WG as wg
     participant NFT as nftables
 
     Felix->>UI: "Peer erstellen" for user
@@ -291,6 +291,14 @@ sequenceDiagram
     Felix->>UI: close modal
     Note over UI,API: private key gone — Felix can revoke + regenerate if lost
 ```
+
+> **`wg`, not `wg-quick`.** Islandr runs only `wg`, which configures peers and keys on
+> an interface that already exists. It never creates an interface, brings one up or
+> down, assigns an address, adds a route or touches DNS — that is what `wg-quick`
+> does, and it stays with the operator ([ADR-0011](adr/0011-process-privilege-model.md)).
+> The `.conf` Islandr hands to a *client* is nonetheless a wg-quick file: `Address`,
+> `DNS` and `MTU` are keys `wg` itself does not understand. Islandr writes wg-quick
+> configurations without ever running wg-quick.
 
 ### F-B: ACL change → atomic nftables reload
 

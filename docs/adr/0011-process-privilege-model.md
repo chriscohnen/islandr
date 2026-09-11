@@ -45,15 +45,18 @@ islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
 ```
 
 Key constraints:
 - Only **nft rulesets staged in islandr's own data directory** are loadable — `RealNftablesAdapter` writes a freshly named `islandr-nft-<random>.nft` per apply rather than overwriting one fixed filename, so the grant names that pattern instead of a single path. The directory is the boundary the grant is drawing, which is why the adapter never stages into `/tmp`.
 - That boundary is not airtight, and is not the load-bearing part. sudo matches command arguments with `fnmatch(3)` and no `FNM_PATHNAME`, so a `*` also matches `/` — a crafted argument can traverse out of the directory. It buys an attacker nothing: anyone able to choose that argument already runs as `islandr` and can write into `/var/lib/islandr` anyway. What the grant actually confines is the *verb* — `nft` loading a ruleset, never an arbitrary root command.
-- `wg set` and `wg syncconf` are scoped to `wg0` — not arbitrary interfaces.
+- `wg set` and `wg show ... dump` are scoped to `wg0` — not arbitrary interfaces.
+  They are the only two `wg` invocations the adapter elevates; `genkey`, `genpsk`
+  and `pubkey` never touch the kernel interface and run unprivileged, so they need
+  no entry here at all. Two further grants were carried for a long time without a
+  caller and have been removed: `syncconf` (see "Why not `wg syncconf`" below) and
+  plain `wg show wg0` — every reader goes through the `dump` form.
 - No wildcard `sudo ALL` is ever granted.
 - `visudo -c` validates the file on deployment.
 - The commands here are the ones the deployment scripts actually install ([`setup-hub.sh`](../install/setup-hub.sh), [docs/install.md](../install.md)); see [hardening.md](../install/hardening.md) for why each line looks the way it does.
@@ -70,6 +73,29 @@ USER islandr
 ```
 
 The container still requires `--cap-add NET_ADMIN` and `--network host`, but the *process inside* runs as the unprivileged `islandr` user and escalates only via the scoped sudoers rules. An RCE in the HTTP layer gets a shell as `islandr`, not as `root`.
+
+### Why not `wg syncconf`
+
+`wg set` is incremental: it adds, updates and removes individual peers. `wg
+syncconf` is convergent — it makes the interface match a config file exactly,
+including removing peers the file does not list. The convergent form is the
+better fit for a system whose nftables side already works that way ("generate
+the ruleset, reload atomically, no drift"), and it would close a real gap: the
+reconciler re-applies every peer the database knows, but never removes one that
+exists on the interface and not in the database.
+
+It is rejected anyway, on the one point that matters here. `wg(8)`'s
+configuration file format requires a `PrivateKey` in the `[Interface]` section.
+Islandr does not have the hub's private key — `Settings` holds only
+`wgServerPublicKey` — and that is a property of this design, not an oversight.
+Using `syncconf` would mean reading the private key back off the interface,
+writing it to a file, applying it and deleting the file, on every reconciliation.
+Today no call Islandr makes touches that key at all.
+
+The gap can be closed without it: diff `wg show <iface> dump` against the
+database and issue `wg set <iface> peer <key> remove` for what it does not know.
+Same convergence, no private key, no new file format, and `set` already grants
+the verb.
 
 ### WireGuard interface ownership
 

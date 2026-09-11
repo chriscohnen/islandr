@@ -242,8 +242,6 @@ islandr ALL=(root) NOPASSWD: $NFT_BIN -c -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: $NFT_BIN -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: $NFT_BIN delete table inet islandr
 islandr ALL=(root) NOPASSWD: $WG_BIN set $WG_INTERFACE *
-islandr ALL=(root) NOPASSWD: $WG_BIN syncconf $WG_INTERFACE *
-islandr ALL=(root) NOPASSWD: $WG_BIN show $WG_INTERFACE
 islandr ALL=(root) NOPASSWD: $WG_BIN show $WG_INTERFACE dump
 # Network diagnostics (ADR-0025) need no entry: ping and tracepath do not run
 # through sudo. See hardening.md if pings fail with "Operation not permitted".
