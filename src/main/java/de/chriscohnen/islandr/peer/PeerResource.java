@@ -174,6 +174,28 @@ public class PeerResource {
         return peers.wgImportPreview();
     }
 
+    /**
+     * The managed peers as {@code [Peer]} blocks for the server config. A
+     * download rather than a file write: Islandr's sudo covers {@code nft} and
+     * {@code wg}, not {@code /etc/wireguard} (ADR-0011), and the whole point of
+     * leaving that file alone is that Islandr is removable. The export is what
+     * makes removal survivable — append the blocks and the tunnel outlives the
+     * service. Audited, because the response carries preshared keys.
+     */
+    @GET
+    @Path("/wg-conf-export")
+    @Produces(MediaType.TEXT_PLAIN)
+    public Response wgConfExport(@Context ContainerRequestContext ctx) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        String body = peers.exportPeersAsWgConf();
+        audit.logEvent(a.principal(), "peer.wg-conf-export", wgInterface,
+                Map.of("bytes", body.length()));
+        return Response.ok(body)
+                .header("Content-Disposition",
+                        "attachment; filename=\"" + wgInterface + "-islandr-peers.conf\"")
+                .build();
+    }
+
     @POST
     @Path("/wg-import")
     public java.util.List<PeerDto.WgImportResult> wgImport(@Context ContainerRequestContext ctx,

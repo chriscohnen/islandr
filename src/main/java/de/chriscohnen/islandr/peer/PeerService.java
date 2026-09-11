@@ -595,6 +595,44 @@ public class PeerService {
      * Hub-side AllowedIPs: peer's own /32 (and /128 when dual-stack),
      * plus downstream CIDRs for site peers.
      */
+    /**
+     * Render every enabled peer as {@code [Peer]} blocks for a server
+     * {@code wg0.conf}, ready to be appended to the file by hand.
+     *
+     * <p>Islandr configures peers with {@code wg set} and never writes
+     * {@code /etc/wireguard/<iface>.conf} — the service cannot, its sudo is
+     * scoped to {@code nft} and {@code wg} (ADR-0011). That keeps a hub taken
+     * over from an existing setup untouched, but it also means the peers
+     * Islandr manages disappear when Islandr does. This export is the way out:
+     * the admin downloads the blocks and appends them, and the tunnel keeps
+     * working without Islandr.
+     *
+     * <p>Deliberately no {@code [Interface]} section: the interface stays the
+     * admin's, exactly as during normal operation. Disabled peers are left out
+     * — they are off on purpose, and a file append is not the place to
+     * resurrect them.
+     */
+    public String exportPeersAsWgConf() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# WireGuard peers managed by Islandr, exported ")
+          .append(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS))
+          .append("\n")
+          .append("# Append to /etc/wireguard/").append(wgInterface).append(".conf.\n")
+          .append("# No [Interface] section on purpose — that part stays yours.\n")
+          .append("# Disabled peers are not included.\n");
+        for (Peer peer : Peer.<Peer>list("enabled = true order by name")) {
+            sb.append("\n# islandr: ").append(peer.name)
+              .append(" (").append(peer.type).append(", peer ").append(peer.id).append(")\n")
+              .append("[Peer]\n")
+              .append("PublicKey = ").append(peer.publicKey).append("\n");
+            if (peer.presharedKey != null && !peer.presharedKey.isBlank()) {
+                sb.append("PresharedKey = ").append(peer.presharedKey).append("\n");
+            }
+            sb.append("AllowedIPs = ").append(hubAllowedIpsFor(peer)).append("\n");
+        }
+        return sb.toString();
+    }
+
     private static String hubAllowedIpsFor(Peer peer) {
         StringBuilder sb = new StringBuilder(peer.assignedIp).append("/32");
         if (peer.assignedIpv6 != null && !peer.assignedIpv6.isBlank()) {
