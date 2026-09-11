@@ -195,12 +195,34 @@ echo "Save this — it is only stored in /etc/default/islandr."
 
 ### 6. Install and start the systemd unit
 
+> **Why `Before=wg-quick@…`:** nftables rules do not survive a reboot, and
+> Islandr applies its table at startup. If the tunnel came up first, every peer
+> written in `<iface>.conf` could forward unfiltered until Islandr was ready —
+> the kernel's own FORWARD policy is `accept` when no other firewall is loaded.
+> Starting Islandr first closes that window; its rules match on `iifname`, which
+> is resolved per packet, so they are in place before the interface exists. The
+> peers Islandr manages are applied once the interface is up, at startup or on
+> the next activity-poller tick. **Existing installs** do not get this from an
+> update — add it with `sudo systemctl edit islandr` (`[Unit]` /
+> `Before=wg-quick@wg0.service`, with your interface name).
+>
+> It does not help if Islandr fails to start at all: then no table is applied
+> and the interface still comes up. A hub that must stay closed in that case
+> needs a persistent nftables ruleset loaded at boot, which Islandr does not
+> install today.
+
+
 ```bash
 sudo tee /etc/systemd/system/islandr.service > /dev/null << 'EOF'
 [Unit]
 Description=Islandr — WireGuard access management
 After=network-online.target
 Wants=network-online.target
+
+# Ordering only, no dependency: Islandr must not start or stop the tunnel.
+# Replace wg0 if your interface is named differently.
+Before=wg-quick@wg0.service
+
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

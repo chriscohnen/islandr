@@ -105,6 +105,13 @@ than amended — the private-key question must be answered first.
 
 ## Consequences
 
+- Because the nftables table is applied at startup and does not survive a
+  reboot, the service unit is ordered **before** `wg-quick@<iface>`: otherwise
+  the interface would come up with the file's peers while no table existed, and
+  the kernel's own FORWARD policy is `accept` when nothing else is loaded. This
+  closes the boot window but not the case where Islandr fails to start at all —
+  a hub that must stay closed then needs a persistent ruleset loaded at boot,
+  which Islandr does not install today (**R-192**).
 - The tunnel's peer set depends on Islandr running. A hub whose interface is
   reloaded while Islandr is down comes back with only the peers in the file, and
   stays that way until the service starts (**R-190**).

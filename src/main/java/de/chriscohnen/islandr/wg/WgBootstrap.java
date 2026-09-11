@@ -61,8 +61,16 @@ public class WgBootstrap {
                     wgInterface, probe.info().peerCount());
             repushPeers();
         } else {
+            // Expected on a correctly ordered boot: the unit starts before
+            // wg-quick so the nftables table exists before the interface does
+            // (docs/install.md §6). The activity poller pushes the peers once
+            // the interface appears, so say that instead of only pointing at
+            // the install guide — otherwise every clean boot logs what looks
+            // like a broken WireGuard setup.
             LOG.warnf("wg boot probe: interface '%s' not reachable — %s. " +
-                    "Check that WireGuard is installed and the interface is up (see docs/install.md).",
+                    "If the tunnel is starting after Islandr this is expected and the peers " +
+                    "are applied on the next activity poll; otherwise check that WireGuard is " +
+                    "installed and the interface is up (see docs/install.md).",
                     wgInterface, probe.error());
         }
     }

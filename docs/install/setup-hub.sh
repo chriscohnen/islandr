@@ -314,11 +314,24 @@ echo ""
 # ---------------------------------------------------------------------------
 echo ">>> 6/7 systemd unit"
 
+# @WG_INTERFACE@ below is substituted after the heredoc: the unit is written
+# unexpanded (quoted delimiter) so nothing else in it can be interpolated by
+# accident, and the interface name is the one thing that must be.
 cat > /etc/systemd/system/islandr.service <<'UNIT'
 [Unit]
 Description=Islandr — WireGuard access management
 After=network-online.target
 Wants=network-online.target
+
+# Ordering only, no dependency: islandr must not start or stop the tunnel.
+# nftables rules do not survive a reboot, and islandr applies its table at
+# startup — so if wg-quick came up first, every peer written in the interface
+# config could forward unfiltered until islandr was ready. Starting islandr
+# first closes that window: the table matches on `iifname`, which is resolved
+# per packet, so it is already in place when the interface appears. The peers
+# islandr manages are pushed by the activity poller once the interface is up.
+Before=wg-quick@@WG_INTERFACE@.service
+
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -350,6 +363,7 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 UNIT
+sed -i "s|@WG_INTERFACE@|${WG_INTERFACE}|" /etc/systemd/system/islandr.service
 
 systemctl daemon-reload
 
