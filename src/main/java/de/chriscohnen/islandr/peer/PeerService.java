@@ -541,18 +541,23 @@ public class PeerService {
      * mid-reconcile — the reconciler catches it and re-enters the degraded state.
      * That one does abort the batch: if the proxy itself is gone, every
      * remaining call would fail the same way anyway.
+     *
+     * @return how many peers were pushed successfully (skipped ones excluded)
      */
     @Transactional
-    public void repushEnabledPeers() {
+    public int repushEnabledPeers() {
+        int pushed = 0;
         for (Peer peer : Peer.<Peer>list("enabled", true)) {
             try {
                 wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+                pushed++;
             } catch (ProxyUnavailableException e) {
                 throw e;
             } catch (RuntimeException e) {
                 LOG.errorf(e, "repush failed for peer %s — skipping, remaining peers still processed", peer.id);
             }
         }
+        return pushed;
     }
 
     /**
