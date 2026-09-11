@@ -38,6 +38,7 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0028](0028-webauthn-library-and-integration.md) | WebAuthn for the recovery admin: Vert.x auth as an engine, Islandr keeps the login flow | Proposed | 2026-09-05 |
 | [0029](0029-whole-network-role-grants.md) | Whole-network role grants: one nftables rule per site CIDR, not per resource | Accepted | 2026-09-05 |
 | [0030](0030-wireguard-config-file-ownership.md) | Islandr configures peers with `wg set` and never writes `/etc/wireguard/<iface>.conf` | Accepted (retroactive) | 2026-09-11 |
+| [0031](0031-fail-closed-boot-ruleset.md) | A boot-time nftables table keeps the hub closed until Islandr is enforcing | Proposed | 2026-09-11 |
 
 ## Status legend
 
