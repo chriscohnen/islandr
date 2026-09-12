@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import { t, formatDate, locale } from "/js/i18n.js";
+import { Icon } from "/js/Icons.js";
 
 // Connection activity heatmap (#32): peers x days, GitHub-contribution-graph
 // style. Inverted from GitHub's layout (days as columns, not weeks) since
@@ -7,6 +8,7 @@ import { t, formatDate, locale } from "/js/i18n.js";
 // column table pattern already used by the ACL matrix (AclMatrixView.js).
 export default defineComponent({
   name: "ActivityHeatmap",
+  components: { Icon },
   props: {
     days: { type: Number, default: 30 },
   },
@@ -58,6 +60,54 @@ export default defineComponent({
   },
   methods: {
     t,
+    // Same icon/label mapping PeersView.js already uses for a peer row —
+    // a site gateway gets its own distinct icon (reused from elsewhere in
+    // the app, e.g. TopologyDiagram's gateway box) rather than a device icon,
+    // since it represents a router, not a laptop/phone.
+    peerIconName(p) {
+      if (p.type === "site") return "router";
+      return p.deviceType && p.deviceType !== "other" ? p.deviceType : "peers";
+    },
+    peerIconTitle(p) {
+      if (p.type === "site") return t("peers.type_site");
+      const labels = {
+        laptop: t("peers.dev_laptop"), desktop: t("peers.dev_desktop"), mobile: t("peers.dev_mobile"),
+        tablet: t("peers.dev_tablet"), server: t("peers.dev_server"), other: t("peers.dev_other"),
+      };
+      return labels[p.deviceType] || t("peers.dev_other");
+    },
+    // A site gateway's icon gets a distinct color, not just a distinct shape —
+    // at 13px in a dense row list the router/device icons alone didn't read
+    // as different at a glance (2026-09-06 feedback).
+    peerIconStyle(p) {
+      return p.type === "site"
+          ? "flex-shrink: 0; color: var(--accent)"
+          : "flex-shrink: 0; opacity: 0.75";
+    },
+    // A day is "before this peer existed" if it's earlier than the peer's
+    // creation date — those days must never be flagged as a site outage, or
+    // every site younger than the visible window would show as permanently
+    // down since its creation. No createdAt (older data / synthetic seed
+    // rows) falls back to "always existed", matching the prior behavior.
+    existedOn(p, dayIndex) {
+      if (!p.createdAt) return true;
+      // Strictly after the creation date: the day a gateway was created is a
+      // partial day by definition, and a site set up half an hour ago would
+      // otherwise open its first heatmap already flagged as down.
+      return this.result.days[dayIndex] > p.createdAt.slice(0, 10);
+    },
+    // A site gateway going quiet is a real outage worth flagging; a client
+    // peer going quiet (laptop closed, phone off wifi) is normal and must
+    // stay visually unremarkable. Only site rows get the "down" treatment,
+    // and only for days on/after the peer's own creation date.
+    isSiteDown(p, dayIndex) {
+      // Liveness is sampleHits, never the selected metric: in "traffic" mode a
+      // gateway that was connected all day but moved no bytes has a metric of
+      // zero, and reading that as an outage marks a healthy site red and offers
+      // "↓ 0.00 MB · ↑ 0.00 MB" as the explanation.
+      return p.type === "site" && (p.sampleHits[dayIndex] || 0) === 0
+          && this.existedOn(p, dayIndex);
+    },
     async load() {
       this.loading = true;
       this.error = null;
@@ -133,6 +183,8 @@ export default defineComponent({
         const rx = peer.rxBytes[dayIndex] || 0;
         const tx = peer.txBytes[dayIndex] || 0;
         detail = `↓ ${this.formatMb(rx)} · ↑ ${this.formatMb(tx)}`;
+      } else if (this.isSiteDown(peer, dayIndex)) {
+        detail = t("dashboard.heatmap_site_down");
       } else {
         detail = hits > 0
           ? t("dashboard.heatmap_connected_approx", { duration: this.formatEstimatedDuration(hits) })
@@ -174,10 +226,13 @@ export default defineComponent({
           <tbody>
             <tr v-for="p in result.peers" :key="p.peerId">
               <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle; font-size: var(--text-sm); height: 20px; padding-top: 0; padding-bottom: 0">
-                {{ p.name }}
+                <span style="display: inline-flex; align-items: center; gap: 6px">
+                  <Icon :name="peerIconName(p)" :size="13" :title="peerIconTitle(p)" :style="peerIconStyle(p)" />
+                  <span :style="p.type === 'site' ? 'font-weight: 600' : ''">{{ p.name }}</span>
+                </span>
               </td>
               <td v-for="(d, i) in result.days" :key="d" :title="cellTitle(p, i)"
-                  :class="'heatmap-cell heatmap-l' + level(metricValue(p, i), i)"
+                  :class="isSiteDown(p, i) ? 'heatmap-cell heatmap-down' : 'heatmap-cell heatmap-l' + level(metricValue(p, i), i)"
                   style="padding: 0"></td>
             </tr>
           </tbody>

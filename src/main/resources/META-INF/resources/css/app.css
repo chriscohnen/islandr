@@ -1404,6 +1404,11 @@ td.heatmap-cell.heatmap-l6 { background: var(--accent-600); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l5 { background: var(--accent-500); }
 [data-theme="dark"] td.heatmap-cell.heatmap-l6 { background: var(--accent-400); }
 
+/* A site gateway peer with zero activity that day is an outage worth
+   flagging — unlike a client peer's normal, expected quiet day (laptop
+   closed, phone off wifi), which stays the plain heatmap-l0 look above. */
+td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid var(--danger-border); }
+
 /* ============================================================================
    ResourcesView — card grid
    ============================================================================ */

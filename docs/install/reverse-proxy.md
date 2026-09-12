@@ -10,7 +10,7 @@ one the scripts default to.
 | Your situation | Use |
 |---|---|
 | Public VM, DNS points straight at it, no existing proxy/CDN | **Built-in TLS + ACME** — zero extra moving parts |
-| Already behind Cloudflare, CloudFront, Fastly, Azure Front Door, or similar CDN | **Built-in TLS, Referenced or Managed mode**, with the CDN's own edge/origin certificate — the CDN already terminates TLS at the edge, and CDN-fronted origins usually can't expose port 80 for ACME's HTTP-01 challenge |
+| Already behind Cloudflare, CloudFront, Fastly, Azure Front Door, or similar CDN | **Built-in TLS, Managed mode**, with the CDN's own origin certificate — the CDN already terminates TLS at the edge, and CDN-fronted origins usually can't expose port 80 for ACME's HTTP-01 challenge. On Cloudflare DNS, **ACME over DNS-01** is the other option: it never needs port 80 at all |
 | You already run Caddy/Traefik/nginx on this host for other services | **Reverse proxy** — one less thing to duplicate |
 | You want a single log/access point in front of several internal apps, not just Islandr | **Reverse proxy** |
 
@@ -29,15 +29,22 @@ restart:
    every boot as a backstop). Requires port 80 reachable from the public internet — Let's
    Encrypt's HTTP-01 challenge validates on port 80 specifically; this is fixed by RFC 8555, not
    configurable on either side. Port 80 must stay open even after a certificate is issued, so
-   renewal keeps working.
+   renewal keeps working. Where port 80 cannot be exposed at all — a CDN-fronted origin, an ISP
+   that blocks it — switch the challenge to **DNS-01** ([ADR-0020](../adr/0020-dns01-challenge-with-manual-mode.md)):
+   automated against Cloudflare DNS, or a manual mode that prints the TXT record to add for any
+   other provider.
 2. **Managed (upload)** — paste or upload a `.p12` or PEM cert + key (e.g. a Cloudflare Origin
    Certificate, or one issued by an external ACME client) via Settings. Stored in the database,
    encrypted at rest when `ISLANDR_ENCRYPTION_KEY` is configured (same mechanism as private-key
    retention, ADR-0007).
-3. **Referenced (file path)** — point Settings at a keystore file on disk that some other process
-   manages (your own `certbot` timer, a Docker secret, a CDN's origin-cert delivery tooling).
-   Islandr never touches or copies it; it just watches the file and reloads when it changes — the
-   same trust boundary a reverse proxy's own certificate file already has today.
+3. **Referenced (file path)** — **not available.** ADR-0015 designed a third mode where Settings
+   points at a keystore file another process manages (your own `certbot` timer, a Docker secret, a
+   CDN's origin-cert tooling). The loading path for it exists in `TlsKeyStoreProvider`, but nothing
+   in the API or the Admin Console sets `tlsMode=referenced`, and there is no file watch: the
+   certificate is read when the TLS configuration reloads — at startup, on an upload, on an ACME
+   issuance — not when a file on disk changes. Until that is built, an externally managed
+   certificate has to be uploaded (mode 2) whenever it is rotated. Tracked against
+   [ADR-0015](../adr/0015-builtin-tls-termination.md).
 
 `setup-hub.sh` and `docker-compose.yml` set this up out of the box: `QUARKUS_HTTP_HOST=0.0.0.0`,
 port 80 for HTTP, port 443 for HTTPS, plus (native only) `AmbientCapabilities=CAP_NET_BIND_SERVICE`

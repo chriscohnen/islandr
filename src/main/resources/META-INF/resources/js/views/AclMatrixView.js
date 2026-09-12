@@ -60,6 +60,14 @@ export default defineComponent({
       newTypeGrantType: "computer",
       typeGrantSaving: false,
       typeGrantError: null,
+      // Network grants ("reach every host in this site's network") — #78,
+      // ADR-0029. Same shape as type grants above (additive, scoped by site,
+      // its own small panel), just with no resourceType picker: a network
+      // grant has no type dimension, it covers the whole subnet.
+      networkGrants: [],
+      newNetworkGrantRoleId: "",
+      networkGrantSaving: false,
+      networkGrantError: null,
       // Direct User → Resource grants (ADR-0024) — the same grants the Atlas
       // view's drag-and-drop creates, surfaced here for admins who'd rather
       // not use the map. Site-independent (a user can be granted a resource
@@ -138,6 +146,9 @@ export default defineComponent({
     },
     typeGrantsForActiveSite() {
       return this.typeGrants.filter((g) => g.siteId === this.activeSiteId);
+    },
+    networkGrantsForActiveSite() {
+      return this.networkGrants.filter((g) => g.siteId === this.activeSiteId);
     },
     resourceTypeOptions() {
       void this.lang;
@@ -218,7 +229,7 @@ export default defineComponent({
       this.pending = {};
       this.loadPendingReservations();
       try {
-        const [sitesRes, resRes, rolesRes, gRes, tgRes, usersRes, ugRes, sgRes] = await Promise.all([
+        const [sitesRes, resRes, rolesRes, gRes, tgRes, usersRes, ugRes, sgRes, ngRes] = await Promise.all([
           fetch("/api/v1/sites"),
           fetch("/api/v1/resources"),
           fetch("/api/v1/roles"),
@@ -227,8 +238,9 @@ export default defineComponent({
           fetch("/api/v1/users"),
           fetch("/api/v1/acl/user-grants"),
           fetch("/api/v1/acl/site-grants"),
+          fetch("/api/v1/acl/network-grants"),
         ]);
-        if (!sitesRes.ok || !resRes.ok || !rolesRes.ok || !gRes.ok || !tgRes.ok || !usersRes.ok || !ugRes.ok || !sgRes.ok) {
+        if (!sitesRes.ok || !resRes.ok || !rolesRes.ok || !gRes.ok || !tgRes.ok || !usersRes.ok || !ugRes.ok || !sgRes.ok || !ngRes.ok) {
           throw new Error(t("acl.err_load_matrix"));
         }
         this.sites = await sitesRes.json();
@@ -239,6 +251,7 @@ export default defineComponent({
         this.users = await usersRes.json();
         this.userGrants = await ugRes.json();
         this.siteGrants = await sgRes.json();
+        this.networkGrants = await ngRes.json();
         if (!this.activeSiteId && this.sites.length > 0) {
           this.activeSiteId = this.sites[0].id;
         }
@@ -419,6 +432,46 @@ export default defineComponent({
         this.typeGrants = this.typeGrants.filter((g) => g.id !== id);
       } catch (e) {
         this.typeGrantError = t("acl.type_grant_error", { error: e.message });
+      }
+    },
+
+    async addNetworkGrant() {
+      if (!this.newNetworkGrantRoleId || !this.activeSiteId) return;
+      this.networkGrantSaving = true;
+      this.networkGrantError = null;
+      try {
+        const res = await fetch("/api/v1/acl/network-grants", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            roleId: this.newNetworkGrantRoleId,
+            siteId: this.activeSiteId,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+        }
+        const created = await res.json();
+        if (!this.networkGrants.some((g) => g.id === created.id)) {
+          this.networkGrants = [...this.networkGrants, created];
+        }
+        this.newNetworkGrantRoleId = "";
+      } catch (e) {
+        this.networkGrantError = t("acl.network_grant_error", { error: e.message });
+      } finally {
+        this.networkGrantSaving = false;
+      }
+    },
+
+    async removeNetworkGrant(id) {
+      this.networkGrantError = null;
+      try {
+        const res = await fetch("/api/v1/acl/network-grants/" + id, { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.networkGrants = this.networkGrants.filter((g) => g.id !== id);
+      } catch (e) {
+        this.networkGrantError = t("acl.network_grant_error", { error: e.message });
       }
     },
 
@@ -721,6 +774,47 @@ export default defineComponent({
               </select>
               <button class="btn btn-secondary btn-sm" :disabled="!newTypeGrantRoleId || typeGrantSaving" @click="addTypeGrant">
                 {{ typeGrantSaving ? t('common.loading') : t('acl.type_grant_add_btn') }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Network grants ("reach every host in this site's network") —
+               #78/ADR-0029. Structurally identical to the type-grants panel
+               above, minus the type picker: a network grant has no type
+               dimension. Deliberately full-reach (every port, every
+               protocol) and covers hosts Islandr doesn't know about as
+               resources — the hint text states this explicitly. -->
+          <div class="card card-pad" style="margin-top: var(--space-5)">
+            <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('acl.network_grants_title') }}</h2>
+            <div class="field-hint" style="margin-top: 0">{{ t('acl.network_grants_hint') }}</div>
+
+            <div v-if="networkGrantError" class="error-banner" style="margin-top: var(--space-3)">{{ networkGrantError }}</div>
+
+            <table v-if="networkGrantsForActiveSite.length > 0" class="table" style="margin-top: var(--space-3)">
+              <thead>
+                <tr>
+                  <th>{{ t('acl.th_role') }}</th>
+                  <th style="width: 40px"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="g in networkGrantsForActiveSite" :key="g.id">
+                  <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
+                  <td>
+                    <button class="btn btn-ghost btn-sm" @click="removeNetworkGrant(g.id)" :title="t('acl.network_grant_remove')">✕</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-else class="muted" style="font-size: var(--text-sm)">{{ t('acl.network_grants_empty') }}</p>
+
+            <div style="display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap">
+              <select class="select" v-model="newNetworkGrantRoleId" style="max-width: 220px">
+                <option value="" disabled>{{ t('acl.network_grant_pick_role') }}</option>
+                <option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" :disabled="!newNetworkGrantRoleId || networkGrantSaving" @click="addNetworkGrant">
+                {{ networkGrantSaving ? t('common.loading') : t('acl.network_grant_add_btn') }}
               </button>
             </div>
           </div>

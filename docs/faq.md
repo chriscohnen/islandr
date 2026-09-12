@@ -102,6 +102,45 @@ Lists each peer's public key next to its preshared key (or `(none)` if unset). U
 after editing or removing a peer's PSK in the Admin Console, to confirm the change
 actually reached the kernel and not just the database.
 
+## Why are my peers gone after restarting `wg-quick`, and where does islandr store them?
+
+Islandr configures peers with `wg set` and never writes
+`/etc/wireguard/wg0.conf` — the file stays yours, and the service is not
+privileged to touch it ([ADR-0030](adr/0030-wireguard-config-file-ownership.md)).
+Peers it manages therefore live in its database and in kernel state, not in that
+file, so `wg-quick` brings the interface back with only what the file contains:
+
+```bash
+sudo wg show wg0 peers        # before
+sudo systemctl restart wg-quick@wg0
+sudo wg show wg0 peers        # only the peers written in wg0.conf
+```
+
+Islandr repairs this by itself. It re-applies every enabled peer at startup, and
+the activity poller compares the live peer list against the database on each
+30-second tick and pushes back whatever is missing — so the peers return within
+about half a minute without restarting the service. If firewall writes are
+paused (Settings → Firewall, the default on a fresh install), nothing is written
+back, which is intended: an adopted hub stays untouched until you activate
+enforcement.
+
+To make the peers independent of islandr — before uninstalling, for instance —
+use **Peers → Export to wg0.conf** and append the downloaded `[Peer]` blocks to
+your server config. The export deliberately contains no `[Interface]` section.
+
+## A peer connects that islandr does not know. Why does it still reach the hub?
+
+Because islandr's ruleset filters **forwarded** traffic. Its `forward` chain is
+`policy drop` with an accept rule per granted peer/resource pair, so an
+unimported peer reaches no resource behind the hub — but traffic *to* the hub
+(admin console, SSH, the DNS resolver) passes through `input`, which islandr does
+not filter.
+
+Such peers come from `wg0.conf` entries that were never imported. The Dashboard
+reports how many exist; **Peers → Import from wg0** brings them under islandr's
+ACLs. Until then they are outside the access model, and their addresses are
+excluded from islandr's own address allocation so the two cannot collide.
+
 ## How do I temporarily open access for every peer, e.g. to isolate a firewall problem?
 
 ```bash

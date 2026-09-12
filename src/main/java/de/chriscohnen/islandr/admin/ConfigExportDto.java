@@ -79,7 +79,9 @@ public class ConfigExportDto {
         // keep authenticating with it after a restore, because verification
         // only ever needs the hash, never the raw key. Previously the whole
         // list was dropped, silently revoking every key on a config restore.
-        List<ApiKeySnapshot> apiKeys
+        List<ApiKeySnapshot> apiKeys,
+        // Same tolerate-absence pattern, for whole-network role grants (#78, ADR-0029).
+        List<NetworkGrantSnapshot> roleNetworkGrants
     ) {}
 
     public record SettingsSnapshot(
@@ -281,7 +283,10 @@ public class ConfigExportDto {
         String ip,
         String description,
         String type,
-        Instant createdAt
+        Instant createdAt,
+        // Issue #76 — vendor is deliberately absent here too: it's derived
+        // from OuiVendorLookup at read time, same as everywhere else.
+        String mac
     ) {}
 
     public record ResourcePortSnapshot(
@@ -340,6 +345,13 @@ public class ConfigExportDto {
         String roleId,
         String siteId,
         String resourceType,
+        Instant createdAt
+    ) {}
+
+    public record NetworkGrantSnapshot(
+        String id,
+        String roleId,
+        String siteId,
         Instant createdAt
     ) {}
 

@@ -110,7 +110,7 @@ public class ConfigService {
 
         List<ConfigExportDto.ResourceSnapshot> resources = Resource.<Resource>listAll()
                 .stream().map(r -> new ConfigExportDto.ResourceSnapshot(
-                        r.id, r.siteId, r.name, r.ip, r.description, r.type, r.createdAt))
+                        r.id, r.siteId, r.name, r.ip, r.description, r.type, r.createdAt, r.mac))
                 .toList();
 
         List<ConfigExportDto.ResourcePortSnapshot> ports = ResourcePort.<ResourcePort>listAll()
@@ -148,6 +148,12 @@ public class ConfigService {
         List<ConfigExportDto.TypeGrantSnapshot> typeGrants = RoleResourceTypeGrant.<RoleResourceTypeGrant>listAll()
                 .stream().map(g -> new ConfigExportDto.TypeGrantSnapshot(
                         g.id, g.roleId, g.siteId, g.resourceType, g.createdAt))
+                .toList();
+
+        List<ConfigExportDto.NetworkGrantSnapshot> networkGrants =
+                de.chriscohnen.islandr.acl.RoleNetworkGrant.<de.chriscohnen.islandr.acl.RoleNetworkGrant>listAll()
+                .stream().map(g -> new ConfigExportDto.NetworkGrantSnapshot(
+                        g.id, g.roleId, g.siteId, g.createdAt))
                 .toList();
 
         // Ad-hoc temporary grants (#70) are deliberately excluded from a config
@@ -193,7 +199,7 @@ public class ConfigService {
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
                 siteGrants, siteGrantPortLinks, peerSchedules,
-                customProviders, apiKeys);
+                customProviders, apiKeys, networkGrants);
     }
 
     /**
@@ -240,6 +246,7 @@ public class ConfigService {
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM role_resource_type_grants").executeUpdate();
+        em.createNativeQuery("DELETE FROM role_network_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM user_resource_grants").executeUpdate();
         em.createNativeQuery("DELETE FROM site_resource_grant_ports").executeUpdate();
         em.createNativeQuery("DELETE FROM site_resource_grants").executeUpdate();
@@ -408,8 +415,8 @@ public class ConfigService {
         // --- Resources -------------------------------------------------------
         for (var res : safe(p.resources())) {
             em.createNativeQuery(
-                            "INSERT INTO resources (id, site_id, name, ip, description, type, created_at)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7)")
+                            "INSERT INTO resources (id, site_id, name, ip, description, type, created_at, mac)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
                     .setParameter(1, res.id())
                     .setParameter(2, res.siteId())
                     .setParameter(3, res.name())
@@ -417,6 +424,7 @@ public class ConfigService {
                     .setParameter(5, res.description())
                     .setParameter(6, res.type())
                     .setParameter(7, ts(res.createdAt()))
+                    .setParameter(8, res.mac())
                     .executeUpdate();
         }
 
@@ -499,6 +507,19 @@ public class ConfigService {
                     .setParameter(3, g.siteId())
                     .setParameter(4, g.resourceType())
                     .setParameter(5, ts(g.createdAt()))
+                    .executeUpdate();
+        }
+
+        // --- ACL network grants (whole-site-CIDR role grants, #78/ADR-0029) --
+        for (var g : safe(p.roleNetworkGrants())) {
+            em.createNativeQuery(
+                            "INSERT INTO role_network_grants" +
+                            " (id, role_id, site_id, created_at)" +
+                            " VALUES (?1,?2,?3,?4)")
+                    .setParameter(1, g.id())
+                    .setParameter(2, g.roleId())
+                    .setParameter(3, g.siteId())
+                    .setParameter(4, ts(g.createdAt()))
                     .executeUpdate();
         }
 

@@ -27,10 +27,35 @@ public final class NetBiosLookup {
     private static final int CLASS_IN = 1;
     private static final int GROUP_FLAG = 0x8000;
 
+    private static final String NULL_MAC = "00:00:00:00:00:00";
+    /** Fixed size of one NBSTAT name-table entry: 15-byte name + suffix + 2 flag bytes. */
+    private static final int NAME_ENTRY_LEN = 18;
+    /** Length of the STATISTICS block's leading UNIT_ID field (RFC 1002 §4.2.18). */
+    private static final int UNIT_ID_LEN = 6;
+
     private NetBiosLookup() {}
+
+    /**
+     * What one NBSTAT response says about a host: its NetBIOS name and, when
+     * the responder included a STATISTICS block, the MAC address from that
+     * block's UNIT_ID field. Either field may be null; an all-empty response
+     * yields an empty {@link Optional} instead of a record of two nulls.
+     */
+    public record NodeStatus(String name, String mac) {}
 
     public static Optional<String> lookup(String targetIp, Duration timeout) {
         return lookup(targetIp, targetIp, NBNS_PORT, timeout);
+    }
+
+    /**
+     * Full node status — name <em>and</em> MAC — from a single NBSTAT query
+     * (issue #76). Unlike ARP, this is not link-scoped: NBSTAT is an ordinary
+     * unicast query, so it reaches a host behind a site gateway just as well
+     * as one on the hub's own segment. It only covers hosts that speak
+     * NetBIOS at all (Windows shares, Samba NAS boxes, some printers).
+     */
+    public static Optional<NodeStatus> nodeStatus(String targetIp, Duration timeout) {
+        return nodeStatus(targetIp, targetIp, NBNS_PORT, timeout);
     }
 
     /** Host/port-parameterized for testing against a fake local responder —
@@ -39,6 +64,12 @@ public final class NetBiosLookup {
      *  in that test path); production callers always go through the 2-arg
      *  overload above where the two are the same host. */
     static Optional<String> lookup(String targetIp, String destinationHost, int port, Duration timeout) {
+        return nodeStatus(targetIp, destinationHost, port, timeout).map(NodeStatus::name);
+    }
+
+    /** Host/port-parameterized {@link #nodeStatus(String, Duration)} — same test seam
+     *  as the {@link #lookup} overload above. */
+    static Optional<NodeStatus> nodeStatus(String targetIp, String destinationHost, int port, Duration timeout) {
         try {
             int id = (int) (System.nanoTime() & 0xFFFF);
             byte[] query = buildNbstatQuery(id);
@@ -52,7 +83,7 @@ public final class NetBiosLookup {
                 DatagramPacket response = new DatagramPacket(buf, buf.length);
                 socket.receive(response);
 
-                return Optional.ofNullable(parseComputerName(response.getData(), response.getLength()));
+                return parseNodeStatus(response.getData(), response.getLength());
             }
         } catch (Exception e) {
             return Optional.empty();
@@ -89,14 +120,23 @@ public final class NetBiosLookup {
     }
 
     /**
-     * Extracts the first unique (non-group) workstation-suffix (0x00) entry
-     * from an NBSTAT response's name table, trimmed of its space padding.
-     * Falls back to the first unique entry of any suffix if no 0x00 entry is
-     * present. Fails safe (null) on anything malformed/unexpected — this
-     * parses bytes from a network peer, same posture as
-     * {@link DnsWireFormat#parseFirstPtrName}.
+     * Reads both fields the NBSTAT answer carries: the computer name from the
+     * name table, and the MAC address from the UNIT_ID that opens the
+     * STATISTICS block right behind it.
+     *
+     * <p>The name is the first unique (non-group) workstation-suffix (0x00)
+     * entry, trimmed of its space padding, falling back to the first unique
+     * entry of any suffix. Fails safe (empty/null) on anything
+     * malformed/unexpected — this parses bytes from a network peer, same
+     * posture as {@link DnsWireFormat#parseFirstPtrName}.
      */
-    private static String parseComputerName(byte[] data, int length) {
+    private static Optional<NodeStatus> parseNodeStatus(byte[] data, int length) {
+        NodeStatus status = parseNodeStatusOrNull(data, length);
+        return status == null || (status.name() == null && status.mac() == null)
+                ? Optional.empty() : Optional.of(status);
+    }
+
+    private static NodeStatus parseNodeStatusOrNull(byte[] data, int length) {
         try {
             if (length < 12) return null;
             int qdcount = u16(data, 4);
@@ -116,24 +156,45 @@ public final class NetBiosLookup {
             int rdlength = u16(data, pos); pos += 2;
             if (type != NBSTAT_QTYPE || pos + rdlength > length || rdlength < 1) return null;
 
+            int rdataEnd = pos + rdlength;
             int numNames = data[pos] & 0xff;
             pos += 1;
+            String name = null;
             String fallback = null;
             for (int i = 0; i < numNames; i++) {
-                int entryStart = pos + i * 18;
-                if (entryStart + 18 > length) break;
-                String name = new String(data, entryStart, 15, StandardCharsets.US_ASCII).trim();
+                int entryStart = pos + i * NAME_ENTRY_LEN;
+                if (entryStart + NAME_ENTRY_LEN > length) break;
+                String entry = new String(data, entryStart, 15, StandardCharsets.US_ASCII).trim();
                 int suffix = data[entryStart + 15] & 0xff;
                 int flags = u16(data, entryStart + 16);
                 boolean isGroup = (flags & GROUP_FLAG) != 0;
-                if (isGroup || name.isEmpty()) continue;
-                if (suffix == 0x00) return name;
-                if (fallback == null) fallback = name;
+                if (isGroup || entry.isEmpty()) continue;
+                if (suffix == 0x00) { name = entry; break; }
+                if (fallback == null) fallback = entry;
             }
-            return fallback;
+            if (name == null) name = fallback;
+            return new NodeStatus(name, parseUnitIdMac(data, pos + numNames * NAME_ENTRY_LEN, Math.min(rdataEnd, length)));
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /**
+     * The six bytes at the head of the STATISTICS block are the responder's
+     * hardware address (RFC 1002 §4.2.18) — the same field {@code nbtstat -A}
+     * prints as "MAC Address". Responders that stop after the name table, and
+     * NetBIOS-over-TCP-only stacks that report an all-zero UNIT_ID, simply
+     * have no MAC to give: null, never a fabricated one.
+     */
+    private static String parseUnitIdMac(byte[] data, int statisticsStart, int rdataEnd) {
+        if (statisticsStart < 0 || statisticsStart + UNIT_ID_LEN > rdataEnd) return null;
+        StringBuilder mac = new StringBuilder(17);
+        for (int i = 0; i < UNIT_ID_LEN; i++) {
+            if (i > 0) mac.append(':');
+            mac.append(String.format("%02x", data[statisticsStart + i] & 0xff));
+        }
+        String out = mac.toString();
+        return NULL_MAC.equals(out) ? null : out;
     }
 
     private static int u16(byte[] d, int off) {

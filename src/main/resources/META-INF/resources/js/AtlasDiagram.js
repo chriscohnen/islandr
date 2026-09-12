@@ -129,6 +129,7 @@ export default defineComponent({
     highlightedUserIds: { type: Array, default: () => [] }, // user ids for the active role filter
     selectedUserId: { type: String, default: null }, // focused user (direct-grant mode) — only their edges render
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
+    selectedSiteId: { type: String, default: null }, // focused site circle — only edges naming it (as subject or network-grant target) render
     selectedPeerId: { type: String, default: null }, // focused site-gateway peer (ADR-0025 diagnostics target) — ring only, no edge filtering
     connectedUserIds: { type: Array, default: () => [] }, // users with a currently-connected client peer (ADR-0025) — also pingable
     // userId -> that user's currently-connected peers (id/name/assignedIp), same
@@ -163,7 +164,7 @@ export default defineComponent({
     // as an outcome nobody has measured yet.
     probePending: { type: Boolean, default: false },
   },
-  emits: ["drag-grant", "revoke-edge", "user-click", "resource-click", "peer-click"],
+  emits: ["drag-grant", "revoke-edge", "user-click", "resource-click", "peer-click", "site-click"],
   data() {
     return {
       dragFromUserId: null,
@@ -181,6 +182,13 @@ export default defineComponent({
       hoveredNode: null, // node under the pointer, for the hover tooltip
       hoveredKind: null, // "resource" | "user" | "hub" — which card layout to render
       hoverPos: { x: 0, y: 0 }, // tooltip position, in container px
+      hoveredEdgeKey: null, // edge under the pointer while tool === "revoke"
+      // { type: "user"|"resource"|"circle", id } — whichever clickable
+      // element the pointer plainly hovers (no drag in progress). Merged
+      // with dragHoverTarget by visualHoverTarget() so hovering a
+      // selectable element gets the exact same "activated" ring/fill the
+      // drag-to-grant interaction already shows for its drop targets.
+      hoverActivated: null,
     };
   },
   computed: {
@@ -219,16 +227,16 @@ export default defineComponent({
         }
         bySite.get(r.siteId).resources.push(r);
       }
-      // A site that only ever grants (never receives) access has no
-      // ResourceNode of its own — without this, its gateway node would have
-      // no circle to attach to and the grant it holds would be invisible.
-      // Only add it if it actually holds a site-direct grant; otherwise an
-      // active resource-type filter would fill the canvas with empty
-      // circles for every site that merely has zero matching resources.
+      // A site that only ever grants (site-direct) or only ever receives a
+      // network grant has no ResourceNode of its own — without this, its
+      // gateway node (site-direct) or the network-grant edge's target
+      // (network-grant) would have no circle to attach to.
       const grantingSiteIds = new Set(
           this.graph.edges.filter((e) => e.subjectType === "site").map((e) => e.subjectId));
+      const networkGrantedSiteIds = new Set(
+          this.graph.edges.filter((e) => e.kind === "network-grant" && e.siteId).map((e) => e.siteId));
       for (const site of (this.graph.sites || [])) {
-        if (!bySite.has(site.id) && grantingSiteIds.has(site.id)) {
+        if (!bySite.has(site.id) && (grantingSiteIds.has(site.id) || networkGrantedSiteIds.has(site.id))) {
           bySite.set(site.id, {
             id: site.id, name: site.name, cidr: site.cidr,
             gatewayPeerId: site.gatewayPeerId, gatewayPeerName: site.gatewayPeerName, resources: [],
@@ -336,6 +344,11 @@ export default defineComponent({
       for (const circle of this.layout) for (const n of circle.nodes) m.set(n.id, n);
       return m;
     },
+    circlesById() {
+      const m = new Map();
+      for (const circle of this.layout) m.set(circle.id, circle);
+      return m;
+    },
     edgeLines() {
       // A focused user or resource (click-select) shows only edges touching
       // that one node — every other edge is hidden entirely, not just
@@ -347,13 +360,105 @@ export default defineComponent({
       let source = this.graph.edges;
       if (this.selectedUserId) source = source.filter((e) => e.subjectType === "user" && e.subjectId === this.selectedUserId);
       else if (this.selectedResourceId) source = source.filter((e) => e.resourceId === this.selectedResourceId);
+      // A focused site shows only grants that name it directly: site-direct
+      // grants where it's the granting subject, and network-grant edges
+      // that target it — the two ways a site itself (not one of its
+      // resources) participates in the grant graph.
+      else if (this.selectedSiteId) {
+        source = source.filter((e) =>
+            (e.subjectType === "site" && e.subjectId === this.selectedSiteId) ||
+            (e.kind === "network-grant" && e.siteId === this.selectedSiteId));
+      }
+      // Network-grant edges are a deliberate exception to the "unfiltered
+      // default view shows everything" rule every other edge kind follows:
+      // confirmed with the user, a network grant's circle highlight/arrow
+      // must never appear unless the granted user is actually selected, or
+      // the granted site itself is selected — not in the default view, and
+      // not while a resource is focused instead (a network grant isn't
+      // resource-focused at all).
+      source = source.filter((e) => e.kind !== "network-grant" ||
+          (this.selectedUserId && e.subjectId === this.selectedUserId) ||
+          (this.selectedSiteId && e.siteId === this.selectedSiteId));
       return source
-          .filter((e) => this.nodesById.has(e.subjectId) && this.nodesById.has(e.resourceId))
+          .filter((e) => {
+            if (!this.nodesById.has(e.subjectId)) return false;
+            // A network-grant edge targets a circle (via siteId), every
+            // other kind targets a resource node (via resourceId).
+            return e.kind === "network-grant" ? this.circlesById.has(e.siteId) : this.nodesById.has(e.resourceId);
+          })
           .map((e) => {
             const from = this.nodesById.get(e.subjectId);
-            const to = this.nodesById.get(e.resourceId);
-            return { edge: e, path: curvePath(from.x, from.y, to.x, to.y), key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || "") };
+            let toX, toY;
+            if (e.kind === "network-grant") {
+              // Land the arrowhead on the circle's own rim (nearest point to
+              // the source), not floating over whatever node sits inside it
+              // — the target is the whole network, not a specific resource.
+              const circle = this.circlesById.get(e.siteId);
+              const dx = circle.cx - from.x, dy = circle.cy - from.y;
+              const dist = Math.hypot(dx, dy) || 1;
+              toX = circle.cx - (dx / dist) * circle.r;
+              toY = circle.cy - (dy / dist) * circle.r;
+            } else {
+              const to = this.nodesById.get(e.resourceId);
+              toX = to.x; toY = to.y;
+            }
+            return {
+              edge: e,
+              path: curvePath(from.x, from.y, toX, toY),
+              key: e.subjectType + "|" + e.subjectId + "|" + (e.resourceId || e.siteId) + "|" + e.kind + "|" + (e.roleId || ""),
+            };
           });
+    },
+    // Sites targeted by a currently-visible network-grant edge (i.e. still
+    // present in edgeLines after the selectedUserId/selectedResourceId
+    // filter above) — drives the circle's highlight stroke. Confirmed with
+    // the user: this must only show when the relevant user is selected, not
+    // unconditionally for every network grant system-wide.
+    networkGrantedCircleIds() {
+      return new Set(
+          this.edgeLines.filter((l) => l.edge.kind === "network-grant").map((l) => l.edge.siteId));
+    },
+    // While actively dragging a grant line, whichever valid drop target the
+    // pointer currently sits over — resolved by geometry against the live
+    // dragPointer, not by DOM hit-testing (that only runs once, on drop).
+    // Drives the "this is what will be granted if you let go now" feedback:
+    // a resource node when dragging from a user/gateway, or the whole site
+    // circle when dragging a resource onto a site's gateway diamond (a
+    // site-direct grant is conceptually "the network", not the diamond icon
+    // itself).
+    dragHoverTarget() {
+      if (!this.dragMoved || this.tool !== "grant" || !this.dragPointer) return null;
+      if (this.dragFromUserId) {
+        for (const circle of this.layout) {
+          for (const node of circle.nodes) {
+            if (node.isUser || node.isGateway) continue;
+            if (Math.hypot(node.x - this.dragPointer.x, node.y - this.dragPointer.y) <= NODE_RADIUS) {
+              return { type: "resource", id: node.id };
+            }
+          }
+        }
+        return null;
+      }
+      if (this.dragFromResourceId) {
+        for (const circle of this.layout) {
+          const gw = circle.nodes.find((n) => n.isGateway);
+          if (!gw) continue;
+          if (Math.hypot(gw.x - this.dragPointer.x, gw.y - this.dragPointer.y) <= NODE_RADIUS) {
+            return { type: "circle", id: circle.id };
+          }
+        }
+        return null;
+      }
+      return null;
+    },
+    // What the "activated" ring/fill treatment should point at right now:
+    // the live drag drop-target while a grant-line drag is in progress, else
+    // whichever selectable element (user, resource, site circle) the pointer
+    // plainly hovers. Same shape as dragHoverTarget ({ type, id }) so every
+    // render site that used to check dragHoverTarget can check this instead.
+    visualHoverTarget() {
+      if (this.dragMoved && this.tool === "grant" && this.dragPointer) return this.dragHoverTarget;
+      return this.hoverActivated;
     },
     // A single fixed anchor for the Hub (2026-08-22 feedback: previously
     // absent from the graph entirely, even though it's the actual origin of
@@ -599,6 +704,13 @@ export default defineComponent({
       if (this.tool !== "revoke") return;
       this.$emit("revoke-edge", edge);
     },
+    onEdgeHover(key) {
+      if (this.tool !== "revoke") return;
+      this.hoveredEdgeKey = key;
+    },
+    onEdgeLeave() {
+      this.hoveredEdgeKey = null;
+    },
     // Dim/highlight precedence: a focused user (click-select) always wins
     // over the role-membership highlight, since focusing narrows attention
     // to one specific person regardless of which role is active. Resource
@@ -640,6 +752,11 @@ export default defineComponent({
       this.hoveredNode = node;
       this.hoveredKind = kind;
       this.updateHoverPos(evt);
+      // Only user/resource nodes are click-selectable — a gateway/hub hover
+      // still drives the tooltip card above, just not the activated ring.
+      if (kind === "user" || kind === "resource") {
+        this.hoverActivated = { type: kind, id: node.id };
+      }
     },
     updateHoverPos(evt) {
       const rect = this.$refs.container.getBoundingClientRect();
@@ -648,12 +765,44 @@ export default defineComponent({
     onNodeLeave() {
       this.hoveredNode = null;
       this.hoveredKind = null;
+      this.hoverActivated = null;
+    },
+    onCircleEnter(circle) {
+      if (circle.kind !== "site") return; // "mobile" isn't a real network — nothing to select
+      this.hoverActivated = { type: "circle", id: circle.id };
+    },
+    onCircleLeave() {
+      this.hoverActivated = null;
+    },
+    onCircleClick(circle) {
+      if (circle.kind !== "site") return;
+      this.$emit("site-click", circle.id);
+    },
+    circleFocused(circle) {
+      return circle.id === this.selectedSiteId;
     },
     connectedPeersFor(userId) {
       return this.connectedPeersByUserId[userId] || [];
     },
     diamondPath(cx, cy, r) {
       return `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
+    },
+    // One color per grant kind so a busy graph reads at a glance instead of
+    // every edge blending into the same accent line. Chosen from the
+    // existing semantic tokens rather than new hex values, loosely by risk/
+    // breadth: role stays the default accent (the common case); type-grant
+    // (all resources of a type) and user-direct (one ad-hoc exception) are
+    // the two narrower, resource-scoped kinds; site-direct and network-grant
+    // both widen a whole CIDR (source and destination side respectively) —
+    // network-grant is the broadest of all (ADR-0029 R-189), hence danger.
+    edgeColor(kind) {
+      switch (kind) {
+        case "type-grant": return "var(--success-solid)";
+        case "user-direct": return "var(--info-solid)";
+        case "site-direct": return "var(--warning-solid)";
+        case "network-grant": return "var(--danger-solid)";
+        default: return "var(--accent)"; // "role"
+      }
     },
   },
   template: `
@@ -669,16 +818,49 @@ export default defineComponent({
               @pointerdown="onBackgroundPointerDown" />
 
         <defs>
-          <marker id="atlas-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-            <path d="M0,0 L8,4 L0,8 Z" fill="var(--accent)" />
+          <marker v-for="kind in ['role', 'type-grant', 'user-direct', 'site-direct', 'network-grant']"
+                  :key="kind" :id="'atlas-arrow-' + kind"
+                  markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" :fill="edgeColor(kind)" />
+          </marker>
+          <marker id="atlas-arrow-revoke-hover"
+                  markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="var(--danger-solid)" />
           </marker>
         </defs>
 
         <g :transform="contentTransform">
           <g v-for="circle in layout" :key="circle.id">
             <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
-                    :fill="circle.color" fill-opacity="0.07"
-                    :stroke="circle.color" stroke-width="1.5" />
+                    :fill="(visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id) ? 'var(--success-solid)' : circle.color"
+                    :fill-opacity="(visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id) ? 0.18 : 0.07"
+                    :stroke="networkGrantedCircleIds.has(circle.id) ? edgeColor('network-grant') : circle.color"
+                    :stroke-width="networkGrantedCircleIds.has(circle.id) ? 3 : 1.5"
+                    :stroke-dasharray="networkGrantedCircleIds.has(circle.id) ? '8 5' : (circle.kind === 'mobile' ? '2 4' : null)"
+                    :style="circle.kind === 'site' ? 'cursor: pointer' : ''"
+                    @pointerenter="onCircleEnter(circle)"
+                    @pointerleave="onCircleLeave()"
+                    @click="onCircleClick(circle)" />
+            <!-- Hover-activation feedback: this circle is what will be
+                 granted (drag) or selected (plain hover) if the pointer
+                 acts right now. Animated "marching ants" ring, on top of
+                 the base circle above. -->
+            <circle v-if="visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id"
+                    :cx="circle.cx" :cy="circle.cy" :r="circle.r + 6"
+                    fill="none" stroke="var(--success-solid)" stroke-width="3" stroke-dasharray="10 6"
+                    style="pointer-events: none">
+              <animate attributeName="stroke-dashoffset" values="32;0" dur="0.8s" repeatCount="indefinite" />
+            </circle>
+            <!-- Selection ring: this site is the current click-selected focus. -->
+            <circle v-if="circleFocused(circle)" :cx="circle.cx" :cy="circle.cy" :r="circle.r + 3"
+                    fill="none" stroke="var(--fg1)" stroke-width="1.5" style="pointer-events: none">
+              <animate attributeName="r" :values="(circle.r + 3) + ';' + (circle.r + 9) + ';' + (circle.r + 3)"
+                       keyTimes="0;0.5;1" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"
+                       dur="2.2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.55;0.05;0.55"
+                       keyTimes="0;0.5;1" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"
+                       dur="2.2s" repeatCount="indefinite" />
+            </circle>
             <text :x="circle.cx" :y="circle.cy - circle.r - (circle.cidr ? 24 : 10)" text-anchor="middle"
                   :fill="circle.color" font-size="13" font-weight="600"
                   style="text-transform: uppercase; letter-spacing: 0.06em">{{ circle.name }}</text>
@@ -687,11 +869,24 @@ export default defineComponent({
           </g>
 
           <path v-for="line in edgeLines" :key="line.key" :d="line.path"
-                fill="none" stroke="var(--accent)" stroke-width="1.5"
+                fill="none"
+                :stroke="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 'var(--danger-solid)' : edgeColor(line.edge.kind)"
+                :stroke-width="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 3.5 : (line.edge.kind === 'network-grant' ? 2.5 : 1.5)"
+                :stroke-dasharray="line.edge.kind === 'network-grant' ? '8 5' : null"
                 :stroke-opacity="tool === 'revoke' ? 0.85 : 0.55"
                 :style="tool === 'revoke' ? 'cursor: pointer' : ''"
-                marker-end="url(#atlas-arrow)"
+                :marker-end="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 'url(#atlas-arrow-revoke-hover)' : ('url(#atlas-arrow-' + line.edge.kind + ')')"
+                @pointerenter="onEdgeHover(line.key)"
+                @pointerleave="onEdgeLeave()"
                 @click="onEdgeClick(line.edge)" />
+          <template v-if="tool === 'revoke'">
+            <path v-for="line in edgeLines" :key="'hit-' + line.key" :d="line.path"
+                  fill="none" stroke="transparent" stroke-width="14"
+                  style="cursor: pointer"
+                  @pointerenter="onEdgeHover(line.key)"
+                  @pointerleave="onEdgeLeave()"
+                  @click="onEdgeClick(line.edge)" />
+          </template>
 
           <line v-if="(dragFromUserId || dragFromResourceId) && dragPointer"
                 :x1="nodesById.get(dragFromUserId || dragFromResourceId).x" :y1="nodesById.get(dragFromUserId || dragFromResourceId).y"
@@ -746,10 +941,17 @@ export default defineComponent({
                     :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                     :stroke-width="nodeHighlighted(node) ? 3 : 2" />
               <circle v-else :cx="node.x" :cy="node.y" :r="${NODE_RADIUS}"
-                      :fill="node.isUser ? 'var(--accent)' : circle.color"
+                      :fill="(!node.isUser && visualHoverTarget && visualHoverTarget.type === 'resource' && visualHoverTarget.id === node.id) ? 'var(--success-solid)' : (node.isUser && visualHoverTarget && visualHoverTarget.type === 'user' && visualHoverTarget.id === node.id) ? 'var(--success-solid)' : (node.isUser ? 'var(--accent)' : circle.color)"
                       :fill-opacity="nodeDimmed(node) ? 0.3 : 1"
                       :stroke="nodeHighlighted(node) ? 'var(--fg1)' : 'var(--surface)'"
                       :stroke-width="nodeHighlighted(node) ? 3 : 2" />
+              <!-- Hover-activation feedback: this node is what will be granted
+                   (drag) or selected (plain hover) if the pointer acts now. -->
+              <circle v-if="!node.isGateway && visualHoverTarget && visualHoverTarget.type === (node.isUser ? 'user' : 'resource') && visualHoverTarget.id === node.id"
+                      :cx="node.x" :cy="node.y" :r="${NODE_RADIUS + 5}"
+                      fill="none" stroke="var(--success-solid)" stroke-width="2" stroke-dasharray="5 4">
+                <animate attributeName="stroke-dashoffset" values="18;0" dur="0.6s" repeatCount="indefinite" />
+              </circle>
               <!-- Connected-peer indicator (ADR-0025 follow-up): a small badge, not a
                    recolored node — the node's own fill already carries meaning (dimmed/
                    highlighted/focused) and shape alone tells user/gateway/resource apart

@@ -60,6 +60,7 @@ public class RdpGrantService {
             .getResultList();
         if (!rows.isEmpty() && rows.get(0).intValue() > 0) return true;
         if (hasTypeGrant(userId, resourceId)) return true;
+        if (hasNetworkGrant(userId, resourceId)) return true;
         return hasDirectUserGrant(userId, resourceId, portId);
     }
 
@@ -72,6 +73,24 @@ public class RdpGrantService {
                 "SELECT COUNT(*) FROM role_resource_type_grants g " +
                 "JOIN user_roles ur ON ur.role_id = g.role_id " +
                 "JOIN resources r ON r.id = ?2 AND r.site_id = g.site_id AND r.type = g.resource_type " +
+                "WHERE ur.user_id = ?1")
+            .setParameter(1, userId)
+            .setParameter(2, resourceId)
+            .getResultList();
+        return !rows.isEmpty() && rows.get(0).intValue() > 0;
+    }
+
+    // Network grants (#78, ADR-0029) are always full-reach, so a matching
+    // resource — same site as the grant — is enough, no port-level check
+    // needed, same reasoning as hasTypeGrant just above. Same R-171 gap as
+    // hasTypeGrant (no auto_all union) — inherited, not introduced, by this
+    // check; see ADR-0029's Consequences.
+    private boolean hasNetworkGrant(String userId, String resourceId) {
+        @SuppressWarnings("unchecked")
+        List<Number> rows = em.createNativeQuery(
+                "SELECT COUNT(*) FROM role_network_grants g " +
+                "JOIN user_roles ur ON ur.role_id = g.role_id " +
+                "JOIN resources r ON r.id = ?2 AND r.site_id = g.site_id " +
                 "WHERE ur.user_id = ?1")
             .setParameter(1, userId)
             .setParameter(2, resourceId)

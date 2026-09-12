@@ -71,7 +71,10 @@ public class DiscoveryResource {
         // build-time analysis registers ScanStarted for native serialization — a
         // Response-wrapped entity is opaque to that analysis, which left the native
         // image emitting an empty body (no jobId) and the client polling /scan/undefined.
-        return new DiscoveryDto.ScanStarted(job.id);
+        // The available sources follow from the site and the hub, not from any
+        // host, so they are known now — riding along on this response spares the
+        // client a second round trip before it can render the running state.
+        return new DiscoveryDto.ScanStarted(job.id, jobs.sourcesFor(site));
     }
 
     @GET
@@ -86,7 +89,8 @@ public class DiscoveryResource {
         List<DiscoveryDto.HostView> hosts = new ArrayList<>();
         for (DiscoveryScanner.DiscoveredHost h : job.hosts()) {
             boolean known = Resource.count("siteId = ?1 and ip = ?2", siteId, h.ip()) > 0;
-            hosts.add(new DiscoveryDto.HostView(h.ip(), h.openPorts(), h.typeGuess(), h.hostname(), known));
+            String vendor = OuiVendorLookup.vendorFor(h.mac()).orElse(null); // same package — no FQN needed here
+            hosts.add(new DiscoveryDto.HostView(h.ip(), h.openPorts(), h.typeGuess(), h.hostname(), known, h.mac(), vendor));
         }
         return new DiscoveryDto.ScanStatus(
                 job.state().name().toLowerCase(), job.total(), job.done(), job.found(), hosts, job.error());
@@ -130,6 +134,7 @@ public class DiscoveryResource {
             // claimed it in this batch) just leaves this one nameless rather than
             // failing the whole import; the admin can set it by hand afterwards.
             r.dnsName = claimDnsName(siteId, h.dnsName(), claimedDnsNames);
+            r.mac = de.chriscohnen.islandr.acl.ResourceService.normalizeMac(h.mac());
             r.persist();
             // Optionally adopt the discovered open TCP ports as ResourcePorts, so the
             // admin doesn't re-enter them by hand. Protocol is a best-effort label

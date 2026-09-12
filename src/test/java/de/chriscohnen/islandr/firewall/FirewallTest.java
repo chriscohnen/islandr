@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.firewall;
 import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
+import de.chriscohnen.islandr.acl.RoleNetworkGrant;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.acl.UserResourceGrant;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
@@ -96,6 +98,7 @@ class FirewallTest {
         em.createNativeQuery("DELETE FROM role_resource_grant_ports").executeUpdate();
         RoleResourceGrant.deleteAll();
         de.chriscohnen.islandr.acl.RoleResourceTypeGrant.deleteAll();
+        RoleNetworkGrant.deleteAll();
         em.createNativeQuery("DELETE FROM user_roles").executeUpdate();
         ResourcePort.deleteAll();
         Resource.deleteAll();
@@ -391,6 +394,192 @@ class FirewallTest {
         assertThat(text)
                 .contains("ip saddr 10.66.0.0/16")
                 .contains("icmp type echo-request");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_producesOneRulePerPeerWithSiteCidr() {
+        User user = persistUser("nadia@example.test", "Nadia");
+        Role role = persistRole("NetworkAdmins");
+        addUserToRole(user.id, role.id);
+        Site grantedSite = persistSite("BranchNet", "10.70.0.0/16");
+        RoleNetworkGrant.createNew(role.id, grantedSite.id).persist();
+        persistPeer(user.id, "nadia-laptop", "10.8.0.70");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.8.0.70")
+                .contains("ip daddr 10.70.0.0/16")
+                .contains("accept");
+        // No port/protocol clause at all — full-reach, not TCP/UDP-specific.
+        assertThat(text).doesNotContain("dport");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_userWithoutRole_getsNoRule() {
+        Role role = persistRole("NetworkAdmins2");
+        Site grantedSite = persistSite("BranchNet2", "10.71.0.0/16");
+        RoleNetworkGrant.createNew(role.id, grantedSite.id).persist();
+        User unrelated = persistUser("otto@example.test", "Otto");
+        persistPeer(unrelated.id, "otto-laptop", "10.8.0.71");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).doesNotContain("10.71.0.0/16");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_autoAllRole_reachesEveryUserLinkedPeer() {
+        Role everyone = persistRole("EveryoneNet");
+        everyone.autoAll = true;
+        everyone.persist();
+        Site grantedSite = persistSite("BranchNet3", "10.72.0.0/16");
+        RoleNetworkGrant.createNew(everyone.id, grantedSite.id).persist();
+        User user = persistUser("paula@example.test", "Paula");
+        // No explicit user_roles row — membership comes only from autoAll.
+        persistPeer(user.id, "paula-phone", "10.8.0.72");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip saddr 10.8.0.72")
+                .contains("ip daddr 10.72.0.0/16");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_coexistsWithConcreteResourceGrant() {
+        User user = persistUser("quentin@example.test", "Quentin");
+        Role role = persistRole("NetworkAdmins3");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("BranchNet4", "10.73.0.0/16");
+        Resource res = persistResource(site.id, "Printer4", "10.73.0.9");
+        ResourcePort port = persistPort(res.id, 631, "tcp", "IPP");
+        RoleResourceGrant concreteGrant = RoleResourceGrant.createNew(role.id, res.id, false);
+        concreteGrant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, concreteGrant.id).setParameter(2, port.id).executeUpdate();
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "quentin-laptop", "10.8.0.73");
+
+        String text = builder.build().rulesetText();
+
+        // Both the concrete-resource rule and the whole-network rule appear —
+        // the two grant kinds don't collide or dedup against each other.
+        assertThat(text)
+                .contains("ip daddr 10.73.0.9")
+                .contains("tcp dport 631")
+                .contains("ip daddr 10.73.0.0/16");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_capacityLimitedPortBlockedWithoutLiveReservation() {
+        // Issue #72 interaction: a network grant's broad accept must not
+        // silently open a port that's supposed to require an active
+        // reservation — nftables has no "more specific rule wins" semantics,
+        // so an explicit drop for that one port is the only way to keep the
+        // reservation gate meaningful once a whole-network grant is in play.
+        User user = persistUser("rachel@example.test", "Rachel");
+        Role role = persistRole("NetworkAdmins5");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("BranchNet5", "10.75.0.0/16");
+        Resource res = persistResource(site.id, "Terminal5", "10.75.0.9");
+        ResourcePort rdp = persistPort(res.id, 3389, "tcp", "RDP");
+        rdp.maxConcurrentUsers = 1;
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "rachel-laptop", "10.8.0.75");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).contains("ip daddr 10.75.0.0/16"); // the broad network-grant rule still exists
+
+        String dropLine = java.util.Arrays.stream(text.split("\n"))
+                .filter(l -> l.contains("ip daddr 10.75.0.9"))
+                .findFirst().orElse(null);
+        assertThat(dropLine)
+                .as("expected a rule targeting the gated resource's own IP")
+                .isNotNull()
+                .contains("tcp dport 3389")
+                .contains("drop")
+                .doesNotContain("accept");
+
+        int dropPos = text.indexOf("ip daddr 10.75.0.9");
+        int acceptPos = text.indexOf("ip daddr 10.75.0.0/16");
+        assertThat(dropPos)
+                .as("the narrow drop for the gated port must come before the broad accept, "
+                        + "since nftables takes the first matching rule")
+                .isLessThan(acceptPos);
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_neverEmitsACommentLongerThanNftablesAllows() {
+        // Found in production: nft rejects a comment over its limit, and it
+        // rejects the whole FILE — so one long name anywhere freezes every
+        // firewall update, not just its own rule. The worst case is the
+        // network-grant reservation drop, whose fixed text alone is 86
+        // characters, leaving barely 40 for three names.
+        //
+        // The names below are ordinary for a German deployment, not padding.
+        User user = persistUser("katharina.brinkmann@example.test", "Katharina Brinkmann");
+        Role role = persistRole("NetzwerkAdministratoren");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("Standort-Buchhaltung", "10.76.0.0/16");
+        Resource res = persistResource(site.id, "terminal-server-buchhaltung", "10.76.0.9");
+        ResourcePort rdp = persistPort(res.id, 3389, "tcp", "RDP Buchhaltung");
+        rdp.maxConcurrentUsers = 1;
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "katharina-thinkpad-x1", "10.8.0.76");
+
+        String text = builder.build().rulesetText();
+
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("comment \"([^\"]*)\"").matcher(text);
+        java.util.List<String> tooLong = new java.util.ArrayList<>();
+        int seen = 0;
+        while (m.find()) {
+            seen++;
+            String comment = m.group(1);
+            // nft counts bytes, and a German name is not all ASCII.
+            if (comment.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                    > RuleBuilder.COMMENT_MAX_BYTES) {
+                tooLong.add(comment.length() + "B: " + comment);
+            }
+        }
+        assertThat(seen).as("the ruleset should carry commented rules at all").isPositive();
+        assertThat(tooLong)
+                .as("nft rejects the entire ruleset over a single over-long comment")
+                .isEmpty();
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_networkGrant_capacityLimitedPortAllowedWithLiveReservation() {
+        User user = persistUser("sam@example.test", "Sam");
+        Role role = persistRole("NetworkAdmins6");
+        addUserToRole(user.id, role.id);
+        Site site = persistSite("BranchNet6", "10.76.0.0/16");
+        Resource res = persistResource(site.id, "Terminal6", "10.76.0.9");
+        ResourcePort rdp = persistPort(res.id, 3389, "tcp", "RDP");
+        rdp.maxConcurrentUsers = 1;
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        persistPeer(user.id, "sam-laptop", "10.8.0.76");
+
+        Instant now = Instant.now();
+        de.chriscohnen.islandr.acl.ResourceReservation rr =
+                de.chriscohnen.islandr.acl.ResourceReservation.createPending(user.id, rdp.id, res.id, 60, now);
+        rr.activate(now);
+        rr.persist();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text)
+                .contains("ip daddr 10.76.0.0/16")
+                .doesNotContain("ip daddr 10.76.0.9"); // no need for a per-port drop or accept — covered by the broad rule
     }
 
     // -- RulesetService ------------------------------------------------------

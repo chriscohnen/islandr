@@ -25,10 +25,12 @@ import static org.hamcrest.Matchers.startsWith;
  */
 @QuarkusTest
 @ExtendWith(AdminSessionExtension.class)
+@ExtendWith(de.chriscohnen.islandr.wg.CleanWgInterfaceExtension.class)
 class PeerResourceTest {
 
     @Inject SettingsService settings;
     @Inject de.chriscohnen.islandr.wg.WgAdapter wgAdapter;
+
 
     /** Mutates the shared settings singleton — callers must restore it (see the
      *  includeDns tests' try/finally) since the row is shared across the suite. */

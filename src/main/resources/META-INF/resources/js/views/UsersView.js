@@ -2,7 +2,7 @@ import { defineComponent } from "vue";
 import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
-import { t, locale, formatDate } from "/js/i18n.js";
+import { t, locale, formatDate, formatDay } from "/js/i18n.js";
 import { onEscape, onSlashFocus } from "/js/keyboard.js";
 
 // User management. Each row gets a "+ Peer" button that opens the shared
@@ -26,10 +26,18 @@ export default defineComponent({
       lang: locale.current,
       editingNicknameId: null,
       nicknameInput: "",
+      editingNameId: null, // local (non-SSO) accounts only — see startNameEdit
+      nameInput: "",
       editingEmailId: null,
       emailInput: "",
       editingPasswordId: null,
       passwordInput: "",
+      // Access deadline (#53) — a dialog rather than an inline cell: the
+      // consequences of setting it need saying where the date is chosen, and
+      // that does not fit a table row.
+      validUntilUser: null,
+      validUntilInput: "",
+      validUntilSaving: false,
       // Google Workspace import dialog
       gwsOpen: false,
       gwsLoading: false,
@@ -59,7 +67,10 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
-    this._offEscape = onEscape(() => { if (this.gwsOpen) this.closeGwsDialog(); });
+    this._offEscape = onEscape(() => {
+      if (this.validUntilUser) this.closeValidUntilDialog();
+      else if (this.gwsOpen) this.closeGwsDialog();
+    });
     this._offSlash = onSlashFocus(() => this.$refs.searchInput);
   },
   beforeUnmount() {
@@ -177,6 +188,36 @@ export default defineComponent({
       }
     },
 
+    // Only for local (non-SSO) accounts — an SSO-linked user's name is
+    // re-synced from the IdP on every login, so a direct edit here wouldn't
+    // stick; those use the nickname override above instead.
+    startNameEdit(u) {
+      this.editingNameId = u.id;
+      this.nameInput = u.name || "";
+    },
+    cancelNameEdit() {
+      this.editingNameId = null;
+      this.nameInput = "";
+    },
+    async saveName(userId) {
+      const u = this.users.find((x) => x.id === userId);
+      try {
+        const res = await fetch("/api/v1/users/" + userId, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: this.nameInput, email: u ? u.email : "" }),
+        });
+        if (!res.ok) {
+          const b = await res.text();
+          throw new Error("HTTP " + res.status + (b ? " — " + b.slice(0, 120) : ""));
+        }
+        await this.load();
+        this.cancelNameEdit();
+      } catch (e) {
+        this.error = t("users.error_name", { error: e.message });
+      }
+    },
+
     startEmailEdit(u) {
       this.editingEmailId = u.id;
       this.emailInput = u.email || "";
@@ -206,31 +247,33 @@ export default defineComponent({
     },
 
     /**
-     * Access deadline (#53). A date prompt rather than a modal: it is a rare,
-     * single-value edit, and the list already carries every other per-user
-     * action inline.
+     * Access deadline (#53). Same treatment the peer-level expiry already has
+     * in peerModal.js — a native date field plus the consequences underneath —
+     * because they are one concept at two scopes and should not look like two.
      */
-    async startValidUntilEdit(u) {
-      const current = u.validUntil ? u.validUntil.slice(0, 10) : "";
-      const answer = window.prompt(t("users.valid_until_prompt"), current);
-      if (answer === null) return;   // cancelled
-
-      let payload;
-      const trimmed = answer.trim();
-      if (trimmed === "") {
-        payload = { validUntil: null };   // clearing = no expiry
-      } else if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    startValidUntilEdit(u) {
+      this.validUntilUser = u;
+      this.validUntilInput = u.validUntil ? u.validUntil.slice(0, 10) : "";
+    },
+    closeValidUntilDialog() {
+      this.validUntilUser = null;
+      this.validUntilInput = "";
+    },
+    async saveValidUntil() {
+      const u = this.validUntilUser;
+      if (!u) return;
+      const day = this.validUntilInput;
+      // A cleared field is the documented way to say "no expiry", so an empty
+      // value is a real choice here, not a missing one.
+      let payload = { validUntil: null };
+      if (day) {
         // End of the chosen day in the browser's own zone, so "valid until the
         // 31st" means through the 31st rather than expiring at midnight as it
         // starts.
-        const end = new Date(trimmed + "T23:59:59");
-        if (isNaN(end.getTime())) { this.error = t("users.valid_until_invalid"); return; }
-        payload = { validUntil: end.toISOString() };
-      } else {
-        this.error = t("users.valid_until_invalid");
-        return;
+        payload = { validUntil: new Date(day + "T23:59:59").toISOString() };
       }
 
+      this.validUntilSaving = true;
       try {
         const res = await fetch("/api/v1/users/" + u.id + "/valid-until", {
           method: "PUT",
@@ -238,9 +281,12 @@ export default defineComponent({
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
+        this.closeValidUntilDialog();
         await this.load();
       } catch (e) {
         this.error = t("users.valid_until_error", { error: e.message });
+      } finally {
+        this.validUntilSaving = false;
       }
     },
 
@@ -271,6 +317,7 @@ export default defineComponent({
     },
 
     formatDate(iso) { return formatDate(iso); },
+    formatDay(iso) { return formatDay(iso); },
 
     async openGwsDialog() {
       this.gwsOpen = true;
@@ -354,6 +401,33 @@ export default defineComponent({
     </div>
 
     <!-- Google Workspace Import Dialog -->
+    <!-- Access deadline (#53) — same shape as the peer-level expiry in peerModal.js. -->
+    <div v-if="validUntilUser" class="modal-backdrop" @click.self="closeValidUntilDialog">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h2>{{ t('users.valid_until_title', { name: validUntilUser.displayName }) }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeValidUntilDialog">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label for="validUntilInput">{{ t('users.valid_until_label') }}</label>
+            <input id="validUntilInput" type="date" class="input mono" v-model="validUntilInput"
+                   style="width: 200px" @keyup.enter="saveValidUntil" />
+            <div class="field-hint">{{ t('users.valid_until_empty_hint') }}</div>
+          </div>
+          <div class="callout callout-warning" style="margin-top: var(--space-4); margin-bottom: 0">
+            <span>{{ t('users.valid_until_consequences') }}</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" @click="closeValidUntilDialog">{{ t('common.cancel') }}</button>
+          <button type="button" class="btn btn-primary" :disabled="validUntilSaving" @click="saveValidUntil">
+            {{ t('common.save') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="gwsOpen" style="position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: flex; align-items: center; justify-content: center; padding: var(--space-4)">
       <div class="card" style="width: 100%; max-width: 680px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden">
         <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border)">
@@ -453,23 +527,48 @@ export default defineComponent({
           <td>
             <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
               <Avatar :user="u" :size="32" />
-              <span v-if="editingNicknameId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap">
-                <span>{{ u.displayName }}</span>
-                <span v-if="u.nickname" class="muted mono" style="font-size: var(--text-xs)">({{ u.name }})</span>
-                <button @click="startNicknameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_nickname')">
-                  <Icon name="edit" :size="12" />
-                </button>
-              </span>
-              <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
-                <input class="input" style="width: 140px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
-                       v-model="nicknameInput"
-                       :placeholder="u.name"
-                       @keyup.enter="saveNickname(u.id)"
-                       @keyup.escape="cancelNicknameEdit"
-                       autofocus />
-                <button @click="saveNickname(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
-                <button @click="cancelNicknameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
-              </span>
+              <!-- Local accounts: the name itself is directly, durably editable —
+                   nothing re-syncs it, so a plain rename is the honest control. -->
+              <template v-if="!u.ssoLinked">
+                <span v-if="editingNameId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap">
+                  <span>{{ u.name }}</span>
+                  <button @click="startNameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_rename')">
+                    <Icon name="edit" :size="12" />
+                  </button>
+                </span>
+                <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
+                  <input class="input" style="width: 160px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
+                         v-model="nameInput"
+                         @keyup.enter="saveName(u.id)"
+                         @keyup.escape="cancelNameEdit"
+                         autofocus />
+                  <button @click="saveName(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
+                  <button @click="cancelNameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+                </span>
+              </template>
+              <!-- SSO-linked accounts: "name" is overwritten from the IdP's
+                   claim on every login, so it isn't durably editable — the
+                   nickname is a local override that survives that resync,
+                   shown alongside the IdP's own name in parens. -->
+              <template v-else>
+                <span v-if="editingNicknameId !== u.id" style="display: inline-flex; align-items: center; gap: var(--space-1); flex-wrap: nowrap">
+                  <span>{{ u.displayName }}</span>
+                  <span v-if="u.nickname" class="muted mono" style="font-size: var(--text-xs)">({{ u.name }})</span>
+                  <button @click="startNicknameEdit(u)" class="btn btn-ghost btn-sm" style="padding: 2px 6px; flex-shrink: 0" :title="t('users.btn_nickname')">
+                    <Icon name="edit" :size="12" />
+                  </button>
+                </span>
+                <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2)">
+                  <input class="input" style="width: 140px; height: 28px; font-size: var(--text-sm); padding: 0 8px"
+                         v-model="nicknameInput"
+                         :placeholder="u.name"
+                         @keyup.enter="saveNickname(u.id)"
+                         @keyup.escape="cancelNicknameEdit"
+                         autofocus />
+                  <button @click="saveNickname(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
+                  <button @click="cancelNicknameEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+                </span>
+              </template>
             </span>
           </td>
           <td class="mono">
@@ -498,14 +597,14 @@ export default defineComponent({
             <!-- Expiry is shown ahead of enabled: a user can be "enabled" and
                  still have no access because their window closed (#53), and
                  the badge must not claim otherwise. -->
-            <span v-if="u.accessExpired" class="badge badge-warning" :title="formatDate(u.validUntil)">
+            <span v-if="u.accessExpired" class="badge badge-warning" :title="formatDay(u.validUntil)">
               <Icon name="clock" :size="12" />{{ t('users.status_expired') }}
             </span>
             <span v-else :class="['badge', u.enabled ? 'badge-success' : 'badge-neutral']">
               {{ u.enabled ? t('users.status_active') : t('users.status_disabled') }}
             </span>
             <div v-if="u.validUntil && !u.accessExpired" class="muted" style="font-size: var(--text-xs); margin-top: 2px">
-              {{ t('users.valid_until_hint', { date: formatDate(u.validUntil) }) }}
+              {{ t('users.valid_until_hint', { date: formatDay(u.validUntil) }) }}
             </div>
           </td>
           <td>

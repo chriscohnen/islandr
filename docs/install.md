@@ -20,6 +20,42 @@ macOS and Windows are dev-only. Without `ISLANDR_WG_MODE=real` the binary defaul
 
 ---
 
+## Installing on a hub that already runs WireGuard
+
+Islandr never writes `/etc/wireguard/<iface>.conf`. It configures peers at
+runtime with `wg set`, and the service is not privileged to touch that file
+anyway — its sudo covers `nft` and `wg` ([ADR-0011](adr/0011-process-privilege-model.md),
+[ADR-0030](adr/0030-wireguard-config-file-ownership.md)). Installing it on a
+working hub therefore changes nothing about that hub, and the order below keeps
+it that way:
+
+1. **Install.** Firewall writes are paused on a fresh database, so no nftables
+   table is applied and no peer is touched. Existing peers keep working.
+2. **Import your peers** — Peers → *Import from wg0*. Until a peer is imported,
+   Islandr does not know it: it has no ACL grants, and it is not covered by
+   Islandr's address allocation.
+3. **Activate enforcement** — Settings → Firewall, clear *Pause firewall
+   writes*. This is the step that matters: the generated `forward` chain is
+   `policy drop` with accept rules only for peers Islandr knows, so anything
+   still unimported loses forwarding at that moment. The Admin Console asks
+   before saving if it finds such peers.
+
+Two properties worth knowing once it runs:
+
+- Peers Islandr manages are kernel state. A reboot or a
+  `systemctl restart wg-quick@<iface>` brings the interface back with only the
+  peers in your file; Islandr re-applies its own at startup and repairs the same
+  drift within one activity-poller tick while it is running.
+- Peers in your file that were never imported keep reaching the hub itself —
+  Islandr's ruleset filters forwarded traffic, not traffic to the hub. The
+  Dashboard reports how many there are.
+
+To leave again: **Peers → Export to wg0.conf**, append the downloaded `[Peer]`
+blocks to your server config, then remove the service. The export carries no
+`[Interface]` section.
+
+---
+
 ## Native binary + systemd
 
 ### Scripted, or by hand
@@ -90,15 +126,14 @@ Create `/etc/sudoers.d/islandr`:
 
 ```bash
 sudo tee /etc/sudoers.d/islandr > /dev/null << 'EOF'
-# Islandr: allow only the exact nft and wg commands the service needs.
-# nft: validate (-c) and atomically apply a fixed file path.
+# Islandr: allow only the nft and wg commands the service needs.
+# nft: validate (-c) and atomically apply a ruleset staged in /var/lib/islandr.
+#      The name pattern is required — a fresh temp file is staged per apply.
 # wg:  manage peers on wg0 only.
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
 EOF
 
@@ -160,12 +195,34 @@ echo "Save this — it is only stored in /etc/default/islandr."
 
 ### 6. Install and start the systemd unit
 
+> **Why `Before=wg-quick@…`:** nftables rules do not survive a reboot, and
+> Islandr applies its table at startup. If the tunnel came up first, every peer
+> written in `<iface>.conf` could forward unfiltered until Islandr was ready —
+> the kernel's own FORWARD policy is `accept` when no other firewall is loaded.
+> Starting Islandr first closes that window; its rules match on `iifname`, which
+> is resolved per packet, so they are in place before the interface exists. The
+> peers Islandr manages are applied once the interface is up, at startup or on
+> the next activity-poller tick. **Existing installs** do not get this from an
+> update — add it with `sudo systemctl edit islandr` (`[Unit]` /
+> `Before=wg-quick@wg0.service`, with your interface name).
+>
+> It does not help if Islandr fails to start at all: then no table is applied
+> and the interface still comes up. A hub that must stay closed in that case
+> needs a persistent nftables ruleset loaded at boot, which Islandr does not
+> install today.
+
+
 ```bash
 sudo tee /etc/systemd/system/islandr.service > /dev/null << 'EOF'
 [Unit]
 Description=Islandr — WireGuard access management
 After=network-online.target
 Wants=network-online.target
+
+# Ordering only, no dependency: Islandr must not start or stop the tunnel.
+# Replace wg0 if your interface is named differently.
+Before=wg-quick@wg0.service
+
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -434,7 +491,8 @@ This just hands `forward` traffic back to whatever else is on the host; islandr 
 - [ ] Reverse proxy with TLS in front of port 8080
 - [ ] Admin password saved securely, not committed to version control
 - [ ] `wg0` interface up and WireGuard server keys configured in Islandr Settings
-- [ ] OIDC provider configured (Settings → Identity) — local admin is for recovery only
+- [ ] OIDC provider configured (Settings → Identity) — local admin is for recovery only.
+      For Microsoft 365 / Entra ID see [install/identity-microsoft365.md](install/identity-microsoft365.md)
 - [ ] Firewall dry-run **disabled** once the generated ruleset looks correct (Settings → Firewall)
 - [ ] Backup job for `/var/lib/islandr/data/islandr.db` — contains OIDC client secrets, treat
       accordingly (`scripts/backup.sh`, see below)
@@ -541,6 +599,30 @@ Flyway applies any pending database migrations automatically on startup.
 ---
 
 ## Uninstalling
+
+**Export your peers first, or you lose them.** Islandr configures peers with
+`wg set` and never writes `/etc/wireguard/<iface>.conf`, so the peers it manages
+exist in its database and in kernel state — not in the file `wg-quick` reads.
+Removing the service therefore leaves the peers that were already in your config
+untouched and takes every peer Islandr created with it, at the latest on the next
+interface restart.
+
+Peers → **Export to wg0.conf** downloads them as `[Peer]` blocks. Append those to
+`/etc/wireguard/<iface>.conf` (the export deliberately has no `[Interface]`
+section, so nothing in your interface config is overwritten) and reload:
+
+```bash
+sudo systemctl restart wg-quick@wg0
+sudo wg show wg0 peers          # every peer you appended is back, without Islandr
+```
+
+Also stop the nftables enforcement, which is not removed by deleting the
+service — the ruleset stays in the kernel until it is flushed or the host
+reboots:
+
+```bash
+sudo nft delete table inet islandr
+```
 
 **Native binary:**
 

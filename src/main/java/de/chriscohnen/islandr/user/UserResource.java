@@ -51,7 +51,7 @@ public class UserResource {
             // The ENV admin has no row and therefore no deadline: never
             // expired, always allowed.
             return new UserDto.Response(null, a.principal(), null, a.principal(),
-                    null, true, true, null, 0, null, false, null);
+                    null, true, true, null, 0, null, false, null, false);
         }
         User u = User.findById(a.userId());
         if (u == null) throw new jakarta.ws.rs.NotFoundException("user not found");

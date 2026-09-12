@@ -81,6 +81,37 @@ A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Sit
 
 ![QR code & config download](https://islandr-gateway.net/screenshots/light/qr-conf.png)
 
+## How Islandr treats your WireGuard config
+
+**It never writes `/etc/wireguard/<iface>.conf`.** Peers are configured at
+runtime with `wg set`; the interface — private key, listen port, `Address`,
+`PostUp`/`PostDown` — is created by you before Islandr is installed and stays
+yours. The service could not write that file if it wanted to: it runs
+unprivileged, with sudo scoped to `nft` and `wg`
+([ADR-0011](docs/adr/0011-process-privilege-model.md)).
+
+What that means in practice, both ways round:
+
+- **Installing on a hub that already runs WireGuard changes nothing.** Existing
+  peers keep working. Islandr starts with firewall writes paused, so nothing is
+  enforced until you switch it on deliberately — import your peers first, and
+  the Admin Console warns you if any are still unknown when you do.
+- **Peers Islandr manages are kernel state,** so a reboot or a
+  `systemctl restart wg-quick@<iface>` brings the interface back with only the
+  peers in your file. Islandr re-applies its own at startup, and the activity
+  poller repairs the same drift within one tick while it is running — but the
+  peer set does depend on the service running.
+- **Peers in your file that Islandr has not imported keep connecting,** and
+  they reach the hub itself: the generated ruleset filters forwarded traffic,
+  not traffic to the hub. The Dashboard reports how many there are; importing
+  them is how they become governed.
+- **Removing Islandr is survivable.** The Peers view exports every managed peer
+  as `[Peer]` blocks to append to your server config — no `[Interface]`
+  section, that part stays yours on the way out too.
+
+Full rationale, the alternatives weighed, and why `wg syncconf` is not used:
+[ADR-0030](docs/adr/0030-wireguard-config-file-ownership.md).
+
 ## Two surfaces, one brand
 
 | | **Admin Console** | **Self-Service Portal** |
@@ -101,7 +132,7 @@ Both share the same design tokens. UI is bilingual DE/EN, switchable at runtime.
 | Frontend | Vue 3 + vue-router (importmap from `/vendor/`, **no npm/build step**) |
 | Auth | ENV-bootstrapped local admin + OIDC (Microsoft 365 / Google), custom JDK-HttpClient flow with JWKS + RS256 verification, no `quarkus-oidc` |
 | Avatar pipeline | MS Graph `/me/photo` → Google `picture` claim → optional Gravatar (cached in DB) |
-| WireGuard mgmt | `wg` / `wg-quick` CLI via Java `ProcessBuilder` (real adapter) + in-memory mock adapter for dev/CI |
+| WireGuard mgmt | `wg` CLI via Java `ProcessBuilder` (real adapter) + in-memory mock adapter for dev/CI |
 | QR codes | zxing-core only (PNG in-memory, no AWT dependency, native-image-safe) |
 | Firewall | nftables via `nft` CLI — RuleBuilder + atomic reload + mock adapter for dev/CI |
 | Deployment | systemd + Quarkus native binary (GraalVM), optional Docker Compose |
@@ -151,7 +182,7 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 | | Dev / CI | Production hub |
 |---|---|---|
 | Java | 21 (Temurin recommended) | not needed — native binary |
-| WireGuard | not needed (mock adapter) | `wg` + `wg-quick` on the hub |
+| WireGuard | not needed (mock adapter) | `wg` (wireguard-tools) on the hub, and an interface that is already up |
 | nftables | not needed (mock adapter) | `nft` on the hub |
 | OS | macOS / Linux / Windows (dev only) | Linux x86_64 or ARM64 |
 | Database | in-memory SQLite (auto) | SQLite file or PostgreSQL |
@@ -173,7 +204,7 @@ Tests (580+, runs in ~25 s after warm start):
 ./gradlew test
 ```
 
-The test profile uses an in-memory SQLite that's wiped per run (`clean-at-start=true`) and a `MockWgAdapter` so no `wg`/`wg-quick` binary is needed.
+The test profile uses an in-memory SQLite that's wiped per run (`clean-at-start=true`) and a `MockWgAdapter` so no `wg` binary is needed.
 
 ## Repository layout
 
@@ -185,7 +216,7 @@ islandr/
 ├── docs/
 │   ├── prd.md                               # Product Requirements Document
 │   ├── install.md                           # Installation guide (native binary, Docker)
-│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md
+│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md, identity-microsoft365.md
 │   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
 │   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
 │   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
@@ -210,8 +241,8 @@ islandr/
 │   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
 │   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
 │   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
-│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014), plus the link-scope gate that skips mDNS/LLMNR for off-link targets
-│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), plus PTR/mDNS/LLMNR/NetBIOS/SSDP name lookups for discovery's hostname suggestion (#45, #48)
+│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014), the link-scope gate that skips mDNS/LLMNR for off-link targets, and MAC/OUI vendor lookup (#76)
+│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), plus PTR/mDNS/LLMNR/NetBIOS/SSDP lookups feeding discovery's hostname and MAC suggestions (#45, #48, #76)
 │   │   ├── external/    # /api/external/v1 facade: API-key auth, peers/users/sites/resources/roles (ADR-0026)
 │   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
 │   │   ├── hosthealth/  # hub CPU/memory/swap sampler, hand-rolled from /proc (issue #73)
@@ -228,14 +259,15 @@ islandr/
 │   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
 │   ├── main/resources/
 │   │   ├── application.properties
-│   │   ├── db/migration/                    # Flyway migrations V1–V71, portable SQL
+│   │   ├── data/oui-vendors.csv             # bundled IEEE MA-L registry — MAC prefix → vendor, resolved offline (#76)
+│   │   ├── db/migration/                    # Flyway migrations V1–V76, portable SQL
 │   │   └── META-INF/resources/              # static frontend assets
 │   │       ├── index.html                   # importmap, single page
 │   │       ├── favicon.svg                  # cyan island + waves
 │   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
 │   │       ├── css/                         # tokens.css + components.css + app.css
 │   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 854 tests, JUnit 5 + RestAssured + AssertJ
+│   └── test/                                # 903 tests, JUnit 5 + RestAssured + AssertJ
 ```
 
 
@@ -262,12 +294,15 @@ islandr/
 
 **Networks, resources & firewall**
 - Sites and typed resources (computer, router, printer, NAS, camera, IoT, rack server, KVM host, …)
-- **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports, and bulk-create resources from a reviewable list. Resource-name suggestion tries reverse DNS (PTR, targeted against the site's DNS server or the system resolver), then mDNS, then NetBIOS, in that order — admin can always override, and untried/failed lookups just fall back to the pre-existing typed baseline ([ADR-0014](docs/adr/0014-device-discovery.md), [#45](https://github.com/chriscohnen/islandr/issues/45), [#48](https://github.com/chriscohnen/islandr/issues/48)). Unprivileged sockets only, no new capabilities. A determinate progress bar replaces the running-state spinner during a scan
+- **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports, and bulk-create resources from a reviewable list. Discovery also suggests a name from whatever the host is willing to tell it. How much that is varies a lot by device and by network: some answer with a proper hostname, some with a product label, plenty answer nothing at all and keep the typed baseline. It is a head start on filling in a scan result, not an inventory system. Unprivileged sockets only, no new capabilities ([ADR-0014](docs/adr/0014-device-discovery.md), [#45](https://github.com/chriscohnen/islandr/issues/45), [#48](https://github.com/chriscohnen/islandr/issues/48))
+- **MAC address and hardware vendor, where the device gives one up** — a resource can carry its MAC, and the vendor ("Ubiquiti Networks", "Raspberry Pi Foundation") is named from a table bundled with the binary, so no lookup leaves the host. Same caveat as the name suggestion: it works for some devices and not others, and less often the further the device sits from the hub. An **Identify** action retries it on demand for a resource that has none ([#76](https://github.com/chriscohnen/islandr/issues/76))
 - Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
 - **Resource-type ACL grants** — roles → every resource of a type at a site (e.g. "all printers in the home office"), additive to individual grants ([ADR-0022](docs/adr/0022-acl-type-grants.md))
+- **Microsoft 365 login is documented end to end** — registering the Entra ID app, the exact permissions Islandr needs and why, and the setup errors that never name their own cause ([docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md)). The Identity page helps rather than assuming: the redirect URI is copyable with one click (with a fallback for a hub still reached over plain HTTP, which is exactly when an admin is configuring this), and the tenant field is labelled the way Entra labels it instead of the way the protocol does
+- **Whole-network grants** — a role can be granted a whole site network at once, covering hosts added later. Deliberately coarse: always full access, no port scoping, and it reaches hosts Islandr has never been told about — use it where the network boundary already is the access boundary ([ADR-0029](docs/adr/0029-whole-network-role-grants.md), [#78](https://github.com/chriscohnen/islandr/issues/78))
 - **Direct user→resource grants** — grant one specific user access to a resource without a role, for one-off exceptions that don't warrant a new role ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md))
 - **Site-to-site grants** — a site's gateway peer can itself be a grant subject, authorizing the whole site's CIDR (not just individual peers) to reach a resource, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52))
-- **Atlas view** — a global map of who/what can reach which resources across the whole tenant, with click-to-focus filtering and drag-to-grant creation (drag either end: user/site → resource or resource → site) ([#49](https://github.com/chriscohnen/islandr/issues/49))
+- **Atlas view** — a global map of who/what can reach which resources across the whole tenant. Click a user, resource or site to narrow it down, drag to grant, revoke from the graph itself ([#49](https://github.com/chriscohnen/islandr/issues/49))
 - **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell (no `sudo`, no new capabilities). Results dock in a panel beside the graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram itself ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66))
 - **World-map topology view** — sites, gateways and live tunnels on a geocoded map, alongside the existing network diagram ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md))
 - **DNS resolver for resource names** — opt-in, hand-rolled UDP/TCP resolver authoritative for the managed resource zone (per-site subdomains), ACL-filtered per querying peer, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
@@ -289,7 +324,7 @@ islandr/
 - **Automatic Let's Encrypt certificates** — set a domain and islandr requests, installs, and renews the certificate itself via a hand-rolled ACME client ([ADR-0019](docs/adr/0019-acme-hand-rolled-client.md))
 - **DNS-01 challenge** as an alternative to HTTP-01, including a manual no-API-token mode for registrars without a supported DNS API ([ADR-0020](docs/adr/0020-dns01-challenge-with-manual-mode.md), [#41](https://github.com/chriscohnen/islandr/issues/41))
 - **CSR generation for the Origin Certificate** — generate a private key + certificate signing request in-app instead of shelling out to `openssl` ([#42](https://github.com/chriscohnen/islandr/issues/42))
-- **Connection activity heatmap** — peers × days, coloured by traffic volume rather than plain presence, so a device gone quiet stands out at a glance and a hover shows connection duration or ↓/↑ MB
+- **Connection activity heatmap** — peers × days, coloured by traffic volume rather than plain presence, so a device gone quiet stands out at a glance and a hover shows connection duration or ↓/↑ MB. Site gateways are set apart from client devices, since a quiet day means something different for each
 - Google Workspace user import (the service-account JSON is encrypted at rest)
 - Audit log with cursor pagination and actor/action/target filters
 - Config **export/import** as a JSON snapshot, with preview and confirm
@@ -301,6 +336,25 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.21.0**
+- **Fixed: a reboot emptied the tunnel.** Peers Islandr manages are configured with `wg set` and live in kernel state — it never writes `/etc/wireguard/<iface>.conf`. A host reboot or a `systemctl restart wg-quick@<iface>` therefore brought the interface back holding only the peers in that file, and nothing put the rest back: measured on a live hub, 12 peers before the restart and 3 after. They stayed gone until an admin edited each one. Islandr now re-applies its peers when it starts, and the activity poller repairs the same drift within one tick while it is running, so a `wg-quick` restart under a running service needs no restart of Islandr ([ADR-0030](docs/adr/0030-wireguard-config-file-ownership.md))
+- **Fixed: an address could be handed out twice on an adopted hub.** The allocator only knew the peers in Islandr's database, so it could assign an address a peer in your config file already holds. That failure is quiet: `AllowedIPs` is also the inbound filter and each address belongs to exactly one peer, so it looks correct until the next interface reload gives the address back and traffic for it reaches a device nobody manages. Both the suggestion and manual assignment now exclude those addresses and point at the import
+- **Export peers to `<iface>.conf`** — the mirror of "Import from wg0": a download of every enabled peer as `[Peer]` blocks to append to your server config, so removing Islandr does not take its peers with it. No `[Interface]` section — that part stays yours
+- **Unmanaged peers are on the Dashboard** — peers on the interface that Islandr does not manage kept connecting and reached the hub itself (the ruleset filters forwarded traffic, not traffic to the hub), but were visible only to an admin who opened the import dialog
+- **The hub no longer forwards unfiltered while it boots** — nftables rules do not survive a reboot and Islandr applies its table at startup, so between `wg-quick` bringing the tunnel up and Islandr being ready, every peer written in the interface config could route freely (the kernel's own FORWARD policy is `accept` when nothing else is loaded). The unit now starts before the tunnel, whatever the interface is called. Existing installs need the line added by hand — `sudo systemctl edit islandr`, see [docs/install.md](docs/install.md). It does not cover a hub where Islandr fails to start at all; that needs a persistent ruleset loaded at boot, which is not built
+- **Switching firewall writes on asks first** when peers on the interface are still unknown to Islandr — that click is what cuts them off, and the Dashboard used to nudge towards it without saying so
+- **Whole-network grants** — a role can be given a whole site network instead of every host in it one by one, so a device added next month is covered without anyone remembering to grant it. The trade is deliberate and worth knowing before you use it: the grant is always full access with no port scoping, and it reaches hosts Islandr has never been told about. Use it where the network boundary already is the access boundary, and keep the finer grant types where it is not ([ADR-0029](docs/adr/0029-whole-network-role-grants.md), [#78](https://github.com/chriscohnen/islandr/issues/78))
+- **Fixed: a whole-network grant would have reopened capacity-limited ports** inside that network, bypassing the reservation model from 0.20.0 ([#72](https://github.com/chriscohnen/islandr/issues/72))
+- **MAC address and hardware vendor on resources** — a scan result that says "answers on 9100" is hard to name; a vendor next to it usually is not. Where a device gives up its MAC, Islandr records it and names the vendor from a table shipped inside the binary, so nothing is looked up over the network. Honest limit: plenty of devices give up nothing, and it succeeds less often the further a device sits from the hub. Treat it as help with naming a scan, not as an inventory ([#76](https://github.com/chriscohnen/islandr/issues/76))
+- **Identify** — retries the name and MAC lookups on demand for a resource that has neither, for entries created before this existed or devices that have since moved
+- **The scan says which lookups it can use for this network, and which it cannot** — several sources are asked per host and any may answer nothing, which made an empty Name column impossible to read: silent device, or never asked? The running scan now names the active sources and groups the unavailable ones by reason ([#79](https://github.com/chriscohnen/islandr/issues/79))
+- **A scan shows what it finds while it is still running** — a sweep of a /24 takes minutes, and until now the dialog showed a counter for all of it and the hosts only at the end. Rows now appear as they are found, so a wrong CIDR is visible in the first few instead of after the wait; stopping the scan keeps what it found rather than discarding it ([#75](https://github.com/chriscohnen/islandr/issues/75))
+- **Atlas is navigable, not just viewable** — sites are selectable like users and resources, grant kinds are readable as text rather than only as an edge colour, and grants can be revoked from the graph
+- **The activity heatmap tells a quiet laptop apart from a site that was down** — gateways are set apart from client devices, and an empty day on a gateway row is flagged rather than blending in with every idle laptop ([#77](https://github.com/chriscohnen/islandr/issues/77))
+- **Local accounts can be renamed** — the name column only ever offered a nickname override, which exists for SSO accounts whose names get re-synced at login. Nothing overwrites a local account's name, so it now takes a plain rename
+- **Fixed: two site gateways at the same coordinates drew on top of each other** on the world map
+- **WebAuthn: decided, not yet built** — [ADR-0028](docs/adr/0028-webauthn-library-and-integration.md) settles which account most needs a second factor and how the flow would fit the existing session handling. No implementation in this release
 
 **0.20.0**
 - **Exclusive ports** — a resource port can declare how many people may hold it at once. A grant then decides who may *ask*; a reservation decides who holds the slot right now. For the shared-function-account case (an RDP box with one session), where until now an admin coordinated by hand or several people all believed they had exclusive access. Capacity is per **port**, not per host, so one seat on RDP leaves the same machine's SSH freely usable. Users reserve and release from the self-service portal; requests at capacity are refused outright, naming who holds it, how long the wait is, and their e-mail to ask ([#72](https://github.com/chriscohnen/islandr/issues/72))
@@ -363,6 +417,7 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 
 - [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
 - [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
+- [docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md) — registering the Entra ID app, the permissions Islandr needs, and the setup errors that do not name their cause
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
 - [docs/arc42/](docs/arc42/) — Architecture documentation (arc42, 12 chapters, C4 diagrams embedded)

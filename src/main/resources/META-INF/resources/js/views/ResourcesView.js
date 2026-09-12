@@ -33,6 +33,8 @@ export default defineComponent({
       editId: null,
       submitting: false,
       formError: null,
+      identifying: false,
+      identifyResult: null, // { hostname, mac, vendor } | null, cleared on modal close/open
       // Inline port form (one per resource at a time)
       portFormFor: null,
       portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
@@ -53,6 +55,13 @@ export default defineComponent({
       scanHosts: [],         // enriched with _selected / _name / _type for the review table
       scanProgress: { done: 0, total: 0 },
       scanFound: 0,          // live count of hosts found so far
+      // Which name/MAC sources this network's scan can use (issue #79) —
+      // constant for the whole scan, so it rides along on the start response.
+      scanSources: [],
+      // Hosts as they arrive mid-sweep (issue #75) — read-only, kept apart from
+      // scanHosts so the review table's per-row edits are never built from a
+      // list that is still growing underneath them.
+      scanLiveHosts: [],
       adoptPorts: true,      // adopt each host's discovered open ports on import
       scanError: null,
       scanCanForce: false,
@@ -106,11 +115,40 @@ export default defineComponent({
       if (!total) return 0;
       return Math.min(100, Math.round((done / total) * 100));
     },
+    // Issue #79: the scan asks several name/MAC sources per host and any of them
+    // may legitimately answer nothing. Naming the ones that will not even be
+    // tried, and why, is what separates "this device stayed quiet" from "we
+    // never asked" — otherwise a half-empty Name column reads as a broken scan.
+    scanActiveSources() {
+      void this._lang;
+      return this.scanSources.filter((s) => s.active).map((s) => t("discovery.src_" + s.id));
+    },
+    // Grouped by reason rather than listed per source: on a remote network three
+    // sources drop out for the one same reason, and repeating it three times
+    // would bury it.
+    scanInactiveSources() {
+      void this._lang;
+      const groups = new Map();
+      for (const s of this.scanSources) {
+        if (s.active) continue;
+        const reason = s.reason || "unavailable";
+        if (!groups.has(reason)) groups.set(reason, []);
+        groups.get(reason).push(t("discovery.src_" + s.id));
+      }
+      return [...groups.entries()].map(([reason, names]) => ({
+        reason,
+        names: names.join(" · "),
+        why: t("discovery.src_why_" + reason),
+      }));
+    },
     // Never written into form.dnsName automatically — shown as a placeholder/
     // accept-chip only, so doing nothing before Save leaves the field exactly
     // as empty as it was, instead of silently keeping a value nobody chose.
     dnsNameSuggestion() {
       return this.form.dnsName ? "" : this.slugifyDnsName(this.form.name);
+    },
+    identifiedVendor() {
+      return this.identifyResult ? this.identifyResult.vendor : null;
     },
     filteredResources() {
       const q = this.quickFilter.trim().toLowerCase();
@@ -226,8 +264,9 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false };
+      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, mac: "" };
       this.formError = null;
+      this.identifyResult = null;
     },
     openEdit(r) {
       this.modal = "edit";
@@ -237,12 +276,40 @@ export default defineComponent({
       // in; accepting it is one explicit click (acceptDnsNameSuggestion).
       this.form = {
         name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer",
-        dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat,
+        dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat, mac: r.mac || "",
       };
       this.formError = null;
+      this.identifyResult = null;
     },
     acceptDnsNameSuggestion() {
       this.form.dnsName = this.dnsNameSuggestion;
+    },
+    // On-demand re-identification (issue #76) for an already-registered
+    // resource — only meaningful once it exists (create-mode has no id to
+    // target yet, so the button is disabled there, see the template).
+    async identifyResource() {
+      if (!this.editId) return;
+      this.identifying = true;
+      this.identifyResult = null;
+      try {
+        const res = await fetch("/api/v1/resources/" + this.editId + "/identify", { method: "POST" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.identifyResult = await res.json();
+        // MAC is low-risk, pre-fill it directly — the admin can still edit
+        // or clear it before Save, same as any other typed field. Hostname
+        // stays a suggestion only (see acceptIdentifiedName) since a
+        // resource's existing name may be deliberately curated.
+        if (this.identifyResult.mac) this.form.mac = this.identifyResult.mac;
+      } catch (e) {
+        this.formError = t("resources.error_identify", { error: e.message });
+      } finally {
+        this.identifying = false;
+      }
+    },
+    acceptIdentifiedName() {
+      if (this.identifyResult && this.identifyResult.hostname) {
+        this.form.name = this.identifyResult.hostname;
+      }
     },
     // Mirrors the backend's DNS-label rule (Resource.dnsName / ResourceDto):
     // lowercase, non [a-z0-9] runs collapsed to a hyphen, no leading/trailing
@@ -258,6 +325,7 @@ export default defineComponent({
       this.modal = null;
       this.editId = null;
       this.formError = null;
+      this.identifyResult = null;
     },
     async submit() {
       this.submitting = true;
@@ -426,6 +494,8 @@ export default defineComponent({
       this.scanError = null;
       this.scanCanForce = false;
       this.scanFound = 0;
+      this.scanSources = [];
+      this.scanLiveHosts = [];
     },
     closeScan() {
       if (this.scanPollTimer) { clearTimeout(this.scanPollTimer); this.scanPollTimer = null; }
@@ -456,14 +526,31 @@ export default defineComponent({
           }
           throw new Error(body || "HTTP " + res.status);
         }
-        const jobId = (await res.json()).jobId;
-        if (!jobId) throw new Error("scan response contained no jobId");
-        this.scanJobId = jobId;
+        const started = await res.json();
+        if (!started.jobId) throw new Error("scan response contained no jobId");
+        this.scanJobId = started.jobId;
+        this.scanSources = Array.isArray(started.sources) ? started.sources : [];
         this.pollScan();
       } catch (e) {
         this.scanState = "error";
         this.scanError = t("discovery.scan_error", { error: e.message });
       }
+    },
+    /**
+     * Stops the sweep but stays on the dialog, so what it already found remains
+     * readable and importable (issue #75). Deliberately different from closeScan,
+     * which also cancels but throws the view away: an admin who aborts because
+     * they have seen enough should not have to scan again to act on it.
+     */
+    async abortScan() {
+      if (this.scanPollTimer) { clearTimeout(this.scanPollTimer); this.scanPollTimer = null; }
+      const jobId = this.scanJobId;
+      try {
+        await fetch("/api/v1/sites/" + this.siteId + "/discovery/scan/" + jobId, { method: "DELETE" });
+      } catch (e) {
+        // The job is the hub's to stop; if the call failed we still show what we have.
+      }
+      await this.pollScan();
     },
     async pollScan() {
       try {
@@ -473,10 +560,11 @@ export default defineComponent({
         this.scanProgress = { done: s.done, total: s.total };
         this.scanFound = s.found || 0;
         if (s.state === "running") {
+          this.scanLiveHosts = s.hosts || [];
           this.scanPollTimer = setTimeout(() => this.pollScan(), 400);
           return;
         }
-        if (s.state === "done") {
+        if (s.state === "done" || s.state === "cancelled") {
           this.scanHosts = s.hosts.map((h) => {
             const name = this.suggestName(h);
             return {
@@ -485,9 +573,10 @@ export default defineComponent({
               _name: name,
               _dnsName: this.slugifyDnsName(name),
               _type: (h.typeGuess && h.typeGuess !== "unknown") ? h.typeGuess : "computer",
+              _mac: h.mac || "",
             };
           });
-          this.scanState = "done";
+          this.scanState = s.state;
         } else {
           this.scanState = "error";
           this.scanError = s.error || t("discovery.failed");
@@ -527,6 +616,7 @@ export default defineComponent({
           body: JSON.stringify({ hosts: chosen.map((h) => ({
             ip: h.ip, name: h._name, type: h._type, dnsName: h._dnsName || "",
             ports: this.adoptPorts ? (h.openPorts || []) : [],
+            mac: h._mac || "",
           })) }),
         });
         if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
@@ -635,6 +725,9 @@ export default defineComponent({
           <div class="res-identity">
             <div class="res-name">{{ r.name }}</div>
             <div class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
+            <div v-if="r.mac" class="mono" style="font-size: var(--text-xs); color: var(--fg3)">
+              {{ r.mac }}<span v-if="r.vendor"> · {{ r.vendor }}</span>
+            </div>
           </div>
           <div class="res-actions">
             <button class="btn btn-ghost btn-sm" @click="openEdit(r)"><Icon name="edit" :size="13" />{{ t('resources.btn_edit') }}</button>
@@ -865,6 +958,23 @@ export default defineComponent({
               <div v-if="form.dnsName" class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_dns_flat_hint') }}</div>
             </div>
 
+            <div class="field" style="margin: var(--space-4) 0 0">
+              <label for="resMac">{{ t('resources.field_mac') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <div style="display: flex; gap: var(--space-2); align-items: center">
+                <input id="resMac" class="input mono" v-model="form.mac" :placeholder="t('resources.field_mac_ph')" style="flex: 1" />
+                <button v-if="editId" type="button" class="btn btn-ghost btn-sm" :disabled="identifying" @click="identifyResource">
+                  {{ identifying ? t('resources.identify_running') : t('resources.btn_identify') }}
+                </button>
+              </div>
+              <div v-if="identifiedVendor" class="field-hint">{{ t('resources.field_vendor_of', { vendor: identifiedVendor }) }}</div>
+              <div v-if="identifyResult && identifyResult.hostname" class="field-hint" style="display:flex; align-items:center; gap: var(--space-2)">
+                <span>{{ t('resources.identify_hostname_suggestion', { name: identifyResult.hostname }) }}</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding: 0 var(--space-2); height: auto; min-height: 0; line-height: 1.6"
+                        @click="acceptIdentifiedName">{{ t('resources.field_dns_name_accept') }}</button>
+              </div>
+              <div v-else-if="identifyResult" class="field-hint">{{ t('resources.identify_nothing_found') }}</div>
+            </div>
+
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('common.cancel') }}</button>
@@ -878,7 +988,7 @@ export default defineComponent({
 
     <!-- Device discovery scan (ADR-0014) -->
     <div v-if="scanOpen" class="modal-backdrop" @click.self="closeScan">
-      <div class="modal modal-lg">
+      <div class="modal modal-xl">
         <div class="modal-header">
           <h2>{{ t('discovery.title') }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeScan">✕</button>
@@ -892,12 +1002,51 @@ export default defineComponent({
           </template>
 
           <template v-else-if="scanState === 'running'">
+            <div v-if="scanSources.length" style="margin-bottom: var(--space-3); font-size: var(--text-sm); line-height: 1.6; display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3)">
+              <template v-if="scanActiveSources.length">
+                <span style="color: var(--fg1); white-space: nowrap"><Icon name="check" :size="14" /> {{ t('discovery.src_active') }}</span>
+                <span style="color: var(--fg1)">{{ scanActiveSources.join(' · ') }}</span>
+              </template>
+              <template v-for="(g, i) in scanInactiveSources" :key="g.reason">
+                <span style="color: var(--fg3); white-space: nowrap">
+                  <template v-if="i === 0"><Icon name="unlink" :size="14" /> {{ t('discovery.src_inactive') }}</template>
+                </span>
+                <span style="color: var(--fg3)">{{ g.names }} — {{ g.why }}</span>
+              </template>
+            </div>
+
             <div class="progress" role="progressbar" :aria-valuenow="scanProgress.done" :aria-valuemin="0" :aria-valuemax="scanProgress.total">
               <div class="progress-fill" :style="{ width: scanProgressPct + '%' }"></div>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); margin-top: var(--space-2)">
               <p class="muted" style="margin: 0">{{ t('discovery.running_hint') }}</p>
               <p class="mono" style="margin: 0; font-size: var(--text-sm); color: var(--fg1); white-space: nowrap">{{ t('discovery.running', { done: scanProgress.done, total: scanProgress.total }) }} · {{ t('discovery.found', { n: scanFound }) }}</p>
+            </div>
+
+            <div v-if="scanLiveHosts.length" class="table-scroll" style="margin-top: var(--space-3); --table-scroll-max: 40vh">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>{{ t('discovery.th_ip') }}</th>
+                    <th>{{ t('discovery.th_ports') }}</th>
+                    <th>{{ t('discovery.th_type') }}</th>
+                    <th>{{ t('discovery.th_name') }}</th>
+                    <th>{{ t('discovery.th_vendor') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="h in scanLiveHosts" :key="h.ip" :style="h.alreadyRegistered ? 'opacity: 0.5' : ''">
+                    <td class="mono">
+                      {{ h.ip }}
+                      <span v-if="h.alreadyRegistered" class="field-hint"> · {{ t('discovery.registered') }}</span>
+                    </td>
+                    <td class="mono">{{ h.openPorts.join(', ') || '—' }}</td>
+                    <td>{{ typeLabels[h.typeGuess] || h.typeGuess || '—' }}</td>
+                    <td>{{ suggestName(h) }}</td>
+                    <td>{{ h.vendor || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </template>
 
@@ -906,8 +1055,11 @@ export default defineComponent({
             <p v-if="scanCanForce" class="field-hint" style="margin: var(--space-2) 0 0">{{ t('discovery.force_hint') }}</p>
           </template>
 
-          <template v-else-if="scanState === 'done'">
+          <template v-else-if="scanState === 'done' || scanState === 'cancelled'">
             <div v-if="scanError" class="error-banner" style="margin-bottom: var(--space-3)">{{ scanError }}</div>
+            <div v-if="scanState === 'cancelled'" class="callout callout-warning">
+              <span>{{ t('discovery.cancelled_partial', { done: scanProgress.done, total: scanProgress.total }) }}</span>
+            </div>
             <div v-if="scanHosts.length === 0" class="muted">{{ t('discovery.none') }}</div>
             <template v-else>
               <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3)">
@@ -917,7 +1069,7 @@ export default defineComponent({
                   {{ t('discovery.adopt_ports') }}
                 </label>
               </div>
-            <div style="overflow-x: auto">
+            <div class="table-scroll">
               <table class="table">
                 <thead>
                   <tr>
@@ -926,6 +1078,8 @@ export default defineComponent({
                     <th>{{ t('discovery.th_ports') }}</th>
                     <th>{{ t('discovery.th_type') }}</th>
                     <th>{{ t('discovery.th_name') }}</th>
+                    <th>{{ t('resources.field_mac') }}</th>
+                    <th>{{ t('discovery.th_vendor') }}</th>
                     <th>{{ t('resources.field_dns_name') }}</th>
                   </tr>
                 </thead>
@@ -944,6 +1098,8 @@ export default defineComponent({
                       </select>
                     </td>
                     <td><input class="input" v-model="h._name" :disabled="h.alreadyRegistered" style="width: 170px" /></td>
+                    <td><input class="input mono" v-model="h._mac" :disabled="h.alreadyRegistered" style="width: 130px" :placeholder="t('resources.field_mac_ph')" /></td>
+                    <td class="muted" style="font-size: var(--text-xs)">{{ h.vendor || '—' }}</td>
                     <td><input class="input mono" v-model="h._dnsName" :disabled="h.alreadyRegistered" style="width: 150px" :placeholder="t('resources.field_dns_name_ph')" /></td>
                   </tr>
                 </tbody>
@@ -954,12 +1110,12 @@ export default defineComponent({
         </div>
         <div class="modal-footer">
           <button v-if="scanState !== 'running'" type="button" class="btn btn-ghost" @click="closeScan">{{ t('common.cancel') }}</button>
-          <button v-else type="button" class="btn btn-secondary" @click="closeScan">{{ t('discovery.abort_btn') }}</button>
+          <button v-else type="button" class="btn btn-secondary" @click="abortScan">{{ t('discovery.abort_btn') }}</button>
           <button v-if="scanState === 'consent'" type="button" class="btn btn-primary" @click="startScan()">{{ t('discovery.start_btn') }}</button>
           <button v-if="scanState === 'error' && scanCanForce" type="button" class="btn btn-primary" @click="startScan(true)">
             {{ t('discovery.force_btn') }}
           </button>
-          <button v-else-if="scanState === 'done' && scanHosts.length > 0" type="button" class="btn btn-primary"
+          <button v-else-if="(scanState === 'done' || scanState === 'cancelled') && scanHosts.length > 0" type="button" class="btn btn-primary"
                   :disabled="importing || scanSelectedCount() === 0" @click="importScan">
             {{ importing ? t('discovery.importing') : t('discovery.import_btn', { n: scanSelectedCount() }) }}
           </button>

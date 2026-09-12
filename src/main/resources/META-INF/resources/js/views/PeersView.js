@@ -1,7 +1,7 @@
 import { defineComponent } from "vue";
 import { peerModalMixin, peerModalTemplate } from "/js/peerModal.js";
 import { Icon } from "/js/Icons.js";
-import { t, locale, formatDate } from "/js/i18n.js";
+import { t, locale, formatDate, formatDay } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
 import { onEscape } from "/js/keyboard.js";
 import { hub, loadHub } from "/js/hub.js";
@@ -38,6 +38,10 @@ export default defineComponent({
       importCandidates: [],
       importLoading: false,
       importError: null,
+      // Export of the managed peers as wg0.conf blocks. Islandr never writes
+      // that file (its sudo covers nft and wg, not /etc/wireguard), so removal
+      // would otherwise take every peer it configured with it.
+      exporting: false,
       importSubmitting: false,
       importResults: null,
     };
@@ -189,6 +193,32 @@ export default defineComponent({
       this.load();
     },
 
+    /**
+     * Download the managed peers as [Peer] blocks for the server config. The
+     * admin appends them; Islandr does not touch the file, which is what makes
+     * it removable without stranding the tunnel.
+     */
+    async exportWgConf() {
+      this.exporting = true;
+      this.error = null;
+      try {
+        const res = await fetch("/api/v1/peers/wg-conf-export");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const text = await res.text();
+        const blob = new Blob([text], { type: "text/plain" });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = this.wgInterface + "-islandr-peers.conf";
+        a.click();
+        URL.revokeObjectURL(blobUrl);
+      } catch (e) {
+        this.error = t("peers.export_error", { error: e.message });
+      } finally {
+        this.exporting = false;
+      }
+    },
+
     async openImport() {
       this.importModal = true;
       this.importError = null;
@@ -289,6 +319,7 @@ export default defineComponent({
       return this.sortDir === 1 ? "↑" : "↓";
     },
     formatDate(iso) { return formatDate(iso); },
+    formatDay(iso) { return formatDay(iso); },
     connectionBadgeClass(p) { return connectionBadgeClass(p); },
     connectionLabelKey(p) { return connectionLabelKey(p); },
   },
@@ -310,6 +341,7 @@ export default defineComponent({
         </select>
         <button class="btn btn-primary btn-sm" @click="openCreate" :disabled="users.length === 0">{{ t('peers.create_btn') }}</button>
         <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('peers.import_btn', { iface: wgInterface }) }}</button>
+        <button class="btn btn-ghost btn-sm" @click="exportWgConf" :disabled="exporting" :title="t('peers.export_hint', { iface: wgInterface })">{{ t('peers.export_btn', { iface: wgInterface }) }}</button>
       </div>
     </div>
 
@@ -376,7 +408,7 @@ export default defineComponent({
             </span>
             <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 2px">
               <span v-if="p.validUntil" class="muted" style="font-size: var(--text-xs)">
-                {{ t('peers.expires_label', { date: formatDate(p.validUntil) }) }}
+                {{ t('peers.expires_label', { date: formatDay(p.validUntil) }) }}
               </span>
               <span v-if="scheduledPeerIds[p.id]" class="muted" style="font-size: var(--text-xs)">
                 {{ t('peers.has_schedule') }}

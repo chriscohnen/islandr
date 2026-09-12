@@ -3,6 +3,8 @@ package de.chriscohnen.islandr.acl;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
+import de.chriscohnen.islandr.discovery.HostProbe;
+import de.chriscohnen.islandr.discovery.OuiVendorLookup;
 import de.chriscohnen.islandr.firewall.RulesetService;
 import de.chriscohnen.islandr.network.NetworkDiagnosticsDto;
 import de.chriscohnen.islandr.network.NetworkDiagnosticsService;
@@ -21,7 +23,9 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +44,11 @@ public class ResourceResource {
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
     @Inject NetworkDiagnosticsService diag;
+
+    @ConfigProperty(name = "islandr.discovery.mode", defaultValue = "real")
+    String discoveryMode;
+    @ConfigProperty(name = "islandr.discovery.timeout", defaultValue = "1s")
+    Duration hostTimeout;
 
     @GET
     public List<ResourceDto.Response> listAll(@Context ContainerRequestContext ctx) {
@@ -208,6 +217,37 @@ public class ResourceResource {
         audit.logDelete(a.principal(), "resource.port_delete", "ResourcePort:" + portId, beforeMap);
         rulesets.recomputeFromHook();
         return Response.noContent().build();
+    }
+
+    /**
+     * On-demand re-identification of an already-registered resource (issue
+     * #76): re-runs the exact same hostname-resolution chain and MAC/ARP
+     * lookup discovery uses, targeted at this resource's current IP. Pure
+     * read — nothing is persisted or audited here; the admin applies
+     * whatever they want from the result via the ordinary save (PUT)
+     * afterward. Respects islandr.discovery.mode (ADR-0014 §6) — mock mode
+     * (dev/test default) never touches the network.
+     */
+    @POST
+    @Path("/{id}/identify")
+    public ResourceDto.IdentifyResponse identify(@Context ContainerRequestContext ctx,
+                                                 @PathParam("id") String id) {
+        Auth.requireAdmin(ctx);
+        Resource r = resources.get(id);
+        if (!"real".equalsIgnoreCase(discoveryMode)) {
+            return new ResourceDto.IdentifyResponse(null, null, null);
+        }
+        Site site = Site.findById(r.siteId);
+        String dnsServerIp = site != null ? site.dnsServerIp : null;
+        // On-demand single-host liveness check only cares whether the host answers
+        // at all, not which of the full discovery-scan port set is open — a small
+        // subset of common always-on services bounds the worst-case request latency
+        // to roughly a third of a full scan's sequential probe (finding: Important 3).
+        HostProbe probe = new HostProbe(List.of(22, 80, 443, 445, 3389), HostProbe.DEFAULT_UDP_PROBE_PORT,
+                hostTimeout, dnsServerIp);
+        HostProbe.ProbeResult result = probe.probe(r.ip);
+        String vendor = OuiVendorLookup.vendorFor(result.mac()).orElse(null);
+        return new ResourceDto.IdentifyResponse(result.hostname(), result.mac(), vendor);
     }
 
     // ── network diagnostics (ADR-0025) — admin-triggered ping/path-latency probe ──

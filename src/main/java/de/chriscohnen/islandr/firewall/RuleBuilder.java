@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.ResourceReservation;
 import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.Role;
+import de.chriscohnen.islandr.acl.RoleNetworkGrant;
 import de.chriscohnen.islandr.acl.RoleResourceGrant;
 import de.chriscohnen.islandr.acl.RoleResourceTypeGrant;
 import de.chriscohnen.islandr.acl.Site;
@@ -17,6 +18,11 @@ import jakarta.persistence.PersistenceContext;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.time.Instant;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -24,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Generates the {@code inet islandr} nftables ruleset from the current DB state.
@@ -246,6 +253,98 @@ public class RuleBuilder {
             }
         }
 
+        // Whole-network role grants (issue #78, ADR-0029): a role reaches every
+        // host in a site's CIDR, not one resource — bypasses emitRulesForGrant
+        // entirely (that helper is resource+port shaped) since there is no
+        // resource and no port list here, just a bare CIDR destination with
+        // every protocol/port implicitly open. Deliberately does not add to
+        // icmpPairs: the rule below already has no protocol clause and passes
+        // ICMP on its own, so a separate implicit-ICMP entry would be redundant.
+        Map<String, List<RoleNetworkGrant>> networkGrantsBySite = new HashMap<>();
+        for (RoleNetworkGrant g : RoleNetworkGrant.<RoleNetworkGrant>listAll()) {
+            networkGrantsBySite.computeIfAbsent(g.siteId, k -> new ArrayList<>()).add(g);
+        }
+        if (!networkGrantsBySite.isEmpty()) {
+            for (Site site : Site.<Site>listAll()) {
+                List<RoleNetworkGrant> siteNetGrants = networkGrantsBySite.getOrDefault(site.id, List.of());
+                if (siteNetGrants.isEmpty()) continue;
+                Set<String> grantedRoleIds = siteNetGrants.stream().map(g -> g.roleId).collect(Collectors.toSet());
+                for (Peer peer : peers) {
+                    if (peer.userId == null) continue; // site/gateway peers are routing, not users
+                    // rolesByUser holds only explicit user_roles membership —
+                    // unlike the per-peer loop earlier in this method (which
+                    // builds its own local userRoles copy and adds
+                    // autoAllRoleIds to that copy), rolesByUser itself is
+                    // never mutated with auto-all roles. Auto-all ("Everyone")
+                    // must be added explicitly here too.
+                    List<String> peerRoles = new ArrayList<>(rolesByUser.getOrDefault(peer.userId, List.of()));
+                    peerRoles.addAll(autoAllRoleIds);
+                    boolean granted = peerRoles.stream().anyMatch(grantedRoleIds::contains);
+                    if (!granted) continue;
+
+                    // Exclusive-capacity carve-out (issue #72 interaction): the
+                    // broad accept below would otherwise hand this peer every
+                    // port on every resource in the site, including ports that
+                    // are only supposed to open for whoever currently holds the
+                    // live reservation. nftables has no "more specific rule
+                    // wins" semantics — the first matching rule in the chain
+                    // decides — so a narrow drop for each such port must be
+                    // inserted into rulesByKey *before* the accept-all rule
+                    // emitted further down in this same peer's iteration.
+                    for (Resource res : resourceById.values()) {
+                        if (!site.id.equals(res.siteId)) continue;
+                        for (ResourcePort rp : portsByResource.getOrDefault(res.id, List.of())) {
+                            if (!reservationBlocksPort(gatedPortIds, liveReservationKeys, peer.userId, rp.id)) continue;
+                            for (String peerIp : peerIpsOf(peer)) {
+                                if (isV6(peerIp) != isV6(res.ip)) continue;
+                                String family = isV6(peerIp) ? "ip6" : "ip";
+                                for (String[] td : expandTransport(rp)) {
+                                    String effectiveTransport = td[0];
+                                    String dportClause = td[1];
+                                    String dropKey = peerIp + "|networkdrop|" + res.ip + "|"
+                                            + effectiveTransport + "|" + rp.port + "|"
+                                            + (rp.portEnd == null ? "" : rp.portEnd);
+                                    if (rulesByKey.containsKey(dropKey)) continue;
+                                    // Reason first: this is the one comment that
+                                    // has to explain why a drop sits next to an
+                                    // accept, and leading with it keeps that
+                                    // readable even when a long name is trimmed.
+                                    String dropComment = fitComment("islandr:reservation-required role=network peer="
+                                            + escape(peer.name)
+                                            + " user=" + escape(userName.getOrDefault(peer.userId, "?"))
+                                            + " resource=" + escape(res.name));
+                                    String dropRule = dportClause.isEmpty()
+                                            ? String.format(
+                                                    "    iifname \"%s\" %s saddr %s %s daddr %s %s drop comment \"%s\"",
+                                                    wgInterface, family, peerIp, family, res.ip, effectiveTransport, dropComment)
+                                            : String.format(
+                                                    "    iifname \"%s\" %s saddr %s %s daddr %s %s %s drop comment \"%s\"",
+                                                    wgInterface, family, peerIp, family, res.ip, effectiveTransport, dportClause, dropComment);
+                                    rulesByKey.put(dropKey, dropRule);
+                                }
+                            }
+                        }
+                    }
+
+                    // Single-CIDR, family-inferred-from-string — same
+                    // (non-dual-stack) behavior SiteResourceGrant's own block
+                    // already has via emitRulesForGrant's isV6 skip.
+                    for (String peerIp : peerIpsOf(peer)) {
+                        if (isV6(peerIp) != isV6(site.cidr)) continue;
+                        String family = isV6(peerIp) ? "ip6" : "ip";
+                        String key = peerIp + "|network|" + site.id;
+                        if (rulesByKey.containsKey(key)) continue;
+                        String rule = String.format(
+                                "    iifname \"%s\" %s saddr %s %s daddr %s accept comment \"%s\"",
+                                wgInterface, family, peerIp, family, site.cidr,
+                                fitComment("islandr:role=network peer=" + escape(peer.name) + " user="
+                                        + escape(userName.getOrDefault(peer.userId, "?")) + " network=" + escape(site.name)));
+                        rulesByKey.put(key, rule);
+                    }
+                }
+            }
+        }
+
         // Implicit ICMP/ICMPv6 accept for every (peerIp, resIp) pair with at least one port grant
         for (String pair : icmpPairs) {
             String[] parts = pair.split("\\|", 4);
@@ -257,7 +356,7 @@ public class RuleBuilder {
             String rule = String.format(
                     "    iifname \"%s\" %s saddr %s %s daddr %s %s accept comment \"%s\"",
                     wgInterface, family, peerIp, family, resIp, icmpType,
-                    "islandr:peer=" + peerName + " resource=" + resName + " ping");
+                    fitComment("islandr:peer=" + peerName + " resource=" + resName + " ping"));
             rulesByKey.put(icmpKey, rule);
         }
 
@@ -345,11 +444,11 @@ public class RuleBuilder {
 
             for (ResourcePort rp : grantedPorts) {
                 if ("web-only".equals(rp.rdpAccessMode)) continue;
-                String comment = String.format(
+                String comment = fitComment(String.format(
                         "islandr:role=%s peer=%s user=%s resource=%s %s%s",
                         roleLabel, peerName, uName,
                         escape(res.name), escape(rp.protocol),
-                        rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label));
+                        rp.label == null || rp.label.isBlank() ? "" : " " + escape(rp.label)));
                 for (String[] td : expandTransport(rp)) {
                     String effectiveTransport = td[0];
                     String dportClause = td[1];
@@ -413,6 +512,41 @@ public class RuleBuilder {
             return java.util.Arrays.asList(new String[]{"tcp", dport}, new String[]{"udp", dport});
         }
         return java.util.Collections.singletonList(new String[]{rp.transport, dport});
+    }
+
+    /**
+     * nftables caps a rule comment at {@code NFTNL_UDATA_COMMENT_MAXLEN} bytes
+     * and rejects the <em>whole ruleset</em> when one exceeds it — so a single
+     * long peer or resource name would otherwise freeze every firewall update
+     * for the tenant, not merely lose its own annotation. Found in production
+     * on a network grant over a capacity-limited RDP port, whose comment
+     * carries the most fixed text of any template here.
+     */
+    public static final int COMMENT_MAX_BYTES = 128;
+
+    /**
+     * Bounds a comment to what nftables accepts, trimming the tail and marking
+     * the cut with {@code ~}.
+     *
+     * <p>Every template here is written so the tail is the part that can be
+     * spared: the reason a rule exists leads, and what gets trimmed last is a
+     * name that the rule's own addresses and ports already identify. Truncation
+     * therefore costs readability, never the ability to tell which rule is
+     * which — and it is unconditional, because nft rejecting the whole file is
+     * not a failure mode worth risking on a name nobody thought to keep short.
+     */
+    static String fitComment(String comment) {
+        byte[] bytes = comment.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= COMMENT_MAX_BYTES) return comment;
+        // Cut on a character boundary: a German name is not all ASCII, and half
+        // a code point would be an invalid string rather than a short one.
+        CharBuffer out = CharBuffer.allocate(comment.length());
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.IGNORE)
+                .onUnmappableCharacter(CodingErrorAction.IGNORE);
+        decoder.decode(ByteBuffer.wrap(bytes, 0, COMMENT_MAX_BYTES - 1), out, true);
+        out.flip();
+        return out.toString() + "~";
     }
 
     private static String escape(String s) {

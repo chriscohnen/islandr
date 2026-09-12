@@ -17,8 +17,6 @@ islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
 ```
 

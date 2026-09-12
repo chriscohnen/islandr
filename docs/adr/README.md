@@ -35,6 +35,10 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0025](0025-network-diagnostic-helpers.md) | Network diagnostic helpers (ping/path latency) via unprivileged-shell CLI tools, surfaced on Atlas | Accepted | 2026-08-22 |
 | [0026](0026-external-api-facade.md) | External API facade: API keys, separate resource surface, hand-written OpenAPI spec | Accepted | 2026-08-22 |
 | [0027](0027-mcp-server-for-llm-administration.md) | MCP server for LLM-assisted administration: separate adapter process over the external API facade | Proposed | 2026-08-23 |
+| [0028](0028-webauthn-library-and-integration.md) | WebAuthn for the recovery admin: Vert.x auth as an engine, Islandr keeps the login flow | Proposed | 2026-09-05 |
+| [0029](0029-whole-network-role-grants.md) | Whole-network role grants: one nftables rule per site CIDR, not per resource | Accepted | 2026-09-05 |
+| [0030](0030-wireguard-config-file-ownership.md) | Islandr configures peers with `wg set` and never writes `/etc/wireguard/<iface>.conf` | Accepted (retroactive) | 2026-09-11 |
+| [0031](0031-fail-closed-boot-ruleset.md) | A boot-time nftables table keeps the hub closed until Islandr is enforcing | Proposed | 2026-09-11 |
 
 ## Status legend
 

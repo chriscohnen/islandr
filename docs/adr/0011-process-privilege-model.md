@@ -9,7 +9,7 @@
 Islandr must call two privileged CLI tools at runtime:
 
 - `nft` — to atomically reload the `inet islandr` nftables table (ADR-0003)
-- `wg` / `wg-quick` — to add, update and remove WireGuard peers on the hub interface
+- `wg` — to add, update and remove WireGuard peers on the hub interface
 
 Both tools require `CAP_NET_ADMIN`. The naive deployment runs the islandr process as `root` or with a full `CAP_NET_ADMIN` grant on the binary. Either approach violates the principle of least privilege: a compromised islandr process would have unrestricted access to all network interfaces, all firewall tables, routing, and — if running as root — the entire filesystem.
 
@@ -41,20 +41,25 @@ The `islandr` user:
 # /etc/sudoers.d/islandr
 # Allow islandr to manage its own nftables table and WireGuard interface only.
 # NOPASSWD because the process is non-interactive.
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/ruleset.nft
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/ruleset.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg syncconf wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg-quick up wg0
-islandr ALL=(root) NOPASSWD: /usr/bin/wg-quick down wg0
+islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
 ```
 
 Key constraints:
-- Only the **exact nft file path** `/var/lib/islandr/ruleset.nft` is allowed — not arbitrary file paths. islandr writes the ruleset to that fixed path before calling `sudo nft -f`.
-- `wg set` and `wg syncconf` are scoped to `wg0` — not arbitrary interfaces.
+- Only **nft rulesets staged in islandr's own data directory** are loadable — `RealNftablesAdapter` writes a freshly named `islandr-nft-<random>.nft` per apply rather than overwriting one fixed filename, so the grant names that pattern instead of a single path. The directory is the boundary the grant is drawing, which is why the adapter never stages into `/tmp`.
+- That boundary is not airtight, and is not the load-bearing part. sudo matches command arguments with `fnmatch(3)` and no `FNM_PATHNAME`, so a `*` also matches `/` — a crafted argument can traverse out of the directory. It buys an attacker nothing: anyone able to choose that argument already runs as `islandr` and can write into `/var/lib/islandr` anyway. What the grant actually confines is the *verb* — `nft` loading a ruleset, never an arbitrary root command.
+- `wg set` and `wg show ... dump` are scoped to `wg0` — not arbitrary interfaces.
+  They are the only two `wg` invocations the adapter elevates; `genkey`, `genpsk`
+  and `pubkey` never touch the kernel interface and run unprivileged, so they need
+  no entry here at all. Two further grants were carried for a long time without a
+  caller and have been removed: `syncconf` (see "Why not `wg syncconf`" below) and
+  plain `wg show wg0` — every reader goes through the `dump` form.
 - No wildcard `sudo ALL` is ever granted.
 - `visudo -c` validates the file on deployment.
+- The commands here are the ones the deployment scripts actually install ([`setup-hub.sh`](../install/setup-hub.sh), [docs/install.md](../install.md)); see [hardening.md](../install/hardening.md) for why each line looks the way it does.
 
 ### Docker variant
 
@@ -69,9 +74,32 @@ USER islandr
 
 The container still requires `--cap-add NET_ADMIN` and `--network host`, but the *process inside* runs as the unprivileged `islandr` user and escalates only via the scoped sudoers rules. An RCE in the HTTP layer gets a shell as `islandr`, not as `root`.
 
+### Why not `wg syncconf`
+
+`wg set` is incremental: it adds, updates and removes individual peers. `wg
+syncconf` is convergent — it makes the interface match a config file exactly,
+including removing peers the file does not list. The convergent form is the
+better fit for a system whose nftables side already works that way ("generate
+the ruleset, reload atomically, no drift"), and it would close a real gap: the
+reconciler re-applies every peer the database knows, but never removes one that
+exists on the interface and not in the database.
+
+It is rejected anyway, on the one point that matters here. `wg(8)`'s
+configuration file format requires a `PrivateKey` in the `[Interface]` section.
+Islandr does not have the hub's private key — `Settings` holds only
+`wgServerPublicKey` — and that is a property of this design, not an oversight.
+Using `syncconf` would mean reading the private key back off the interface,
+writing it to a file, applying it and deleting the file, on every reconciliation.
+Today no call Islandr makes touches that key at all.
+
+The gap can be closed without it: diff `wg show <iface> dump` against the
+database and issue `wg set <iface> peer <key> remove` for what it does not know.
+Same convergence, no private key, no new file format, and `set` already grants
+the verb.
+
 ### WireGuard interface ownership
 
-The `wg0` interface is created by the operator before starting islandr (or by `wg-quick up wg0` via the scoped sudo). islandr does not own the interface in the OS sense — it only manages peer entries via `wg set`. This keeps interface creation (a rare, manual operation) separate from peer management (frequent, automated).
+The `wg0` interface is created and brought up by the operator before starting islandr — with `wg-quick`, systemd-networkd, or plain `ip link`, whichever the host already uses. islandr never brings an interface up or down and is granted no privilege to do so; it only manages peer entries via `wg set`. This keeps interface creation (a rare, manual operation) separate from peer management (frequent, automated).
 
 ## Alternatives considered (Pugh Matrix)
 
@@ -104,7 +132,7 @@ Notes:
 
 **Risks created**
 
-- **R-110** — The fixed nft file path `/var/lib/islandr/ruleset.nft` must be writable only by the `islandr` user. If another process can write to that path, it can inject arbitrary nftables rules via the sudo grant. Mitigation: `chmod 700 /var/lib/islandr/`; only `islandr` user owns the directory.
+- **R-110** — The data directory `/var/lib/islandr/` must be writable only by the `islandr` user. The sudo grant loads any `islandr-nft-*.nft` staged there, so another process able to write into that directory can inject arbitrary nftables rules. Mitigation: `chmod 700 /var/lib/islandr/`; only the `islandr` user owns the directory.
 - **R-111** — The `wg set wg0 *` wildcard allows any `wg set` arguments for `wg0`. A malicious caller that already has a shell as `islandr` could inject a peer with a crafted public key or allowed-IPs. Mitigation: access as `islandr` already implies islandr is compromised — the blast radius is still bounded to WireGuard peer management on `wg0`.
 - **R-112** — The Docker image cannot safely call `nft`/`wg` on the host without elevated container capabilities (`--cap-add NET_ADMIN`, `--network host`), which violate least-privilege. Mitigation: the demo Docker image uses mock adapters only (demo/dev). Production Docker support is targeted for 0.11.0 (v1 line) via a Unix socket proxy (ADR-0012).
 - **R-113** — A distro update that changes the path of `nft` or `wg` (e.g. from `/usr/sbin/nft` to `/usr/bin/nft`) silently breaks the sudoers rule. Mitigation: deployment script uses `which nft` and `which wg` to verify paths match the sudoers file; CI smoke test calls `sudo -l -U islandr` and asserts the expected commands are listed.

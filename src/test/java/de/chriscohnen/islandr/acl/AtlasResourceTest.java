@@ -251,6 +251,52 @@ class AtlasResourceTest {
         return grantingSite.id;
     }
 
+    @Test
+    void atlas_networkGrant_taggedNetworkGrant_resourceIdNull_siteIdSet() {
+        String[] ids = seedNetworkGrant();
+        String userId = ids[0], siteId = ids[1];
+
+        given().when().get("/api/v1/acl/atlas")
+                .then().statusCode(200)
+                .body("edges.findAll { it.kind == 'network-grant' }", hasSize(1))
+                .body("edges.find { it.kind == 'network-grant' }.subjectType", is("user"))
+                .body("edges.find { it.kind == 'network-grant' }.subjectId", is(userId))
+                .body("edges.find { it.kind == 'network-grant' }.siteId", is(siteId))
+                .body("edges.find { it.kind == 'network-grant' }.resourceId", org.hamcrest.Matchers.nullValue());
+    }
+
+    @Transactional
+    String[] seedNetworkGrant() {
+        User user = User.createNew("atlas-test-networkgrant", "atlas-test-networkgrant@example.test");
+        user.persist();
+        Role role = Role.createNew("atlas-test-networkrole", null);
+        role.persist();
+        em.createNativeQuery("INSERT INTO user_roles (user_id, role_id) VALUES (?1, ?2)")
+                .setParameter(1, user.id).setParameter(2, role.id).executeUpdate();
+        Site site = Site.createNew("atlas-test-networksite", "10.69.0.0/16", null);
+        site.persist();
+        RoleNetworkGrant.createNew(role.id, site.id).persist();
+        return new String[] { user.id, site.id };
+    }
+
+    // The whole point of a network grant: a site with zero resources still
+    // needs to appear as a circle-worthy site (via the sites[] list already
+    // returned regardless of resources) once it holds a network grant, the
+    // same way a site-direct grant already forces circle-worthiness in the
+    // frontend's own grantingSiteIds check — this test only proves the graph
+    // returns the edge/site data needed for that; the frontend circle logic
+    // itself is covered in Task 11's manual verification.
+    @Test
+    void atlas_networkGrant_onSiteWithZeroResources_stillProducesEdgeAndSiteNode() {
+        String[] ids = seedNetworkGrant();
+        String siteId = ids[1];
+
+        given().when().get("/api/v1/acl/atlas")
+                .then().statusCode(200)
+                .body("edges.findAll { it.kind == 'network-grant' }", hasSize(1))
+                .body("sites.find { it.id == '" + siteId + "' }", org.hamcrest.Matchers.notNullValue());
+    }
+
     /**
      * The Hub node's own tunnel address (network+1 of wgSubnet, the diagram's hover
      * target) must always be present so AtlasDiagram's Hub hover has something

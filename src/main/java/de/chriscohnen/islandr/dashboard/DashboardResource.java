@@ -55,6 +55,32 @@ public class DashboardResource {
 
     @PersistenceContext EntityManager em;
     @jakarta.inject.Inject HostHealthSampler hostHealth;
+    @jakarta.inject.Inject de.chriscohnen.islandr.wg.WgAdapter wg;
+
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
+    String wgInterface;
+
+    /**
+     * Peers on the interface whose public key is not in the database. Islandr
+     * never writes {@code /etc/wireguard/<iface>.conf}, so on an adopted hub these
+     * are the peers nobody imported: they keep connecting, and because the
+     * generated ruleset only filters forwarded traffic they still reach the hub
+     * itself. Surfacing the count turns a blind spot into a decision.
+     *
+     * @return the count, or -1 when the interface could not be read — a dashboard
+     *         must not fail because {@code wg} is unreachable
+     */
+    private long countUnmanagedPeers() {
+        try {
+            Set<String> known = Peer.<Peer>listAll().stream()
+                    .map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
+            return wg.showPeers(wgInterface).stream()
+                    .filter(ps -> !known.contains(ps.publicKey()))
+                    .count();
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
 
     @GET
     public DashboardDto.Response get(@Context ContainerRequestContext ctx) {
@@ -65,6 +91,7 @@ public class DashboardResource {
         long lastSeen24h = Peer.count(
                 "lastSeenAt is not null and lastSeenAt >= ?1",
                 Instant.now().minus(Duration.ofHours(24)));
+        long unmanagedPeers = countUnmanagedPeers();
 
         long userTotal = User.count();
         long userAdmins = User.count("isAdmin", true);
@@ -100,18 +127,27 @@ public class DashboardResource {
                                 + "lastSeenAt desc, createdAt desc")
                 .page(0, STRIP_SIZE).list();
         // Name resolution: one IN query for the involved users, then a map lookup.
+        // Site peers have no owner by design (userId is null), so a null name is
+        // the normal case here, not an error — the UI renders a dash for it. The
+        // API must not invent a label: this response is language-neutral, and the
+        // previous placeholder ("(gelöscht)") was both hardcoded German and wrong,
+        // calling every gateway's missing owner a deleted account.
         Map<String, String> userNames = new HashMap<>();
         if (!peerRows.isEmpty()) {
-            List<String> userIds = peerRows.stream().map(p -> p.userId).distinct().toList();
-            for (User u : User.<User>list("id in ?1", userIds)) {
-                userNames.put(u.id, u.name);
+            List<String> userIds = peerRows.stream()
+                    .map(p -> p.userId).filter(java.util.Objects::nonNull).distinct().toList();
+            if (!userIds.isEmpty()) {
+                for (User u : User.<User>list("id in ?1", userIds)) {
+                    userNames.put(u.id, u.name);
+                }
             }
         }
         List<DashboardDto.PeerEntry> peers = peerRows.stream()
                 .map(p -> new DashboardDto.PeerEntry(
                         p.id, p.name, p.userId,
-                        userNames.getOrDefault(p.userId, "(gelöscht)"),
-                        p.assignedIp, p.enabled, p.lastSeenAt))
+                        p.userId == null ? null : userNames.get(p.userId),
+                        p.assignedIp, p.enabled, p.lastSeenAt,
+                        p.connectionStatus(Instant.now()).name()))
                 .toList();
 
         // Topology widget: static infrastructure (Sites + Resources) plus a
@@ -218,7 +254,7 @@ public class DashboardResource {
                 fs.lastStatus, fs.ruleCount, fs.lastOkAt, fs.stderrText);
 
         return new DashboardDto.Response(
-                new DashboardDto.PeerStats(peerTotal, peerEnabled, lastSeen24h),
+                new DashboardDto.PeerStats(peerTotal, peerEnabled, lastSeen24h, unmanagedPeers),
                 new DashboardDto.UserStats(userTotal, userAdmins),
                 new DashboardDto.RoleStats(roleTotal, rolesWithGrants),
                 new DashboardDto.ResourceStats(siteTotal, resTotal, portTotal),

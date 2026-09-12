@@ -6,6 +6,17 @@ import { onEscape } from "/js/keyboard.js";
 
 const GRANTS_PAGE_SIZE = 20;
 
+// Mirrors AtlasDiagram.js's edgeColor(kind) exactly — kept in sync by hand
+// since it's five CSS var strings, not worth sharing a module for. Order
+// here is the legend's display order, not load-bearing elsewhere.
+const EDGE_KIND_LEGEND = [
+  { kind: "role", color: "var(--accent)", labelKey: "atlas.legend_kind_role" },
+  { kind: "type-grant", color: "var(--success-solid)", labelKey: "atlas.legend_kind_type_grant" },
+  { kind: "user-direct", color: "var(--info-solid)", labelKey: "atlas.mode_direct" },
+  { kind: "site-direct", color: "var(--warning-solid)", labelKey: "atlas.mode_direct_site" },
+  { kind: "network-grant", color: "var(--danger-solid)", labelKey: "atlas.legend_kind_network_grant" },
+];
+
 export default defineComponent({
   name: "AtlasView",
   components: { AtlasDiagram, Icon },
@@ -18,6 +29,7 @@ export default defineComponent({
       selectedRoleId: "", // "" = direct user-grant mode
       selectedUserId: null, // focused user (click-select in direct mode) — only their edges render
       selectedResourceId: null, // focused resource (click-select) — only edges reaching it render
+      selectedSiteId: null, // focused site circle (click-select) — only that site's own grants (site-direct/network-grant) render
       selectedPeerId: null, // focused site-gateway peer (ADR-0025 diagnostics target) — no edge filtering
       lang: locale.current,
       grantDialog: null, // { subjectType, subjectId, resourceId, subjectName, resourceName, kind, allPorts, portIds, ports }
@@ -32,6 +44,8 @@ export default defineComponent({
       // doesn't scale once a tenant has dozens of them. "" = show everyone.
       userFilterRoleId: "",
       grantsPage: 1,
+      grantsSortKey: "userName",
+      grantsSortDir: 1, // 1 = asc, -1 = desc
       // Network diagnostics (ADR-0025): availability is fetched once so the
       // action can gray itself out instead of offering a probe that will just
       // fail; diagModal holds the live state of one open probe dialog.
@@ -57,6 +71,10 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    edgeKindLegend() {
+      void this.lang;
+      return EDGE_KIND_LEGEND.map((e) => ({ ...e, label: t(e.labelKey) }));
+    },
     grantModeLabel() {
       void this.lang;
       if (!this.selectedRoleId) return t("atlas.mode_direct");
@@ -81,6 +99,11 @@ export default defineComponent({
       const r = this.graph.resources.find((r) => r.id === this.selectedResourceId);
       return r ? r.name : this.selectedResourceId;
     },
+    focusedSiteName() {
+      if (!this.selectedSiteId || !this.graph) return "";
+      const s = (this.graph.sites || []).find((s) => s.id === this.selectedSiteId);
+      return s ? s.name : this.selectedSiteId;
+    },
     focusedPeerName() {
       if (!this.selectedPeerId) return "";
       return (this._lastPeerClick && this._lastPeerClick.peerId === this.selectedPeerId)
@@ -98,6 +121,7 @@ export default defineComponent({
     focusLabel() {
       if (this.selectedUserId) return t("atlas.focus_user", { user: this.focusedUserName || " " });
       if (this.selectedResourceId) return t("atlas.focus_resource", { resource: this.focusedResourceName || " " });
+      if (this.selectedSiteId) return t("atlas.focus_site", { site: this.focusedSiteName || " " });
       if (this.selectedPeerId) return t("atlas.focus_peer", { peer: this.focusedPeerName || " " });
       return "";
     },
@@ -172,7 +196,11 @@ export default defineComponent({
       return this.activeTypes.size > 0 || this.userFilterRoleId !== "";
     },
     // Same type/user-role filters as the diagram above, so the table below
-    // it never contradicts what's currently shown on the graph.
+    // it never contradicts what's currently shown on the graph. Also mirrors
+    // the diagram's click-to-focus state (selectedUserId/selectedResourceId)
+    // — clicking a peer on the graph is a strong "show me just this one"
+    // signal, and the table previously ignored it entirely, still listing
+    // every grant in the system underneath a graph now showing just one.
     grantsForTable() {
       if (!this.graph) return [];
       const usersById = Object.fromEntries(this.graph.users.map((u) => [u.id, u]));
@@ -185,21 +213,55 @@ export default defineComponent({
       const userSet = this.activeUserIds.length > 0 ? new Set(this.activeUserIds) : null;
       return this.graph.edges
           .filter((e) => {
-            if (typeActive) {
+            // A network-grant edge has no resourceId at all — it isn't
+            // scoped to a resource type, so the type filter simply doesn't
+            // apply to it (same reasoning that would exempt any other
+            // whole-network row from a per-type filter).
+            if (typeActive && e.kind !== "network-grant") {
               const res = resById[e.resourceId];
               if (!res || !this.activeTypes.has(res.type)) return false;
             }
             if (userSet && e.subjectType === "user" && !userSet.has(e.subjectId)) return false;
+            // Click-to-focus, same rule the diagram's own edgeLines() applies:
+            // a selected user narrows to only their edges (and, for a
+            // network-grant edge specifically, only shows it while its own
+            // granted user is the one selected — never unconditionally);
+            // a selected resource narrows to only edges reaching it.
+            if (this.selectedUserId) {
+              if (!(e.subjectType === "user" && e.subjectId === this.selectedUserId)) return false;
+            } else if (this.selectedResourceId) {
+              if (e.resourceId !== this.selectedResourceId) return false;
+            } else if (this.selectedSiteId) {
+              // Mirrors the diagram's own edgeLines(): a focused site shows
+              // only grants that name the site itself, not its resources —
+              // site-direct grants it makes, and network-grants it receives.
+              if (!((e.subjectType === "site" && e.subjectId === this.selectedSiteId) ||
+                    (e.kind === "network-grant" && e.siteId === this.selectedSiteId))) return false;
+            }
             return true;
           })
           .map((e) => {
             const subjectName = e.subjectType === "site"
                 ? t("atlas.subject_site", { site: (sitesById[e.subjectId] || {}).name || e.subjectId })
                 : (usersById[e.subjectId] || {}).name || e.subjectId;
+            // A network-grant edge targets a whole site (via siteId), not a
+            // single resource (resourceId is always null for this kind) —
+            // show the site's name with a "whole network" label instead of
+            // an empty cell.
+            const resourceName = e.kind === "network-grant"
+                ? t("atlas.resource_whole_network", { site: (sitesById[e.siteId] || {}).name || e.siteId })
+                : (resById[e.resourceId] || {}).name || e.resourceId;
             return {
-              key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.kind + "|" + (e.roleId || ""),
+              // resourceId is null for every network-grant edge, so siteId
+              // must be part of the key too — otherwise one user holding
+              // network grants on two different sites via the same role
+              // would produce two rows with an identical key.
+              key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.siteId + "|" + e.kind + "|" + (e.roleId || ""),
+              kind: e.kind,
+              kindLabel: (EDGE_KIND_LEGEND.find((k) => k.kind === e.kind) || {}).labelKey
+                  ? t(EDGE_KIND_LEGEND.find((k) => k.kind === e.kind).labelKey) : e.kind,
               userName: subjectName,
-              resourceName: (resById[e.resourceId] || {}).name || e.resourceId,
+              resourceName,
               roleName: e.kind === "user-direct" ? t("atlas.mode_direct")
                   : e.kind === "site-direct" ? t("atlas.mode_direct_site")
                   : e.roleName,
@@ -207,15 +269,22 @@ export default defineComponent({
             };
           });
     },
+    sortedGrantsForTable() {
+      const k = this.grantsSortKey;
+      const d = this.grantsSortDir;
+      const list = [...this.grantsForTable];
+      list.sort((a, b) => d * String(a[k] || "").localeCompare(String(b[k] || ""), undefined, { numeric: true }));
+      return list;
+    },
     grantsPageCount() {
-      return Math.max(1, Math.ceil(this.grantsForTable.length / GRANTS_PAGE_SIZE));
+      return Math.max(1, Math.ceil(this.sortedGrantsForTable.length / GRANTS_PAGE_SIZE));
     },
     grantsPageClamped() {
       return Math.min(this.grantsPage, this.grantsPageCount);
     },
     pagedGrantsForTable() {
       const start = (this.grantsPageClamped - 1) * GRANTS_PAGE_SIZE;
-      return this.grantsForTable.slice(start, start + GRANTS_PAGE_SIZE);
+      return this.sortedGrantsForTable.slice(start, start + GRANTS_PAGE_SIZE);
     },
     grantsPageInfo() {
       return t("atlas.grants_page_info", { page: this.grantsPageClamped, total: this.grantsPageCount });
@@ -225,7 +294,7 @@ export default defineComponent({
     // Picking a role from the dropdown shifts intent to role-mode — drop any
     // active user focus so the two selection concepts never coexist visibly.
     selectedRoleId(newVal) {
-      if (newVal) { this.selectedUserId = null; this.selectedResourceId = null; }
+      if (newVal) { this.selectedUserId = null; this.selectedResourceId = null; this.selectedSiteId = null; }
     },
     // A changed filter can shrink the result set below the current page —
     // back to page 1 rather than landing on an empty page.
@@ -240,7 +309,7 @@ export default defineComponent({
       if (this.diagModal) this.closeDiagnostics();
       else if (this.grantDialog) this.cancelGrantDialog();
       else if (this.revokeConfirm) this.cancelRevokeConfirm();
-      else if (this.selectedUserId || this.selectedResourceId || this.selectedPeerId) this.clearFocus();
+      else if (this.selectedUserId || this.selectedResourceId || this.selectedSiteId || this.selectedPeerId) this.clearFocus();
     });
   },
   beforeUnmount() {
@@ -248,6 +317,22 @@ export default defineComponent({
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+
+    // Same color per grant kind as the diagram's edges (EDGE_KIND_LEGEND
+    // mirrors AtlasDiagram.js's edgeColor) — used for the grants table's
+    // row accent so the table reads with the same color coding as the map.
+    kindColor(kind) {
+      const entry = EDGE_KIND_LEGEND.find((e) => e.kind === kind);
+      return entry ? entry.color : "var(--accent)";
+    },
+    grantsSortBy(key) {
+      if (this.grantsSortKey === key) this.grantsSortDir *= -1;
+      else { this.grantsSortKey = key; this.grantsSortDir = 1; }
+    },
+    grantsSortIcon(key) {
+      if (this.grantsSortKey !== key) return "↕";
+      return this.grantsSortDir === 1 ? "↑" : "↓";
+    },
 
     // Clicking a user node: while a role is active, clicking someone who
     // does NOT hold that role switches the whole toolbar to direct mode and
@@ -259,12 +344,14 @@ export default defineComponent({
         if (!this.highlightedUserIds.includes(userId)) {
           this.selectedRoleId = "";
           this.selectedResourceId = null;
+          this.selectedSiteId = null;
           this.selectedPeerId = null;
           this.selectedUserId = userId;
         }
         return;
       }
       this.selectedResourceId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = null;
       this.selectedUserId = this.selectedUserId === userId ? null : userId;
     },
@@ -276,8 +363,21 @@ export default defineComponent({
     onResourceClick(resourceId) {
       this.selectedRoleId = "";
       this.selectedUserId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = null;
       this.selectedResourceId = this.selectedResourceId === resourceId ? null : resourceId;
+    },
+
+    // Clicking a site circle focuses the site itself, not a resource inside
+    // it — shows only that site's own grants (site-direct grants it makes,
+    // network-grants it receives), the two ways a site participates in the
+    // grant graph as a whole rather than through one of its resources.
+    onSiteClick(siteId) {
+      this.selectedRoleId = "";
+      this.selectedUserId = null;
+      this.selectedResourceId = null;
+      this.selectedPeerId = null;
+      this.selectedSiteId = this.selectedSiteId === siteId ? null : siteId;
     },
 
     // Clicking a site's gateway diamond (ADR-0025) — only fires when the
@@ -288,6 +388,7 @@ export default defineComponent({
     onPeerClick({ peerId, peerName, siteName }) {
       this.selectedUserId = null;
       this.selectedResourceId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = this.selectedPeerId === peerId ? null : peerId;
       this._lastPeerClick = { peerId, peerName, siteName };
     },
@@ -295,6 +396,7 @@ export default defineComponent({
     clearFocus() {
       this.selectedUserId = null;
       this.selectedResourceId = null;
+      this.selectedSiteId = null;
       this.selectedPeerId = null;
     },
 
@@ -438,7 +540,11 @@ export default defineComponent({
         subjectName = user ? user.name : edge.subjectId;
       }
       if (edge.kind === "type-grant") {
-        this.error = t("atlas.revoke_type_grant_blocked");
+        this.openTypeGrantRevokeConfirm(edge, resource, subjectName);
+        return;
+      }
+      if (edge.kind === "network-grant") {
+        this.error = t("atlas.revoke_network_grant_blocked");
         return;
       }
       const roleLabel = edge.kind === "role" ? edge.roleName
@@ -447,12 +553,50 @@ export default defineComponent({
       this.revokeConfirm = { edge, userName: subjectName, resourceName, roleLabel };
     },
 
+    // A type-grant edge isn't a single (role, resource) row to delete — the
+    // click always means "revoke the whole type-grant" (every resource of
+    // this type in this site, for this role), so look up the actual
+    // RoleResourceTypeGrant row behind the edge and confirm that instead.
+    async openTypeGrantRevokeConfirm(edge, resource, subjectName) {
+      if (!resource) {
+        this.error = t("atlas.revoke_type_grant_blocked");
+        return;
+      }
+      try {
+        const res = await fetch("/api/v1/acl/type-grants");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const typeGrants = await res.json();
+        const match = typeGrants.find(
+            (g) => g.roleId === edge.roleId && g.siteId === resource.siteId && g.resourceType === resource.type
+        );
+        if (!match) {
+          this.error = t("atlas.revoke_type_grant_blocked");
+          return;
+        }
+        this.revokeConfirm = {
+          edge,
+          isTypeGrant: true,
+          typeGrantId: match.id,
+          userName: subjectName,
+          roleLabel: edge.roleName,
+          typeLabel: this.resourceTypeLabels[resource.type] || resource.type,
+          siteName: match.siteName,
+        };
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+      }
+    },
+
     cancelRevokeConfirm() {
       this.revokeConfirm = null;
     },
 
     async confirmRevokeEdge() {
       if (!this.revokeConfirm) return;
+      if (this.revokeConfirm.isTypeGrant) {
+        await this.confirmRevokeTypeGrant();
+        return;
+      }
       const edge = this.revokeConfirm.edge;
       this.revokeSaving = true;
       this.error = null;
@@ -470,6 +614,25 @@ export default defineComponent({
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
+        }
+        this.revokeConfirm = null;
+        await this.load();
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+      } finally {
+        this.revokeSaving = false;
+      }
+    },
+
+    async confirmRevokeTypeGrant() {
+      const typeGrantId = this.revokeConfirm.typeGrantId;
+      this.revokeSaving = true;
+      this.error = null;
+      try {
+        const res = await fetch("/api/v1/acl/type-grants/" + typeGrantId, { method: "DELETE" });
         if (!res.ok) {
           const errBody = await res.text();
           throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
@@ -725,9 +888,9 @@ export default defineComponent({
            same user node (select, then click again to deselect), landing
            the second click on whatever node the page reflow put under the
            still-stationary cursor instead of the one the admin meant. -->
-      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId || selectedPeerId) ? 'visible' : 'hidden' }">
+      <span class="badge" :style="{ display: 'flex', alignItems: 'center', gap: '6px', visibility: (selectedUserId || selectedResourceId || selectedSiteId || selectedPeerId) ? 'visible' : 'hidden' }">
         {{ focusLabel || ' ' }}
-        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId || selectedPeerId) ? 0 : -1">✕</button>
+        <button class="btn btn-ghost btn-sm" style="padding: 0 4px" @click="clearFocus" :aria-label="t('atlas.focus_clear')" :title="t('atlas.focus_clear')" :tabindex="(selectedUserId || selectedResourceId || selectedSiteId || selectedPeerId) ? 0 : -1">✕</button>
       </span>
 
       <!-- ADR-0025: a probe target is always a focused, known Resource, the
@@ -786,6 +949,7 @@ export default defineComponent({
     <template v-else-if="graph">
       <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
+                       :selected-site-id="selectedSiteId"
                        :selected-peer-id="selectedPeerId"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
                        :connected-peers-by-user-id="connectedPeersByUserId"
@@ -795,7 +959,7 @@ export default defineComponent({
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
                        :probe-pending="probePending"
-                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" />
+                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" @site-click="onSiteClick" />
 
         <!-- Network diagnostics (ADR-0025): docked beside the graph, not a modal —
              the whole point is seeing the probed hub -> [site-gateway] -> target
@@ -913,6 +1077,21 @@ export default defineComponent({
         </div>
       </div>
 
+      <!-- Grant-kind color legend, directly under the graph so it isn't
+           missed — the line color alone would fail color-blind readers, so
+           each swatch carries its own text label (the label, not the color,
+           is what actually distinguishes a kind). -->
+      <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-2); font-size: var(--text-xs)">
+        <span v-for="item in edgeKindLegend" :key="item.kind" style="display: inline-flex; align-items: center; gap: 6px">
+          <svg width="20" height="8" style="flex-shrink: 0">
+            <line x1="0" y1="4" x2="20" y2="4" :stroke="item.color"
+                  :stroke-width="item.kind === 'network-grant' ? 2.5 : 1.5"
+                  :stroke-dasharray="item.kind === 'network-grant' ? '5 3' : null" />
+          </svg>
+          <span class="muted">{{ item.label }}</span>
+        </span>
+      </div>
+
       <div class="card card-pad" style="margin-top: var(--space-4)">
         <h2 style="margin: 0 0 var(--space-3); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">
           {{ t('atlas.grants_table_title') }}
@@ -920,15 +1099,36 @@ export default defineComponent({
         <table v-if="grantsForTable.length > 0" class="table">
           <thead>
             <tr>
-              <th>{{ t('atlas.th_user') }}</th>
-              <th>{{ t('atlas.th_role') }}</th>
-              <th>{{ t('atlas.th_resource') }}</th>
-              <th>{{ t('atlas.th_ports') }}</th>
+              <th @click="grantsSortBy('kindLabel')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_kind') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('kindLabel') }}</span>
+              </th>
+              <th @click="grantsSortBy('userName')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_subject') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('userName') }}</span>
+              </th>
+              <th @click="grantsSortBy('roleName')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_role') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('roleName') }}</span>
+              </th>
+              <th @click="grantsSortBy('resourceName')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_resource') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('resourceName') }}</span>
+              </th>
+              <th @click="grantsSortBy('portsLabel')" style="cursor: pointer; user-select: none; white-space: nowrap">
+                {{ t('atlas.th_ports') }} <span class="muted" style="font-size: 10px">{{ grantsSortIcon('portsLabel') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in pagedGrantsForTable" :key="row.key">
-              <td>{{ row.userName }}</td>
+              <td style="white-space: nowrap">
+                <span style="display: inline-flex; align-items: center; gap: 6px">
+                  <svg width="14" height="8" style="flex-shrink: 0">
+                    <line x1="0" y1="4" x2="14" y2="4" :stroke="kindColor(row.kind)"
+                          :stroke-width="row.kind === 'network-grant' ? 2.5 : 1.5"
+                          :stroke-dasharray="row.kind === 'network-grant' ? '5 3' : null" />
+                  </svg>
+                  {{ row.kindLabel }}
+                </span>
+              </td>
+              <td :style="'border-left: 3px solid ' + kindColor(row.kind)">{{ row.userName }}</td>
               <td>{{ row.roleName }}</td>
               <td>{{ row.resourceName }}</td>
               <td class="mono">{{ row.portsLabel }}</td>
@@ -987,7 +1187,10 @@ export default defineComponent({
           <button class="btn btn-ghost btn-sm" @click="cancelRevokeConfirm">✕</button>
         </div>
         <div class="modal-body">
-          <p style="margin: 0">
+          <p v-if="revokeConfirm.isTypeGrant" style="margin: 0">
+            {{ t('atlas.revoke_type_grant_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, type: revokeConfirm.typeLabel, site: revokeConfirm.siteName }) }}
+          </p>
+          <p v-else style="margin: 0">
             {{ t('atlas.revoke_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, resource: revokeConfirm.resourceName }) }}
           </p>
         </div>

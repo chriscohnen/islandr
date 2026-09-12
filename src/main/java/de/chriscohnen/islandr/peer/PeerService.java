@@ -187,6 +187,47 @@ public class PeerService {
      *
      * @throws WebApplicationException 409 if every assignable address is taken.
      */
+    /**
+     * Addresses held by peers that are on the interface but not in the database.
+     * Islandr never writes {@code /etc/wireguard/<iface>.conf}, so a hub adopted
+     * from an existing setup carries peers Islandr knows nothing about — and the
+     * database alone would hand their address out a second time. WireGuard would
+     * then move the address to the new peer, which looks like it worked until the
+     * next interface reload gives it back to the foreign peer and traffic for that
+     * address reaches the wrong device.
+     *
+     * <p>Never fatal: if {@code wg} cannot be reached the set is empty and only
+     * the database is consulted. An unreachable enforcement plane must not block
+     * peer creation.
+     *
+     * @param v6 true for the IPv6 addresses, false for IPv4
+     */
+    private java.util.Set<String> foreignAddressesOnInterface(boolean v6) {
+        return foreignAddressesOnInterface(v6, null);
+    }
+
+    /**
+     * @param ignorePublicKey a peer on the interface to leave out — the one
+     *        currently being imported. Its address is on the interface and not
+     *        yet in the database, which is exactly what "foreign" means here, so
+     *        without this the import of an existing peer would reject itself.
+     */
+    private java.util.Set<String> foreignAddressesOnInterface(boolean v6, String ignorePublicKey) {
+        java.util.Set<String> known = Peer.<Peer>listAll().stream()
+                .map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
+        java.util.Set<String> out = new java.util.HashSet<>();
+        try {
+            for (WgAdapter.PeerStatus ps : wg.showPeers(wgInterface)) {
+                if (known.contains(ps.publicKey())) continue;
+                if (ignorePublicKey != null && ignorePublicKey.equals(ps.publicKey())) continue;
+                out.addAll(hostAddressesIn(ps.allowedIps(), v6));
+            }
+        } catch (RuntimeException e) {
+            LOG.debugf("could not read live peers for address collision check: %s", e.getMessage());
+        }
+        return out;
+    }
+
     public String suggestNextIp() {
         Settings settings = settingsSvc.get();
         IpSubnet subnet;
@@ -198,7 +239,8 @@ public class PeerService {
         }
         java.util.Set<String> taken = Peer.<Peer>listAll().stream()
                 .map(p -> p.assignedIp)
-                .collect(java.util.stream.Collectors.toSet());
+                .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+        taken.addAll(foreignAddressesOnInterface(false));
         for (String candidate : subnet.assignableHostIps()) {
             if (!taken.contains(candidate)) return candidate;
         }
@@ -231,7 +273,8 @@ public class PeerService {
         java.util.Set<String> taken = Peer.<Peer>listAll().stream()
                 .filter(p -> p.assignedIpv6 != null)
                 .map(p -> p.assignedIpv6)
-                .collect(java.util.stream.Collectors.toSet());
+                .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+        taken.addAll(foreignAddressesOnInterface(true));
         for (String candidate : subnet.assignableHostIps()) {
             if (!taken.contains(candidate)) return candidate;
         }
@@ -541,24 +584,98 @@ public class PeerService {
      * mid-reconcile — the reconciler catches it and re-enters the degraded state.
      * That one does abort the batch: if the proxy itself is gone, every
      * remaining call would fail the same way anyway.
+     *
+     * @return how many peers were pushed successfully (skipped ones excluded)
+     */
+    /**
+     * Re-push only the enabled peers the interface does not currently carry.
+     * Called from the activity poller, which already has the live key set from
+     * its own {@code showPeers} call — so this costs no extra syscall.
+     *
+     * <p>The boot repush in {@code WgBootstrap} covers a host reboot, but the
+     * same drift happens whenever the interface is reloaded underneath a running
+     * Islandr ({@code systemctl restart wg-quick@<iface>}): the peers written by
+     * {@code wg set} are gone and nothing would notice until the next edit.
+     * Convergence has to be a running property, not a startup event.
+     *
+     * @param livePublicKeys the keys {@code wg} currently reports
+     * @return how many peers were pushed back
      */
     @Transactional
-    public void repushEnabledPeers() {
+    public int repushMissingPeers(java.util.Set<String> livePublicKeys) {
+        int pushed = 0;
+        for (Peer peer : Peer.<Peer>list("enabled", true)) {
+            if (livePublicKeys.contains(peer.publicKey)) continue;
+            try {
+                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+                pushed++;
+            } catch (ProxyUnavailableException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                LOG.errorf(e, "drift repush failed for peer %s — skipping, remaining peers still processed", peer.id);
+            }
+        }
+        return pushed;
+    }
+
+    @Transactional
+    public int repushEnabledPeers() {
+        int pushed = 0;
         for (Peer peer : Peer.<Peer>list("enabled", true)) {
             try {
                 wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+                pushed++;
             } catch (ProxyUnavailableException e) {
                 throw e;
             } catch (RuntimeException e) {
                 LOG.errorf(e, "repush failed for peer %s — skipping, remaining peers still processed", peer.id);
             }
         }
+        return pushed;
     }
 
     /**
      * Hub-side AllowedIPs: peer's own /32 (and /128 when dual-stack),
      * plus downstream CIDRs for site peers.
      */
+    /**
+     * Render every enabled peer as {@code [Peer]} blocks for a server
+     * {@code wg0.conf}, ready to be appended to the file by hand.
+     *
+     * <p>Islandr configures peers with {@code wg set} and never writes
+     * {@code /etc/wireguard/<iface>.conf} — the service cannot, its sudo is
+     * scoped to {@code nft} and {@code wg} (ADR-0011). That keeps a hub taken
+     * over from an existing setup untouched, but it also means the peers
+     * Islandr manages disappear when Islandr does. This export is the way out:
+     * the admin downloads the blocks and appends them, and the tunnel keeps
+     * working without Islandr.
+     *
+     * <p>Deliberately no {@code [Interface]} section: the interface stays the
+     * admin's, exactly as during normal operation. Disabled peers are left out
+     * — they are off on purpose, and a file append is not the place to
+     * resurrect them.
+     */
+    public String exportPeersAsWgConf() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# WireGuard peers managed by Islandr, exported ")
+          .append(java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS))
+          .append("\n")
+          .append("# Append to /etc/wireguard/").append(wgInterface).append(".conf.\n")
+          .append("# No [Interface] section on purpose — that part stays yours.\n")
+          .append("# Disabled peers are not included.\n");
+        for (Peer peer : Peer.<Peer>list("enabled = true order by name")) {
+            sb.append("\n# islandr: ").append(peer.name)
+              .append(" (").append(peer.type).append(", peer ").append(peer.id).append(")\n")
+              .append("[Peer]\n")
+              .append("PublicKey = ").append(peer.publicKey).append("\n");
+            if (peer.presharedKey != null && !peer.presharedKey.isBlank()) {
+                sb.append("PresharedKey = ").append(peer.presharedKey).append("\n");
+            }
+            sb.append("AllowedIPs = ").append(hubAllowedIpsFor(peer)).append("\n");
+        }
+        return sb.toString();
+    }
+
     private static String hubAllowedIpsFor(Peer peer) {
         StringBuilder sb = new StringBuilder(peer.assignedIp).append("/32");
         if (peer.assignedIpv6 != null && !peer.assignedIpv6.isBlank()) {
@@ -638,10 +755,14 @@ public class PeerService {
     }
 
     private void validateAssignedIp(String ip, String wgSubnet) {
-        validateAssignedIp(ip, wgSubnet, null);
+        validateAssignedIp(ip, wgSubnet, null, null);
     }
 
     private void validateAssignedIp(String ip, String wgSubnet, String excludePeerId) {
+        validateAssignedIp(ip, wgSubnet, excludePeerId, null);
+    }
+
+    private void validateAssignedIp(String ip, String wgSubnet, String excludePeerId, String importingPublicKey) {
         IpSubnet subnet;
         try {
             subnet = IpSubnet.parse(wgSubnet);
@@ -663,6 +784,13 @@ public class PeerService {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
                             .entity("IP " + ip + " is already assigned to another peer")
+                            .build());
+        }
+        if (foreignAddressesOnInterface(false, importingPublicKey).contains(ip)) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("IP " + ip + " is in use by a peer on " + wgInterface
+                                    + " that Islandr does not manage — import it first, or pick another address")
                             .build());
         }
     }
@@ -694,6 +822,13 @@ public class PeerService {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
                             .entity("IPv6 " + ip6 + " is already assigned to another peer")
+                            .build());
+        }
+        if (foreignAddressesOnInterface(true).contains(ip6)) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("IPv6 " + ip6 + " is in use by a peer on " + wgInterface
+                                    + " that Islandr does not manage — import it first, or pick another address")
                             .build());
         }
     }
@@ -786,6 +921,36 @@ public class PeerService {
         return routed.isEmpty() ? null : String.join(", ", routed);
     }
 
+    /**
+     * Every host address in an AllowedIPs list: a {@code /32} for IPv4, a
+     * {@code /128} for IPv6. Larger prefixes are networks routed behind a
+     * gateway peer, not addresses anyone can be assigned, so they are skipped.
+     *
+     * <p>Taking the *first* address instead would read a gateway's routed
+     * subnet — `wg` lists AllowedIPs in config order, which for a site peer
+     * commonly starts with the network rather than the tunnel address — and the
+     * collision this check exists to prevent would slip through for exactly the
+     * peers most likely to be unmanaged on an adopted hub.
+     */
+    private static java.util.Set<String> hostAddressesIn(String allowedIps, boolean v6) {
+        if (allowedIps == null || allowedIps.isBlank()) return java.util.Set.of();
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String entry : allowedIps.split(",")) {
+            String e = entry.trim();
+            int slash = e.indexOf('/');
+            String addr = slash < 0 ? e : e.substring(0, slash);
+            String prefix = slash < 0 ? null : e.substring(slash + 1).trim();
+            boolean isV6 = addr.contains(":");
+            if (isV6 != v6) continue;
+            // A bare address (no prefix) is a host address; with one, only the
+            // full-length prefix is.
+            if (prefix != null && !prefix.equals(v6 ? "128" : "32")) continue;
+            if (!v6 && !addr.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) continue;
+            out.add(addr);
+        }
+        return out;
+    }
+
     private static String extractFirstIpv4(String allowedIps) {
         if (allowedIps == null || allowedIps.isBlank()) return null;
         for (String entry : allowedIps.split(",")) {
@@ -815,7 +980,10 @@ public class PeerService {
                 results.add(new PeerDto.WgImportResult(e.publicKey(), "skipped", null));
                 continue;
             }
-            validateAssignedIp(e.assignedIp(), settings.wgSubnet);
+            // The peer being imported is on the interface and not yet in the
+            // database — the definition of "foreign" for the collision check —
+            // so it has to be excluded or every import would reject itself.
+            validateAssignedIp(e.assignedIp(), settings.wgSubnet, null, e.publicKey());
             String type = (e.type() == null || e.type().isBlank()) ? "client" : e.type();
             boolean site = "site".equals(type);
             String siteCidrs;

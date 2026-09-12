@@ -5,6 +5,7 @@ import ActivityHeatmap from "/js/ActivityHeatmap.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
+import { hub } from "/js/hub.js";
 
 const LIVE_POLL_MS = 10000;
 // Sustained throughput above this reads as an active transfer (a big
@@ -69,6 +70,19 @@ export default defineComponent({
           text: t("dashboard.setup_retention"),
           link: "/settings",
           linkText: t("dashboard.setup_ret_action"),
+        });
+      }
+      // Peers on the interface that Islandr does not manage: they come from the
+      // <iface>.conf Islandr never writes, keep connecting, and reach the hub
+      // itself (the ruleset filters forwarded traffic only). Previously visible
+      // only to someone who opened the import dialog.
+      const unmanaged = this.data.peers?.unmanagedOnInterface ?? 0;
+      if (unmanaged > 0) {
+        issues.push({
+          severity: "warning",
+          text: t("dashboard.unmanaged_peers", { count: unmanaged, iface: hub.wgInterface }),
+          link: "/peers",
+          linkText: t("dashboard.unmanaged_peers_action"),
         });
       }
       if (s.firewallDryRun) {
@@ -468,7 +482,8 @@ export default defineComponent({
               <tr v-for="p in data.recentPeers" :key="p.id">
                 <td>{{ p.name }}</td>
                 <td class="mono muted" style="font-size: var(--text-xs)">{{ p.assignedIp }}</td>
-                <td style="font-size: var(--text-sm)">{{ p.userName }}</td>
+                <!-- Site peers have no owner; the API sends null rather than a label. -->
+                <td style="font-size: var(--text-sm)">{{ p.userName || '—' }}</td>
                 <td>
                   <span v-if="!p.enabled" class="badge badge-neutral" style="font-size: var(--text-xs)">
                     <span class="dot"></span>{{ t('peers.status_disabled') }}

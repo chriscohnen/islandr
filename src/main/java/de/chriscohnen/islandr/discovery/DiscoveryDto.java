@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.discovery;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
@@ -10,10 +11,22 @@ public final class DiscoveryDto {
 
     private DiscoveryDto() {}
 
-    public record ScanStarted(String jobId) {}
+    /**
+     * One name/MAC source the scan can draw on, and whether it is available for
+     * the network being scanned (issue #79). {@code reason} is a code, not
+     * prose — the wording lives in the frontend's i18n table — and is null when
+     * the source is active. Codes: {@code off_link}, {@code no_site_dns},
+     * {@code no_arp_table}, {@code mock_mode}.
+     */
+    public record NameSource(String id, boolean active, String reason) {}
+
+    public record ScanStarted(String jobId, List<NameSource> sources) {}
 
     public record HostView(String ip, List<Integer> openPorts, String typeGuess,
-                           String hostname, boolean alreadyRegistered) {}
+                           String hostname, boolean alreadyRegistered,
+                           // Issue #76 — on-link only; vendor is derived at
+                           // mapping time (DiscoveryResource), never stored.
+                           String mac, String vendor) {}
 
     public record ScanStatus(String state, int total, int done, int found, List<HostView> hosts, String error) {}
 
@@ -38,7 +51,11 @@ public final class DiscoveryDto {
             // the whole import — see DiscoveryResource#importHosts.
             @Pattern(regexp = "^$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$",
                     message = "must be a DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
-            String dnsName
+            String dnsName,
+            // Optional (issue #76) — pre-filled from the scan row's own MAC;
+            // the admin can edit/clear it per row before importing, same as dnsName.
+            @Size(max = 17)
+            String mac
     ) {}
 
     public record ImportRequest(@Valid List<ImportHost> hosts) {}
