@@ -482,7 +482,8 @@ export default defineComponent({
               <tr v-for="p in data.recentPeers" :key="p.id">
                 <td>{{ p.name }}</td>
                 <td class="mono muted" style="font-size: var(--text-xs)">{{ p.assignedIp }}</td>
-                <td style="font-size: var(--text-sm)">{{ p.userName }}</td>
+                <!-- Site peers have no owner; the API sends null rather than a label. -->
+                <td style="font-size: var(--text-sm)">{{ p.userName || '—' }}</td>
                 <td>
                   <span v-if="!p.enabled" class="badge badge-neutral" style="font-size: var(--text-xs)">
                     <span class="dot"></span>{{ t('peers.status_disabled') }}

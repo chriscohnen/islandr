@@ -203,12 +203,23 @@ public class PeerService {
      * @param v6 true for the IPv6 addresses, false for IPv4
      */
     private java.util.Set<String> foreignAddressesOnInterface(boolean v6) {
+        return foreignAddressesOnInterface(v6, null);
+    }
+
+    /**
+     * @param ignorePublicKey a peer on the interface to leave out — the one
+     *        currently being imported. Its address is on the interface and not
+     *        yet in the database, which is exactly what "foreign" means here, so
+     *        without this the import of an existing peer would reject itself.
+     */
+    private java.util.Set<String> foreignAddressesOnInterface(boolean v6, String ignorePublicKey) {
         java.util.Set<String> known = Peer.<Peer>listAll().stream()
                 .map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
         java.util.Set<String> out = new java.util.HashSet<>();
         try {
             for (WgAdapter.PeerStatus ps : wg.showPeers(wgInterface)) {
                 if (known.contains(ps.publicKey())) continue;
+                if (ignorePublicKey != null && ignorePublicKey.equals(ps.publicKey())) continue;
                 String addr = v6 ? extractFirstIpv6(ps.allowedIps()) : extractFirstIpv4(ps.allowedIps());
                 if (addr != null) out.add(addr);
             }
@@ -745,10 +756,14 @@ public class PeerService {
     }
 
     private void validateAssignedIp(String ip, String wgSubnet) {
-        validateAssignedIp(ip, wgSubnet, null);
+        validateAssignedIp(ip, wgSubnet, null, null);
     }
 
     private void validateAssignedIp(String ip, String wgSubnet, String excludePeerId) {
+        validateAssignedIp(ip, wgSubnet, excludePeerId, null);
+    }
+
+    private void validateAssignedIp(String ip, String wgSubnet, String excludePeerId, String importingPublicKey) {
         IpSubnet subnet;
         try {
             subnet = IpSubnet.parse(wgSubnet);
@@ -772,7 +787,7 @@ public class PeerService {
                             .entity("IP " + ip + " is already assigned to another peer")
                             .build());
         }
-        if (foreignAddressesOnInterface(false).contains(ip)) {
+        if (foreignAddressesOnInterface(false, importingPublicKey).contains(ip)) {
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
                             .entity("IP " + ip + " is in use by a peer on " + wgInterface
@@ -936,7 +951,10 @@ public class PeerService {
                 results.add(new PeerDto.WgImportResult(e.publicKey(), "skipped", null));
                 continue;
             }
-            validateAssignedIp(e.assignedIp(), settings.wgSubnet);
+            // The peer being imported is on the interface and not yet in the
+            // database — the definition of "foreign" for the collision check —
+            // so it has to be excluded or every import would reject itself.
+            validateAssignedIp(e.assignedIp(), settings.wgSubnet, null, e.publicKey());
             String type = (e.type() == null || e.type().isBlank()) ? "client" : e.type();
             boolean site = "site".equals(type);
             String siteCidrs;

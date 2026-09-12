@@ -73,6 +73,22 @@ class ForeignPeerAddressTest {
     }
 
     @Test
+    void importingAPeerFromTheInterfaceIsNotBlockedByItsOwnAddress() {
+        // The candidate is on the interface and not in the database — which is
+        // exactly what the collision check calls foreign. Without excluding the
+        // key being imported, adopting an existing hub would reject every peer.
+        wg.setPeer("wg0", FOREIGN_KEY, "10.8.0.44/32", null);
+        createUser();
+
+        given().contentType("application/json")
+                .body("{\"peers\":[{\"publicKey\":\"" + FOREIGN_KEY + "\",\"name\":\"adopted\","
+                        + "\"assignedIp\":\"10.8.0.44\",\"type\":\"client\"}]}")
+                .when().post("/api/v1/peers/wg-import")
+                .then().statusCode(200)
+                .body("[0].status", org.hamcrest.Matchers.equalTo("imported"));
+    }
+
+    @Test
     void anAddressHeldByAManagedPeerIsStillGovernedByTheDatabase() {
         String userId = createUser();
         String ip = given().contentType("application/json")

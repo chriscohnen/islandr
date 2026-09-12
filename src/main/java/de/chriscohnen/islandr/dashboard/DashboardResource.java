@@ -127,17 +127,25 @@ public class DashboardResource {
                                 + "lastSeenAt desc, createdAt desc")
                 .page(0, STRIP_SIZE).list();
         // Name resolution: one IN query for the involved users, then a map lookup.
+        // Site peers have no owner by design (userId is null), so a null name is
+        // the normal case here, not an error — the UI renders a dash for it. The
+        // API must not invent a label: this response is language-neutral, and the
+        // previous placeholder ("(gelöscht)") was both hardcoded German and wrong,
+        // calling every gateway's missing owner a deleted account.
         Map<String, String> userNames = new HashMap<>();
         if (!peerRows.isEmpty()) {
-            List<String> userIds = peerRows.stream().map(p -> p.userId).distinct().toList();
-            for (User u : User.<User>list("id in ?1", userIds)) {
-                userNames.put(u.id, u.name);
+            List<String> userIds = peerRows.stream()
+                    .map(p -> p.userId).filter(java.util.Objects::nonNull).distinct().toList();
+            if (!userIds.isEmpty()) {
+                for (User u : User.<User>list("id in ?1", userIds)) {
+                    userNames.put(u.id, u.name);
+                }
             }
         }
         List<DashboardDto.PeerEntry> peers = peerRows.stream()
                 .map(p -> new DashboardDto.PeerEntry(
                         p.id, p.name, p.userId,
-                        userNames.getOrDefault(p.userId, "(gelöscht)"),
+                        p.userId == null ? null : userNames.get(p.userId),
                         p.assignedIp, p.enabled, p.lastSeenAt))
                 .toList();
 
