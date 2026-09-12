@@ -216,7 +216,7 @@ islandr/
 ├── docs/
 │   ├── prd.md                               # Product Requirements Document
 │   ├── install.md                           # Installation guide (native binary, Docker)
-│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md
+│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md, identity-microsoft365.md
 │   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
 │   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
 │   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
@@ -298,6 +298,7 @@ islandr/
 - **MAC address and hardware vendor, where the device gives one up** — a resource can carry its MAC, and the vendor ("Ubiquiti Networks", "Raspberry Pi Foundation") is named from a table bundled with the binary, so no lookup leaves the host. Same caveat as the name suggestion: it works for some devices and not others, and less often the further the device sits from the hub. An **Identify** action retries it on demand for a resource that has none ([#76](https://github.com/chriscohnen/islandr/issues/76))
 - Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
 - **Resource-type ACL grants** — roles → every resource of a type at a site (e.g. "all printers in the home office"), additive to individual grants ([ADR-0022](docs/adr/0022-acl-type-grants.md))
+- **Microsoft 365 login is documented end to end** — registering the Entra ID app, the exact permissions Islandr needs and why, and the setup errors that never name their own cause ([docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md)). The Identity page helps rather than assuming: the redirect URI is copyable with one click (with a fallback for a hub still reached over plain HTTP, which is exactly when an admin is configuring this), and the tenant field is labelled the way Entra labels it instead of the way the protocol does
 - **Whole-network grants** — a role can be granted a whole site network at once, covering hosts added later. Deliberately coarse: always full access, no port scoping, and it reaches hosts Islandr has never been told about — use it where the network boundary already is the access boundary ([ADR-0029](docs/adr/0029-whole-network-role-grants.md), [#78](https://github.com/chriscohnen/islandr/issues/78))
 - **Direct user→resource grants** — grant one specific user access to a resource without a role, for one-off exceptions that don't warrant a new role ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md))
 - **Site-to-site grants** — a site's gateway peer can itself be a grant subject, authorizing the whole site's CIDR (not just individual peers) to reach a resource, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52))
