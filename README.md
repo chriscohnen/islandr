@@ -216,7 +216,7 @@ islandr/
 ├── docs/
 │   ├── prd.md                               # Product Requirements Document
 │   ├── install.md                           # Installation guide (native binary, Docker)
-│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md, identity-microsoft365.md
+│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md, identity-microsoft365.md, fail2ban.md
 │   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
 │   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
 │   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
@@ -336,6 +336,16 @@ islandr/
 
 Only the changes that matter if you actually use it. Earlier versions: [CHANGELOG.md](CHANGELOG.md) ·
 binaries, checksums and every change: [GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+**0.22.0**
+- **A hub whose Islandr does not start no longer forwards unfiltered** — the nftables table is applied at startup and does not survive a reboot, so a service that failed to start left the tunnel carrying the peers from `<iface>.conf` with the kernel's own `accept` policy, looking like it worked. A oneshot unit now loads a minimal `islandr-boot` table before the tunnel, and Islandr removes it only after applying its own. **Know the trade:** a hub whose Islandr does not start now forwards nothing at all, and a fresh install (firewall writes paused by default) forwards nothing until you activate enforcement — the console says so rather than leaving it to look like a routing fault. Existing installs need `setup-hub.sh` re-run ([ADR-0031](docs/adr/0031-fail-closed-boot-ruleset.md))
+- **Guessing a local password costs time now** — a wrong password came back instantly and the next guess could follow at once. Failures carry a progressive delay, never a lockout (an account that can be locked out is one anyone can deny), counted per account *and* per source address so password spraying is caught too, with a ceiling on attempts in flight
+- **A failed login writes a line fail2ban can match**, carrying the client address, and the audit row carries it as well. Behind a proxy, read [docs/install/fail2ban.md](docs/install/fail2ban.md) first: banning the peer address bans your proxy, and trusting `X-Forwarded-For` blindly lets an attacker ban a third party instead — so the header counts only for proxies you name, and that list is empty by default
+- **Fixed: browser-RDP refused sessions the firewall and the portal both allowed** — the RDP gate resolved roles itself and never saw the automatic "Everyone" role. The duplicated grant logic is gone; one resolver answers for the gate, the portal and the ruleset
+- **Resource ports can be edited** — thirteen configurable fields, three of them visible and none of them changeable, so correcting a path prefix meant deleting the port. Deleting cascades: every port-scoped grant on it is revoked, silently, and live reservations go too. The form now opens pre-filled, and a path prefix or capacity ceiling is readable straight off the chip
+- **Fixed: the Microsoft admin-consent link reported a CSRF failure for a consent that had succeeded** — the return carries no code and no state cookie by design, and running it through the login callback's check produced an error naming a client secret the link does not even carry
+- **Test configuration for Entra ID** — checks tenant, client ID, secret and redirect URI separately and names the one at fault, telling a wrong secret apart from an expired one. A UUID pasted into the secret field is refused before anything is saved: that is the Secret **ID**, and the Value is what Entra only ever shows once
+- **Avatars can be uploaded** — until now a face arrived only from an OIDC profile photo or from Gravatar, so a local-accounts-only hub showed initials for everyone unless the admin turned on the one outbound call the product otherwise avoids. Admins set anyone's, users set their own, initials stay the fallback
 
 **0.21.0**
 - **Fixed: a reboot emptied the tunnel.** Peers Islandr manages are configured with `wg set` and live in kernel state — it never writes `/etc/wireguard/<iface>.conf`. A host reboot or a `systemctl restart wg-quick@<iface>` therefore brought the interface back holding only the peers in that file, and nothing put the rest back: measured on a live hub, 12 peers before the restart and 3 after. They stayed gone until an admin edited each one. Islandr now re-applies its peers when it starts, and the activity poller repairs the same drift within one tick while it is running, so a `wg-quick` restart under a running service needs no restart of Islandr ([ADR-0030](docs/adr/0030-wireguard-config-file-ownership.md))
