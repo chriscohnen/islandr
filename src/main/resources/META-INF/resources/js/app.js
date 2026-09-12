@@ -363,7 +363,10 @@ const App = defineComponent({
           <Icon v-else name="moon" :size="16" />
         </button>
         <div v-if="me" class="topbar-user">
-          <Avatar :user="{ id: me.userId, name: me.principal }" :size="28" />
+          <!-- Own avatar, editable by its owner (issue #85): a local account
+               could otherwise only get a face by switching Gravatar on. -->
+          <Avatar v-if="me.userId" :user="{ id: me.userId, name: me.principal }" :size="28" editable />
+          <Avatar v-else :user="{ id: me.userId, name: me.principal }" :size="28" />
           <span class="topbar-user-name">{{ me.principal }}</span>
           <span v-if="me.provider !== 'local'" class="badge badge-info" style="margin-left: var(--space-2)">
             {{ me.provider === 'microsoft' ? 'MS365' : 'Google' }}
