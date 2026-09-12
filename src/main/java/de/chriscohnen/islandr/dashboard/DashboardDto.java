@@ -150,10 +150,17 @@ public final class DashboardDto {
             String id,
             String name,
             String userId,
+            // Null for a peer without an owner — every site gateway, by design.
+            // The UI renders a dash; the API does not invent a label.
             String userName,
             String assignedIp,
             boolean enabled,
-            Instant lastSeenAt
+            Instant lastSeenAt,
+            // "CONNECTED" | "STALE" | "DISCONNECTED", same source as the Peers
+            // table (PeerConnectionStatus). The strip renders the badge from
+            // this; without it every row fell back to "disconnected" no matter
+            // how recent the handshake was.
+            String connectionStatus
     ) {}
 
     private DashboardDto() {}

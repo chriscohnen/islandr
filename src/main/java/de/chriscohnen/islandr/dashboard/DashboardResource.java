@@ -146,7 +146,8 @@ public class DashboardResource {
                 .map(p -> new DashboardDto.PeerEntry(
                         p.id, p.name, p.userId,
                         p.userId == null ? null : userNames.get(p.userId),
-                        p.assignedIp, p.enabled, p.lastSeenAt))
+                        p.assignedIp, p.enabled, p.lastSeenAt,
+                        p.connectionStatus(Instant.now()).name()))
                 .toList();
 
         // Topology widget: static infrastructure (Sites + Resources) plus a
