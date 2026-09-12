@@ -2,7 +2,6 @@ package de.chriscohnen.islandr.peer;
 
 import de.chriscohnen.islandr.auth.AdminSessionExtension;
 import de.chriscohnen.islandr.user.User;
-import de.chriscohnen.islandr.wg.CleanWgInterfaceExtension;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -25,9 +24,19 @@ import static org.assertj.core.api.Assertions.assertThat;
  * for that address reaches a device the admin does not manage.
  */
 @QuarkusTest
+@io.quarkus.test.junit.TestProfile(ForeignPeerAddressTest.CheckOn.class)
 @ExtendWith(AdminSessionExtension.class)
-@ExtendWith(CleanWgInterfaceExtension.class)
+@ExtendWith(de.chriscohnen.islandr.wg.CleanWgInterfaceExtension.class)
 class ForeignPeerAddressTest {
+
+    /** The check is off in the test profile (see application.properties) — this
+     *  is the class that exercises it, so it turns it back on for itself. */
+    public static final class CheckOn implements io.quarkus.test.junit.QuarkusTestProfile {
+        @Override
+        public java.util.Map<String, String> getConfigOverrides() {
+            return java.util.Map.of("islandr.peers.foreign-address-check-enabled", "true");
+        }
+    }
 
     private static final String FOREIGN_KEY = "FoReIgN00000000000000000000000000000000000A=";
 
