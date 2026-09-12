@@ -45,6 +45,10 @@ export default defineComponent({
       gwsSaving: false,
       gwsSaved: false,
       gwsError: null,
+      // Copy-Feedback für die Redirect-URI: der Button zeigt kurz ein Häkchen
+      // bzw. einen Fehlerhinweis und fällt danach in den Normalzustand zurück.
+      redirectCopied: false,
+      redirectCopyFailed: false,
     };
   },
   computed: {
@@ -117,6 +121,33 @@ export default defineComponent({
     },
     redirectUriFor(providerKey) {
       return window.location.origin + "/api/v1/auth/oidc/" + providerKey + "/callback";
+    },
+    async copyRedirectUri(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // navigator.clipboard needs a secure context (HTTPS/localhost) — a
+          // hub reached over plain HTTP is exactly the case where an admin is
+          // still setting up the provider, so fall back to execCommand rather
+          // than silently doing nothing.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          if (!ok) throw new Error("execCommand copy failed");
+        }
+        this.redirectCopied = true;
+        setTimeout(() => (this.redirectCopied = false), 2000);
+      } catch (_) {
+        this.redirectCopyFailed = true;
+        setTimeout(() => (this.redirectCopyFailed = false), 2000);
+      }
     },
     providerLabel(key) {
       return key === "microsoft" ? t("identity.ms") : t("identity.google");
@@ -578,7 +609,15 @@ export default defineComponent({
 
         <div class="field">
           <label>{{ t('identity.redirect') }}</label>
-          <pre class="code-block">{{ redirectUriFor(editing) }}</pre>
+          <div style="display:flex; gap: var(--space-2); align-items:flex-start; margin-bottom: var(--space-2)">
+            <pre class="code-block" style="flex:1; min-width:0; margin:0">{{ redirectUriFor(editing) }}</pre>
+            <button type="button" class="btn btn-ghost btn-sm"
+                    :aria-label="t('common.copy')"
+                    :title="redirectCopyFailed ? t('common.copy_failed') : (redirectCopied ? t('common.copied') : t('common.copy'))"
+                    @click="copyRedirectUri(redirectUriFor(editing))">
+              <Icon :name="redirectCopied ? 'check' : 'copy'" :size="14" />
+            </button>
+          </div>
           <div class="field-hint">{{ t('identity.redirect_hint') }}</div>
         </div>
 

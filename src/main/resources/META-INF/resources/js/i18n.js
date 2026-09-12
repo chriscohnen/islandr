@@ -56,6 +56,7 @@ const messages = {
     "common.never":     "—",
     "common.copy":      "Copy",
     "common.copied":    "Copied",
+    "common.copy_failed": "Copy failed — select the text and copy manually",
     "common.pw_show":   "Show password",
     "common.pw_hide":   "Hide password",
 
@@ -1617,6 +1618,7 @@ const messages = {
     "common.never":     "—",
     "common.copy":      "Kopieren",
     "common.copied":    "Kopiert",
+    "common.copy_failed": "Kopieren fehlgeschlagen — Text markieren und manuell kopieren",
     "common.pw_show":   "Passwort anzeigen",
     "common.pw_hide":   "Passwort verbergen",
 
@@ -2290,7 +2292,7 @@ const messages = {
     "identity.active":         "Aktiv",
     "identity.connected":      "Verbunden",
     "identity.domains":        "Erlaubte Domains",
-    "identity.tenant":         "Tenant-ID",
+    "identity.tenant":         "Tenant-ID (Mandanten-ID)",
     "identity.client_id":      "Client-ID",
     "identity.secret":         "Secret",
     "identity.secret_set":     "gesetzt",
