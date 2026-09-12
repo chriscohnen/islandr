@@ -76,6 +76,33 @@ Notes:
 - **R-152** — An admin-supplied malformed or self-signed-by-mistake certificate could be accepted and pushed live, breaking HTTPS for every client. Mitigation: validate the cert/key pairing and basic X.509 sanity (not expired, key usage includes server auth) before calling `reload()`; keep serving the previous working configuration on validation failure.
 - **R-153** — No renewal reminder means a certificate can silently expire (managed mode) if the admin forgets. Mitigation: the expiry-date banner named above; full auto-renewal is out of scope until the ACME follow-up.
 
+## Implementation note (2026-09-12)
+
+**The *referenced* mode was never shipped, and the file-watch it assumed does not exist.**
+The decision above describes three storage modes and says referenced mode would configure a named
+`quarkus.tls.<name>.key-store.path` and rely on Quarkus's own `reload-period` file-watch. The build
+went a different way: `TlsKeyStoreProvider` supplies the **default** TLS configuration's material in
+code — `application.properties` carries no `quarkus.tls.*` static config at all, and therefore no
+`reload-period`. `TlsService` reloads explicitly instead: at startup, on a certificate upload, on a
+reset, and after an ACME issuance.
+
+What that means in practice:
+
+- `tlsMode = "referenced"` is read by `TlsKeyStoreProvider` and the `tlsCertPath`/`tlsKeyPath`
+  columns exist, but `SettingsDto` does not expose them and nothing in the API or the Admin Console
+  ever sets that mode. It is reachable only by editing the database by hand, so it is not a feature
+  an operator can use.
+- Nothing watches a certificate file for changes. An externally rotated file would be picked up at
+  the next explicit reload, not when it changes.
+- **R-151** therefore describes a risk that cannot currently occur, and `docs/install/reverse-proxy.md`
+  listed referenced mode as an available option until this note was written. The guide now says it is
+  not available.
+
+Finishing the mode is a small, self-contained piece of work — expose the two path fields, set the
+mode, and either add a watch or document that a restart applies a rotated file. It is recorded here
+rather than silently dropped, because the gap between this ADR and the code is exactly what a reader
+would otherwise trust.
+
 ## References
 
 - [ADR-0007](0007-private-key-retention.md) — private-key retention model and `EncryptionService`, reused here for the managed mode's private key
