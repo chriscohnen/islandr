@@ -21,6 +21,9 @@ export default defineComponent({
       editId: null,
       submitting: false,
       formError: null,
+      // One DNS server per gateway, applied to every network imported from it
+      // (issue #74). Keyed by peer id, empty by default — never guessed.
+      importDnsByGateway: {},
       // Bulk import of the networks a site gateway already routes.
       importModal: false,
       importCandidates: [],
@@ -99,10 +102,35 @@ export default defineComponent({
   methods: {
     useRange(cidr) { this.form.cidr = cidr; },
 
+    // A network imported from a gateway starts with no DNS server, and the
+    // hub's own resolver knows nothing about a network reached through one —
+    // so both PTR steps of the discovery scan are dead and every host without
+    // a self-reported name imports as "computer-<octet>" (issue #74). The
+    // dialog therefore asks once per gateway: one gateway routing five
+    // networks almost certainly serves all five from one resolver.
+    importDnsFor(peerId) {
+      return this.importDnsByGateway[peerId] || "";
+    },
+    setImportDns(peerId, value) {
+      this.importDnsByGateway[peerId] = value;
+    },
+    // Same "suggestion, never a silent pre-fill" rule as the site form's own
+    // DNS field: most branch routers answer on the first host of the network,
+    // but that is a guess and a wrong one is worse than an empty field.
+    importDnsSuggestion(group) {
+      if (this.importDnsFor(group.peerId)) return "";
+      const first = group.rows.find((r) => !r.existingSiteName) || group.rows[0];
+      if (!first) return "";
+      const octets = (first.cidr || "").split("/")[0].trim().split(".");
+      if (octets.length !== 4 || octets.some((o) => o === "" || isNaN(Number(o)))) return "";
+      return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
+    },
+
     async openImport() {
       this.importModal = true;
       this.importError = null;
       this.importResults = null;
+      this.importDnsByGateway = {};
       this.importLoading = true;
       try {
         const res = await fetch("/api/v1/sites/gateway-import-preview");
@@ -125,6 +153,7 @@ export default defineComponent({
       this.importCandidates = [];
       this.importResults = null;
       this.importError = null;
+      this.importDnsByGateway = {};
     },
 
     setAllImportSelected(selected) {
@@ -150,6 +179,7 @@ export default defineComponent({
             cidr: c.cidr,
             name: c.name.trim(),
             description: null,
+            dnsServerIp: this.importDnsFor(c.peerId).trim() || null,
           })) }),
         });
         if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
@@ -409,6 +439,26 @@ export default defineComponent({
 
             <div v-for="g in importByGateway" :key="g.peerId" style="margin-bottom: var(--space-4)">
               <div class="eyebrow" style="margin-bottom: var(--space-2)">{{ t('sites.import_gateway') }} {{ g.peerName }}</div>
+              <!-- Asked once per gateway, applied to every network imported
+                   from it. Without it the discovery scan has no reverse-DNS
+                   source for these networks at all (#74). -->
+              <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; margin-bottom: var(--space-2)">
+                <label class="muted" style="font-size: var(--text-xs)" :for="'importDns-' + g.peerId">
+                  {{ t('sites.import_dns_label') }}
+                </label>
+                <input class="input mono" :id="'importDns-' + g.peerId"
+                       style="height:28px;font-size:var(--text-sm);padding:2px 6px;width:160px"
+                       :value="importDnsFor(g.peerId)"
+                       @input="setImportDns(g.peerId, $event.target.value)"
+                       :placeholder="t('sites.field_dns_server_ph')" />
+                <button v-if="importDnsSuggestion(g)" type="button" class="btn btn-ghost btn-sm"
+                        @click="setImportDns(g.peerId, importDnsSuggestion(g))">
+                  {{ t('sites.field_dns_server_suggestion', { ip: importDnsSuggestion(g) }) }}
+                </button>
+              </div>
+              <div v-if="!importDnsFor(g.peerId)" class="muted" style="font-size: var(--text-xs); margin-bottom: var(--space-2)">
+                {{ t('sites.import_dns_hint') }}
+              </div>
               <table class="table" style="font-size: var(--text-sm)">
                 <thead>
                   <tr>

@@ -157,7 +157,7 @@ public class SiteService {
                         "peerId " + e.peerId() + " is not a site peer");
             }
             Site s = create(new SiteDto.UpsertRequest(
-                    e.name().trim(), cidr, e.description(), gateway.id, null, null));
+                    e.name().trim(), cidr, e.description(), gateway.id, null, e.dnsServerIp()));
             results.add(new SiteDto.GatewayImportResult(cidr, "imported", s.id));
         }
         return results;

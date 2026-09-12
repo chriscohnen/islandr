@@ -80,7 +80,7 @@ class GatewayNetworkImportTest {
     void preview_namesTheSiteThatAlreadyCoversACidr() {
         Peer gw = gateway("dup-" + uniq(), "192.168.73.0/24");
         sites.gatewayImport(List.of(new SiteDto.GatewayNetworkEntry(
-                gw.id, "192.168.73.0/24", "Already there " + uniq(), null)));
+                gw.id, "192.168.73.0/24", "Already there " + uniq(), null, null)));
 
         SiteDto.GatewayNetworkCandidate c = sites.gatewayImportPreview().stream()
                 .filter(x -> x.cidr().equals("192.168.73.0/24")).findFirst().orElseThrow();
@@ -94,8 +94,8 @@ class GatewayNetworkImportTest {
         String n1 = "Net74 " + uniq(), n2 = "Net75 " + uniq();
 
         List<SiteDto.GatewayImportResult> res = sites.gatewayImport(List.of(
-                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.74.0/24", n1, null),
-                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.75.0/24", n2, "second")));
+                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.74.0/24", n1, null, null),
+                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.75.0/24", n2, "second", null)));
 
         assertThat(res).extracting(SiteDto.GatewayImportResult::status)
                 .containsExactly("imported", "imported");
@@ -112,11 +112,11 @@ class GatewayNetworkImportTest {
     void import_skipsACidrThatIsAlreadyASite_soAPartialGatewayStaysRerunnable() {
         Peer gw = gateway("partial-" + uniq(), "192.168.76.0/24, 192.168.77.0/24");
         sites.gatewayImport(List.of(new SiteDto.GatewayNetworkEntry(
-                gw.id, "192.168.76.0/24", "First " + uniq(), null)));
+                gw.id, "192.168.76.0/24", "First " + uniq(), null, null)));
 
         List<SiteDto.GatewayImportResult> res = sites.gatewayImport(List.of(
-                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.76.0/24", "Again " + uniq(), null),
-                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.77.0/24", "Second " + uniq(), null)));
+                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.76.0/24", "Again " + uniq(), null, null),
+                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.77.0/24", "Second " + uniq(), null, null)));
 
         assertThat(res).extracting(SiteDto.GatewayImportResult::status)
                 .containsExactly("skipped", "imported");
@@ -127,7 +127,7 @@ class GatewayNetworkImportTest {
         Peer client = clientPeer();
 
         assertThatThrownBy(() -> sites.gatewayImport(List.of(new SiteDto.GatewayNetworkEntry(
-                client.id, "192.168.78.0/24", "Nope " + uniq(), null))))
+                client.id, "192.168.78.0/24", "Nope " + uniq(), null, null))))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("not a site peer");
     }
@@ -143,5 +143,39 @@ class GatewayNetworkImportTest {
 
         assertThat(suggestions).doesNotHaveDuplicates();
         assertThat(suggestions).allMatch(s -> s.startsWith(name));
+    }
+
+    /**
+     * Issue #74: a network imported from a gateway has no DNS server, and the
+     * hub's own resolver knows nothing about a network reached through one —
+     * so both reverse-DNS steps of a discovery scan are dead and every host
+     * that reports no name of its own imports as "computer-<octet>". The
+     * import dialog asks once per gateway; this is the part that has to store
+     * it on every network that gateway creates.
+     */
+    @Test
+    void importCarriesTheDnsServerOntoEveryNetworkOfThatGateway() {
+        Peer gw = gateway("dns-" + uniq(), "192.168.81.0/24, 192.168.82.0/24");
+        String n1 = "DnsOne " + uniq();
+        String n2 = "DnsTwo " + uniq();
+
+        sites.gatewayImport(List.of(
+                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.81.0/24", n1, null, "192.168.81.1"),
+                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.82.0/24", n2, null, "192.168.81.1")));
+
+        assertThat(Site.<Site>find("name", n1).firstResult().dnsServerIp).isEqualTo("192.168.81.1");
+        assertThat(Site.<Site>find("name", n2).firstResult().dnsServerIp).isEqualTo("192.168.81.1");
+    }
+
+    /** Left empty it stays empty — the field is optional and never guessed. */
+    @Test
+    void importWithoutADnsServerLeavesTheFieldEmpty() {
+        Peer gw = gateway("nodns-" + uniq(), "192.168.83.0/24");
+        String name = "NoDns " + uniq();
+
+        sites.gatewayImport(List.of(
+                new SiteDto.GatewayNetworkEntry(gw.id, "192.168.83.0/24", name, null, null)));
+
+        assertThat(Site.<Site>find("name", name).firstResult().dnsServerIp).isNull();
     }
 }

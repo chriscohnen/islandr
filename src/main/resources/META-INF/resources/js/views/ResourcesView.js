@@ -66,6 +66,18 @@ export default defineComponent({
       // Which name/MAC sources this network's scan can use (issue #79) —
       // constant for the whole scan, so it rides along on the start response.
       scanSources: [],
+      // Issue #74: a network with no DNS server has no reverse-DNS source at
+      // all — the hub's own resolver knows nothing about a network reached
+      // through a gateway — so the scan falls back to self-reported names and
+      // everything else imports as "computer-<octet>". Fixable here rather
+      // than three screens away.
+      scanDnsInput: "",
+      scanDnsSaving: false,
+      scanDnsError: null,
+      // Only true when the DNS server was set from inside this dialog — the
+      // re-scan offer is for the admin who just changed the outcome, not a
+      // banner on every scan of a properly configured network.
+      scanDnsJustSaved: false,
       // Hosts as they arrive mid-sweep (issue #75) — read-only, kept apart from
       // scanHosts so the review table's per-row edits are never built from a
       // list that is still growing underneath them.
@@ -148,6 +160,21 @@ export default defineComponent({
         names: names.join(" · "),
         why: t("discovery.src_why_" + reason),
       }));
+    },
+    // True while this network cannot resolve registered names at all. The
+    // scan-source line (#79) already says so once a scan is running; this is
+    // what lets the admin do something about it, before and after (#74).
+    siteHasNoDnsServer() {
+      return !!this.site && !this.site.dnsServerIp;
+    },
+    // Suggestion, never a silent pre-fill — same rule as the network form's
+    // own DNS field and the resource DNS name below. Most branch routers
+    // answer on the first host of the network, but that is a guess.
+    scanDnsSuggestion() {
+      if (this.scanDnsInput) return "";
+      const octets = ((this.site && this.site.cidr) || "").split("/")[0].trim().split(".");
+      if (octets.length !== 4 || octets.some((o) => o === "" || isNaN(Number(o)))) return "";
+      return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
     },
     // Never written into form.dnsName automatically — shown as a placeholder/
     // accept-chip only, so doing nothing before Save leaves the field exactly
@@ -552,9 +579,56 @@ export default defineComponent({
     },
 
     // -- Device discovery (ADR-0014) --------------------------------------
+    // Saves the DNS server on the network from inside the scan dialog, so the
+    // admin fixes it where they notice it rather than navigating to the
+    // network's settings and back (#74). Sends the site's existing fields
+    // unchanged — this is a PUT, and a partial body would clear them.
+    async saveScanDnsServer() {
+      const ip = this.scanDnsInput.trim();
+      if (!ip || !this.site) return;
+      this.scanDnsSaving = true;
+      this.scanDnsError = null;
+      try {
+        const res = await fetch("/api/v1/sites/" + this.site.id, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: this.site.name,
+            cidr: this.site.cidr,
+            description: this.site.description,
+            gatewayPeerId: this.site.gatewayPeerId || null,
+            subdomain: this.site.subdomain || null,
+            dnsServerIp: ip,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
+        this.site = await res.json();
+        this.scanDnsInput = "";
+        this.scanDnsJustSaved = true;
+      } catch (e) {
+        this.scanDnsError = t("discovery.dns_save_error", { error: e.message });
+      } finally {
+        this.scanDnsSaving = false;
+      }
+    },
+    // Back to the consent step, so the scan can be re-run with the DNS server
+    // now in place rather than the dialog having to be closed and reopened.
+    rescanAfterDnsChange() {
+      this.scanState = "consent";
+      this.scanDnsJustSaved = false;
+      this.scanHosts = [];
+      this.scanLiveHosts = [];
+      this.scanJobId = null;
+      this.scanError = null;
+      this.scanFound = 0;
+      this.scanSources = [];
+    },
     openScan() {
       this.scanOpen = true;
       this.scanState = "consent";
+      this.scanDnsInput = "";
+      this.scanDnsError = null;
+      this.scanDnsJustSaved = false;
       this.scanHosts = [];
       this.scanJobId = null;
       this.scanError = null;
@@ -1097,6 +1171,33 @@ export default defineComponent({
               {{ t('discovery.consent', { cidr: site ? site.cidr : '' }) }}
             </p>
             <p class="field-hint" style="margin: 0">{{ t('discovery.consent_hint') }}</p>
+
+          <!-- Issue #74: with no DNS server on this network, both reverse-DNS
+               steps of the scan are dead — the hub's own resolver knows
+               nothing about a network reached through a gateway — so only
+               self-reported names come back and everything else imports as
+               "computer-<octet>". Said here, and fixable here. -->
+          <div v-if="siteHasNoDnsServer" class="callout callout-warning" style="margin-top: var(--space-3)">
+            <div style="width: 100%">
+              <strong>{{ t('discovery.no_dns_title') }}</strong>
+              <p style="margin: var(--space-2) 0 var(--space-3)">{{ t('discovery.no_dns_body') }}</p>
+              <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap">
+                <input class="input mono" style="width: 170px" v-model="scanDnsInput"
+                       :placeholder="t('sites.field_dns_server_ph')"
+                       :aria-label="t('sites.field_dns_server')" />
+                <button v-if="scanDnsSuggestion" type="button" class="btn btn-ghost btn-sm"
+                        @click="scanDnsInput = scanDnsSuggestion">
+                  {{ t('sites.field_dns_server_suggestion', { ip: scanDnsSuggestion }) }}
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm"
+                        :disabled="scanDnsSaving || !scanDnsInput.trim()"
+                        @click="saveScanDnsServer">
+                  {{ scanDnsSaving ? t('common.saving') : t('common.save') }}
+                </button>
+              </div>
+              <div v-if="scanDnsError" class="error-banner" style="margin-top: var(--space-2)">{{ scanDnsError }}</div>
+            </div>
+          </div>
           </template>
 
           <template v-else-if="scanState === 'running'">
@@ -1157,6 +1258,39 @@ export default defineComponent({
             <div v-if="scanError" class="error-banner" style="margin-bottom: var(--space-3)">{{ scanError }}</div>
             <div v-if="scanState === 'cancelled'" class="callout callout-warning">
               <span>{{ t('discovery.cancelled_partial', { done: scanProgress.done, total: scanProgress.total }) }}</span>
+            </div>
+            <!-- Also after the scan (#74): this is the moment the admin is
+                 looking at a column full of "computer-<octet>" and can see
+                 what it cost. Setting it here offers the re-scan directly. -->
+            <div v-if="siteHasNoDnsServer" class="callout callout-warning">
+              <div style="width: 100%">
+                <strong>{{ t('discovery.no_dns_title') }}</strong>
+                <p style="margin: var(--space-2) 0 var(--space-3)">{{ t('discovery.no_dns_after') }}</p>
+                <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap">
+                  <input class="input mono" style="width: 170px" v-model="scanDnsInput"
+                         :placeholder="t('sites.field_dns_server_ph')"
+                         :aria-label="t('sites.field_dns_server')" />
+                  <button v-if="scanDnsSuggestion" type="button" class="btn btn-ghost btn-sm"
+                          @click="scanDnsInput = scanDnsSuggestion">
+                    {{ t('sites.field_dns_server_suggestion', { ip: scanDnsSuggestion }) }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm"
+                          :disabled="scanDnsSaving || !scanDnsInput.trim()"
+                          @click="saveScanDnsServer">
+                    {{ scanDnsSaving ? t('common.saving') : t('common.save') }}
+                  </button>
+                </div>
+                <div v-if="scanDnsError" class="error-banner" style="margin-top: var(--space-2)">{{ scanDnsError }}</div>
+              </div>
+            </div>
+            <!-- Saved during this dialog: offer the re-scan rather than
+                 leaving the admin with a result they now know is incomplete. -->
+            <div v-else-if="scanDnsJustSaved" class="callout callout-info">
+              <div>
+                {{ t('discovery.dns_set_rescan') }}
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-left: var(--space-3)"
+                        @click="rescanAfterDnsChange">{{ t('discovery.rescan_btn') }}</button>
+              </div>
             </div>
             <div v-if="scanHosts.length === 0" class="muted">{{ t('discovery.none') }}</div>
             <template v-else>
