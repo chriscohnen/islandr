@@ -30,7 +30,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * all its access.
  */
 @QuarkusTest
-@org.junit.jupiter.api.extension.ExtendWith(de.chriscohnen.islandr.wg.CleanWgInterfaceExtension.class)
 class PeerUserReassignTest {
 
     @Inject PeerService peers;

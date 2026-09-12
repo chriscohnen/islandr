@@ -25,7 +25,6 @@ import static org.hamcrest.Matchers.startsWith;
  */
 @QuarkusTest
 @ExtendWith(AdminSessionExtension.class)
-@ExtendWith(de.chriscohnen.islandr.wg.CleanWgInterfaceExtension.class)
 class PeerResourceTest {
 
     @Inject SettingsService settings;

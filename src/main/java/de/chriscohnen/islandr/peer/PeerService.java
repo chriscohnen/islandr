@@ -33,6 +33,17 @@ public class PeerService {
 
     @ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
+    /**
+     * Whether address allocation consults the live interface for peers Islandr
+     * does not manage. Off in the test profile: the mock adapter is one instance
+     * for the whole Quarkus instance and keeps entries whose database rows a
+     * previous test class deleted, so every test that pins an address would
+     * depend on which class ran first. {@code ForeignPeerAddressTest} turns it
+     * back on and covers the behaviour deliberately.
+     */
+    @ConfigProperty(name = "islandr.peers.foreign-address-check-enabled", defaultValue = "true")
+    boolean foreignAddressCheckEnabled;
+
     @Transactional
     public PeerDto.CreateResponse createForUser(String userId, PeerDto.CreateRequest req) {
         if (userId != null) {
@@ -213,6 +224,7 @@ public class PeerService {
      *        without this the import of an existing peer would reject itself.
      */
     private java.util.Set<String> foreignAddressesOnInterface(boolean v6, String ignorePublicKey) {
+        if (!foreignAddressCheckEnabled) return java.util.Set.of();
         java.util.Set<String> known = Peer.<Peer>listAll().stream()
                 .map(p -> p.publicKey).collect(java.util.stream.Collectors.toSet());
         java.util.Set<String> out = new java.util.HashSet<>();
