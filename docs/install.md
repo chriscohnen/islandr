@@ -491,7 +491,8 @@ This just hands `forward` traffic back to whatever else is on the host; islandr 
 - [ ] Reverse proxy with TLS in front of port 8080
 - [ ] Admin password saved securely, not committed to version control
 - [ ] `wg0` interface up and WireGuard server keys configured in Islandr Settings
-- [ ] OIDC provider configured (Settings → Identity) — local admin is for recovery only
+- [ ] OIDC provider configured (Settings → Identity) — local admin is for recovery only.
+      For Microsoft 365 / Entra ID see [install/identity-microsoft365.md](install/identity-microsoft365.md)
 - [ ] Firewall dry-run **disabled** once the generated ruleset looks correct (Settings → Firewall)
 - [ ] Backup job for `/var/lib/islandr/data/islandr.db` — contains OIDC client secrets, treat
       accordingly (`scripts/backup.sh`, see below)
