@@ -35,12 +35,20 @@ export default defineComponent({
       formError: null,
       identifying: false,
       identifyResult: null, // { hostname, mac, vendor } | null, cleared on modal close/open
-      // Inline port form (one per resource at a time)
+      // Inline port form (one per resource at a time). The same form both
+      // adds and edits: portEditId null means add, a port id means edit
+      // (issue #82 — editing used to be delete-and-recreate, which silently
+      // revoked every port-scoped grant on the port).
       portFormFor: null,
+      portEditId: null,
       portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
         // #72: empty string, not 0 — the port is "unlimited" until the admin
         // types a number, and 0 would mean "nobody may ever reach it".
-        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true },
+        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true,
+        // RDP flags travel with the form so an edit cannot silently clear
+        // them: PortRequest has primitive booleans, so an omitted key is
+        // read as false on the server.
+        rdpClipboard: false, rdpFileTransfer: false, rdpAccessMode: "native" },
       portError: null,
       // Port-group apply (separate inline form, one resource at a time)
       portGroups: [],
@@ -401,15 +409,65 @@ export default defineComponent({
     },
     openPortForm(resourceId) {
       this.portFormFor = resourceId;
+      this.portEditId = null;
       this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
-        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true };
+        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true,
+        rdpClipboard: false, rdpFileTransfer: false, rdpAccessMode: "native" };
       this.portError = null;
       // Close the group-apply UI to keep only one inline form open at a time.
       this.groupFormFor = null;
     },
+    // Opens the same inline form pre-filled from an existing port (#82).
+    // Every field the server stores is carried over, including the ones the
+    // form does not render for the current protocol — a round-trip must not
+    // drop what it cannot show.
+    openPortEdit(resourceId, p) {
+      this.portFormFor = resourceId;
+      this.portEditId = p.id;
+      this.portForm = {
+        allPorts: p.port === 0,
+        port: p.port === 0 ? "" : String(p.port),
+        portEnd: p.portEnd == null ? "" : String(p.portEnd),
+        transport: p.transport,
+        protocol: p.protocol,
+        label: p.label || "",
+        pathPrefix: p.pathPrefix || "",
+        maxConcurrentUsers: p.maxConcurrentUsers == null ? "" : String(p.maxConcurrentUsers),
+        maxReservationMinutes: p.maxReservationMinutes == null ? "" : String(p.maxReservationMinutes),
+        autoApproveReservations: p.autoApproveReservations !== false,
+        rdpClipboard: !!p.rdpClipboard,
+        rdpFileTransfer: !!p.rdpFileTransfer,
+        rdpAccessMode: p.rdpAccessMode || "native",
+      };
+      this.portError = null;
+      this.groupFormFor = null;
+    },
     closePortForm() {
       this.portFormFor = null;
+      this.portEditId = null;
       this.portError = null;
+    },
+    // One-line summary of what a port is configured as, for the chip title —
+    // the chip itself only has room for the two or three that change what the
+    // port *is*.
+    portTooltip(p) {
+      const parts = [];
+      if (p.label) parts.push(p.label);
+      if (p.pathPrefix) parts.push(t("resources.label_path_prefix") + ": " + p.pathPrefix);
+      if (p.maxConcurrentUsers != null) {
+        parts.push(t("resources.field_capacity") + ": " + p.maxConcurrentUsers);
+        if (p.maxReservationMinutes != null) {
+          parts.push(t("resources.field_max_reservation") + ": " + p.maxReservationMinutes + " min");
+        }
+        parts.push(p.autoApproveReservations === false
+          ? t("resources.port_tip_approval") : t("resources.port_tip_auto_approve"));
+      }
+      if (p.protocol === "RDP") {
+        if (p.rdpClipboard) parts.push(t("resources.field_rdp_clipboard"));
+        if (p.rdpFileTransfer) parts.push(t("resources.field_rdp_file_transfer"));
+        if (p.rdpAccessMode === "web-only") parts.push(t("resources.rdp_mode_web_only"));
+      }
+      return parts.join(" · ");
     },
     async submitPort() {
       this.portError = null;
@@ -430,8 +488,9 @@ export default defineComponent({
             return;
           }
         }
-        const res = await fetch("/api/v1/resources/" + this.portFormFor + "/ports", {
-          method: "POST",
+        const base = "/api/v1/resources/" + this.portFormFor + "/ports";
+        const res = await fetch(this.portEditId ? base + "/" + this.portEditId : base, {
+          method: this.portEditId ? "PUT" : "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             port: portNum,
@@ -448,16 +507,23 @@ export default defineComponent({
             maxReservationMinutes: this.portForm.maxReservationMinutes === "" || this.portForm.maxReservationMinutes == null
                 ? null : Number(this.portForm.maxReservationMinutes),
             autoApproveReservations: this.portForm.autoApproveReservations,
+            rdpClipboard: this.portForm.rdpClipboard,
+            rdpFileTransfer: this.portForm.rdpFileTransfer,
+            rdpAccessMode: this.portForm.rdpAccessMode,
           }),
         });
         if (!res.ok) {
+          // 409 names the colliding port and is the one message the admin can
+          // act on, so it is shown as it came rather than wrapped in an
+          // HTTP-status line.
           const body = await res.text();
+          if (res.status === 409) { this.portError = body || t("resources.port_conflict"); return; }
           throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
         }
         await this.loadResources();
         this.closePortForm();
       } catch (e) {
-        this.portError = t("resources.error_port_del", { error: e.message });
+        this.portError = t("resources.error_port_save", { error: e.message });
       }
     },
     async deletePort(resourceId, port) {
@@ -744,7 +810,7 @@ export default defineComponent({
             <span style="font-size: var(--text-xs); font-weight: 600; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.08em">Ports</span>
             <div style="display: flex; gap: var(--space-2)">
               <button class="btn btn-ghost btn-sm" @click="portFormFor === r.id ? closePortForm() : openPortForm(r.id)">
-                {{ portFormFor === r.id ? '✕ Abbrechen' : t('resources.btn_add_port') }}
+                {{ portFormFor === r.id ? '✕ ' + t('common.cancel') : t('resources.btn_add_port') }}
               </button>
               <button class="btn btn-ghost btn-sm"
                       :disabled="portGroups.length === 0"
@@ -761,10 +827,21 @@ export default defineComponent({
                   style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans)">
               {{ t('resources.no_ports') }}
             </span>
-            <span v-for="p in r.ports" :key="p.id" class="res-port-chip">
-              <span class="mono" style="font-size: var(--text-xs)">{{ p.port === 0 ? 'alle' : (p.portEnd ? p.port + '–' + p.portEnd : p.port) }}/{{ p.transport }}</span>
+            <span v-for="p in r.ports" :key="p.id" class="res-port-chip"
+                  :class="{ 'res-port-chip-editing': portEditId === p.id }" :title="portTooltip(p)">
+              <span class="mono" style="font-size: var(--text-xs)">{{ p.port === 0 ? t('resources.port_all') : (p.portEnd ? p.port + '–' + p.portEnd : p.port) }}/{{ p.transport }}</span>
               <span style="color: var(--fg2); font-size: var(--text-xs)">{{ p.protocol }}</span>
-              <button class="res-port-remove" @click="deletePort(r.id, p)" title="Port entfernen">✕</button>
+              <!-- A path prefix and a capacity limit change what the port is,
+                   not just what it is called, so both are readable without
+                   opening anything (#82). -->
+              <span v-if="p.pathPrefix" class="res-port-badge mono">{{ p.pathPrefix }}</span>
+              <span v-if="p.maxConcurrentUsers != null" class="res-port-badge">
+                <span aria-hidden="true">◱</span> {{ t('resources.port_badge_capacity', { n: p.maxConcurrentUsers }) }}
+              </span>
+              <button class="res-port-edit" @click="openPortEdit(r.id, p)" :title="t('resources.port_edit')"
+                      :aria-label="t('resources.port_edit')">✎</button>
+              <button class="res-port-remove" @click="deletePort(r.id, p)" :title="t('resources.port_remove')"
+                      :aria-label="t('resources.port_remove')">✕</button>
             </span>
           </div>
 
@@ -825,7 +902,7 @@ export default defineComponent({
                   <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
                 </div>
                 <div style="display: flex; gap: var(--space-2); align-self: flex-end">
-                  <button type="submit" class="btn btn-primary btn-sm">{{ t('resources.add_btn') }}</button>
+                  <button type="submit" class="btn btn-primary btn-sm">{{ portEditId ? t('common.save') : t('resources.add_btn') }}</button>
                 </div>
               </div>
               <!-- Exclusive capacity (#72). Left empty, the port behaves
@@ -851,6 +928,27 @@ export default defineComponent({
                   <span>{{ t('resources.field_auto_approve_label') }}</span>
                 </label>
                 <div class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_auto_approve_hint') }}</div>
+              </template>
+              <!-- RDP options travel with every submit, so an edit cannot
+                   silently clear them — see portForm in data(). -->
+              <template v-if="portForm.protocol === 'RDP'">
+                <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: center; margin-top: var(--space-3)">
+                  <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                    <input type="checkbox" v-model="portForm.rdpClipboard" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                    <span>{{ t('resources.field_rdp_clipboard') }}</span>
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                    <input type="checkbox" v-model="portForm.rdpFileTransfer" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                    <span>{{ t('resources.field_rdp_file_transfer') }}</span>
+                  </label>
+                  <div class="field" style="margin: 0; min-width: 180px">
+                    <label for="portRdpMode">{{ t('resources.field_rdp_access_mode') }}</label>
+                    <select id="portRdpMode" class="select" v-model="portForm.rdpAccessMode">
+                      <option value="native">{{ t('resources.rdp_mode_native') }}</option>
+                      <option value="web-only">{{ t('resources.rdp_mode_web_only') }}</option>
+                    </select>
+                  </div>
+                </div>
               </template>
               <div v-if="portForm.protocol === 'RDP' && !ironRdpEnabled" class="callout callout-info" style="margin-top: var(--space-3)">
                 {{ t('resources.iron_rdp_disabled_hint') }}
