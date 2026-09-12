@@ -364,6 +364,15 @@ body {
   color: var(--warning-fg);
 }
 
+/* Success variant — used by the provider configuration test and the
+   admin-consent return (#81). Status still reads as icon + word; the colour
+   only reinforces it. */
+.callout-ok {
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--success-fg);
+}
+
 .callout-info {
   background: var(--info-bg);
   border: 1px solid var(--info-border);

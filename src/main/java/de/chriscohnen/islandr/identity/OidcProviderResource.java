@@ -7,6 +7,7 @@ import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -14,6 +15,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.UriInfo;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,6 +28,7 @@ public class OidcProviderResource {
 
     @Inject OidcProviderService svc;
     @Inject AuditService audit;
+    @Inject MicrosoftConfigCheck msCheck;
 
     @GET
     public List<OidcProviderDto.Response> listAll(@Context ContainerRequestContext ctx) {
@@ -80,6 +83,50 @@ public class OidcProviderResource {
         }
 
         return OidcProviderDto.Response.from(result.provider());
+    }
+
+    /**
+     * Checks the stored Entra values field by field and names the one at fault
+     * (issue #81) — the alternative is waiting for the first wrong value to
+     * surface as a login error that mentions neither the field nor the cause.
+     *
+     * <p>Admin-triggered only. It is the one place Islandr talks to Microsoft
+     * outside a login, so it is audited like any other outbound action, and
+     * the report carries no secret — only which field failed and why.
+     */
+    @POST
+    @Path("/{key}/test")
+    // The request carries no body, so the class-level @Consumes would answer
+    // 415 to a client that sends no content-type — which is every client here.
+    @Consumes(MediaType.WILDCARD)
+    public MicrosoftConfigCheck.Report test(@Context ContainerRequestContext ctx,
+                                            @PathParam("key") String key,
+                                            @Context UriInfo uriInfo) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        OidcProvider p = svc.get(key);
+        if (!p.isMicrosoft()) {
+            throw new jakarta.ws.rs.BadRequestException(
+                    "configuration test is Entra-specific and only available for the microsoft provider");
+        }
+        MicrosoftConfigCheck.Report report = msCheck.run(p, callbackUri(uriInfo, key));
+        audit.logEvent(actor.principal(), "oidc_provider.test", "OidcProvider:" + key, Map.of(
+                "providerKey", key,
+                "result", report.ok() ? "ok" : "failed",
+                "failingFields", report.checks().stream()
+                        .filter(c -> MicrosoftConfigCheck.FAILED.equals(c.status()))
+                        .map(MicrosoftConfigCheck.Check::field).toList()));
+        return report;
+    }
+
+    /**
+     * The redirect URI Islandr will actually send. Built the same way
+     * {@code OidcAuthResource.absoluteCallbackUri} builds it — the check is
+     * worthless if it probes a different string than the login does.
+     */
+    private static String callbackUri(UriInfo uriInfo, String key) {
+        return uriInfo.getBaseUriBuilder()
+                .path("api").path("v1").path("auth").path("oidc").path(key).path("callback")
+                .build().toString();
     }
 
     private static Map<String, Object> providerSnapshot(OidcProvider p) {
