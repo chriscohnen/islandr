@@ -39,6 +39,56 @@ public class AclResolutionService {
                 .getResultList();
     }
 
+    /**
+     * Single-port access check — the authority behind the browser-RDP gate
+     * ({@link RdpGrantService}), and the same rules the ruleset and the portal
+     * resolve by: concrete role grants, type grants, network grants and direct
+     * user grants, over the roles {@link #resolveRoleIds} returns.
+     *
+     * <p>Living here rather than in {@code RdpGrantService} is the point: the
+     * gate used to join {@code user_roles} itself and so missed the automatic
+     * "Everyone" role (auto_all, ADR-0013), refusing sessions the firewall and
+     * the portal both allowed (R-171). One resolver, one answer.
+     */
+    public boolean hasPortAccess(String userId, String resourceId, String portId) {
+        if (userId == null || resourceId == null || portId == null) return false;
+        List<String> roleIds = resolveRoleIds(userId);
+        if (!roleIds.isEmpty()) {
+            if (count("SELECT COUNT(*) FROM role_resource_grants g " +
+                    "WHERE g.role_id IN ?1 AND g.resource_id = ?2 " +
+                    "AND (g.all_ports = TRUE OR EXISTS (" +
+                    "  SELECT 1 FROM role_resource_grant_ports rgp " +
+                    "  WHERE rgp.grant_id = g.id AND rgp.port_id = ?3" +
+                    "))", roleIds, resourceId, portId)) return true;
+
+            // Type and network grants are always all-ports (ADR-0022, ADR-0029),
+            // so a matching resource is enough — no port-level check.
+            if (count("SELECT COUNT(*) FROM role_resource_type_grants g " +
+                    "JOIN resources r ON r.id = ?2 AND r.site_id = g.site_id AND r.type = g.resource_type " +
+                    "WHERE g.role_id IN ?1", roleIds, resourceId, null)) return true;
+
+            if (count("SELECT COUNT(*) FROM role_network_grants g " +
+                    "JOIN resources r ON r.id = ?2 AND r.site_id = g.site_id " +
+                    "WHERE g.role_id IN ?1", roleIds, resourceId, null)) return true;
+        }
+
+        // Direct user grants (ADR-0024) name the user, so they bypass roles.
+        return count("SELECT COUNT(*) FROM user_resource_grants g " +
+                "WHERE g.user_id = ?1 AND g.resource_id = ?2 " +
+                "AND (g.all_ports = TRUE OR EXISTS (" +
+                "  SELECT 1 FROM user_resource_grant_ports ugp " +
+                "  WHERE ugp.grant_id = g.id AND ugp.port_id = ?3" +
+                "))", List.of(userId), resourceId, portId);
+    }
+
+    private boolean count(String sql, Object first, String resourceId, String portId) {
+        var q = em.createNativeQuery(sql).setParameter(1, first).setParameter(2, resourceId);
+        if (portId != null) q.setParameter(3, portId);
+        @SuppressWarnings("unchecked")
+        List<Number> rows = q.getResultList();
+        return !rows.isEmpty() && rows.get(0) != null && rows.get(0).intValue() > 0;
+    }
+
     /** Effective per-resource access for the self-service portal — merged
      *  across all of the user's roles, all-ports wins. Moved here verbatim
      *  from {@code MyAccessResource.resolveResources}. */
