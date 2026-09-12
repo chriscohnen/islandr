@@ -220,8 +220,7 @@ public class PeerService {
             for (WgAdapter.PeerStatus ps : wg.showPeers(wgInterface)) {
                 if (known.contains(ps.publicKey())) continue;
                 if (ignorePublicKey != null && ignorePublicKey.equals(ps.publicKey())) continue;
-                String addr = v6 ? extractFirstIpv6(ps.allowedIps()) : extractFirstIpv4(ps.allowedIps());
-                if (addr != null) out.add(addr);
+                out.addAll(hostAddressesIn(ps.allowedIps(), v6));
             }
         } catch (RuntimeException e) {
             LOG.debugf("could not read live peers for address collision check: %s", e.getMessage());
@@ -920,6 +919,36 @@ public class PeerService {
             if (!hostAddress) routed.add(cidr);
         }
         return routed.isEmpty() ? null : String.join(", ", routed);
+    }
+
+    /**
+     * Every host address in an AllowedIPs list: a {@code /32} for IPv4, a
+     * {@code /128} for IPv6. Larger prefixes are networks routed behind a
+     * gateway peer, not addresses anyone can be assigned, so they are skipped.
+     *
+     * <p>Taking the *first* address instead would read a gateway's routed
+     * subnet — `wg` lists AllowedIPs in config order, which for a site peer
+     * commonly starts with the network rather than the tunnel address — and the
+     * collision this check exists to prevent would slip through for exactly the
+     * peers most likely to be unmanaged on an adopted hub.
+     */
+    private static java.util.Set<String> hostAddressesIn(String allowedIps, boolean v6) {
+        if (allowedIps == null || allowedIps.isBlank()) return java.util.Set.of();
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String entry : allowedIps.split(",")) {
+            String e = entry.trim();
+            int slash = e.indexOf('/');
+            String addr = slash < 0 ? e : e.substring(0, slash);
+            String prefix = slash < 0 ? null : e.substring(slash + 1).trim();
+            boolean isV6 = addr.contains(":");
+            if (isV6 != v6) continue;
+            // A bare address (no prefix) is a host address; with one, only the
+            // full-length prefix is.
+            if (prefix != null && !prefix.equals(v6 ? "128" : "32")) continue;
+            if (!v6 && !addr.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) continue;
+            out.add(addr);
+        }
+        return out;
     }
 
     private static String extractFirstIpv4(String allowedIps) {

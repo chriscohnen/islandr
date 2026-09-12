@@ -63,7 +63,7 @@ class ActivityPollerDriftTest {
         mock().reset(); // wg-quick reloaded the file: kernel state gone, DB untouched
         assertThat(livePubkeys()).doesNotContain(key);
 
-        poller.poll();
+        poller.tick();
 
         assertThat(livePubkeys())
                 .as("an enabled peer missing from the interface must be pushed back")
@@ -75,7 +75,7 @@ class ActivityPollerDriftTest {
         String id = createPeer("10.79.0.6", false);
         String key = pubkeyOf(id);
 
-        poller.poll();
+        poller.tick();
 
         assertThat(livePubkeys())
                 .as("a disabled peer must not be revived by the drift reconcile")
@@ -88,7 +88,7 @@ class ActivityPollerDriftTest {
         String key = pubkeyOf(id);
         dryRun(true);
 
-        poller.poll();
+        poller.tick();
 
         assertThat(livePubkeys())
                 .as("dry-run must suppress the drift repush")

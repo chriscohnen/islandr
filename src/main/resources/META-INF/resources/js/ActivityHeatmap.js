@@ -91,14 +91,21 @@ export default defineComponent({
     // rows) falls back to "always existed", matching the prior behavior.
     existedOn(p, dayIndex) {
       if (!p.createdAt) return true;
-      return this.result.days[dayIndex] >= p.createdAt.slice(0, 10);
+      // Strictly after the creation date: the day a gateway was created is a
+      // partial day by definition, and a site set up half an hour ago would
+      // otherwise open its first heatmap already flagged as down.
+      return this.result.days[dayIndex] > p.createdAt.slice(0, 10);
     },
     // A site gateway going quiet is a real outage worth flagging; a client
     // peer going quiet (laptop closed, phone off wifi) is normal and must
     // stay visually unremarkable. Only site rows get the "down" treatment,
     // and only for days on/after the peer's own creation date.
     isSiteDown(p, dayIndex) {
-      return p.type === "site" && this.level(this.metricValue(p, dayIndex), dayIndex) === 0
+      // Liveness is sampleHits, never the selected metric: in "traffic" mode a
+      // gateway that was connected all day but moved no bytes has a metric of
+      // zero, and reading that as an outage marks a healthy site red and offers
+      // "↓ 0.00 MB · ↑ 0.00 MB" as the explanation.
+      return p.type === "site" && (p.sampleHits[dayIndex] || 0) === 0
           && this.existedOn(p, dayIndex);
     },
     async load() {

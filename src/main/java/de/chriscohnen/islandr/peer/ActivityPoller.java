@@ -16,6 +16,7 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Periodically samples {@code wg show <iface> dump} and writes the per-peer
@@ -67,7 +68,7 @@ public class ActivityPoller {
     void sample() {
         if (!pollEnabled) return;
         try {
-            poll();
+            tick();
         } catch (Exception ex) {
             // Never let a poll failure crash the scheduler thread — the next
             // tick should get another shot. Log at WARN so it surfaces in
@@ -76,31 +77,39 @@ public class ActivityPoller {
         }
     }
 
+    /**
+     * One cycle: sample activity, then converge the interface. Split from
+     * {@link #poll()} because the re-push must not run inside the sampling
+     * transaction — a failure there marks that transaction rollback-only, and
+     * catching the exception would then quietly discard the tick's activity
+     * samples as well. Visible for tests, mirroring PeerScheduleJob's
+     * scheduledTick/tick split.
+     */
+    void tick() {
+        reconcileDrift(poll());
+    }
+
+    /** @return the public keys the interface currently carries. */
     @Transactional
-    void poll() {
+    Set<String> poll() {
         List<WgAdapter.PeerStatus> statuses;
         try {
             statuses = wg.showPeers(wgInterface);
         } catch (Exception ex) {
             LOG.debugf("wg showPeers threw: %s", ex.getMessage());
             detectConnectionTransitions(Instant.now());
-            return;
+            // The interface did not answer, so its key set is unknown — not
+            // empty. Returning an empty set here would look like total drift.
+            return null;
         }
         Map<String, WgAdapter.PeerStatus> byPubkey = new HashMap<>();
         for (WgAdapter.PeerStatus s : statuses) {
             byPubkey.put(s.publicKey(), s);
         }
 
-        // The interface answered, so its key set is authoritative: anything
-        // enabled in the DB and missing from it has drifted away — typically a
-        // `systemctl restart wg-quick@<iface>`, which reloads the file Islandr
-        // never writes to and silently drops every peer set with `wg set`.
-        // An empty list is the most extreme case of that, not a reason to skip.
-        reconcileDrift(byPubkey.keySet());
-
         if (statuses.isEmpty()) {
             detectConnectionTransitions(Instant.now());
-            return;
+            return byPubkey.keySet();
         }
 
         // Single query: pull only peers whose pubkey wg knows. Avoids touching
@@ -135,6 +144,7 @@ public class ActivityPoller {
         }
         if (updated > 0) LOG.debugf("activity poll: updated %d peer(s)", updated);
         detectConnectionTransitions(now);
+        return byPubkey.keySet();
     }
 
     /**
@@ -143,7 +153,9 @@ public class ActivityPoller {
      * of reporting peers as re-applied when nothing reached the kernel.
      */
     private void reconcileDrift(java.util.Set<String> livePublicKeys) {
-        if (!driftRepushEnabled || settingsSvc.get().firewallDryRun) {
+        // null means the interface did not answer — nothing to converge against.
+        // The interface answering with no peers, by contrast, is real drift.
+        if (livePublicKeys == null || !driftRepushEnabled || settingsSvc.get().firewallDryRun) {
             return;
         }
         try {
