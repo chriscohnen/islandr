@@ -25,15 +25,25 @@ public class EnforcementResource {
     @Inject EnforcementStatus enforcement;
     @Inject ContainerDetector containerDetector;
     @Inject ProxyMode proxyMode;
+    @Inject de.chriscohnen.islandr.firewall.BootTableState bootTable;
 
     public record Runtime(boolean container, boolean socketMode) {}
+
+    /**
+     * The fail-closed boot table (ADR-0031). {@code filtering} is the field
+     * the console acts on: while it is true, WireGuard forwarding is dropped
+     * regardless of what the ACL says — a state that otherwise looks exactly
+     * like a routing fault (R-193, R-194).
+     */
+    public record BootTable(String handover, boolean filtering, Instant lastAttemptAt) {}
 
     public record StatusResponse(
             String status,
             Instant lastReconcileAt,
             Instant lastProbeAt,
             String lastError,
-            Runtime runtime) {}
+            Runtime runtime,
+            BootTable bootTable) {}
 
     @GET
     @Path("/status")
@@ -44,6 +54,8 @@ public class EnforcementResource {
                 enforcement.lastReconcileAt(),
                 enforcement.lastProbeAt(),
                 enforcement.lastError(),
-                new Runtime(containerDetector.inContainer(), proxyMode.isSocket()));
+                new Runtime(containerDetector.inContainer(), proxyMode.isSocket()),
+                new BootTable(bootTable.handover().name().toLowerCase(),
+                        bootTable.stillFiltering(), bootTable.lastAttemptAt()));
     }
 }

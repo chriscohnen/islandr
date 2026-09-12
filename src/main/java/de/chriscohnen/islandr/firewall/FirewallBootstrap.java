@@ -25,6 +25,7 @@ public class FirewallBootstrap {
     private static final Logger LOG = Logger.getLogger(FirewallBootstrap.class);
 
     @Inject RulesetService rulesets;
+    @Inject BootTableState bootTable;
 
     @ConfigProperty(name = "islandr.firewall.boot-apply", defaultValue = "true")
     boolean bootApply;
@@ -36,8 +37,16 @@ public class FirewallBootstrap {
         }
         try {
             FirewallState state = rulesets.recomputeAndApply("system:boot");
-            LOG.infof("firewall boot-apply: status=%s ruleCount=%d",
-                    state.lastStatus, state.ruleCount);
+            LOG.infof("firewall boot-apply: status=%s ruleCount=%d bootTable=%s",
+                    state.lastStatus, state.ruleCount, bootTable.handover());
+            if (bootTable.stillFiltering()) {
+                // Named at startup because the shape of this failure is the
+                // problem: handshakes succeed, traffic does not, and that
+                // reads as a routing fault (R-193/R-194, ADR-0031).
+                LOG.warnf("boot firewall table 'inet islandr-boot' is still filtering (%s) — "
+                        + "WireGuard forwarding is dropped until it is handed over",
+                        bootTable.handover());
+            }
         } catch (Exception ex) {
             // recomputeAndApply itself swallows nft errors and records them
             // in FirewallState. Anything that bubbles up here would be a

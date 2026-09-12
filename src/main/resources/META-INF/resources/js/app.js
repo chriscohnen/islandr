@@ -143,7 +143,7 @@ const App = defineComponent({
       selfServicePeerCreation: true,
       ironRdpEnabled: false,
       googleWsAvailable: false,
-      enforcement: { status: "active", runtime: null },
+      enforcement: { status: "active", runtime: null, bootTable: null },
       installOpen: false,
       installCopied: null,
       installCopyFailed: null,
@@ -382,6 +382,19 @@ const App = defineComponent({
             <strong>{{ t('app.setup_incomplete') }}</strong>
             {{ t('app.setup_desc') }}
             <router-link to="/settings">{{ t('app.setup_link') }}</router-link>
+          </div>
+        </div>
+        <!-- The boot table is still filtering (ADR-0031): handshakes succeed
+             and nothing routes, which reads as a routing fault unless it is
+             named here. Separate from the enforcement banner below — this one
+             fires while enforcement is otherwise healthy. -->
+        <div v-if="isAdmin && enforcement.bootTable && enforcement.bootTable.filtering" class="callout callout-warning">
+          <div>
+            <strong>{{ t('boot_table.banner_title') }}</strong>
+            {{ enforcement.bootTable.handover === 'failed'
+                ? t('boot_table.banner_failed')
+                : t('boot_table.banner_dry_run') }}
+            <router-link v-if="enforcement.bootTable.handover !== 'failed'" :to="{ name: 'settings' }">{{ t('boot_table.banner_link') }}</router-link>
           </div>
         </div>
         <div v-if="isAdmin && enforcement.status !== 'active'" class="callout callout-warning">
