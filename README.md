@@ -418,6 +418,7 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 - [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
 - [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
 - [docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md) — registering the Entra ID app, the permissions Islandr needs, and the setup errors that do not name their cause
+- [docs/install/fail2ban.md](docs/install/fail2ban.md) — the built-in login backoff, the log line fail2ban matches, and why banning your own reverse proxy is the easy mistake
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)
 - [docs/arc42/](docs/arc42/) — Architecture documentation (arc42, 12 chapters, C4 diagrams embedded)

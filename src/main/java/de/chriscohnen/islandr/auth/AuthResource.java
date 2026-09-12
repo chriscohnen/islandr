@@ -6,6 +6,7 @@ import de.chriscohnen.islandr.identity.OidcCustomProviderService;
 import de.chriscohnen.islandr.identity.OidcProvider;
 import de.chriscohnen.islandr.identity.OidcProviderService;
 import io.quarkus.runtime.annotations.RegisterForReflection;
+import io.vertx.core.http.HttpServerRequest;
 import jakarta.inject.Inject;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.ws.rs.Consumes;
@@ -20,6 +21,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.NewCookie;
 import jakarta.ws.rs.core.Response;
 
+import org.jboss.logging.Logger;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -28,12 +31,16 @@ import java.util.List;
 @Consumes(MediaType.APPLICATION_JSON)
 public class AuthResource {
 
+    private static final Logger LOG = Logger.getLogger(AuthResource.class);
+
     @Inject AdminBootstrap adminBootstrap;
     @Inject SessionService sessions;
     @Inject OidcProviderService providers;
     @Inject OidcCustomProviderService customProviders;
     @Inject AuditService audit;
     @Inject de.chriscohnen.islandr.crypto.PasswordHasher passwordHasher;
+    @Inject LoginThrottle throttle;
+    @Inject ClientAddress clientAddress;
 
     private volatile String dummyHash;
 
@@ -81,10 +88,31 @@ public class AuthResource {
 
     @POST
     @Path("/login")
-    public Response login(LoginRequest body) {
+    public Response login(LoginRequest body, @Context HttpServerRequest request) {
         if (body == null || body.username() == null || body.password() == null) {
             return Response.status(400).build();
         }
+        String ip = clientAddress.of(request);
+
+        // The ceiling is taken before anything else: without it the delay
+        // below could be sidestepped by firing every guess in parallel.
+        if (!throttle.tryEnter()) {
+            LOG.warnf("login throttled user=%s ip=%s reason=too-many-in-flight", body.username(), ip);
+            return Response.status(429).header("Retry-After", "1")
+                    .entity(error("too many login attempts")).build();
+        }
+        try {
+            // Applied before the credential check and keyed on the submitted
+            // username whether or not it exists, so the delay cannot become the
+            // user-enumeration oracle the dummy PBKDF2 run prevents.
+            sleepQuietly(throttle.delayMillis(body.username(), ip));
+            return attemptLogin(body, ip);
+        } finally {
+            throttle.exit();
+        }
+    }
+
+    private Response attemptLogin(LoginRequest body, String ip) {
         // 1. ENV bootstrap admin (in-memory credential), bound to its admin@local
         //    identity (F-01b) so it can own peers and self-assign roles.
         if (adminBootstrap.isEnabled() && adminBootstrap.matches(body.username(), body.password())) {
@@ -92,8 +120,9 @@ public class AuthResource {
                     de.chriscohnen.islandr.user.User.find("email", AdminUserBootstrap.ADMIN_EMAIL).firstResult();
             String adminUserId = adminUser != null ? adminUser.id : null;
             Session s = sessions.create(Session.LOCAL, adminBootstrap.userName(), adminUserId);
+            throttle.recordSuccess(body.username(), ip);
             audit.logEvent(s.principal, "auth.login_local", "Session:" + s.id,
-                    java.util.Map.of("provider", "local"));
+                    java.util.Map.of("provider", "local", "clientIp", ip));
             return okSession(s, new MeResponse(s.principal, s.provider, adminUserId, true, s.expiresAt));
         }
 
@@ -102,16 +131,31 @@ public class AuthResource {
         de.chriscohnen.islandr.user.User localUser = findLocalUser(body.username());
         if (verifyLocalPassword(localUser, body.password())) {
             Session s = sessions.create(Session.LOCAL, localUser.email, localUser.id);
+            throttle.recordSuccess(body.username(), ip);
             audit.logEvent(s.principal, "auth.login_local", "Session:" + s.id,
-                    java.util.Map.of("provider", "local"));
+                    java.util.Map.of("provider", "local", "clientIp", ip));
             return okSession(s, new MeResponse(localUser.email, s.provider, localUser.id, localUser.isAdmin, s.expiresAt));
         }
 
         // 3. Neither matched. Failed logins are an intrusion signal — audit the
-        //    attempted username so a brute-force shows up filterable.
+        //    attempted username so a brute-force shows up filterable, and write
+        //    one line to the application log that an external blocker can match.
+        //    The shape below is documented in docs/install/fail2ban.md and is
+        //    part of the interface: changing it breaks every deployed jail.
+        throttle.recordFailure(body.username(), ip);
+        LOG.warnf("login failed user=%s ip=%s", body.username(), ip);
         audit.logEvent(body.username(), "auth.login_failed", null,
-                java.util.Map.of("provider", "local"));
+                java.util.Map.of("provider", "local", "clientIp", ip));
         return Response.status(401).entity(error("invalid credentials")).build();
+    }
+
+    private static void sleepQuietly(long millis) {
+        if (millis <= 0) return;
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private Response okSession(Session s, MeResponse me) {
