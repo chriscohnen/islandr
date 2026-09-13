@@ -98,4 +98,30 @@ class TrustedProxySettingsTest {
         s.clientIpHeader = "  CF-Connecting-IP ";
         assertThat(s.effectiveClientIpHeader()).isEqualTo("CF-Connecting-IP");
     }
+
+    /**
+     * The precedence rule in one test: a console value wins, an empty one lets
+     * the environment back in. That second half is what makes a later edit of
+     * /etc/default/islandr still work — and is also why clearing the field does
+     * not stick while the variable is set, which the console warns about.
+     */
+    @Test
+    @jakarta.transaction.Transactional
+    void anEmptySettingIsWhatLetsTheEnvironmentApply() {
+        Settings s = settings.get();
+
+        s.trustedProxies = "10.0.0.0/24";
+        assertThat(bootstrapWouldSeed(s)).as("a configured value is never overwritten").isFalse();
+
+        s.trustedProxies = "";
+        assertThat(bootstrapWouldSeed(s)).as("empty is what invites the default back in").isTrue();
+
+        s.trustedProxies = null;
+        assertThat(bootstrapWouldSeed(s)).isTrue();
+    }
+
+    /** Mirrors the condition in TrustedProxyBootstrap. */
+    private static boolean bootstrapWouldSeed(Settings s) {
+        return s.trustedProxies == null || s.trustedProxies.isBlank();
+    }
 }

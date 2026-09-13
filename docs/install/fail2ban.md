@@ -118,11 +118,22 @@ Set it in the Admin Console under **Settings → Reverse proxy**:
 | Trusted proxies | Your proxy's address as Islandr sees it, or the edge network's ranges. CIDRs or bare addresses, comma-separated. |
 | Client address header | Empty for `X-Forwarded-For`. Behind Cloudflare, `CF-Connecting-IP`. |
 
-It takes effect immediately — no restart. To set it at install time instead,
-`setup-hub.sh` takes `TRUSTED_PROXIES=` and `CLIENT_IP_HEADER=`, which seed the
-settings on a fresh install so the very first failed login already logs an
-address worth acting on. They seed only: once the setting has a value, the
-console owns it and the environment is ignored.
+It takes effect immediately — no restart.
+
+To set it at install time instead, `setup-hub.sh` takes `TRUSTED_PROXIES=` and
+`CLIENT_IP_HEADER=`, so the very first failed login already logs an address
+worth acting on. The precedence is one sentence: **a value set in the console
+wins; while that field is empty, `/etc/default/islandr` applies — at every
+start, not only the first.**
+
+Two consequences worth knowing:
+
+- You can still correct the environment file later, as long as nobody has typed
+  a value into the console.
+- Clearing the field in the console does **not** survive a restart while
+  `ISLANDR_AUTH_TRUSTED_PROXIES` is still set — "empty" is exactly the state
+  that lets the default back in. Removed your proxy? Clear both. The console
+  warns about this when it sees the field empty and the variable set.
 
 **Use the address the log already shows you.** A failed login prints the peer
 Islandr actually sees, which is exactly the value to trust — no guessing

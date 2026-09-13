@@ -98,6 +98,10 @@ export default defineComponent({
       versionCheck: null,
       versionChecking: false,
       enforcement: null,
+      // Read-only: what /etc/default/islandr names as trusted proxies. Only
+      // meaningful while the field itself is empty — that is the state in which
+      // the environment applies again on the next restart (#80).
+      trustedProxiesSeed: null,
       // TLS (ADR-0015) — separate mini-form with its own PUT/DELETE endpoints,
       // not bundled into the main settings save.
       tlsMode: "none",
@@ -289,6 +293,7 @@ export default defineComponent({
           setupComplete: s.setupComplete,
           version: s.version || null,
         };
+        this.trustedProxiesSeed = s.trustedProxiesSeed || null;
         this.tlsMode = s.tlsMode || "none";
         this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
         this.tlsCertInfo = s.tlsCertInfo || null;
@@ -1470,7 +1475,13 @@ export default defineComponent({
                    placeholder="X-Forwarded-For" />
             <div class="field-hint">{{ t('settings.client_ip_header_hint') }}</div>
           </div>
-          <div v-if="!form.trustedProxies.trim()" class="callout callout-info" style="margin: 0">
+          <!-- Empty here means the environment applies again on the next
+               restart, so a cleared field that /etc/default/islandr still names
+               is not actually cleared. Said now, not discovered after a reboot. -->
+          <div v-if="!form.trustedProxies.trim() && trustedProxiesSeed" class="callout callout-warning" style="margin: 0">
+            <div>{{ t('settings.trusted_proxies_seed_warn', { value: trustedProxiesSeed }) }}</div>
+          </div>
+          <div v-else-if="!form.trustedProxies.trim()" class="callout callout-info" style="margin: 0">
             <div>{{ t('settings.trusted_proxies_empty') }}</div>
           </div>
           <div v-else class="callout callout-warning" style="margin: 0">

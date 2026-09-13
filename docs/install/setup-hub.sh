@@ -311,10 +311,14 @@ QUARKUS_HTTP_HOST=$ISLANDR_HTTP_HOST
 
 # Behind a reverse proxy, the address islandr sees on every request is the
 # proxy's — and a ban on that bans everyone, including you. These name whose
-# forwarded header may be believed, and which header it is. They SEED the
-# corresponding settings on a fresh install; afterwards the Admin Console
-# (Security) owns them and these lines are ignored. Empty = nobody may speak
-# for a client, which is the safe default. See docs/install/fail2ban.md.
+# forwarded header may be believed, and which header it is.
+#
+# They act as the DEFAULT: a value set in the Admin Console (Settings ->
+# Reverse proxy) wins, and while that field is empty these lines apply, at
+# every start. So they can still be corrected here later — but clearing the
+# field in the console will not stick across a restart until these are cleared
+# too. Empty = nobody may speak for a client, which is the safe default.
+# See docs/install/fail2ban.md.
 ISLANDR_AUTH_TRUSTED_PROXIES=$TRUSTED_PROXIES
 ISLANDR_AUTH_CLIENT_IP_HEADER=$CLIENT_IP_HEADER
 QUARKUS_HTTP_PORT=$ISLANDR_HTTP_PORT

@@ -85,10 +85,16 @@ public final class SettingsDto {
             // Which addresses may speak for a client through a forwarded header,
             // and which header that is (issue #80). Empty = nobody may.
             String trustedProxies,
-            String clientIpHeader
+            String clientIpHeader,
+            // What /etc/default/islandr names, if anything. Only relevant while
+            // trustedProxies is empty: that is exactly when the environment
+            // applies again on the next restart, so the console has to say so
+            // rather than let a reboot silently re-trust an address.
+            String trustedProxiesSeed
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
-                                     Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo) {
+                                     Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo,
+                                     String trustedProxiesSeed) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
@@ -133,7 +139,8 @@ public final class SettingsDto {
                             s.effectiveClientDns(), true),
                     s.externalApiEnabled,
                     s.trustedProxies,
-                    s.clientIpHeader);
+                    s.clientIpHeader,
+                    trustedProxiesSeed);
         }
     }
 

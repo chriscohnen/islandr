@@ -16,13 +16,21 @@ import java.util.Optional;
  * (issue #80), so the very first failed login already logs the address a ban
  * could act on rather than the proxy's.
  *
- * <p><b>Seed, not override.</b> It writes only while the setting is still
- * empty. Once an admin has set a value in the console — including deliberately
- * clearing it back to "nobody" and then setting it again — the database is the
- * source of truth and this never touches it. An operator who edits
- * {@code /etc/default/islandr} and restarts expecting the console to change
- * would otherwise get a silent overwrite of a security-relevant value, which is
- * the worse failure of the two.
+ * <p><b>A default, not an override.</b> The rule is one sentence: a value set
+ * in the console wins; while the setting is empty, the environment applies —
+ * at every start, not only the first. So an operator can still correct
+ * {@code /etc/default/islandr} later, as long as nobody has typed a value into
+ * the console. The reverse — the environment overwriting a console value on
+ * every restart — would be a silent change to a security-relevant setting and
+ * is never done.
+ *
+ * <p><b>The sharp edge this leaves</b>, and it is deliberate rather than
+ * overlooked: clearing the field in the console back to "nobody" does not stick
+ * across a restart while the variable is still set, because "empty" is exactly
+ * the state that invites the default back in. An admin who removes their proxy
+ * has to clear the variable too. The console says so where it can — it knows
+ * whether a seed exists — rather than leaving it to be discovered after a
+ * reboot silently re-trusted an address nothing sits behind.
  *
  * <p>Nothing is guessed. A hub bound to loopback is a strong hint that a proxy
  * sits in front, but it is not proof, and trusting an address that nothing is

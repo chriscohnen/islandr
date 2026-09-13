@@ -47,6 +47,12 @@ public class SettingsResource {
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "quarkus.application.version", defaultValue = "dev")
     String appVersion;
 
+    /** What the environment names as trusted proxies — reported so the console
+     *  can warn that clearing the field will not survive a restart while this
+     *  is still set (see {@link TrustedProxyBootstrap}). */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.auth.trusted-proxies")
+    java.util.Optional<String> trustedProxiesSeed;
+
     @GET
     public SettingsDto.Response get(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
@@ -175,7 +181,8 @@ public class SettingsResource {
         boolean hasCert = "managed".equals(s.tlsMode) || "acme".equals(s.tlsMode);
         Instant expiresAt = hasCert ? tlsSvc.certificateExpiresAt(s.tlsCertPem) : null;
         TlsService.CertInfo certInfo = hasCert ? tlsSvc.certificateInfo(s.tlsCertPem) : null;
-        return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt, certInfo);
+        return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt, certInfo,
+                trustedProxiesSeed.filter(v -> !v.isBlank()).orElse(null));
     }
 
     /** Recomputes the client {@code AllowedIPs} preview from unsaved form values,
