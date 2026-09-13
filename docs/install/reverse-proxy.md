@@ -123,6 +123,14 @@ Islandr already trusts `X-Forwarded-Proto`/`X-Forwarded-Host`/`X-Forwarded-Prefi
 (`quarkus.http.proxy.*` in `application.properties`) — Traefik, Caddy, and nginx's `proxy_pass`
 all set these by default, so no extra header wiring is needed on the app side.
 
+> **One thing does need wiring: who the client is.** Those headers decide how
+> URLs are built, not who a failed login gets blamed on — different questions,
+> and only one of them deserves trust from an unnamed sender. Until you name
+> your proxy under **Settings → Reverse proxy**, every failed login is recorded
+> with the proxy's own address, and a fail2ban jail on that would lock out
+> everyone. [fail2ban.md](fail2ban.md) covers it, with a worked Traefik example
+> including the Cloudflare-in-front case.
+
 With a reverse proxy in front, Islandr's own built-in TLS goes unused — plain HTTP on the loopback
 port is fine, since the proxy is the only thing that talks to it directly.
 
