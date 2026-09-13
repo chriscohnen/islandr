@@ -404,7 +404,15 @@ export default defineComponent({
         "redirectcomports:i:0",
         "redirectsmartcards:i:1",
         "redirectwebauthn:i:1",
-        "redirectclipboard:i:1",
+        // Follows the port's setting rather than being hardcoded on. Honest
+        // about what this is: a default in a file the user can edit, not
+        // enforcement — only the browser session, which Islandr proxies, is
+        // actually enforced. Locking it down for real is the RDP server's job
+        // (group policy), not the client config's.
+        "redirectclipboard:i:" + (port.rdpClipboard === false ? 0 : 1),
+        // Drive redirection is what "file transfer" means for a native client.
+        // Empty drivestoredirect = share nothing.
+        "drivestoredirect:s:" + (port.rdpFileTransfer ? "*" : ""),
         "redirectposdevices:i:0",
         "autoreconnection enabled:i:1",
         "authentication level:i:2",

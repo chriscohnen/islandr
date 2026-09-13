@@ -490,8 +490,12 @@ export default defineComponent({
           ? t("resources.port_tip_approval") : t("resources.port_tip_auto_approve"));
       }
       if (p.protocol === "RDP") {
-        if (p.rdpClipboard) parts.push(t("resources.field_rdp_clipboard"));
-        if (p.rdpFileTransfer) parts.push(t("resources.field_rdp_file_transfer"));
+        const redirects = [];
+        if (p.rdpClipboard) redirects.push(t("resources.field_rdp_clipboard"));
+        if (p.rdpFileTransfer) redirects.push(t("resources.field_rdp_file_transfer"));
+        if (redirects.length) {
+          parts.push(t("resources.rdp_redirects_title") + ": " + redirects.join(", "));
+        }
         if (p.rdpAccessMode === "web-only") parts.push(t("resources.rdp_mode_web_only"));
       }
       return parts.join(" · ");
@@ -975,9 +979,7 @@ export default defineComponent({
                   <label>{{ t('resources.label_path_prefix') }}</label>
                   <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
                 </div>
-                <div style="display: flex; gap: var(--space-2); align-self: flex-end">
-                  <button type="submit" class="btn btn-primary btn-sm">{{ portEditId ? t('common.save') : t('resources.add_btn') }}</button>
-                </div>
+
               </div>
               <!-- Exclusive capacity (#72). Left empty, the port behaves
                    exactly as before: a grant alone reaches it. -->
@@ -1004,23 +1006,36 @@ export default defineComponent({
                 <div class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_auto_approve_hint') }}</div>
               </template>
               <!-- RDP options travel with every submit, so an edit cannot
-                   silently clear them — see portForm in data(). -->
+                   silently clear them — see portForm in data().
+                   Scope matters and is stated in the copy: these are enforced
+                   for the browser session, which Islandr proxies, and are only
+                   a default in the downloaded .rdp, which the native client
+                   can override. Claiming otherwise would be a promise the hub
+                   cannot keep. -->
               <template v-if="portForm.protocol === 'RDP'">
-                <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: center; margin-top: var(--space-3)">
-                  <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
-                    <input type="checkbox" v-model="portForm.rdpClipboard" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
-                    <span>{{ t('resources.field_rdp_clipboard') }}</span>
-                  </label>
-                  <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
-                    <input type="checkbox" v-model="portForm.rdpFileTransfer" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
-                    <span>{{ t('resources.field_rdp_file_transfer') }}</span>
-                  </label>
-                  <div class="field" style="margin: 0; min-width: 180px">
-                    <label for="portRdpMode">{{ t('resources.field_rdp_access_mode') }}</label>
-                    <select id="portRdpMode" class="select" v-model="portForm.rdpAccessMode">
-                      <option value="native">{{ t('resources.rdp_mode_native') }}</option>
-                      <option value="web-only">{{ t('resources.rdp_mode_web_only') }}</option>
-                    </select>
+                <div class="field" style="margin: var(--space-3) 0 0; min-width: 180px; max-width: 260px">
+                  <label for="portRdpMode">{{ t('resources.field_rdp_access_mode') }}</label>
+                  <select id="portRdpMode" class="select" v-model="portForm.rdpAccessMode">
+                    <option value="native">{{ t('resources.rdp_mode_native') }}</option>
+                    <option value="web-only">{{ t('resources.rdp_mode_web_only') }}</option>
+                  </select>
+                </div>
+                <div style="margin-top: var(--space-3)">
+                  <label class="eyebrow" style="display: block; margin-bottom: var(--space-2)">{{ t('resources.rdp_redirects_title') }}</label>
+                  <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: center">
+                    <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                      <input type="checkbox" v-model="portForm.rdpClipboard" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                      <span>{{ t('resources.field_rdp_clipboard') }}</span>
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                      <input type="checkbox" v-model="portForm.rdpFileTransfer" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                      <span>{{ t('resources.field_rdp_file_transfer') }}</span>
+                    </label>
+                  </div>
+                  <div class="field-hint" style="margin-top: var(--space-1)">
+                    {{ portForm.rdpAccessMode === 'web-only'
+                        ? t('resources.rdp_redirects_hint_web')
+                        : t('resources.rdp_redirects_hint_native') }}
                   </div>
                 </div>
               </template>
@@ -1029,6 +1044,13 @@ export default defineComponent({
                 <router-link :to="{ name: 'settings' }">{{ t('resources.iron_rdp_disabled_link') }}</router-link>
               </div>
               <div v-if="portError" class="error-banner" style="margin-top: var(--space-3)">{{ portError }}</div>
+              <!-- At the bottom, below every field it writes: capacity and the
+                   RDP options are saved by this button too, and a button above
+                   them reads as if they were not. -->
+              <div style="display: flex; gap: var(--space-2); margin-top: var(--space-4)">
+                <button type="submit" class="btn btn-primary btn-sm">{{ portEditId ? t('common.save') : t('resources.add_btn') }}</button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="closePortForm()">{{ t('common.cancel') }}</button>
+              </div>
             </form>
           </div>
 
