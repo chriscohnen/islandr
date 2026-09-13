@@ -1,8 +1,8 @@
 package de.chriscohnen.islandr.auth;
 
+import de.chriscohnen.islandr.settings.Settings;
+import de.chriscohnen.islandr.settings.SettingsService;
 import org.junit.jupiter.api.Test;
-
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,10 +18,22 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ClientAddressTest {
 
+    /**
+     * The values live in Settings since they are operational configuration an
+     * admin fixes at runtime, so the seam here is a stubbed SettingsService
+     * rather than injected config properties.
+     */
     private static ClientAddress resolver(String trustedProxies, String header) {
+        Settings stub = new Settings();
+        stub.trustedProxies = trustedProxies;
+        stub.clientIpHeader = header;
         ClientAddress c = new ClientAddress();
-        c.trustedProxies = Optional.ofNullable(trustedProxies);
-        c.clientIpHeader = header;
+        c.settings = new SettingsService() {
+            @Override
+            public Settings get() {
+                return stub;
+            }
+        };
         return c;
     }
 
@@ -63,7 +75,7 @@ class ClientAddressTest {
         // of() reads whichever header the configuration names; resolve() is
         // handed that value, so the configurable part is which one arrives here.
         ClientAddress c = resolver("10.0.0.5", "CF-Connecting-IP");
-        assertThat(c.clientIpHeader).isEqualTo("CF-Connecting-IP");
+        assertThat(c.settings.get().effectiveClientIpHeader()).isEqualTo("CF-Connecting-IP");
         assertThat(c.resolve("10.0.0.5", "198.51.100.7")).isEqualTo("198.51.100.7");
     }
 

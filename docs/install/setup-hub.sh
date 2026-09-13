@@ -24,6 +24,10 @@
 #   ISLANDR_HTTP_HOST=127.0.0.1   bind loopback for a reverse proxy
 #   ISLANDR_HTTP_PORT=8080        + ISLANDR_HTTPS_PORT=8443
 #   ISLANDR_SKIP_MEM_CHECK=1      install despite too little RAM
+#   TRUSTED_PROXIES=127.0.0.1     reverse proxy in front: whose forwarded
+#                                 header may name the real client (see below)
+#   CLIENT_IP_HEADER=CF-Connecting-IP   which header carries it (default
+#                                 X-Forwarded-For)
 #
 # Full walkthrough:      docs/install.md
 # Why the unit and sudoers look the way they do: docs/install/hardening.md
@@ -37,6 +41,12 @@ ISLANDR_BINARY="${ISLANDR_BINARY:-}"
 ISLANDR_HTTP_HOST="${ISLANDR_HTTP_HOST:-0.0.0.0}"
 ISLANDR_HTTP_PORT="${ISLANDR_HTTP_PORT:-80}"
 ISLANDR_HTTPS_PORT="${ISLANDR_HTTPS_PORT:-443}"
+# Nothing is guessed here. Binding to loopback strongly suggests a proxy is in
+# front, but it is not proof, and trusting an address that nothing sits behind
+# is exactly the mistake this setting exists to prevent — so unset means nobody
+# is trusted, and a failed login logs the proxy's own address.
+TRUSTED_PROXIES="${TRUSTED_PROXIES:-}"
+CLIENT_IP_HEADER="${CLIENT_IP_HEADER:-}"
 
 REPO="chriscohnen/islandr"
 
@@ -298,6 +308,15 @@ QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
 # HTTP-01 challenge, always, even after a certificate is issued.
 # Behind a reverse proxy instead: 127.0.0.1 + 8080/8443, see reverse-proxy.md.
 QUARKUS_HTTP_HOST=$ISLANDR_HTTP_HOST
+
+# Behind a reverse proxy, the address islandr sees on every request is the
+# proxy's — and a ban on that bans everyone, including you. These name whose
+# forwarded header may be believed, and which header it is. They SEED the
+# corresponding settings on a fresh install; afterwards the Admin Console
+# (Security) owns them and these lines are ignored. Empty = nobody may speak
+# for a client, which is the safe default. See docs/install/fail2ban.md.
+ISLANDR_AUTH_TRUSTED_PROXIES=$TRUSTED_PROXIES
+ISLANDR_AUTH_CLIENT_IP_HEADER=$CLIENT_IP_HEADER
 QUARKUS_HTTP_PORT=$ISLANDR_HTTP_PORT
 QUARKUS_HTTP_SSL_PORT=$ISLANDR_HTTPS_PORT
 
@@ -458,6 +477,16 @@ if [[ "$ISLANDR_HTTP_HOST" == "0.0.0.0" ]]; then
   See docs/install/reverse-proxy.md for both paths side by side."
 else
     LISTEN_NOTE="http://$ISLANDR_HTTP_HOST:$ISLANDR_HTTP_PORT and https://$ISLANDR_HTTP_HOST:$ISLANDR_HTTPS_PORT"
+    # Bound to loopback with nothing trusted: every failed login will log the
+    # proxy's address, and a fail2ban jail on that would ban the proxy — which
+    # is everyone, including whoever is reading this.
+    if [[ -z "$TRUSTED_PROXIES" ]]; then
+        LISTEN_NOTE+="
+  A reverse proxy in front? Then failed logins log ITS address, not the
+  client's. Set the proxy's address under Settings -> Security in the Admin
+  Console (or re-run with TRUSTED_PROXIES=...) before enabling fail2ban —
+  a jail on the proxy's address locks out everybody. docs/install/fail2ban.md"
+    fi
     if [[ "$ISLANDR_HTTP_HOST" == "127.0.0.1" || "$ISLANDR_HTTP_HOST" == "localhost" ]]; then
         WG_IP="$(ip -4 -o addr show "$WG_INTERFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
         LISTEN_NOTE+="

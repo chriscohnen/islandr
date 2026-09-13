@@ -38,6 +38,9 @@ All of it is tunable, and the defaults are in `application.properties`:
 | `islandr.auth.throttle.window-minutes` | `15` | Quiet time after which a counter is forgotten. |
 | `islandr.auth.throttle.max-concurrent` | `8` | Login attempts in flight at once. |
 
+The two proxy-related values are **not** here — they live in Settings, see
+below, because a wrong entry there should be fixable without a restart.
+
 The counters live in memory, in the one Islandr process, and are lost on
 restart. Persisting them would add a write path whose rate an attacker
 controls.
@@ -106,18 +109,53 @@ your own office address — banned instead.
 
 **So Islandr reads the header only when the request actually came from a proxy
 you named**, and the list is empty by default, which means an unproxied install
-cannot be fooled by a header at all:
+cannot be fooled by a header at all.
 
-```properties
-# Your proxy, or the edge network's ranges.
-islandr.auth.trusted-proxies=10.0.0.5
-# Cloudflare additionally provides the client address in its own header.
-islandr.auth.client-ip-header=CF-Connecting-IP
+Set it in the Admin Console under **Settings → Reverse proxy**:
+
+| Field | What goes in it |
+|---|---|
+| Trusted proxies | Your proxy's address as Islandr sees it, or the edge network's ranges. CIDRs or bare addresses, comma-separated. |
+| Client address header | Empty for `X-Forwarded-For`. Behind Cloudflare, `CF-Connecting-IP`. |
+
+It takes effect immediately — no restart. To set it at install time instead,
+`setup-hub.sh` takes `TRUSTED_PROXIES=` and `CLIENT_IP_HEADER=`, which seed the
+settings on a fresh install so the very first failed login already logs an
+address worth acting on. They seed only: once the setting has a value, the
+console owns it and the environment is ignored.
+
+**Use the address the log already shows you.** A failed login prints the peer
+Islandr actually sees, which is exactly the value to trust — no guessing
+whether the proxy reaches you over loopback, a bridge or a container network.
+
+Islandr walks the forwarded chain from the right and takes the first address
+the trusted hops did not vouch for, so a forged prefix in the header is ignored.
+
+### Traefik
+
+Traefik appends to `X-Forwarded-For` rather than replacing it, which is what
+the right-to-left walk above expects. Running on the same host and proxying to
+Islandr on loopback, the log line reads `ip=127.0.0.1` until you trust it:
+
+```
+Trusted proxies:        127.0.0.1, ::1
+Client address header:  (empty — X-Forwarded-For)
 ```
 
-Entries are CIDRs or bare addresses, comma-separated. Islandr walks the
-forwarded chain from the right and takes the first address the trusted hops did
-not vouch for, so a forged prefix in the header is ignored.
+**With Cloudflare in front of Traefik this is not enough.** Islandr then sees
+`X-Forwarded-For: <client>, <cloudflare-edge>` — Traefik appended the address
+*it* saw, and that is Cloudflare. Trusting only loopback would make the
+Cloudflare edge the address that gets banned. Use Cloudflare's own header
+instead, which carries one address rather than a chain:
+
+```
+Trusted proxies:        127.0.0.1, ::1
+Client address header:  CF-Connecting-IP
+```
+
+That only holds as long as nobody can reach Traefik directly — restrict the
+origin to Cloudflare's ranges at the firewall, or anyone bypassing the edge can
+invent a `CF-Connecting-IP` and Traefik will pass it straight through.
 
 > This is a different question from `quarkus.http.proxy.*` in the same file.
 > Those decide how OIDC redirect URIs are built — getting a URL right and

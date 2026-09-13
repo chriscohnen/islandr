@@ -43,6 +43,32 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "wg_client_dns", length = 255)
     public String wgClientDns;
 
+    /**
+     * Comma-separated CIDRs or bare addresses whose requests may speak for a
+     * client through a forwarded header (issue #80). Null/blank = nobody may,
+     * which is the default and the safe one: the header is something anyone
+     * can send, so an unproxied hub cannot be fooled by one at all.
+     *
+     * <p>Deliberately separate from {@code quarkus.http.proxy.*}, which only
+     * decides how redirect URIs are built. Getting a URL right and deciding
+     * whom to ban are not the same question and do not deserve the same level
+     * of trust.
+     */
+    @Column(name = "trusted_proxies", columnDefinition = "TEXT")
+    public String trustedProxies;
+
+    /** Which header carries the client address. Null = {@code X-Forwarded-For};
+     *  behind Cloudflare, {@code CF-Connecting-IP} — one address rather than a
+     *  chain, so a forged prefix cannot survive it. */
+    @Column(name = "client_ip_header", length = 64)
+    public String clientIpHeader;
+
+    /** The header to read, with the default applied. */
+    public String effectiveClientIpHeader() {
+        return (clientIpHeader == null || clientIpHeader.isBlank())
+                ? "X-Forwarded-For" : clientIpHeader.trim();
+    }
+
     // Explicit full/split tunnel setting (#33, ADR-0017, F-22).
     // tunnelMode: "FULL" | "SPLIT". allowedIpsMode: "AUTO" (computed via
     // AllowedIpsCalculator) | "MANUAL" (wgClientAllowedIps used verbatim).

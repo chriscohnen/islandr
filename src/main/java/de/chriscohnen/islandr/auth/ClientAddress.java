@@ -1,13 +1,13 @@
 package de.chriscohnen.islandr.auth;
 
 import de.chriscohnen.islandr.peer.IpSubnet;
+import de.chriscohnen.islandr.settings.SettingsService;
 import io.vertx.core.http.HttpServerRequest;
 import jakarta.enterprise.context.ApplicationScoped;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
+import jakarta.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Resolves the address a request really came from — the one a ban would have to
@@ -22,9 +22,11 @@ import java.util.Optional;
  * get an arbitrary third party banned in their place.
  *
  * <p>So the header counts only when the request actually arrived from a proxy
- * the operator named. {@code islandr.auth.trusted-proxies} is empty by default:
- * an unproxied install cannot be fooled by a header at all, and a proxied one
- * only trusts what its own proxy says.
+ * the operator named. That list lives in Settings (Admin Console → Security),
+ * not in a properties file — a reverse proxy is an operational fact like TLS,
+ * and an operator who gets it wrong should not need a service restart to fix
+ * it. It is empty by default: an unproxied install cannot be fooled by a
+ * header at all, and a proxied one only trusts what its own proxy says.
  *
  * <p>This deliberately reads the <em>socket</em> peer rather than Vert.x's
  * resolved {@code remoteAddress()}: the latter is already rewritten by
@@ -36,19 +38,19 @@ import java.util.Optional;
 @ApplicationScoped
 public class ClientAddress {
 
-    /** CIDRs whose requests may speak for someone else. Empty = nobody may. */
-    @ConfigProperty(name = "islandr.auth.trusted-proxies")
-    Optional<String> trustedProxies;
+    @Inject SettingsService settings;
 
-    /** Cloudflare users set this to CF-Connecting-IP. */
-    @ConfigProperty(name = "islandr.auth.client-ip-header", defaultValue = "X-Forwarded-For")
-    String clientIpHeader;
-
-    private volatile List<IpSubnet> trusted;
+    /** Parsed form of the setting, re-parsed only when the raw value changes. */
+    private volatile String parsedFrom;
+    private volatile List<IpSubnet> trusted = List.of();
 
     public String of(HttpServerRequest request) {
         if (request == null) return "unknown";
-        return resolve(socketPeer(request), request.getHeader(clientIpHeader));
+        return resolve(socketPeer(request), request.getHeader(clientIpHeader()));
+    }
+
+    private String clientIpHeader() {
+        return settings.get().effectiveClientIpHeader();
     }
 
     /**
@@ -106,25 +108,68 @@ public class ClientAddress {
     }
 
     private List<IpSubnet> trustedSubnets() {
-        List<IpSubnet> t = trusted;
-        if (t != null) return t;
+        String raw = settings.get().trustedProxies;
+        String key = raw == null ? "" : raw;
+        // The value is admin-editable at runtime, so the cache is keyed on it
+        // rather than computed once — and it is only ever read here, on a
+        // failed-login path, so re-parsing on a change costs nothing.
+        if (key.equals(parsedFrom)) return trusted;
+        List<IpSubnet> parsed = parse(raw);
+        trusted = parsed;
+        parsedFrom = key;
+        return parsed;
+    }
+
+    /**
+     * Parses the setting. Skips entries it cannot read rather than throwing:
+     * the value is validated on save ({@link #validate}), and a request path
+     * must not start failing over a configuration value — refusing to resolve
+     * an address would take the login endpoint down, which is a worse outcome
+     * than falling back to the socket peer.
+     */
+    private static List<IpSubnet> parse(String raw) {
         List<IpSubnet> parsed = new ArrayList<>();
-        String raw = trustedProxies == null ? null : trustedProxies.orElse(null);
-        if (raw != null && !raw.isBlank()) {
-            for (String part : raw.split(",")) {
-                String s = part.trim();
-                if (s.isEmpty()) continue;
-                // A bare address is a /32 or /128 — operators write both.
-                if (!s.contains("/")) s = s + (s.contains(":") ? "/128" : "/32");
-                try {
-                    parsed.add(IpSubnet.parse(s));
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalStateException(
-                            "islandr.auth.trusted-proxies contains an invalid entry: " + part, e);
-                }
+        if (raw == null || raw.isBlank()) return parsed;
+        for (String part : raw.split(",")) {
+            String entry = normaliseEntry(part);
+            if (entry == null) continue;
+            try {
+                parsed.add(IpSubnet.parse(entry));
+            } catch (IllegalArgumentException ignored) {
+                // Validated on save; a bad entry here is not worth a 500.
             }
         }
-        trusted = parsed;
         return parsed;
+    }
+
+    /** A bare address is a /32 or /128 — operators write both. */
+    private static String normaliseEntry(String part) {
+        String s = part.trim();
+        if (s.isEmpty()) return null;
+        if (!s.contains("/")) s = s + (s.contains(":") ? "/128" : "/32");
+        return s;
+    }
+
+    /**
+     * Validates a trusted-proxies value on save, naming the entry at fault.
+     * Returns the normalised value to store, or null for "nobody".
+     *
+     * @throws IllegalArgumentException with a message meant for the admin
+     */
+    public static String validate(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        List<String> out = new ArrayList<>();
+        for (String part : raw.split(",")) {
+            String entry = normaliseEntry(part);
+            if (entry == null) continue;
+            try {
+                IpSubnet.parse(entry);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "'" + part.trim() + "' is not an IP address or CIDR");
+            }
+            out.add(part.trim());
+        }
+        return out.isEmpty() ? null : String.join(",", out);
     }
 }
