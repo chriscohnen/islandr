@@ -61,6 +61,21 @@ public class SettingsService {
         s.firewallDryRun = req.firewallDryRun();
         s.selfServicePeerCreation = req.selfServicePeerCreation();
         if (req.externalApiEnabled() != null) s.externalApiEnabled = req.externalApiEnabled();
+        // Trusted proxies (issue #80). Null leaves it alone so an older client
+        // cannot silently clear it; an empty string is the deliberate "nobody
+        // may speak for a client", which is also the default.
+        if (req.trustedProxies() != null) {
+            try {
+                s.trustedProxies = de.chriscohnen.islandr.auth.ClientAddress.validate(req.trustedProxies());
+            } catch (IllegalArgumentException e) {
+                throw new jakarta.ws.rs.BadRequestException(
+                        "trustedProxies: " + e.getMessage()
+                                + " — enter IP addresses or CIDRs, separated by commas");
+            }
+        }
+        if (req.clientIpHeader() != null) {
+            s.clientIpHeader = req.clientIpHeader().isBlank() ? null : req.clientIpHeader().trim();
+        }
         s.wgMtu = (req.wgMtu() != null && req.wgMtu() > 0) ? req.wgMtu() : null;
         s.wgIncludeMtuInConf = req.wgIncludeMtuInConf();
         // null (field omitted) keeps the 25 default; 0 is a valid "keepalive off globally".

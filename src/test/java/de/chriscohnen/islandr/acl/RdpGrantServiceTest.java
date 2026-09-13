@@ -159,4 +159,38 @@ class RdpGrantServiceTest {
         role.delete();
         user.delete();
     }
+
+    @Test
+    @Transactional
+    void resolveTarget_returnsTarget_whenUserHasOnlyTypeGrant() {
+        String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
+        User user = User.createNew("TypeGrant " + suffix, "typegrant-" + suffix + "@firma.de");
+        user.persist();
+        Role role = Role.createNew("TypeGrantRdpRole-" + suffix, null);
+        role.persist();
+        em.createNativeQuery("INSERT INTO user_roles (user_id, role_id) VALUES (?1, ?2)")
+                .setParameter(1, user.id).setParameter(2, role.id).executeUpdate();
+        Site site = Site.createNew("TypeGrantRdpSite-" + suffix, "10.64.0.0/16", null);
+        site.persist();
+        Resource res = Resource.createNew(site.id, "TypeGrantTerminal-" + suffix, "10.64.0.5", null, "computer");
+        res.persist();
+        ResourcePort rdp = ResourcePort.createNew(res.id, 3389, null, "tcp", "RDP", null, null, false, false, "native");
+        rdp.persist();
+        // Type grant only — no concrete grant, no network grant.
+        RoleResourceTypeGrant.createNew(role.id, site.id, "computer").persist();
+
+        RdpGrantService.RdpTarget target = grants.resolveTarget(rdp.id, user.id, false);
+        assertThat(target).isNotNull();
+        assertThat(target.port()).isEqualTo(3389);
+
+        // Scoped cleanup, same reasoning as the network-grant test above.
+        RoleResourceTypeGrant.delete("roleId = ?1 and siteId = ?2", role.id, site.id);
+        em.createNativeQuery("DELETE FROM user_roles WHERE user_id = ?1 AND role_id = ?2")
+                .setParameter(1, user.id).setParameter(2, role.id).executeUpdate();
+        rdp.delete();
+        res.delete();
+        site.delete();
+        role.delete();
+        user.delete();
+    }
 }

@@ -35,12 +35,20 @@ export default defineComponent({
       formError: null,
       identifying: false,
       identifyResult: null, // { hostname, mac, vendor } | null, cleared on modal close/open
-      // Inline port form (one per resource at a time)
+      // Inline port form (one per resource at a time). The same form both
+      // adds and edits: portEditId null means add, a port id means edit
+      // (issue #82 — editing used to be delete-and-recreate, which silently
+      // revoked every port-scoped grant on the port).
       portFormFor: null,
+      portEditId: null,
       portForm: { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
         // #72: empty string, not 0 — the port is "unlimited" until the admin
         // types a number, and 0 would mean "nobody may ever reach it".
-        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true },
+        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true,
+        // RDP flags travel with the form so an edit cannot silently clear
+        // them: PortRequest has primitive booleans, so an omitted key is
+        // read as false on the server.
+        rdpClipboard: false, rdpFileTransfer: false, rdpAccessMode: "native" },
       portError: null,
       // Port-group apply (separate inline form, one resource at a time)
       portGroups: [],
@@ -58,6 +66,18 @@ export default defineComponent({
       // Which name/MAC sources this network's scan can use (issue #79) —
       // constant for the whole scan, so it rides along on the start response.
       scanSources: [],
+      // Issue #74: a network with no DNS server has no reverse-DNS source at
+      // all — the hub's own resolver knows nothing about a network reached
+      // through a gateway — so the scan falls back to self-reported names and
+      // everything else imports as "computer-<octet>". Fixable here rather
+      // than three screens away.
+      scanDnsInput: "",
+      scanDnsSaving: false,
+      scanDnsError: null,
+      // Only true when the DNS server was set from inside this dialog — the
+      // re-scan offer is for the admin who just changed the outcome, not a
+      // banner on every scan of a properly configured network.
+      scanDnsJustSaved: false,
       // Hosts as they arrive mid-sweep (issue #75) — read-only, kept apart from
       // scanHosts so the review table's per-row edits are never built from a
       // list that is still growing underneath them.
@@ -140,6 +160,21 @@ export default defineComponent({
         names: names.join(" · "),
         why: t("discovery.src_why_" + reason),
       }));
+    },
+    // True while this network cannot resolve registered names at all. The
+    // scan-source line (#79) already says so once a scan is running; this is
+    // what lets the admin do something about it, before and after (#74).
+    siteHasNoDnsServer() {
+      return !!this.site && !this.site.dnsServerIp;
+    },
+    // Suggestion, never a silent pre-fill — same rule as the network form's
+    // own DNS field and the resource DNS name below. Most branch routers
+    // answer on the first host of the network, but that is a guess.
+    scanDnsSuggestion() {
+      if (this.scanDnsInput) return "";
+      const octets = ((this.site && this.site.cidr) || "").split("/")[0].trim().split(".");
+      if (octets.length !== 4 || octets.some((o) => o === "" || isNaN(Number(o)))) return "";
+      return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
     },
     // Never written into form.dnsName automatically — shown as a placeholder/
     // accept-chip only, so doing nothing before Save leaves the field exactly
@@ -401,15 +436,69 @@ export default defineComponent({
     },
     openPortForm(resourceId) {
       this.portFormFor = resourceId;
+      this.portEditId = null;
       this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
-        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true };
+        maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true,
+        rdpClipboard: false, rdpFileTransfer: false, rdpAccessMode: "native" };
       this.portError = null;
       // Close the group-apply UI to keep only one inline form open at a time.
       this.groupFormFor = null;
     },
+    // Opens the same inline form pre-filled from an existing port (#82).
+    // Every field the server stores is carried over, including the ones the
+    // form does not render for the current protocol — a round-trip must not
+    // drop what it cannot show.
+    openPortEdit(resourceId, p) {
+      this.portFormFor = resourceId;
+      this.portEditId = p.id;
+      this.portForm = {
+        allPorts: p.port === 0,
+        port: p.port === 0 ? "" : String(p.port),
+        portEnd: p.portEnd == null ? "" : String(p.portEnd),
+        transport: p.transport,
+        protocol: p.protocol,
+        label: p.label || "",
+        pathPrefix: p.pathPrefix || "",
+        maxConcurrentUsers: p.maxConcurrentUsers == null ? "" : String(p.maxConcurrentUsers),
+        maxReservationMinutes: p.maxReservationMinutes == null ? "" : String(p.maxReservationMinutes),
+        autoApproveReservations: p.autoApproveReservations !== false,
+        rdpClipboard: !!p.rdpClipboard,
+        rdpFileTransfer: !!p.rdpFileTransfer,
+        rdpAccessMode: p.rdpAccessMode || "native",
+      };
+      this.portError = null;
+      this.groupFormFor = null;
+    },
     closePortForm() {
       this.portFormFor = null;
+      this.portEditId = null;
       this.portError = null;
+    },
+    // One-line summary of what a port is configured as, for the chip title —
+    // the chip itself only has room for the two or three that change what the
+    // port *is*.
+    portTooltip(p) {
+      const parts = [];
+      if (p.label) parts.push(p.label);
+      if (p.pathPrefix) parts.push(t("resources.label_path_prefix") + ": " + p.pathPrefix);
+      if (p.maxConcurrentUsers != null) {
+        parts.push(t("resources.field_capacity") + ": " + p.maxConcurrentUsers);
+        if (p.maxReservationMinutes != null) {
+          parts.push(t("resources.field_max_reservation") + ": " + p.maxReservationMinutes + " min");
+        }
+        parts.push(p.autoApproveReservations === false
+          ? t("resources.port_tip_approval") : t("resources.port_tip_auto_approve"));
+      }
+      if (p.protocol === "RDP") {
+        const redirects = [];
+        if (p.rdpClipboard) redirects.push(t("resources.field_rdp_clipboard"));
+        if (p.rdpFileTransfer) redirects.push(t("resources.field_rdp_file_transfer"));
+        if (redirects.length) {
+          parts.push(t("resources.rdp_redirects_title") + ": " + redirects.join(", "));
+        }
+        if (p.rdpAccessMode === "web-only") parts.push(t("resources.rdp_mode_web_only"));
+      }
+      return parts.join(" · ");
     },
     async submitPort() {
       this.portError = null;
@@ -430,8 +519,9 @@ export default defineComponent({
             return;
           }
         }
-        const res = await fetch("/api/v1/resources/" + this.portFormFor + "/ports", {
-          method: "POST",
+        const base = "/api/v1/resources/" + this.portFormFor + "/ports";
+        const res = await fetch(this.portEditId ? base + "/" + this.portEditId : base, {
+          method: this.portEditId ? "PUT" : "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             port: portNum,
@@ -448,16 +538,23 @@ export default defineComponent({
             maxReservationMinutes: this.portForm.maxReservationMinutes === "" || this.portForm.maxReservationMinutes == null
                 ? null : Number(this.portForm.maxReservationMinutes),
             autoApproveReservations: this.portForm.autoApproveReservations,
+            rdpClipboard: this.portForm.rdpClipboard,
+            rdpFileTransfer: this.portForm.rdpFileTransfer,
+            rdpAccessMode: this.portForm.rdpAccessMode,
           }),
         });
         if (!res.ok) {
+          // 409 names the colliding port and is the one message the admin can
+          // act on, so it is shown as it came rather than wrapped in an
+          // HTTP-status line.
           const body = await res.text();
+          if (res.status === 409) { this.portError = body || t("resources.port_conflict"); return; }
           throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
         }
         await this.loadResources();
         this.closePortForm();
       } catch (e) {
-        this.portError = t("resources.error_port_del", { error: e.message });
+        this.portError = t("resources.error_port_save", { error: e.message });
       }
     },
     async deletePort(resourceId, port) {
@@ -486,9 +583,56 @@ export default defineComponent({
     },
 
     // -- Device discovery (ADR-0014) --------------------------------------
+    // Saves the DNS server on the network from inside the scan dialog, so the
+    // admin fixes it where they notice it rather than navigating to the
+    // network's settings and back (#74). Sends the site's existing fields
+    // unchanged — this is a PUT, and a partial body would clear them.
+    async saveScanDnsServer() {
+      const ip = this.scanDnsInput.trim();
+      if (!ip || !this.site) return;
+      this.scanDnsSaving = true;
+      this.scanDnsError = null;
+      try {
+        const res = await fetch("/api/v1/sites/" + this.site.id, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: this.site.name,
+            cidr: this.site.cidr,
+            description: this.site.description,
+            gatewayPeerId: this.site.gatewayPeerId || null,
+            subdomain: this.site.subdomain || null,
+            dnsServerIp: ip,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
+        this.site = await res.json();
+        this.scanDnsInput = "";
+        this.scanDnsJustSaved = true;
+      } catch (e) {
+        this.scanDnsError = t("discovery.dns_save_error", { error: e.message });
+      } finally {
+        this.scanDnsSaving = false;
+      }
+    },
+    // Back to the consent step, so the scan can be re-run with the DNS server
+    // now in place rather than the dialog having to be closed and reopened.
+    rescanAfterDnsChange() {
+      this.scanState = "consent";
+      this.scanDnsJustSaved = false;
+      this.scanHosts = [];
+      this.scanLiveHosts = [];
+      this.scanJobId = null;
+      this.scanError = null;
+      this.scanFound = 0;
+      this.scanSources = [];
+    },
     openScan() {
       this.scanOpen = true;
       this.scanState = "consent";
+      this.scanDnsInput = "";
+      this.scanDnsError = null;
+      this.scanDnsJustSaved = false;
       this.scanHosts = [];
       this.scanJobId = null;
       this.scanError = null;
@@ -744,7 +888,7 @@ export default defineComponent({
             <span style="font-size: var(--text-xs); font-weight: 600; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.08em">Ports</span>
             <div style="display: flex; gap: var(--space-2)">
               <button class="btn btn-ghost btn-sm" @click="portFormFor === r.id ? closePortForm() : openPortForm(r.id)">
-                {{ portFormFor === r.id ? '✕ Abbrechen' : t('resources.btn_add_port') }}
+                {{ portFormFor === r.id ? '✕ ' + t('common.cancel') : t('resources.btn_add_port') }}
               </button>
               <button class="btn btn-ghost btn-sm"
                       :disabled="portGroups.length === 0"
@@ -761,10 +905,21 @@ export default defineComponent({
                   style="font-size: var(--text-xs); color: var(--fg3); font-family: var(--font-sans)">
               {{ t('resources.no_ports') }}
             </span>
-            <span v-for="p in r.ports" :key="p.id" class="res-port-chip">
-              <span class="mono" style="font-size: var(--text-xs)">{{ p.port === 0 ? 'alle' : (p.portEnd ? p.port + '–' + p.portEnd : p.port) }}/{{ p.transport }}</span>
+            <span v-for="p in r.ports" :key="p.id" class="res-port-chip"
+                  :class="{ 'res-port-chip-editing': portEditId === p.id }" :title="portTooltip(p)">
+              <span class="mono" style="font-size: var(--text-xs)">{{ p.port === 0 ? t('resources.port_all') : (p.portEnd ? p.port + '–' + p.portEnd : p.port) }}/{{ p.transport }}</span>
               <span style="color: var(--fg2); font-size: var(--text-xs)">{{ p.protocol }}</span>
-              <button class="res-port-remove" @click="deletePort(r.id, p)" title="Port entfernen">✕</button>
+              <!-- A path prefix and a capacity limit change what the port is,
+                   not just what it is called, so both are readable without
+                   opening anything (#82). -->
+              <span v-if="p.pathPrefix" class="res-port-badge mono">{{ p.pathPrefix }}</span>
+              <span v-if="p.maxConcurrentUsers != null" class="res-port-badge">
+                <span aria-hidden="true">◱</span> {{ t('resources.port_badge_capacity', { n: p.maxConcurrentUsers }) }}
+              </span>
+              <button class="res-port-edit" @click="openPortEdit(r.id, p)" :title="t('resources.port_edit')"
+                      :aria-label="t('resources.port_edit')">✎</button>
+              <button class="res-port-remove" @click="deletePort(r.id, p)" :title="t('resources.port_remove')"
+                      :aria-label="t('resources.port_remove')">✕</button>
             </span>
           </div>
 
@@ -824,9 +979,7 @@ export default defineComponent({
                   <label>{{ t('resources.label_path_prefix') }}</label>
                   <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
                 </div>
-                <div style="display: flex; gap: var(--space-2); align-self: flex-end">
-                  <button type="submit" class="btn btn-primary btn-sm">{{ t('resources.add_btn') }}</button>
-                </div>
+
               </div>
               <!-- Exclusive capacity (#72). Left empty, the port behaves
                    exactly as before: a grant alone reaches it. -->
@@ -852,11 +1005,52 @@ export default defineComponent({
                 </label>
                 <div class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_auto_approve_hint') }}</div>
               </template>
+              <!-- RDP options travel with every submit, so an edit cannot
+                   silently clear them — see portForm in data().
+                   Scope matters and is stated in the copy: these are enforced
+                   for the browser session, which Islandr proxies, and are only
+                   a default in the downloaded .rdp, which the native client
+                   can override. Claiming otherwise would be a promise the hub
+                   cannot keep. -->
+              <template v-if="portForm.protocol === 'RDP'">
+                <div class="field" style="margin: var(--space-3) 0 0; min-width: 180px; max-width: 260px">
+                  <label for="portRdpMode">{{ t('resources.field_rdp_access_mode') }}</label>
+                  <select id="portRdpMode" class="select" v-model="portForm.rdpAccessMode">
+                    <option value="native">{{ t('resources.rdp_mode_native') }}</option>
+                    <option value="web-only">{{ t('resources.rdp_mode_web_only') }}</option>
+                  </select>
+                </div>
+                <div style="margin-top: var(--space-3)">
+                  <label class="eyebrow" style="display: block; margin-bottom: var(--space-2)">{{ t('resources.rdp_redirects_title') }}</label>
+                  <div style="display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: center">
+                    <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                      <input type="checkbox" v-model="portForm.rdpClipboard" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                      <span>{{ t('resources.field_rdp_clipboard') }}</span>
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+                      <input type="checkbox" v-model="portForm.rdpFileTransfer" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                      <span>{{ t('resources.field_rdp_file_transfer') }}</span>
+                    </label>
+                  </div>
+                  <div class="field-hint" style="margin-top: var(--space-1)">
+                    {{ portForm.rdpAccessMode === 'web-only'
+                        ? t('resources.rdp_redirects_hint_web')
+                        : t('resources.rdp_redirects_hint_native') }}
+                  </div>
+                </div>
+              </template>
               <div v-if="portForm.protocol === 'RDP' && !ironRdpEnabled" class="callout callout-info" style="margin-top: var(--space-3)">
                 {{ t('resources.iron_rdp_disabled_hint') }}
                 <router-link :to="{ name: 'settings' }">{{ t('resources.iron_rdp_disabled_link') }}</router-link>
               </div>
               <div v-if="portError" class="error-banner" style="margin-top: var(--space-3)">{{ portError }}</div>
+              <!-- At the bottom, below every field it writes: capacity and the
+                   RDP options are saved by this button too, and a button above
+                   them reads as if they were not. -->
+              <div style="display: flex; gap: var(--space-2); margin-top: var(--space-4)">
+                <button type="submit" class="btn btn-primary btn-sm">{{ portEditId ? t('common.save') : t('resources.add_btn') }}</button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="closePortForm()">{{ t('common.cancel') }}</button>
+              </div>
             </form>
           </div>
 
@@ -999,6 +1193,33 @@ export default defineComponent({
               {{ t('discovery.consent', { cidr: site ? site.cidr : '' }) }}
             </p>
             <p class="field-hint" style="margin: 0">{{ t('discovery.consent_hint') }}</p>
+
+          <!-- Issue #74: with no DNS server on this network, both reverse-DNS
+               steps of the scan are dead — the hub's own resolver knows
+               nothing about a network reached through a gateway — so only
+               self-reported names come back and everything else imports as
+               "computer-<octet>". Said here, and fixable here. -->
+          <div v-if="siteHasNoDnsServer" class="callout callout-warning" style="margin-top: var(--space-3)">
+            <div style="width: 100%">
+              <strong>{{ t('discovery.no_dns_title') }}</strong>
+              <p style="margin: var(--space-2) 0 var(--space-3)">{{ t('discovery.no_dns_body') }}</p>
+              <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap">
+                <input class="input mono" style="width: 170px" v-model="scanDnsInput"
+                       :placeholder="t('sites.field_dns_server_ph')"
+                       :aria-label="t('sites.field_dns_server')" />
+                <button v-if="scanDnsSuggestion" type="button" class="btn btn-ghost btn-sm"
+                        @click="scanDnsInput = scanDnsSuggestion">
+                  {{ t('sites.field_dns_server_suggestion', { ip: scanDnsSuggestion }) }}
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm"
+                        :disabled="scanDnsSaving || !scanDnsInput.trim()"
+                        @click="saveScanDnsServer">
+                  {{ scanDnsSaving ? t('common.saving') : t('common.save') }}
+                </button>
+              </div>
+              <div v-if="scanDnsError" class="error-banner" style="margin-top: var(--space-2)">{{ scanDnsError }}</div>
+            </div>
+          </div>
           </template>
 
           <template v-else-if="scanState === 'running'">
@@ -1059,6 +1280,39 @@ export default defineComponent({
             <div v-if="scanError" class="error-banner" style="margin-bottom: var(--space-3)">{{ scanError }}</div>
             <div v-if="scanState === 'cancelled'" class="callout callout-warning">
               <span>{{ t('discovery.cancelled_partial', { done: scanProgress.done, total: scanProgress.total }) }}</span>
+            </div>
+            <!-- Also after the scan (#74): this is the moment the admin is
+                 looking at a column full of "computer-<octet>" and can see
+                 what it cost. Setting it here offers the re-scan directly. -->
+            <div v-if="siteHasNoDnsServer" class="callout callout-warning">
+              <div style="width: 100%">
+                <strong>{{ t('discovery.no_dns_title') }}</strong>
+                <p style="margin: var(--space-2) 0 var(--space-3)">{{ t('discovery.no_dns_after') }}</p>
+                <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap">
+                  <input class="input mono" style="width: 170px" v-model="scanDnsInput"
+                         :placeholder="t('sites.field_dns_server_ph')"
+                         :aria-label="t('sites.field_dns_server')" />
+                  <button v-if="scanDnsSuggestion" type="button" class="btn btn-ghost btn-sm"
+                          @click="scanDnsInput = scanDnsSuggestion">
+                    {{ t('sites.field_dns_server_suggestion', { ip: scanDnsSuggestion }) }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm"
+                          :disabled="scanDnsSaving || !scanDnsInput.trim()"
+                          @click="saveScanDnsServer">
+                    {{ scanDnsSaving ? t('common.saving') : t('common.save') }}
+                  </button>
+                </div>
+                <div v-if="scanDnsError" class="error-banner" style="margin-top: var(--space-2)">{{ scanDnsError }}</div>
+              </div>
+            </div>
+            <!-- Saved during this dialog: offer the re-scan rather than
+                 leaving the admin with a result they now know is incomplete. -->
+            <div v-else-if="scanDnsJustSaved" class="callout callout-info">
+              <div>
+                {{ t('discovery.dns_set_rescan') }}
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-left: var(--space-3)"
+                        @click="rescanAfterDnsChange">{{ t('discovery.rescan_btn') }}</button>
+              </div>
             </div>
             <div v-if="scanHosts.length === 0" class="muted">{{ t('discovery.none') }}</div>
             <template v-else>

@@ -15,6 +15,57 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class HostHealthSamplerTest {
 
+    // ── Mock mode (islandr.host-health.mode=mock) ───────────────────────────
+    // /proc only exists on Linux, so a dev machine or a screenshot run on
+    // macOS always showed "Hub load — Unavailable". Every other subsystem
+    // already has a mock adapter for exactly this; host-health did not.
+
+    @Test
+    void mockSnapshot_reportsAHealthyHub_notUnavailable() {
+        HostHealthDto.Snapshot s = HostHealthSampler.mockSnapshot(0);
+
+        assertThat(s.status()).isEqualTo(HostHealthDto.Status.OK);
+        assertThat(s.cpuStatus()).isEqualTo(HostHealthDto.Status.OK);
+        assertThat(s.memStatus()).isEqualTo(HostHealthDto.Status.OK);
+        assertThat(s.swapStatus()).isEqualTo(HostHealthDto.Status.OK);
+        assertThat(s.cpuPercent()).isNotNull();
+    }
+
+    @Test
+    void mockSnapshot_showsSwapSoTheCardRendersItsThirdBadge() {
+        // The swap badge is hidden when swapTotalBytes is 0. A screenshot of a
+        // hub with no swap at all shows a card that looks half-finished.
+        HostHealthDto.Snapshot s = HostHealthSampler.mockSnapshot(0);
+
+        assertThat(s.swapTotalBytes()).isPositive();
+        assertThat(s.swapUsedBytes()).isLessThan(s.swapTotalBytes());
+        assertThat(s.memUsedBytes()).isLessThan(s.memTotalBytes());
+        assertThat(s.memorySource()).isEqualTo("host");
+    }
+
+    @Test
+    void mockSnapshot_isDeterministicPerTick_soScreenshotsReproduce() {
+        HostHealthDto.Snapshot a = HostHealthSampler.mockSnapshot(7);
+        HostHealthDto.Snapshot b = HostHealthSampler.mockSnapshot(7);
+
+        // sampledAt is deliberately excluded: it is a real wall-clock stamp
+        // and must differ. It is the readings that have to reproduce.
+        assertThat(b).usingRecursiveComparison().ignoringFields("sampledAt").isEqualTo(a);
+    }
+
+    @Test
+    void mockSnapshot_cpuDriftsButStaysPlausible() {
+        // A number frozen to the pixel across a whole video tour reads as a
+        // dead widget; one that swings to 90% reads as a hub in trouble.
+        for (long tick = 0; tick < 200; tick++) {
+            Double cpu = HostHealthSampler.mockSnapshot(tick).cpuPercent();
+            assertThat(cpu).as("tick %d", tick).isBetween(5.0, 25.0);
+        }
+        assertThat(HostHealthSampler.mockSnapshot(0).cpuPercent())
+                .as("does not sit on one constant")
+                .isNotEqualTo(HostHealthSampler.mockSnapshot(5).cpuPercent());
+    }
+
     @Test
     void parseCpuTicks_readsAggregateCpuLine() {
         // user nice system idle iowait irq softirq steal guest guest_nice

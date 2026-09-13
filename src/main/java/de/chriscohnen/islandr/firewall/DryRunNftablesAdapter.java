@@ -33,4 +33,18 @@ class DryRunNftablesAdapter implements NftablesAdapter {
         }
         delegate.apply(rulesetText);
     }
+
+    /**
+     * With firewall writes paused, Islandr applies nothing — so removing the
+     * boot table would open the hub on the strength of a setting whose whole
+     * purpose is that nothing is enforced yet (ADR-0031).
+     */
+    @Override
+    public BootTableHandover removeBootTable() {
+        if (settings.get().firewallDryRun) {
+            LOG.info("[dry-run] boot firewall table kept — nothing is being enforced yet");
+            return BootTableHandover.KEPT_DRY_RUN;
+        }
+        return delegate.removeBootTable();
+    }
 }

@@ -69,6 +69,10 @@ export default defineComponent({
         firewallDryRun: true,
         selfServicePeerCreation: true,
         externalApiEnabled: true,
+        // Issue #80: whose forwarded header may name the real client, and
+        // which header that is. Empty = nobody may.
+        trustedProxies: "",
+        clientIpHeader: "",
         ironRdpEnabled: false,
         wgMtu: null,
         wgIncludeMtuInConf: false,
@@ -94,6 +98,10 @@ export default defineComponent({
       versionCheck: null,
       versionChecking: false,
       enforcement: null,
+      // Read-only: what /etc/default/islandr names as trusted proxies. Only
+      // meaningful while the field itself is empty — that is the state in which
+      // the environment applies again on the next restart (#80).
+      trustedProxiesSeed: null,
       // TLS (ADR-0015) — separate mini-form with its own PUT/DELETE endpoints,
       // not bundled into the main settings save.
       tlsMode: "none",
@@ -264,6 +272,8 @@ export default defineComponent({
           firewallDryRun: !!s.firewallDryRun,
           selfServicePeerCreation: s.selfServicePeerCreation !== false,
           externalApiEnabled: s.externalApiEnabled !== false,
+          trustedProxies: s.trustedProxies || "",
+          clientIpHeader: s.clientIpHeader || "",
           ironRdpEnabled: !!s.ironRdpEnabled,
           wgMtu: s.wgMtu || null,
           wgIncludeMtuInConf: !!s.wgIncludeMtuInConf,
@@ -283,6 +293,7 @@ export default defineComponent({
           setupComplete: s.setupComplete,
           version: s.version || null,
         };
+        this.trustedProxiesSeed = s.trustedProxiesSeed || null;
         this.tlsMode = s.tlsMode || "none";
         this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
         this.tlsCertInfo = s.tlsCertInfo || null;
@@ -360,6 +371,11 @@ export default defineComponent({
             || Number.isNaN(this.form.activityRetentionDays)) ? 180 : this.form.activityRetentionDays,
           dnsResolverZone: this.form.dnsResolverZone.trim() === "" ? null : this.form.dnsResolverZone.trim(),
           dnsResolverUpstream: this.form.dnsResolverUpstream.trim() === "" ? null : this.form.dnsResolverUpstream.trim(),
+          // Empty string, not null: null means "leave unchanged" on the server,
+          // so clearing the field has to be able to say "nobody may speak for a
+          // client" rather than being read as "no opinion".
+          trustedProxies: this.form.trustedProxies.trim(),
+          clientIpHeader: this.form.clientIpHeader.trim(),
         };
         const res = await fetch("/api/v1/settings", {
           method: "PUT",
@@ -1438,6 +1454,39 @@ export default defineComponent({
           <router-link to="/api-keys" class="btn btn-ghost btn-sm" style="align-self: flex-start; margin-top: var(--space-2)">
             {{ t('settings.external_api_manage_keys') }}
           </router-link>
+        </div>
+      </div>
+
+      <!-- Reverse proxy / client address (issue #80). Behind a proxy, every
+           request arrives from the proxy — so a failed login logs the proxy's
+           address, and a ban on that bans everyone. -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_proxy') }}</h2>
+        <div style="display: flex; flex-direction: column; gap: var(--space-4)">
+          <div class="field" style="margin: 0">
+            <label for="trustedProxies">{{ t('settings.trusted_proxies_label') }}</label>
+            <input id="trustedProxies" class="input mono" v-model="form.trustedProxies"
+                   placeholder="127.0.0.1, ::1" />
+            <div class="field-hint">{{ t('settings.trusted_proxies_hint') }}</div>
+          </div>
+          <div class="field" style="margin: 0">
+            <label for="clientIpHeader">{{ t('settings.client_ip_header_label') }}</label>
+            <input id="clientIpHeader" class="input mono" v-model="form.clientIpHeader"
+                   placeholder="X-Forwarded-For" />
+            <div class="field-hint">{{ t('settings.client_ip_header_hint') }}</div>
+          </div>
+          <!-- Empty here means the environment applies again on the next
+               restart, so a cleared field that /etc/default/islandr still names
+               is not actually cleared. Said now, not discovered after a reboot. -->
+          <div v-if="!form.trustedProxies.trim() && trustedProxiesSeed" class="callout callout-warning" style="margin: 0">
+            <div>{{ t('settings.trusted_proxies_seed_warn', { value: trustedProxiesSeed }) }}</div>
+          </div>
+          <div v-else-if="!form.trustedProxies.trim()" class="callout callout-info" style="margin: 0">
+            <div>{{ t('settings.trusted_proxies_empty') }}</div>
+          </div>
+          <div v-else class="callout callout-warning" style="margin: 0">
+            <div>{{ t('settings.trusted_proxies_set_warn') }}</div>
+          </div>
         </div>
       </div>
       </template>

@@ -156,4 +156,45 @@ class OidcProviderResourceTest {
                 .when().put("/api/v1/identity/providers/microsoft")
                 .then().statusCode(400);
     }
+
+    /**
+     * Issue #81: the Secret ID and the secret Value sit side by side in the
+     * Entra portal and only the Value is ever shown again, so pasting the ID
+     * is the most common setup mistake. A UUID-shaped secret is refused before
+     * anything is stored — no network call needed to know it is wrong.
+     */
+    @Test @Order(90)
+    void microsoft_rejectsAUuidShapedClientSecretAsTheSecretId() {
+        given().contentType("application/json")
+                .body("{\"clientId\":\"33333333-3333-3333-3333-333333333333\","
+                        + "\"tenantId\":\"44444444-4444-4444-4444-444444444444\","
+                        + "\"clientSecret\":\"55555555-5555-5555-5555-555555555555\"}")
+                .when().put("/api/v1/identity/providers/microsoft")
+                .then().statusCode(400);
+
+        // Nothing was saved — not even the fields that came with it.
+        given().when().get("/api/v1/identity/providers/microsoft")
+                .then().statusCode(200)
+                .body("clientSecretSet", is(false))
+                .body("clientId", org.hamcrest.Matchers.nullValue());
+    }
+
+    /** A real secret Value is opaque, not a UUID, and still goes through. */
+    @Test @Order(91)
+    void microsoft_acceptsANonUuidClientSecret() {
+        given().contentType("application/json")
+                .body("{\"clientId\":\"33333333-3333-3333-3333-333333333333\","
+                        + "\"tenantId\":\"44444444-4444-4444-4444-444444444444\","
+                        + "\"clientSecret\":\"8Xt~Q3.bK2lR-9Vd_uW1yZaB4cE5fG6h\"}")
+                .when().put("/api/v1/identity/providers/microsoft")
+                .then().statusCode(200)
+                .body("clientSecretSet", is(true));
+    }
+
+    /** The configuration test is Entra-specific; Google has no AADSTS codes. */
+    @Test @Order(92)
+    void configurationTest_isRefusedForNonMicrosoftProviders() {
+        given().when().post("/api/v1/identity/providers/google/test")
+                .then().statusCode(400);
+    }
 }

@@ -236,7 +236,18 @@ public final class PeerDto {
             // as a gateway, which is what makes it a site peer rather than a
             // client — the import offers it pre-selected as such.
             String siteAllowedCidrs,
-            boolean alreadyExists
+            boolean alreadyExists,
+            /**
+             * Whether this candidate can actually be imported. False for a peer
+             * Islandr already manages, and false for one with no IPv4 address:
+             * the peer model treats IPv4 as the primary address and IPv6 as the
+             * optional second one, so an IPv6-only peer has nothing to be keyed
+             * on. Kept separate from {@code alreadyExists} so the dialog can say
+             * which of the two reasons applies instead of greying a row out for
+             * an unstated one — offering an import that is certain to fail
+             * validation is worse than offering none.
+             */
+            boolean importable
     ) {}
 
     /** One entry in a {@code POST /api/v1/peers/wg-import} request. */

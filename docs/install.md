@@ -133,6 +133,10 @@ sudo tee /etc/sudoers.d/islandr > /dev/null << 'EOF'
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
+# Hands over from the fail-closed boot ruleset to Islandr's own (step 6b).
+# Islandr never creates that table, it only removes it once its own is live.
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft list table inet islandr-boot
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr-boot
 islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
 islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
 EOF
@@ -206,10 +210,10 @@ echo "Save this — it is only stored in /etc/default/islandr."
 > update — add it with `sudo systemctl edit islandr` (`[Unit]` /
 > `Before=wg-quick@wg0.service`, with your interface name).
 >
-> It does not help if Islandr fails to start at all: then no table is applied
-> and the interface still comes up. A hub that must stay closed in that case
-> needs a persistent nftables ruleset loaded at boot, which Islandr does not
-> install today.
+> Ordering alone does not help if Islandr fails to start at all — a failed
+> start counts as finished, so `wg-quick` proceeds and no table is ever applied.
+> That case is covered by the fail-closed boot ruleset below, which
+> `setup-hub.sh` installs and which Islandr removes once its own table is live.
 
 
 ```bash
@@ -264,6 +268,59 @@ Several of these settings look wrong for a hardened unit and are load-bearing �
 `NoNewPrivileges=false`, the missing `CapabilityBoundingSet`, `PrivateTmp`,
 the restart timing. [install/hardening.md](install/hardening.md) explains each
 one and the outage it prevents. Read it before you tighten anything.
+
+
+### 6b. The fail-closed boot ruleset
+
+Islandr's nftables table is built from the database and applied at startup, and
+it does not survive a reboot. If Islandr then fails to start — OOM-killed on a
+small hub, or refusing a migrated schema — systemd gives up after about a
+minute, `wg-quick` brings the interface up regardless, and the hub forwards
+whatever is written in `<iface>.conf` with no access control at all. The
+dangerous part is the shape: the VPN appears to work, so nobody investigates.
+
+`setup-hub.sh` installs a second, minimal table for exactly that window
+([ADR-0031](adr/0031-fail-closed-boot-ruleset.md)):
+
+```
+/etc/islandr/boot.nft                            table inet islandr-boot
+/etc/systemd/system/islandr-boot-firewall.service oneshot, before wg-quick@<iface>
+```
+
+It drops forwarding into and out of the WireGuard interface and accepts
+everything else, so the host's other forwarding — Docker, a second interface —
+is untouched. Islandr deletes the table **after** applying its own, never
+before, so there is no moment with neither.
+
+`/etc/nftables.conf` is deliberately not touched. Your own ruleset there stays
+yours; Islandr ships its own unit and its own file, for the same one-writer
+reason [ADR-0030](adr/0030-wireguard-config-file-ownership.md) gives for the
+WireGuard config.
+
+**What this trades.** A hub whose Islandr does not start forwards nothing,
+where before it would at least have carried the peers from the config file. For
+an access-control product that is the right direction, but it is an
+availability decision: "the control plane is down, so traffic stops" rather
+than "the control plane is down, so everyone may do anything".
+
+**On a fresh install, firewall writes are paused** (dry-run is the default), so
+Islandr applies nothing and keeps the boot table on purpose — opening the hub
+on the strength of a setting whose point is that nothing is enforced yet would
+defeat it. Until you activate enforcement in **Settings → Firewall**, the
+tunnel comes up and forwards nothing. The Admin Console says so, in as many
+words, rather than leaving you to diagnose a routing fault.
+
+If the handover ever fails, both tables are live and a drop in either wins, so
+granted traffic stays blocked. That is reported in the console and in the
+journal; the manual fix is:
+
+```bash
+sudo nft delete table inet islandr-boot
+```
+
+**Existing installs** do not get any of this from an update, same as the
+ordering change in 0.21.0 — re-run `setup-hub.sh`, or create the two files by
+hand.
 
 ### 7. Verify
 
@@ -630,6 +687,13 @@ sudo nft delete table inet islandr
 # Stop and disable the service
 sudo systemctl stop islandr
 sudo systemctl disable islandr
+
+# Stop and remove the fail-closed boot ruleset (ADR-0031). Leaving it enabled
+# would drop all WireGuard forwarding on the next reboot, with no Islandr left
+# to hand over to it.
+sudo systemctl disable --now islandr-boot-firewall.service
+sudo rm -f /etc/systemd/system/islandr-boot-firewall.service
+sudo rm -rf /etc/islandr
 
 # Remove service file and env file
 sudo rm /etc/systemd/system/islandr.service

@@ -35,6 +35,60 @@ public class AvatarService {
         return new Result(u.avatarBytes, u.avatarContentType, u.avatarEtag);
     }
 
+    /**
+     * Stores an uploaded avatar (issue #85). Until this existed, a face could
+     * only ever arrive through an OIDC login's profile photo or through
+     * Gravatar — which means the browser fetching from gravatar.com, the one
+     * outbound call the product is otherwise built not to make. A hub running
+     * purely on local accounts had the choice between initials for everyone
+     * and switching on the thing its operator came here to avoid.
+     *
+     * <p>Initials stay the fallback; they are a designed part of the system,
+     * not a placeholder to eliminate.
+     *
+     * @return the etag of the stored image, for the caller's cache headers
+     */
+    @Transactional
+    public String store(String userId, byte[] bytes, String declaredContentType) {
+        User u = User.findById(userId);
+        if (u == null) throw new NotFoundException("user not found: " + userId);
+        AvatarImage.Meta meta = AvatarImage.validate(bytes, declaredContentType);
+
+        u.avatarBytes = bytes;
+        u.avatarContentType = meta.contentType();
+        // Content-addressed, so a re-upload of the same image keeps the same
+        // etag and browsers do not refetch it.
+        u.avatarEtag = etagOf(bytes);
+        u.avatarFetchedAt = Instant.now();
+        return u.avatarEtag;
+    }
+
+    /**
+     * Drops the stored bytes. The user falls back to whatever the chain would
+     * have produced anyway — Gravatar if it is enabled and the account is
+     * local, initials otherwise.
+     */
+    @Transactional
+    public void clear(String userId) {
+        User u = User.findById(userId);
+        if (u == null) throw new NotFoundException("user not found: " + userId);
+        u.avatarBytes = null;
+        u.avatarContentType = null;
+        u.avatarEtag = null;
+        u.avatarFetchedAt = null;
+    }
+
+    private static String etagOf(byte[] bytes) {
+        try {
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder sb = new StringBuilder(32);
+            for (int i = 0; i < 16; i++) sb.append(String.format("%02x", d[i]));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 missing", e);
+        }
+    }
+
     @Transactional
     User fetchAndCacheGravatar(String userId) {
         // Re-load inside the TX so changes are tracked by the open persistence context.

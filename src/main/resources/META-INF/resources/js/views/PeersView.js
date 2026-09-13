@@ -51,7 +51,7 @@ export default defineComponent({
     // deployed with ISLANDR_WG_INTERFACE=wg1 does not read "Import from wg0".
     wgInterface() { return hub.wgInterface; },
     importSelectable() {
-      return this.importCandidates.filter(c => !c.alreadyExists);
+      return this.importCandidates.filter(c => c.importable);
     },
     importSelectedCount() {
       return this.importSelectable.filter(c => c.selected).length;
@@ -234,7 +234,9 @@ export default defineComponent({
         // peers does not silently flatten the branch offices into clients.
         this.importCandidates = candidates.map(c => ({
           ...c,
-          selected: !c.alreadyExists,
+          // Only what can actually be imported starts selected — an IPv6-only
+          // peer is listed but never offered (see importable in the DTO).
+          selected: c.importable,
           name: c.assignedIp || c.publicKey.slice(0, 8),
           type: c.siteAllowedCidrs ? "site" : "client",
           siteAllowedCidrs: c.siteAllowedCidrs || "",
@@ -248,7 +250,7 @@ export default defineComponent({
     },
 
     setAllImportSelected(selected) {
-      this.importCandidates.forEach(c => { if (!c.alreadyExists) c.selected = selected; });
+      this.importCandidates.forEach(c => { if (c.importable) c.selected = selected; });
     },
 
     closeImport() {
@@ -259,7 +261,7 @@ export default defineComponent({
     },
 
     async submitImport() {
-      const toImport = this.importCandidates.filter(c => c.selected && !c.alreadyExists);
+      const toImport = this.importCandidates.filter(c => c.selected && c.importable);
       if (toImport.length === 0) return;
       const siteWithoutCidrs = toImport.find(c => c.type === "site" && !c.siteAllowedCidrs.trim());
       if (siteWithoutCidrs) {
@@ -495,23 +497,27 @@ export default defineComponent({
               </thead>
               <tbody>
                 <template v-for="c in importCandidates" :key="c.publicKey">
-                <tr :style="c.alreadyExists ? 'opacity:0.45' : ''">
+                <tr :style="!c.importable ? 'opacity:0.45' : ''">
                   <td>
-                    <input type="checkbox" v-model="c.selected" :disabled="c.alreadyExists"
+                    <input type="checkbox" v-model="c.selected" :disabled="!c.importable"
                            style="width:15px;height:15px;accent-color:var(--accent);margin:0" />
                   </td>
                   <td class="mono" style="font-size:11px">{{ c.publicKey.slice(0,16) }}…
-                    <span v-if="c.alreadyExists && c.assignedIp" class="badge badge-neutral" style="margin-left:4px;font-size:10px">{{ t('peers.import_exists') }}</span>
-                    <span v-if="c.alreadyExists && !c.assignedIp" class="badge badge-neutral" style="margin-left:4px;font-size:10px">IPv6</span>
+                    <span v-if="c.alreadyExists" class="badge badge-neutral" style="margin-left:4px;font-size:10px">{{ t('peers.import_exists') }}</span>
+                    <!-- Not a decoration: this is the reason the row cannot be
+                         selected, and without it the empty IP column reads as
+                         missing data rather than "has no IPv4". -->
+                    <span v-else-if="!c.assignedIp" class="badge badge-neutral" style="margin-left:4px;font-size:10px">{{ t('peers.import_ipv6_only') }}</span>
                   </td>
-                  <td class="mono">{{ c.assignedIp || '—' }}</td>
+                  <td class="mono">{{ c.assignedIp || (c.assignedIpv6 || '—') }}</td>
                   <td>
-                    <input v-if="!c.alreadyExists" class="input" style="height:28px;font-size:var(--text-sm);padding:2px 6px"
+                    <input v-if="c.importable" class="input" style="height:28px;font-size:var(--text-sm);padding:2px 6px"
                            v-model="c.name" :disabled="!c.selected" placeholder="Name" />
+                    <span v-else-if="!c.assignedIp && !c.alreadyExists" class="muted" style="font-size:var(--text-xs)">{{ t('peers.import_ipv6_only_hint') }}</span>
                     <span v-else class="muted">—</span>
                   </td>
                   <td>
-                    <select v-if="!c.alreadyExists" class="select" style="height:28px;font-size:var(--text-sm)"
+                    <select v-if="c.importable" class="select" style="height:28px;font-size:var(--text-sm)"
                             v-model="c.type" :disabled="!c.selected">
                       <option value="client">Client</option>
                       <option value="site">Site</option>
@@ -519,16 +525,16 @@ export default defineComponent({
                     <span v-else class="muted">—</span>
                   </td>
                   <td>
-                    <select v-if="!c.alreadyExists && c.type === 'client'" class="select" style="height:28px;font-size:var(--text-sm)"
+                    <select v-if="c.importable && c.type === 'client'" class="select" style="height:28px;font-size:var(--text-sm)"
                             v-model="c.userId" :disabled="!c.selected">
                       <option value="">{{ t('peers.import_no_user') }}</option>
                       <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
                     </select>
-                    <span v-else-if="!c.alreadyExists" class="muted">{{ t('peers.import_site_no_user') }}</span>
+                    <span v-else-if="c.importable" class="muted">{{ t('peers.import_site_no_user') }}</span>
                     <span v-else class="muted">—</span>
                   </td>
                 </tr>
-                <tr v-if="!c.alreadyExists && c.type === 'site'">
+                <tr v-if="c.importable && c.type === 'site'">
                   <td></td>
                   <td colspan="5" style="padding-top:0">
                     <label class="eyebrow" style="display:block; margin-bottom:2px">{{ t('peers.import_th_cidrs') }}</label>
@@ -542,7 +548,7 @@ export default defineComponent({
               </tbody>
             </table>
             <div style="margin-top: var(--space-4); display:flex; gap:var(--space-3)">
-              <button class="btn btn-primary btn-sm" :disabled="importSubmitting || !importCandidates.some(c => c.selected && !c.alreadyExists)" @click="submitImport">
+              <button class="btn btn-primary btn-sm" :disabled="importSubmitting || !importCandidates.some(c => c.selected && c.importable)" @click="submitImport">
                 {{ importSubmitting ? t('common.saving') : t('peers.import_btn_confirm') }}
               </button>
               <button class="btn btn-ghost btn-sm" @click="closeImport">{{ t('common.cancel') }}</button>

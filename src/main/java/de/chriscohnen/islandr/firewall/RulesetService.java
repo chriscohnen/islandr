@@ -31,6 +31,7 @@ public class RulesetService {
     @Inject NftablesAdapter adapter;
     @Inject AuditService audit;
     @Inject EnforcementStatus enforcement;
+    @Inject BootTableState bootTable;
 
     /**
      * Build a fresh ruleset from DB state and apply it. Persists the result
@@ -90,6 +91,14 @@ public class RulesetService {
 
         // Enforcement plane reachable and applied — clear any prior degraded state.
         enforcement.markActive();
+        // The boot table goes away only now, after Islandr's own table is
+        // live, so there is never a moment with neither (ADR-0031). Retried on
+        // any later successful apply while it is still standing: an admin who
+        // resumes firewall writes, or fixes whatever made the removal fail,
+        // gets the handover on the next change rather than on the next reboot.
+        if (bootTable.needsHandover()) {
+            bootTable.record(adapter.removeBootTable());
+        }
         state.lastStatus = FirewallState.OK;
         state.lastOkAt = state.lastAttemptAt;
         state.ruleCount = snap.ruleCount();

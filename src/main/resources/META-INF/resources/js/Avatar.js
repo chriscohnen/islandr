@@ -1,4 +1,6 @@
 import { defineComponent } from "vue";
+import { t } from "/js/i18n.js";
+import { avatarVersion, chooseAndUploadAvatar, removeAvatar } from "/js/avatarUpload.js";
 
 // Avatar with two-stage fallback:
 //   1. <img> at /api/v1/users/{id}/avatar (covers MS Graph / Google / Gravatar cache)
@@ -30,13 +32,25 @@ export default defineComponent({
   props: {
     user: { type: Object, required: true },  // { id, name, ... }
     size: { type: Number, default: 32 },
+    // Turns the avatar into a control that uploads a picture (issue #85).
+    // Callers pass this only where the viewer is allowed to change it: an
+    // admin on any user, a user on themselves.
+    editable: { type: Boolean, default: false },
   },
+  emits: ["changed", "error"],
   data() {
-    return { imgFailed: false };
+    return { imgFailed: false, busy: false };
   },
   computed: {
     src() {
-      return this.user.id ? "/api/v1/users/" + this.user.id + "/avatar" : null;
+      if (!this.user.id) return null;
+      // avatarVersion is bumped after an upload, so every avatar of that user
+      // on the page reloads — not only the one that was clicked.
+      const v = avatarVersion[this.user.id];
+      return "/api/v1/users/" + this.user.id + "/avatar" + (v ? "?v=" + v : "");
+    },
+    hasImage() {
+      return !!this.src && !this.imgFailed;
     },
     initials() {
       return initials(this.user.name || this.user.email || "");
@@ -47,11 +61,52 @@ export default defineComponent({
   },
   watch: {
     "user.id"() { this.imgFailed = false; },
+    src() { this.imgFailed = false; },
+  },
+  methods: {
+    t(key, vars) { return t(key, vars); },
+    async upload() {
+      if (this.busy || !this.user.id) return;
+      this.busy = true;
+      try {
+        const r = await chooseAndUploadAvatar(this.user.id);
+        if (r.ok) this.$emit("changed");
+        else if (r.error) this.$emit("error", r.error);
+      } finally {
+        this.busy = false;
+      }
+    },
+    async remove() {
+      if (this.busy || !this.user.id) return;
+      if (!confirm(t("avatar.confirm_remove"))) return;
+      this.busy = true;
+      try {
+        const r = await removeAvatar(this.user.id);
+        if (r.ok) this.$emit("changed");
+        else if (r.error) this.$emit("error", r.error);
+      } finally {
+        this.busy = false;
+      }
+    },
   },
   template: `
-    <span class="avatar" :style="{ width: size + 'px', height: size + 'px', fontSize: (size * 0.4) + 'px' }">
-      <img v-if="src && !imgFailed" :src="src" :alt="user.name || ''" @error="imgFailed = true" />
+    <span v-if="!editable" class="avatar" :style="{ width: size + 'px', height: size + 'px', fontSize: (size * 0.4) + 'px' }">
+      <img v-if="hasImage" :src="src" :alt="user.name || ''" @error="imgFailed = true" />
       <span v-else class="avatar-initials" :style="{ backgroundColor: bgColor }">{{ initials }}</span>
+    </span>
+    <!-- Editable: the badge is always visible, so the action is reachable by
+         touch and not hidden behind a hover. -->
+    <span v-else class="avatar-edit-wrap">
+      <button type="button" class="avatar-edit-btn" :disabled="busy" @click="upload"
+              :title="t('avatar.change')" :aria-label="t('avatar.change')">
+        <span class="avatar" :style="{ width: size + 'px', height: size + 'px', fontSize: (size * 0.4) + 'px' }">
+          <img v-if="hasImage" :src="src" :alt="user.name || ''" @error="imgFailed = true" />
+          <span v-else class="avatar-initials" :style="{ backgroundColor: bgColor }">{{ initials }}</span>
+        </span>
+        <span class="avatar-edit-badge" aria-hidden="true">✎</span>
+      </button>
+      <button v-if="hasImage" type="button" class="avatar-remove-btn" :disabled="busy" @click="remove"
+              :title="t('avatar.remove')" :aria-label="t('avatar.remove')">✕</button>
     </span>
   `,
 });

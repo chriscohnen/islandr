@@ -1,6 +1,6 @@
 # ADR-0031 — A boot-time nftables table keeps the hub closed until Islandr is enforcing
 
-**Status:** Proposed (implementation targeted at 0.22.0)
+**Status:** Accepted (implemented in 0.22.0, issue #84)
 **Date:** 2026-09-11
 **Deciders:** Christian Cohnen
 **Relates to:** [ADR-0030](0030-wireguard-config-file-ownership.md) (why the peers in `<iface>.conf` exist outside Islandr at all), [ADR-0003](0003-nftables-replaces-ufw.md) (the table this one hands over to), [ADR-0011](0011-process-privilege-model.md) (the sudoers scope a new command has to fit)
@@ -34,7 +34,7 @@ it either, and for a second reason: the unit has no `Type=`, so it is
 forked — not when the ruleset is applied. A native image wins that race in
 practice, but a race is not a guarantee.
 
-## Decision (proposed)
+## Decision
 
 **Install a second, minimal nftables table that exists from boot and is removed
 by Islandr only once its own table is live.**
@@ -124,3 +124,22 @@ redundant.
 - [ADR-0003](0003-nftables-replaces-ufw.md) — the table this one hands over to
 - [ADR-0011](0011-process-privilege-model.md) — the sudoers model the new command joins
 - arc42 §11 **R-192** — the risk this ADR answers
+
+## Implementation note (0.22.0)
+
+Built as decided, with two details worth recording:
+
+- **The handover is retried, not one-shot.** `RulesetService` attempts the
+  removal after every successful apply while the boot table is still standing,
+  so an admin who activates enforcement, or who fixes whatever made the removal
+  fail, gets the handover on their next change rather than on the next reboot.
+  Once done it is not retried, so the steady state costs no `nft` calls.
+- **`removeBootTable()` defaults to "unsupported"** on the `NftablesAdapter`
+  interface. The boot table is installed by `setup-hub.sh`, which is the native
+  systemd install; the socket-proxy runtime (ADR-0012) has no such unit and
+  would need its own proxy op, so it reports "nothing to hand over" rather than
+  a failure.
+
+The state is exposed as a `bootTable` block on `GET /api/v1/enforcement/status`
+and rendered as its own banner — separate from the enforcement banner, because
+it fires while enforcement is otherwise healthy (R-193, R-194).

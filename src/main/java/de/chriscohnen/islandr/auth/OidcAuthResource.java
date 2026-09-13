@@ -51,8 +51,18 @@ public class OidcAuthResource {
                              @QueryParam("state") String state,
                              @QueryParam("error") String idpError,
                              @QueryParam("error_description") String idpErrorDescription,
+                             @QueryParam("admin_consent") String adminConsent,
                              @Context UriInfo uriInfo,
                              @Context jakarta.ws.rs.container.ContainerRequestContext ctx) {
+        // An admin-consent return is not a login (issue #81). Microsoft sends
+        // the browser here with admin_consent=True and no code, and there is no
+        // state cookie because no login was ever started — so the CSRF check
+        // must not be applied to it. Left to fall through, it reported a
+        // successful consent as "state mismatch (CSRF protection)", which is
+        // what the operator saw and reasonably read as a broken secret.
+        if (adminConsent != null) {
+            return consentRedirect(Boolean.parseBoolean(adminConsent), idpErrorDescription);
+        }
         if (idpError != null) {
             // IdP told us "no" — bounce back to login with a readable message.
             return loginErrorRedirect("idp_" + idpError, idpErrorDescription);
@@ -83,6 +93,20 @@ public class OidcAuthResource {
         return uriInfo.getBaseUriBuilder()
                 .path("api").path("v1").path("auth").path("oidc").path(provider).path("callback")
                 .build().toString();
+    }
+
+    /**
+     * Back to the Identity page with the outcome, rather than to the login
+     * page with an error — the person who clicked the consent link is an
+     * already signed-in admin configuring the provider. Hash route, matching
+     * the frontend's {@code createWebHashHistory}.
+     */
+    private static Response consentRedirect(boolean granted, String detail) {
+        String to = "/#/identity?consent=" + (granted ? "granted" : "declined");
+        if (!granted && detail != null && !detail.isBlank()) {
+            to += "&detail=" + urlEncode(detail);
+        }
+        return Response.seeOther(URI.create(to)).build();
     }
 
     private static Response loginErrorRedirect(String code, String detail) {

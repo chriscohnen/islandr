@@ -35,6 +35,9 @@ public class RealNftablesAdapter implements NftablesAdapter {
     private static final Logger LOG = Logger.getLogger(RealNftablesAdapter.class);
     private static final long PROCESS_TIMEOUT_SECONDS = 10;
 
+    /** The fail-closed table installed by setup-hub.sh's oneshot unit (ADR-0031). */
+    static final String BOOT_TABLE = "islandr-boot";
+
     private final boolean useSudo;
     private final Path dataDir;
 
@@ -87,6 +90,37 @@ public class RealNftablesAdapter implements NftablesAdapter {
         } catch (IOException | InterruptedException ex) {
             if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new NftablesException("could not run nft: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * ADR-0031: the boot table is what keeps the hub closed between the reboot
+     * and Islandr enforcing. It goes away only here, after this adapter has
+     * successfully applied Islandr's own table.
+     *
+     * <p>{@code nft delete table} on a table that does not exist is an error,
+     * not a no-op, so existence is checked first — an upgraded install without
+     * the unit must report ABSENT, not FAILED.
+     */
+    @Override
+    public BootTableHandover removeBootTable() {
+        try {
+            ProcessResult exists = run(List.of("nft", "list", "table", "inet", BOOT_TABLE));
+            if (exists.exitCode != 0) return BootTableHandover.ABSENT;
+
+            ProcessResult del = run(List.of("nft", "delete", "table", "inet", BOOT_TABLE));
+            if (del.exitCode == 0) {
+                LOG.infof("boot firewall table 'inet %s' removed — islandr's own ruleset is live", BOOT_TABLE);
+                return BootTableHandover.REMOVED;
+            }
+            LOG.errorf("could not remove boot firewall table 'inet %s': %s — "
+                    + "both tables are live and a drop in either wins, so granted traffic stays blocked",
+                    BOOT_TABLE, del.stderr);
+            return BootTableHandover.FAILED;
+        } catch (IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+            LOG.errorf(ex, "could not run nft to remove the boot firewall table");
+            return BootTableHandover.FAILED;
         }
     }
 

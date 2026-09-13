@@ -14,6 +14,24 @@ import { Icon } from "/js/Icons.js";
 //   - keiner aktiv, einer konfiguriert   → Empty-Hero + Strip "Entwurf vorhanden"
 //   - einer aktiv                        → Provider-Hero + andere Strip darunter
 // In allen States ist die ENV-Admin-Strip ganz unten als Sicherheitsanker.
+// Reads whatever a failing response carries — a JSON {error}/{message}, or a
+// plain-text body — and falls back to the status line. Quarkus answers a
+// BadRequestException with its message as text, and for provider setup that
+// message is the whole point of the response.
+async function errorTextOf(res) {
+  const raw = await res.text().catch(() => "");
+  if (raw) {
+    try {
+      const j = JSON.parse(raw);
+      const msg = j.error || j.message || j.detail;
+      if (msg) return msg;
+    } catch (_) {
+      return raw.slice(0, 300);
+    }
+  }
+  return "HTTP " + res.status;
+}
+
 export default defineComponent({
   name: "IdentityView",
   components: { Icon },
@@ -49,6 +67,16 @@ export default defineComponent({
       // bzw. einen Fehlerhinweis und fällt danach in den Normalzustand zurück.
       redirectCopied: false,
       redirectCopyFailed: false,
+      // Entra configuration test (#81): checks each value separately so the
+      // report can name the field at fault instead of leaving the first wrong
+      // one to surface as a login error later.
+      testing: false,
+      testReport: null,
+      testError: null,
+      // Set from ?consent= after Microsoft sends the browser back from the
+      // admin-consent flow — that return is not a login and used to be
+      // reported as a CSRF failure.
+      consentNotice: null,
     };
   },
   computed: {
@@ -90,6 +118,12 @@ export default defineComponent({
     },
   },
   async mounted() {
+    const consent = this.$route && this.$route.query ? this.$route.query.consent : null;
+    if (consent === "granted" || consent === "declined") {
+      this.consentNotice = { granted: consent === "granted", detail: this.$route.query.detail || null };
+      // Drop the query so a reload does not resurrect the banner.
+      this.$router.replace({ name: "identity" });
+    }
     await Promise.all([this.load(), this.loadCustomProviders(), this.loadGwsSettings()]);
     this._offEscape = onEscape(() => { if (this.pendingSwitch) this.abortSwitch(); });
   },
@@ -191,11 +225,32 @@ export default defineComponent({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || ("HTTP " + res.status));
-      }
+      // The server's own sentence is the useful one here — it is what names
+      // the Secret ID mistake (#81) — so it is preferred over the status line.
+      if (!res.ok) throw new Error(await errorTextOf(res));
       return await res.json();
+    },
+    // Runs the Entra checks and shows which field is at fault (#81).
+    async runConfigTest(providerKey) {
+      this.testing = true;
+      this.testError = null;
+      this.testReport = null;
+      try {
+        const res = await fetch("/api/v1/identity/providers/" + providerKey + "/test", { method: "POST" });
+        if (!res.ok) throw new Error(await errorTextOf(res));
+        this.testReport = await res.json();
+      } catch (e) {
+        this.testError = t("identity.test_error", { error: e.message });
+      } finally {
+        this.testing = false;
+      }
+    },
+    dismissTest() {
+      this.testReport = null;
+      this.testError = null;
+    },
+    testFieldLabel(field) {
+      return t("identity.test_field_" + field) || field;
     },
     async saveDraft() {
       if (!this.editing) return;
@@ -503,15 +558,65 @@ export default defineComponent({
           <button class="btn btn-ghost btn-sm" @click="setEnabled(activeProvider.providerKey, false)">{{ t('identity.btn_disable') }}</button>
         </div>
 
+        <!-- Outcome of the admin-consent round trip (#81). Microsoft returns
+             here with admin_consent=True and no code; that is a completed
+             consent, not a failed login. -->
+        <div v-if="consentNotice" class="callout" :class="consentNotice.granted ? 'callout-ok' : 'callout-warning'"
+             style="margin-top: var(--space-4)">
+          <div>
+            <strong>{{ consentNotice.granted ? t('identity.consent_granted') : t('identity.consent_declined') }}</strong>
+            <p style="margin: var(--space-2) 0 0">
+              {{ consentNotice.granted ? t('identity.consent_granted_desc') : t('identity.consent_declined_desc') }}
+              <span v-if="consentNotice.detail" class="mono" style="display: block; margin-top: var(--space-2); font-size: var(--text-xs)">{{ consentNotice.detail }}</span>
+            </p>
+          </div>
+        </div>
+
         <div v-if="adminConsentUrl(activeProvider)" class="callout callout-info" style="margin-top: var(--space-4)">
           <div>
             <strong>{{ t('identity.consent_title') }}</strong>
             <p style="margin: var(--space-2) 0 var(--space-3)">
               {{ t('identity.consent_desc') }}
             </p>
-            <a :href="adminConsentUrl(activeProvider)" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
-              {{ t('identity.consent_btn') }}
-            </a>
+            <div style="display: flex; gap: var(--space-2); flex-wrap: wrap">
+              <a :href="adminConsentUrl(activeProvider)" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+                {{ t('identity.consent_btn') }}
+              </a>
+              <!-- Names the field at fault instead of leaving the first wrong
+                   value to surface as a login error later (#81). -->
+              <button class="btn btn-ghost btn-sm" :disabled="testing"
+                      @click="runConfigTest(activeProvider.providerKey)">
+                {{ testing ? t('identity.test_running') : t('identity.test_btn') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="testError" class="error-banner" style="margin-top: var(--space-3)">{{ testError }}</div>
+
+        <div v-if="testReport" class="callout" :class="testReport.ok ? 'callout-ok' : 'callout-warning'"
+             style="margin-top: var(--space-3)">
+          <div style="width: 100%">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3)">
+              <strong>{{ testReport.ok ? t('identity.test_all_ok') : t('identity.test_has_failures') }}</strong>
+              <button class="btn btn-ghost btn-sm" @click="dismissTest()">{{ t('common.close') }}</button>
+            </div>
+            <!-- Status is icon + word, never colour alone. -->
+            <ul style="list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-2)">
+              <li v-for="c in testReport.checks" :key="c.field"
+                  style="display: grid; grid-template-columns: 20px 1fr; gap: var(--space-2); align-items: start">
+                <span aria-hidden="true" style="line-height: 1.5">{{ c.status === 'ok' ? '✓' : (c.status === 'failed' ? '✕' : '–') }}</span>
+                <span>
+                  <strong>{{ testFieldLabel(c.field) }}</strong>
+                  <span style="color: var(--fg3)"> — {{ t('identity.test_status_' + c.status) }}</span>
+                  <span v-if="c.code" class="mono" style="font-size: var(--text-xs); color: var(--fg3)"> ({{ c.code }})</span>
+                  <div style="color: var(--fg2); margin-top: 2px">{{ c.message }}</div>
+                </span>
+              </li>
+            </ul>
+            <div class="mono" style="font-size: var(--text-xs); color: var(--fg3); margin-top: var(--space-3)">
+              {{ t('identity.test_redirect_uri') }}: {{ testReport.redirectUri }}
+            </div>
           </div>
         </div>
       </section>

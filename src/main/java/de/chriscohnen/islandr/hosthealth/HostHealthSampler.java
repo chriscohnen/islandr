@@ -55,6 +55,18 @@ public class HostHealthSampler {
     @ConfigProperty(name = "islandr.host-health.poll-enabled", defaultValue = "true")
     boolean pollEnabled;
 
+    /**
+     * {@code real} reads /proc; {@code mock} reports a synthetic healthy hub.
+     * Same real/mock split as wg, nft, discovery and diag — /proc is
+     * Linux-only, so without this a dev machine or a screenshot run on macOS
+     * can only ever render "Unavailable".
+     */
+    @ConfigProperty(name = "islandr.host-health.mode", defaultValue = "real")
+    String mode;
+
+    /** Drives the mock's gentle CPU drift; irrelevant in real mode. */
+    private long mockTick;
+
     private volatile HostHealthDto.Snapshot latest = HostHealthDto.Snapshot.unavailable();
     private long prevIdleTicks = -1;
     private long prevTotalTicks = -1;
@@ -68,6 +80,10 @@ public class HostHealthSampler {
                concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void sample() {
         if (!pollEnabled) return;
+        if (!"real".equalsIgnoreCase(mode)) {
+            latest = mockSnapshot(mockTick++);
+            return;
+        }
         try {
             Double cpuPercent = sampleCpuPercent();
             MemReading mem = sampleMemory();
@@ -186,6 +202,31 @@ public class HostHealthSampler {
         } catch (IOException | NumberFormatException e) {
             return null;
         }
+    }
+
+    // A small 8 GB hub with a little swap configured and nothing wrong with
+    // it — the shape most self-hosted installs actually have. Deliberately
+    // well under every threshold so the card renders all three badges green.
+    static final long MOCK_MEM_TOTAL_BYTES = 8L * 1024 * 1024 * 1024;
+    static final long MOCK_MEM_USED_BYTES = 2560L * 1024 * 1024;   // 2.5 GiB, 31%
+    static final long MOCK_SWAP_TOTAL_BYTES = 2L * 1024 * 1024 * 1024;
+    static final long MOCK_SWAP_USED_BYTES = 96L * 1024 * 1024;    // 4.7%
+
+    /**
+     * A synthetic reading for {@code islandr.host-health.mode=mock}. Goes
+     * through {@link #buildSnapshot} like a real one, so the badges come out
+     * of the same threshold logic rather than being hard-coded — a mock that
+     * bypassed it could show a green badge the real rules would call High.
+     *
+     * <p>CPU drifts on a sine so a screen recording doesn't show a frozen
+     * number, but it is a pure function of {@code tick}: the same tick always
+     * yields the same reading, so a screenshot run reproduces.
+     */
+    static HostHealthDto.Snapshot mockSnapshot(long tick) {
+        double cpuPercent = 14.0 + 4.0 * Math.sin(tick / 3.0);
+        return buildSnapshot(cpuPercent, new MemReading(
+                MOCK_MEM_TOTAL_BYTES, MOCK_MEM_USED_BYTES,
+                MOCK_SWAP_TOTAL_BYTES, MOCK_SWAP_USED_BYTES, "host"));
     }
 
     static HostHealthDto.Snapshot buildSnapshot(Double cpuPercent, MemReading mem) {

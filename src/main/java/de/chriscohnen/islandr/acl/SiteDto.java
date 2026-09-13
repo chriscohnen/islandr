@@ -67,7 +67,15 @@ public final class SiteDto {
             @NotBlank String peerId,
             @NotBlank @ValidCidr String cidr,
             @NotBlank String name,
-            String description
+            String description,
+            // Optional, and the reason it is here: a network imported without
+            // one has no reverse-DNS source at all, because the hub's own
+            // resolver knows nothing about a network reached through a gateway
+            // (issue #74). A gateway routing five networks almost certainly
+            // serves all five from one resolver, so the dialog asks once per
+            // gateway and sends the same value on each of its entries.
+            @de.chriscohnen.islandr.validation.ValidIpAddress
+            String dnsServerIp
     ) {}
 
     /** Request body for {@code POST /api/v1/sites/gateway-import}. */

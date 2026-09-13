@@ -44,6 +44,16 @@ public class OidcProviderService {
 
         // Treat empty/blank clientSecret as "no change". Real rotation = send a value.
         if (req.clientSecret() != null && !req.clientSecret().isBlank()) {
+            // Issue #81: the Entra secrets table shows Value and Secret ID side
+            // by side and only the Value is ever shown again, so pasting the ID
+            // is the most common setup mistake there is. A Secret ID is a UUID
+            // and a secret Value never is, so it can be refused before anything
+            // is stored — and before a network call could blame another field.
+            if (p.isMicrosoft() && MicrosoftConfigCheck.looksLikeSecretId(req.clientSecret())) {
+                throw new BadRequestException(
+                        "this looks like the Secret ID, not the secret Value — Entra shows both side by side, "
+                                + "and Islandr needs the Value (visible only once, right after you create the secret)");
+            }
             p.clientSecret = req.clientSecret();
         }
 

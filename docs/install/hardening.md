@@ -127,3 +127,10 @@ configurable on either side.
 To run behind an existing reverse proxy instead, bind islandr to loopback ports
 and let the proxy keep 80/443. See [reverse-proxy.md](reverse-proxy.md) for both
 paths side by side.
+
+## Login attempts
+
+The local login endpoint slows down under repeated failures on its own, and the
+failure line it writes to the journal carries the client address so fail2ban can
+act on it. Both, and the way to configure which proxy may speak for a client,
+are in [fail2ban.md](fail2ban.md).

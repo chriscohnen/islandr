@@ -81,10 +81,20 @@ public final class SettingsDto {
             // host-route fix-up baked into this preview.
             String computedAllowedIpsPreview,
             // Opt-out for the external automation API facade (issue #15, ADR-0026).
-            boolean externalApiEnabled
+            boolean externalApiEnabled,
+            // Which addresses may speak for a client through a forwarded header,
+            // and which header that is (issue #80). Empty = nobody may.
+            String trustedProxies,
+            String clientIpHeader,
+            // What /etc/default/islandr names, if anything. Only relevant while
+            // trustedProxies is empty: that is exactly when the environment
+            // applies again on the next restart, so the console has to say so
+            // rather than let a reboot silently re-trust an address.
+            String trustedProxiesSeed
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
-                                     Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo) {
+                                     Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo,
+                                     String trustedProxiesSeed) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
@@ -127,7 +137,10 @@ public final class SettingsDto {
                             s.wgSubnet, s.wgSubnet6, s.splitSupernet,
                             de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
                             s.effectiveClientDns(), true),
-                    s.externalApiEnabled);
+                    s.externalApiEnabled,
+                    s.trustedProxies,
+                    s.clientIpHeader,
+                    trustedProxiesSeed);
         }
     }
 
@@ -266,7 +279,20 @@ public final class SettingsDto {
             // hand-written script) never silently disables it. Set explicitly
             // false to turn off the external automation API facade entirely
             // (issue #15, ADR-0026), regardless of any existing API key.
-            Boolean externalApiEnabled
+            Boolean externalApiEnabled,
+
+            // Which addresses may speak for a client through a forwarded header
+            // (issue #80). Null means "leave unchanged"; an empty string is a
+            // deliberate "nobody may", which is also the default. Validated in
+            // SettingsService so a bad entry is named rather than silently
+            // dropped on a request path later.
+            String trustedProxies,
+
+            // The header carrying the client address. Null = leave unchanged,
+            // empty = back to the X-Forwarded-For default.
+            @Pattern(regexp = "^$|^[A-Za-z0-9-]{1,64}$",
+                    message = "clientIpHeader must be a header name (letters, digits, hyphens)")
+            String clientIpHeader
     ) {}
 
     private SettingsDto() {}

@@ -23,6 +23,9 @@ public class MockNftablesAdapter implements NftablesAdapter {
     public volatile int applyCount;
     public volatile String forceFailure;
     public volatile boolean forceUnavailable;
+    /** What the boot-table handover (ADR-0031) should report; counts the calls. */
+    public volatile BootTableHandover bootTableResult = BootTableHandover.UNSUPPORTED;
+    public volatile int bootTableRemovalCount;
 
     @Override
     public ValidationResult validate(String rulesetText) {
@@ -44,10 +47,18 @@ public class MockNftablesAdapter implements NftablesAdapter {
     }
 
     @Override
+    public BootTableHandover removeBootTable() {
+        bootTableRemovalCount++;
+        return bootTableResult;
+    }
+
+    @Override
     public void resetForTests() {
         lastApplied = null;
         applyCount = 0;
         forceFailure = null;
         forceUnavailable = false;
+        bootTableResult = BootTableHandover.UNSUPPORTED;
+        bootTableRemovalCount = 0;
     }
 }

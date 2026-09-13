@@ -24,6 +24,10 @@
 #   ISLANDR_HTTP_HOST=127.0.0.1   bind loopback for a reverse proxy
 #   ISLANDR_HTTP_PORT=8080        + ISLANDR_HTTPS_PORT=8443
 #   ISLANDR_SKIP_MEM_CHECK=1      install despite too little RAM
+#   TRUSTED_PROXIES=127.0.0.1     reverse proxy in front: whose forwarded
+#                                 header may name the real client (see below)
+#   CLIENT_IP_HEADER=CF-Connecting-IP   which header carries it (default
+#                                 X-Forwarded-For)
 #
 # Full walkthrough:      docs/install.md
 # Why the unit and sudoers look the way they do: docs/install/hardening.md
@@ -37,6 +41,12 @@ ISLANDR_BINARY="${ISLANDR_BINARY:-}"
 ISLANDR_HTTP_HOST="${ISLANDR_HTTP_HOST:-0.0.0.0}"
 ISLANDR_HTTP_PORT="${ISLANDR_HTTP_PORT:-80}"
 ISLANDR_HTTPS_PORT="${ISLANDR_HTTPS_PORT:-443}"
+# Nothing is guessed here. Binding to loopback strongly suggests a proxy is in
+# front, but it is not proof, and trusting an address that nothing sits behind
+# is exactly the mistake this setting exists to prevent — so unset means nobody
+# is trusted, and a failed login logs the proxy's own address.
+TRUSTED_PROXIES="${TRUSTED_PROXIES:-}"
+CLIENT_IP_HEADER="${CLIENT_IP_HEADER:-}"
 
 REPO="chriscohnen/islandr"
 
@@ -51,7 +61,7 @@ fail() {
 # ---------------------------------------------------------------------------
 # 1. Preflight — everything that makes the service fail *after* install
 # ---------------------------------------------------------------------------
-echo ">>> 1/7 Preflight"
+echo ">>> 1/8 Preflight"
 
 [[ $EUID -eq 0 ]] || fail "This script must run as root." "sudo ./setup-hub.sh"
 
@@ -178,7 +188,7 @@ fi
 # ---------------------------------------------------------------------------
 # 2. Binary
 # ---------------------------------------------------------------------------
-echo ">>> 2/7 Binary"
+echo ">>> 2/8 Binary"
 
 STAGED=/tmp/islandr.staged
 trap 'rm -f "$STAGED" "$STAGED.sha256"' EXIT
@@ -216,7 +226,7 @@ fi
 # ---------------------------------------------------------------------------
 # 3. User + directories
 # ---------------------------------------------------------------------------
-echo ">>> 3/7 User and directories"
+echo ">>> 3/8 User and directories"
 
 if id islandr &>/dev/null; then
     echo "  User 'islandr' already exists, skipping."
@@ -232,7 +242,7 @@ install -o islandr -g islandr -m 0755 "$STAGED" /opt/islandr/islandr
 # ---------------------------------------------------------------------------
 # 4. sudoers entry (Option B: sudo instead of CAP_NET_ADMIN)
 # ---------------------------------------------------------------------------
-echo ">>> 4/7 sudoers entry (interface: $WG_INTERFACE)"
+echo ">>> 4/8 sudoers entry (interface: $WG_INTERFACE)"
 
 cat > /etc/sudoers.d/islandr <<SUDOERS
 # Islandr service user: scoped sudo for nft and wg only (ADR-0011).
@@ -241,6 +251,10 @@ cat > /etc/sudoers.d/islandr <<SUDOERS
 islandr ALL=(root) NOPASSWD: $NFT_BIN -c -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: $NFT_BIN -f /var/lib/islandr/islandr-nft-*.nft
 islandr ALL=(root) NOPASSWD: $NFT_BIN delete table inet islandr
+# Hands over from the fail-closed boot ruleset to islandr's own (ADR-0031).
+# islandr never creates this table, it only removes it once its own is live.
+islandr ALL=(root) NOPASSWD: $NFT_BIN list table inet islandr-boot
+islandr ALL=(root) NOPASSWD: $NFT_BIN delete table inet islandr-boot
 islandr ALL=(root) NOPASSWD: $WG_BIN set $WG_INTERFACE *
 islandr ALL=(root) NOPASSWD: $WG_BIN show $WG_INTERFACE dump
 # Network diagnostics (ADR-0025) need no entry: ping and tracepath do not run
@@ -261,7 +275,7 @@ fi
 # ---------------------------------------------------------------------------
 # 5. Env file with configuration variables
 # ---------------------------------------------------------------------------
-echo ">>> 5/7 /etc/default/islandr"
+echo ">>> 5/8 /etc/default/islandr"
 
 ADMIN_PW="$(openssl rand -base64 24)"
 
@@ -294,6 +308,19 @@ QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
 # HTTP-01 challenge, always, even after a certificate is issued.
 # Behind a reverse proxy instead: 127.0.0.1 + 8080/8443, see reverse-proxy.md.
 QUARKUS_HTTP_HOST=$ISLANDR_HTTP_HOST
+
+# Behind a reverse proxy, the address islandr sees on every request is the
+# proxy's — and a ban on that bans everyone, including you. These name whose
+# forwarded header may be believed, and which header it is.
+#
+# They act as the DEFAULT: a value set in the Admin Console (Settings ->
+# Reverse proxy) wins, and while that field is empty these lines apply, at
+# every start. So they can still be corrected here later — but clearing the
+# field in the console will not stick across a restart until these are cleared
+# too. Empty = nobody may speak for a client, which is the safe default.
+# See docs/install/fail2ban.md.
+ISLANDR_AUTH_TRUSTED_PROXIES=$TRUSTED_PROXIES
+ISLANDR_AUTH_CLIENT_IP_HEADER=$CLIENT_IP_HEADER
 QUARKUS_HTTP_PORT=$ISLANDR_HTTP_PORT
 QUARKUS_HTTP_SSL_PORT=$ISLANDR_HTTPS_PORT
 
@@ -312,7 +339,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # 6. systemd unit
 # ---------------------------------------------------------------------------
-echo ">>> 6/7 systemd unit"
+echo ">>> 6/8 systemd unit"
 
 # @WG_INTERFACE@ below is substituted after the heredoc: the unit is written
 # unexpanded (quoted delimiter) so nothing else in it can be interpolated by
@@ -368,9 +395,71 @@ sed -i "s|@WG_INTERFACE@|${WG_INTERFACE}|" /etc/systemd/system/islandr.service
 systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
-# 7. Start
+# 7. Fail-closed boot ruleset (ADR-0031)
 # ---------------------------------------------------------------------------
-echo ">>> 7/7 Starting service"
+echo ">>> 7/8 fail-closed boot ruleset"
+
+# Islandr's nftables table is built from the database and applied at startup,
+# and it does not survive a reboot. If islandr then fails to start — OOM-killed
+# on a small hub, or refusing a migrated schema — the tunnel comes up anyway,
+# carrying the peers written in the interface config, and the kernel's own
+# FORWARD policy is `accept` because nothing else is loaded. The VPN appears to
+# work while access control is simply not running.
+#
+# This table exists from boot and drops exactly that traffic. Islandr removes
+# it once its own table is live, so there is never a moment with neither. Note
+# what it does NOT do: forwarding that has nothing to do with the tunnel —
+# Docker, a second interface — is accepted, so installing islandr does not
+# quietly take down the rest of the host.
+install -d -m 0755 /etc/islandr
+cat > /etc/islandr/boot.nft <<'BOOTNFT'
+# Generated by setup-hub.sh — islandr removes this table at runtime, it never
+# writes this file. /etc/nftables.conf is deliberately left alone: two writers
+# on one artifact is the problem ADR-0030 avoids for the WireGuard config.
+table inet islandr-boot {
+    chain forward {
+        type filter hook forward priority 0; policy accept;
+        iifname "@WG_INTERFACE@" drop
+        oifname "@WG_INTERFACE@" drop
+    }
+}
+BOOTNFT
+sed -i "s|@WG_INTERFACE@|${WG_INTERFACE}|g" /etc/islandr/boot.nft
+chmod 0644 /etc/islandr/boot.nft
+
+cat > /etc/systemd/system/islandr-boot-firewall.service <<'BOOTUNIT'
+[Unit]
+Description=Islandr — fail-closed boot ruleset (removed once Islandr is enforcing)
+Documentation=https://github.com/chriscohnen/islandr/blob/main/docs/adr/0031-fail-closed-boot-ruleset.md
+DefaultDependencies=no
+After=nftables.service
+Before=wg-quick@@WG_INTERFACE@.service network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@NFT_BIN@ -f /etc/islandr/boot.nft
+# Removing it by hand is the documented recovery when the handover fails.
+ExecStop=-@NFT_BIN@ delete table inet islandr-boot
+
+[Install]
+WantedBy=multi-user.target
+BOOTUNIT
+sed -i -e "s|@WG_INTERFACE@|${WG_INTERFACE}|g" -e "s|@NFT_BIN@|${NFT_BIN}|g" \
+    /etc/systemd/system/islandr-boot-firewall.service
+
+systemctl daemon-reload
+systemctl enable islandr-boot-firewall.service
+# Not started here: the ruleset would drop tunnel traffic until islandr comes
+# up and hands over, and on a first install islandr starts with firewall writes
+# paused. It takes effect at the next reboot, by which time enforcement is
+# either active or the Admin Console says why it is not.
+
+# ---------------------------------------------------------------------------
+# 8. Start
+# ---------------------------------------------------------------------------
+echo ">>> 8/8 Starting service"
 
 systemctl enable islandr
 systemctl start islandr
@@ -392,6 +481,16 @@ if [[ "$ISLANDR_HTTP_HOST" == "0.0.0.0" ]]; then
   See docs/install/reverse-proxy.md for both paths side by side."
 else
     LISTEN_NOTE="http://$ISLANDR_HTTP_HOST:$ISLANDR_HTTP_PORT and https://$ISLANDR_HTTP_HOST:$ISLANDR_HTTPS_PORT"
+    # Bound to loopback with nothing trusted: every failed login will log the
+    # proxy's address, and a fail2ban jail on that would ban the proxy — which
+    # is everyone, including whoever is reading this.
+    if [[ -z "$TRUSTED_PROXIES" ]]; then
+        LISTEN_NOTE+="
+  A reverse proxy in front? Then failed logins log ITS address, not the
+  client's. Set the proxy's address under Settings -> Security in the Admin
+  Console (or re-run with TRUSTED_PROXIES=...) before enabling fail2ban —
+  a jail on the proxy's address locks out everybody. docs/install/fail2ban.md"
+    fi
     if [[ "$ISLANDR_HTTP_HOST" == "127.0.0.1" || "$ISLANDR_HTTP_HOST" == "localhost" ]]; then
         WG_IP="$(ip -4 -o addr show "$WG_INTERFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
         LISTEN_NOTE+="

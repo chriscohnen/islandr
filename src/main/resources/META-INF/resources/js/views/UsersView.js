@@ -526,7 +526,7 @@ export default defineComponent({
         <tr v-for="u in filteredUsers" :key="u.id" :style="!u.enabled ? 'opacity: 0.55' : ''">
           <td>
             <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
-              <Avatar :user="u" :size="32" />
+              <Avatar :user="u" :size="32" editable @error="error = $event" />
               <!-- Local accounts: the name itself is directly, durably editable —
                    nothing re-syncs it, so a plain rename is the honest control. -->
               <template v-if="!u.ssoLinked">
