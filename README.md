@@ -35,10 +35,6 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
   <img src="https://islandr-gateway.net/screenshots/light/heatmap.png" width="49%" alt="Connection activity heatmap: peers × days, coloured by traffic volume">
   <img src="https://islandr-gateway.net/screenshots/light/self-service.png" width="49%" alt="Self-service portal: employees enrol their own devices">
 </p>
-<p align="center">
-  <img src="https://islandr-gateway.net/screenshots/light/atlas.png" width="49%" alt="Atlas view: global reachability graph, drag-to-grant access by role or by site">
-  <img src="https://islandr-gateway.net/screenshots/light/acl.png" width="49%" alt="ACL matrix: role × resource access, port-level">
-</p>
 
 ---
 
@@ -96,15 +92,13 @@ What that means in practice, both ways round:
   peers keep working. Islandr starts with firewall writes paused, so nothing is
   enforced until you switch it on deliberately — import your peers first, and
   the Admin Console warns you if any are still unknown when you do.
-- **Peers Islandr manages are kernel state,** so a reboot or a
-  `systemctl restart wg-quick@<iface>` brings the interface back with only the
-  peers in your file. Islandr re-applies its own at startup, and the activity
-  poller repairs the same drift within one tick while it is running — but the
-  peer set does depend on the service running.
+- **Peers Islandr manages are kernel state,** so the peer set depends on the
+  service running. It re-applies its own peers at startup and repairs the same
+  drift within one poller tick.
 - **Peers in your file that Islandr has not imported keep connecting,** and
-  they reach the hub itself: the generated ruleset filters forwarded traffic,
-  not traffic to the hub. The Dashboard reports how many there are; importing
-  them is how they become governed.
+  reach the hub itself — the ruleset filters forwarded traffic, not traffic to
+  the hub. The Dashboard says how many; importing them is how they become
+  governed.
 - **Removing Islandr is survivable.** The Peers view exports every managed peer
   as `[Peer]` blocks to append to your server config — no `[Interface]`
   section, that part stays yours on the way out too.
@@ -123,26 +117,24 @@ Full rationale, the alternatives weighed, and why `wg syncconf` is not used:
 
 Both share the same design tokens. UI is bilingual DE/EN, switchable at runtime. German default, informal `Du`.
 
-## Tech stack
+## What you actually run
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Quarkus 3.29.4 (Java 21), Hibernate ORM Panache, Quarkus REST, Flyway |
-| Database | SQLite (dev/test, in-memory for tests) / PostgreSQL (prod) |
-| Frontend | Vue 3 + vue-router (importmap from `/vendor/`, **no npm/build step**) |
-| Auth | ENV-bootstrapped local admin + OIDC (Microsoft 365 / Google), custom JDK-HttpClient flow with JWKS + RS256 verification, no `quarkus-oidc` |
-| Avatar pipeline | MS Graph `/me/photo` → Google `picture` claim → optional Gravatar (cached in DB) |
-| WireGuard mgmt | `wg` CLI via Java `ProcessBuilder` (real adapter) + in-memory mock adapter for dev/CI |
-| QR codes | zxing-core only (PNG in-memory, no AWT dependency, native-image-safe) |
-| Firewall | nftables via `nft` CLI — RuleBuilder + atomic reload + mock adapter for dev/CI |
-| Deployment | systemd + Quarkus native binary (GraalVM), optional Docker Compose |
-| TLS | Built-in termination (dummy cert until you upload your own, hot-swapped at runtime) — Caddy/Let's Encrypt at the edge remains an option |
+One native binary. No JVM to install, no Node runtime, no `node_modules`, no
+reverse proxy required — and **nothing that calls home**: no telemetry, no
+background polling, no third-party asset loaded from the browser. The update
+check runs only when you ask for it.
 
-Quarkus was chosen for fast iteration (live coding, dev services, native build). Rust was considered and dropped — the iteration cycle in Quarkus is faster for a team that already knows the JVM. See [docs/adr/0001-quarkus-backend.md](docs/adr/0001-quarkus-backend.md).
+| | |
+|---|---|
+| Install | a single ~40 MB binary, or the container image |
+| Database | SQLite file, or PostgreSQL |
+| TLS | built in, with automatic Let's Encrypt — a reverse proxy stays optional |
+| Privileges | runs unprivileged; `sudo` scoped to `nft` and `wg` ([ADR-0011](docs/adr/0011-process-privilege-model.md)) |
 
-A deliberate stack choice: **no npm-heavy frontend toolchain**. Vue runs from CDN ESM in dev and is self-hosted under `/vendor/` for production. See [docs/adr/0002-vue-without-npm.md](docs/adr/0002-vue-without-npm.md).
-
-Identity is intentionally implemented without `quarkus-oidc` so that all provider configuration (client id, secret, tenant, allowed email domains, enabled flag) lives in the DB and is editable via the Admin Console at runtime — no `application.properties` round-trip, no restart. Mutual exclusion is enforced at the service layer: at most one OIDC provider may be active at any time. The local ENV-admin is always available as a recovery path (`ISLANDR_ADMIN_USER` / `ISLANDR_ADMIN_PASSWORD`).
+Built with Quarkus and Java 21, compiled ahead of time with GraalVM; the
+frontend is Vue 3 served as plain ES modules with no build step. None of that
+is anything you have to install or maintain — the reasoning is in
+[docs/adr/](docs/adr/).
 
 ## Quickstart
 
@@ -187,150 +179,12 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 | OS | macOS / Linux / Windows (dev only) | Linux x86_64 or ARM64 |
 | Database | in-memory SQLite (auto) | SQLite file or PostgreSQL |
 
-## Running it locally
-
-Dev server (Quarkus live coding):
-
-```bash
-./gradlew quarkusDev
-# → http://localhost:8080
-```
-
-The `%dev` profile ships with `islandr.admin.user=admin` / `islandr.admin.password=admin` so the local login just works. **In prod the password has no default** — operators must set `ISLANDR_ADMIN_PASSWORD` as an env var, otherwise `/api/v1/auth/login` returns HTTP 503 ("local admin login disabled"). This is deliberate: a known default in containers is a security hole; a loud failure is not.
-
-Tests (580+, runs in ~25 s after warm start):
-
-```bash
-./gradlew test
-```
-
-The test profile uses an in-memory SQLite that's wiped per run (`clean-at-start=true`) and a `MockWgAdapter` so no `wg` binary is needed.
-
-## Repository layout
-
-```
-islandr/
-├── README.md                                # this file
-├── CLAUDE.md                                # guidance for Claude Code
-├── build.gradle.kts                         # Gradle 9.1 / Kotlin DSL
-├── docs/
-│   ├── prd.md                               # Product Requirements Document
-│   ├── install.md                           # Installation guide (native binary, Docker)
-│   ├── install/                             # setup-hub.sh, reverse-proxy.md, hardening.md, identity-microsoft365.md, fail2ban.md
-│   ├── faq.md                               # Operational FAQ (logs, wg/nft troubleshooting)
-│   ├── arc42/                               # Architecture documentation (arc42, 12 chapters)
-│   └── adr/                                 # Architecture Decision Records (Nygard + Pugh)
-│       └── README.md                        # ADR index — one file per decision, numbered 0001+
-├── architecture/
-│   ├── workspace.dsl                        # C4 model (Structurizr DSL) — source of diagrams
-│   ├── docs/                                # Markdown pages rendered into the interactive C4 site
-│   │   ├── 01-overview.md                   # home / entry point of the architecture portal
-│   │   └── 02-roadmap.md                    # roadmap page
-│   └── diagrams/                            # generated C4 PNGs + .puml, embedded in arc42
-├── scripts/
-│   ├── update.sh                            # download, verify, swap the binary, roll back if it fails
-│   ├── backup.sh                            # gzip-compressed, rotated SQLite backup via `sqlite3 .backup`
-│   └── check-templates.mjs                  # compiles every inline Vue template in CI (no npm, uses the vendored Vue)
-├── src/
-│   ├── main/java/de/chriscohnen/islandr/
-│   │   ├── acl/         # RBAC0: Roles, Resources, Ports/PortGroups, Sites, ACL matrix, "Mein Zugang", port reservations (#72)
-│   │   ├── acme/        # hand-rolled RFC 8555 ACME client — Let's Encrypt auto-provisioning
-│   │   ├── admin/       # config export/import, version check
-│   │   ├── apikey/      # admin-issued API keys for the external automation API (ADR-0026)
-│   │   ├── audit/       # audit log (entity, diff, resource, service)
-│   │   ├── auth/        # Session, SessionFilter, AdminBootstrap, AuthResource, OidcAuthResource
-│   │   ├── crypto/      # EncryptionService — AES-256-GCM for secrets/keys at rest
-│   │   ├── dashboard/   # dashboard aggregation (DTO + resource)
-│   │   ├── discovery/   # unprivileged CIDR scan for device discovery (ADR-0014), the link-scope gate that skips mDNS/LLMNR for off-link targets, and MAC/OUI vendor lookup (#76)
-│   │   ├── dns/         # hand-rolled DNS wire format: peer-facing resource-name resolver (ADR-0023), plus PTR/mDNS/LLMNR/NetBIOS/SSDP lookups feeding discovery's hostname and MAC suggestions (#45, #48, #76)
-│   │   ├── external/    # /api/external/v1 facade: API-key auth, peers/users/sites/resources/roles (ADR-0026)
-│   │   ├── firewall/    # nftables RuleBuilder + adapters (real/mock/dry-run) + RulesetService
-│   │   ├── hosthealth/  # hub CPU/memory/swap sampler, hand-rolled from /proc (issue #73)
-│   │   ├── identity/    # OidcProvider + OidcCustomProvider (issue #69), JwksCache, IdTokenVerifier, OidcLoginService, AvatarFetcher
-│   │   ├── network/     # network diagnostics: ping/tracepath/mtr over an unprivileged shell (ADR-0025)
-│   │   ├── peer/        # Peer entity + DTO + Resource + Service + IpSubnet + QrService
-│   │   ├── proxy/       # Docker socket-proxy client + reconciler (ADR-0012)
-│   │   ├── settings/    # singleton settings (WG topology, retention mode, hub geocoding)
-│   │   ├── tls/         # built-in TLS termination, cert hot-swap (ADR-0015)
-│   │   ├── user/        # User + Resource + AvatarService + Google Workspace import + access expiry (#53)
-│   │   ├── validation/  # @ValidIpAddress / @ValidCidr custom validators
-│   │   ├── webhook/     # outbound event webhooks (issue #68)
-│   │   ├── wg/          # WgAdapter (real shells out, mock for dev/CI)
-│   │   └── NativeReflectionConfig.java      # GraalVM native-image reflection registration
-│   ├── main/resources/
-│   │   ├── application.properties
-│   │   ├── data/oui-vendors.csv             # bundled IEEE MA-L registry — MAC prefix → vendor, resolved offline (#76)
-│   │   ├── db/migration/                    # Flyway migrations V1–V76, portable SQL
-│   │   └── META-INF/resources/              # static frontend assets
-│   │       ├── index.html                   # importmap, single page
-│   │       ├── favicon.svg                  # cyan island + waves
-│   │       ├── api/openapi.yml              # hand-written OpenAPI spec for the external API facade (ADR-0026)
-│   │       ├── css/                         # tokens.css + components.css + app.css
-│   │       └── js/                          # Vue 3 modules, no build
-│   └── test/                                # 903 tests, JUnit 5 + RestAssured + AssertJ
-```
-
-
 ## Status & roadmap
 
 **Early access — core feature set complete, live production testing in progress.**
 
-### What works today
-
-**Authentication & identity**
-- Local admin (ENV-bootstrapped) *and* per-user local passwords (PBKDF2) — no external IdP required
-- OIDC: Microsoft 365 / Entra ID and Google, fully GUI-configurable at runtime without a restart; one provider active at a time
-- Avatars: MS Graph photo → Google picture → Gravatar (opt-in) → deterministic initials
-
-**Users, peers & devices**
-- Users with roles, plus a default **Everyone** role every user belongs to
-- Peers: client and site types, IPv4 with optional **IPv6 dual-stack**, IP suggestion, CIDR-overlap validation, per-peer MTU
-- Server-side keypairs or admin-imported public keys; **private-key retention** in three modes — `never` (default), `plaintext`, `encrypted` (AES-256-GCM)
-- QR code + `.conf` download as a one-time secret; **import existing peers** from a live `wg0`
-- **Admin-triggered key rotation** — regenerate a peer's keypair in place for compromised-device response, instead of deleting and recreating the peer; explicit confirmation required, rotation timestamps tracked separately for key and PSK ([#46](https://github.com/chriscohnen/islandr/issues/46))
-- **Peer-Scheduler** — a recurring weekly time window that auto-enables/disables a peer, plus a terminal `validUntil` expiry that disables it for good regardless of any open window — closes the long-requested "contractor/trial device shouldn't need an admin to remember to remove it" ([#47](https://github.com/chriscohnen/islandr/issues/47), closes [#10](https://github.com/chriscohnen/islandr/issues/10))
-- **Tri-state connection status** — Connected / Stale / Disconnected badges with absolute time thresholds, instead of a binary online/offline read of the last handshake
-- Approximate peer location from the endpoint IP; hub location editable in Settings
-
-**Networks, resources & firewall**
-- Sites and typed resources (computer, router, printer, NAS, camera, IoT, rack server, KVM host, …)
-- **Device discovery** — scan a site's own CIDR for live hosts, identify them by their open ports, and bulk-create resources from a reviewable list. Discovery also suggests a name from whatever the host is willing to tell it. How much that is varies a lot by device and by network: some answer with a proper hostname, some with a product label, plenty answer nothing at all and keep the typed baseline. It is a head start on filling in a scan result, not an inventory system. Unprivileged sockets only, no new capabilities ([ADR-0014](docs/adr/0014-device-discovery.md), [#45](https://github.com/chriscohnen/islandr/issues/45), [#48](https://github.com/chriscohnen/islandr/issues/48))
-- **MAC address and hardware vendor, where the device gives one up** — a resource can carry its MAC, and the vendor ("Ubiquiti Networks", "Raspberry Pi Foundation") is named from a table bundled with the binary, so no lookup leaves the host. Same caveat as the name suggestion: it works for some devices and not others, and less often the further the device sits from the hub. An **Identify** action retries it on demand for a resource that has none ([#76](https://github.com/chriscohnen/islandr/issues/76))
-- Resource-level ACL: roles → resource grants, per port, port ranges, or all ports
-- **Resource-type ACL grants** — roles → every resource of a type at a site (e.g. "all printers in the home office"), additive to individual grants ([ADR-0022](docs/adr/0022-acl-type-grants.md))
-- **Microsoft 365 login is documented end to end** — registering the Entra ID app, the exact permissions Islandr needs and why, and the setup errors that never name their own cause ([docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md)). The Identity page helps rather than assuming: the redirect URI is copyable with one click (with a fallback for a hub still reached over plain HTTP, which is exactly when an admin is configuring this), and the tenant field is labelled the way Entra labels it instead of the way the protocol does
-- **Whole-network grants** — a role can be granted a whole site network at once, covering hosts added later. Deliberately coarse: always full access, no port scoping, and it reaches hosts Islandr has never been told about — use it where the network boundary already is the access boundary ([ADR-0029](docs/adr/0029-whole-network-role-grants.md), [#78](https://github.com/chriscohnen/islandr/issues/78))
-- **Direct user→resource grants** — grant one specific user access to a resource without a role, for one-off exceptions that don't warrant a new role ([ADR-0024](docs/adr/0024-direct-user-resource-grants.md))
-- **Site-to-site grants** — a site's gateway peer can itself be a grant subject, authorizing the whole site's CIDR (not just individual peers) to reach a resource, full-access or port-scoped ([#52](https://github.com/chriscohnen/islandr/issues/52))
-- **Atlas view** — a global map of who/what can reach which resources across the whole tenant. Click a user, resource or site to narrow it down, drag to grant, revoke from the graph itself ([#49](https://github.com/chriscohnen/islandr/issues/49))
-- **Network diagnostics from Atlas** — admin-triggered ping, tracepath, and mtr against a resource, a site's gateway peer, or any currently-connected client peer, run hub-side over an unprivileged shell (no `sudo`, no new capabilities). Results dock in a panel beside the graph and overlay the actual probed path (hub → site gateway → target) with live reachability/latency on the diagram itself ([ADR-0025](docs/adr/0025-network-diagnostic-helpers.md), [#66](https://github.com/chriscohnen/islandr/issues/66))
-- **World-map topology view** — sites, gateways and live tunnels on a geocoded map, alongside the existing network diagram ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](docs/adr/0021-topology-world-map.md))
-- **DNS resolver for resource names** — opt-in, hand-rolled UDP/TCP resolver authoritative for the managed resource zone (per-site subdomains), ACL-filtered per querying peer, everything else forwarded upstream unparsed ([ADR-0023](docs/adr/0023-resource-dns-resolver-hand-rolled.md))
-- **Dashboard traffic-tier topology** — network/topology links colour by actual traffic volume, not just handshake recency
-- nftables ruleset generation with atomic, cold-start-safe reload
-- **Docker without `NET_ADMIN`** — unprivileged container plus a host-side socket proxy ([ADR-0012](docs/adr/0012-docker-socket-proxy.md))
-- Enforcement state is always visible — direct, via proxy, or degraded. Nothing is ever silently unenforced
-- Activity poller and live handshake indicators (last seen, endpoint, rx/tx)
-
-**Self-service portal**
-- Users enrol their own devices: platform → QR + `.conf` → first handshake. Key rotation, device list, access overview. Admins can switch it off
-- **Own topology, geo-map, and activity heatmap** — the same visualisations the admin dashboard has, scoped to what the logged-in user can actually see; the heatmap uses a GitHub-contributions layout (weekday × week) instead of the admin's peers × days table ([#43](https://github.com/chriscohnen/islandr/issues/43))
-- **Quicklaunch** on granted resources: HTTP/HTTPS (with optional path prefix), RDP, VNC, SSH, SFTP, SMB, and IPP printer install via native URI handlers
-- **Browser-based RDP** (IronRDP WASM) — no client to install, ACL-gated, with per-port clipboard and file-transfer toggles and an optional `web-only` mode
-- Platform-detected WireGuard client setup guide on first visit
-
-**Operations**
-- **Built-in TLS termination** — starts on a placeholder certificate, hot-swaps to your uploaded one at runtime, no reverse proxy required ([ADR-0015](docs/adr/0015-builtin-tls-termination.md))
-- **Automatic Let's Encrypt certificates** — set a domain and islandr requests, installs, and renews the certificate itself via a hand-rolled ACME client ([ADR-0019](docs/adr/0019-acme-hand-rolled-client.md))
-- **DNS-01 challenge** as an alternative to HTTP-01, including a manual no-API-token mode for registrars without a supported DNS API ([ADR-0020](docs/adr/0020-dns01-challenge-with-manual-mode.md), [#41](https://github.com/chriscohnen/islandr/issues/41))
-- **CSR generation for the Origin Certificate** — generate a private key + certificate signing request in-app instead of shelling out to `openssl` ([#42](https://github.com/chriscohnen/islandr/issues/42))
-- **Connection activity heatmap** — peers × days, coloured by traffic volume rather than plain presence, so a device gone quiet stands out at a glance and a hover shows connection duration or ↓/↑ MB. Site gateways are set apart from client devices, since a quiet day means something different for each
-- Google Workspace user import (the service-account JSON is encrypted at rest)
-- Audit log with cursor pagination and actor/action/target filters
-- Config **export/import** as a JSON snapshot, with preview and confirm
-- **External API for automation** — a separate, versioned `/api/external/v1` surface, authenticated by admin-issued API keys (one-time reveal, hashed at rest, instantly revocable) instead of a session cookie; a hand-written OpenAPI spec (`GET /api/openapi.yml`) documents it. Read access to peers, users, sites, resources, and roles today, growing incrementally ([ADR-0026](docs/adr/0026-external-api-facade.md), [#15](https://github.com/chriscohnen/islandr/issues/15))
-- On-demand update check — no telemetry, no background polling
-- Bilingual UI, German default and English, switchable at runtime
+The full feature inventory — everything that works today, grouped by area —
+lives in [docs/features.md](docs/features.md).
 
 ### What's new in 0.22.0
 
@@ -358,6 +212,7 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 
 ## Documentation
 
+- [docs/features.md](docs/features.md) — the complete feature inventory, grouped by area
 - [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
 - [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
 - [docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md) — registering the Entra ID app, the permissions Islandr needs, and the setup errors that do not name their cause
