@@ -900,7 +900,13 @@ public class PeerService {
         return live.stream().map(ps -> {
             String ip4 = extractFirstIpv4(ps.allowedIps());
             String ip6 = extractFirstIpv6(ps.allowedIps());
-            boolean skip = existingKeys.contains(ps.publicKey()) || (ip4 == null && ip6 == null);
+            boolean exists = existingKeys.contains(ps.publicKey());
+            // An IPv6-only peer is listed, but not offered: the import writes
+            // assignedIp and requires it, so selecting one could only ever end
+            // in a validation error. Listing it still matters — it is a peer on
+            // the interface that Islandr does not manage, which is exactly what
+            // this dialog is for.
+            boolean importable = !exists && ip4 != null;
             return new PeerDto.WgImportCandidate(
                     ps.publicKey(),
                     ps.allowedIps(),
@@ -908,7 +914,8 @@ public class PeerService {
                     ip6,
                     ps.endpoint(),
                     extractRoutedCidrs(ps.allowedIps()),
-                    skip);
+                    exists,
+                    importable);
         }).toList();
     }
 
