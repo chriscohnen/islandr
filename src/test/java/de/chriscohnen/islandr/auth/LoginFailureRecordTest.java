@@ -37,6 +37,9 @@ class LoginFailureRecordTest {
         AuditLog row = lastFailureFor(username);
         assertThat(row).as("the attempt must be audited").isNotNull();
         assertThat(row.metaJson).contains("clientIp");
+        // How long the attempt was held travels with the record, so the audit
+        // trail shows the backoff working rather than only that it failed.
+        assertThat(row.metaJson).contains("delayMs");
         // Loopback, because the test talks to the hub directly — the point is
         // that an address is recorded at all, not which one.
         assertThat(row.metaJson).contains("127.0.0.1");

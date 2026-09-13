@@ -105,14 +105,15 @@ public class AuthResource {
             // Applied before the credential check and keyed on the submitted
             // username whether or not it exists, so the delay cannot become the
             // user-enumeration oracle the dummy PBKDF2 run prevents.
-            sleepQuietly(throttle.delayMillis(body.username(), ip));
-            return attemptLogin(body, ip);
+            long heldMs = throttle.delayMillis(body.username(), ip);
+            sleepQuietly(heldMs);
+            return attemptLogin(body, ip, heldMs);
         } finally {
             throttle.exit();
         }
     }
 
-    private Response attemptLogin(LoginRequest body, String ip) {
+    private Response attemptLogin(LoginRequest body, String ip, long heldMs) {
         // 1. ENV bootstrap admin (in-memory credential), bound to its admin@local
         //    identity (F-01b) so it can own peers and self-assign roles.
         if (adminBootstrap.isEnabled() && adminBootstrap.matches(body.username(), body.password())) {
@@ -143,9 +144,14 @@ public class AuthResource {
         //    The shape below is documented in docs/install/fail2ban.md and is
         //    part of the interface: changing it breaks every deployed jail.
         throttle.recordFailure(body.username(), ip);
-        LOG.warnf("login failed user=%s ip=%s", body.username(), ip);
+        // delay= is how long THIS attempt was held, which is what makes the
+        // backoff observable at all — an operator verifying it otherwise has
+        // only wall-clock gaps between lines, and those are mostly typing time.
+        // It sits before ip= on purpose: ip= stays the last field so the
+        // documented fail2ban regex keeps matching unchanged.
+        LOG.warnf("login failed user=%s delay=%dms ip=%s", body.username(), heldMs, ip);
         audit.logEvent(body.username(), "auth.login_failed", null,
-                java.util.Map.of("provider", "local", "clientIp", ip));
+                java.util.Map.of("provider", "local", "clientIp", ip, "delayMs", heldMs));
         return Response.status(401).entity(error("invalid credentials")).build();
     }
 

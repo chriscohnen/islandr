@@ -9,7 +9,10 @@ root and no journald.
 
 Every failed local login is counted twice — once against the account, once
 against the source address — and the slower of the two counters decides how
-long the next attempt is held before it is answered. The delay doubles per
+long the next attempt is held before it is answered. Neither counter is global:
+a different account from a different address is never slowed down by someone
+else's failures, which is the point — a shared counter would be a
+denial-of-service lever anyone could pull. The delay doubles per
 failure past the first two and stops at five seconds. Success clears both
 counters, and fifteen quiet minutes forget them.
 
@@ -52,10 +55,18 @@ default Islandr install already feeds through stdout. What matters is that the
 line names the address:
 
 ```
-login failed user=bob@firma.de ip=203.0.113.9
+login failed user=bob@firma.de delay=0ms ip=203.0.113.9
+login failed user=bob@firma.de delay=250ms ip=203.0.113.9
+login failed user=bob@firma.de delay=500ms ip=203.0.113.9
 ```
 
-That shape is part of the interface. It is not rewritten without a release note.
+`delay=` is how long that attempt was held before it was answered — the backoff
+made visible, since the gaps between log lines are mostly typing time and say
+nothing on their own.
+
+**`ip=` is deliberately the last field**, so a filter anchored on it keeps
+matching if anything is ever added in front. That shape is part of the
+interface and is not rewritten without a release note.
 
 ### Filter
 
