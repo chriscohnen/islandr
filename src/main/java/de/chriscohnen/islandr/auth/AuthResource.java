@@ -164,7 +164,11 @@ public class AuthResource {
         }
     }
 
-    private Response okSession(Session s, MeResponse me) {
+    /** Package-private so the WebAuthn path issues exactly the session every
+     *  other login does — same row, same cookie, same lifetime. A parallel
+     *  mechanism next to this one is what ADR-0028 rejected the Quarkus
+     *  extension for. */
+    Response okSession(Session s, MeResponse me) {
         return Response.ok(me)
                 .cookie(buildCookie(s.id, (int) java.time.Duration.between(Instant.now(), s.expiresAt).getSeconds()))
                 .build();
@@ -232,7 +236,7 @@ public class AuthResource {
         return Response.ok(new MeResponse(s.principal, s.provider, s.userId, isAdmin, s.expiresAt)).build();
     }
 
-    private NewCookie buildCookie(String value, int maxAgeSeconds) {
+    NewCookie buildCookie(String value, int maxAgeSeconds) {
         // Secure flag intentionally left false: dev runs over plain HTTP.
         // The reverse proxy / TLS terminator in prod sets Secure via cookie rewrite
         // (or we promote this to a config flag when deploying).

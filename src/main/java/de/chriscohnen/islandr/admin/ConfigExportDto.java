@@ -132,6 +132,10 @@ public class ConfigExportDto {
         // "add-a-field, tolerate its absence" pattern as ironRdpEnabled above.
         Boolean dnsResolverEnabled,
         String dnsResolverZone,
+        // An extra name the resolver answers for the hub itself. Null on
+        // pre-0.23.0 exports, which is also its unset value — nothing to
+        // tolerate beyond that.
+        String dnsHubAlias,
         // Where the resolver forwards non-zone queries — independent of
         // wgClientDns, see Settings.java. Null on pre-existing exports.
         String dnsResolverUpstream,

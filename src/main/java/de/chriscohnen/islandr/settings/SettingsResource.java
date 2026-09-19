@@ -7,6 +7,7 @@ import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.crypto.EncryptionService;
 import de.chriscohnen.islandr.dns.DnsResolverService;
+import de.chriscohnen.islandr.tls.HubCertificateService;
 import de.chriscohnen.islandr.tls.TlsService;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import jakarta.inject.Inject;
@@ -38,6 +39,7 @@ public class SettingsResource {
     @Inject WgAdapter wg;
     @Inject EncryptionService encSvc;
     @Inject TlsService tlsSvc;
+    @Inject HubCertificateService hubCertSvc;
     @Inject AcmeService acmeSvc;
     @Inject DnsResolverService dnsResolverSvc;
 
@@ -175,14 +177,40 @@ public class SettingsResource {
         return toResponse(after);
     }
 
+    /**
+     * Generates a self-signed certificate for the hub's own names — for the
+     * installation that has no domain and therefore nothing a public CA could
+     * ever issue against.
+     *
+     * <p>Refused when a managed or ACME certificate is in place: replacing a
+     * trusted certificate with an untrusted one is a downgrade, and never what
+     * a click on this was meant to do.
+     */
+    @POST
+    @Path("/tls/self-signed")
+    @Consumes(MediaType.WILDCARD)
+    public SettingsDto.Response generateSelfSigned(@Context ContainerRequestContext ctx) throws Exception {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        String fingerprint = hubCertSvc.regenerate();
+        Settings after = settings.get();
+        audit.logUpdate(actor.principal(), "settings.tls_self_signed", "Settings:singleton",
+                null, Map.of("tlsMode", after.tlsMode, "sha256", fingerprint));
+        return toResponse(after);
+    }
+
     private SettingsDto.Response toResponse(Settings s) {
-        // "acme" stores its issued cert in the same tlsCertPem/tlsKeyPem columns as
-        // "managed" (ADR-0019) — same expiry/cert-info display applies to both.
-        boolean hasCert = "managed".equals(s.tlsMode) || "acme".equals(s.tlsMode);
+        // "acme" and "selfsigned" store their certificate in the same
+        // tlsCertPem/tlsKeyPem columns as "managed" — same expiry/cert-info
+        // display applies to all three.
+        boolean hasCert = "managed".equals(s.tlsMode) || "acme".equals(s.tlsMode)
+                || HubCertificateService.MODE.equals(s.tlsMode);
         Instant expiresAt = hasCert ? tlsSvc.certificateExpiresAt(s.tlsCertPem) : null;
         TlsService.CertInfo certInfo = hasCert ? tlsSvc.certificateInfo(s.tlsCertPem) : null;
         return SettingsDto.Response.from(s, appVersion, encSvc.isConfigured(), wgInterface, expiresAt, certInfo,
-                trustedProxiesSeed.filter(v -> !v.isBlank()).orElse(null));
+                trustedProxiesSeed.filter(v -> !v.isBlank()).orElse(null),
+                hubCertSvc.currentFingerprint(s),
+                hubCertSvc.namesOutOfDate(s),
+                String.join(", ", hubCertSvc.hubNames(s)));
     }
 
     /** Recomputes the client {@code AllowedIPs} preview from unsaved form values,

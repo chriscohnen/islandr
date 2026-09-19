@@ -22,6 +22,16 @@ dependencies {
     // Quarkus BOM — keeps all extension versions aligned
     implementation(enforcedPlatform("$quarkusPlatformGroupId:$quarkusPlatformArtifactId:$quarkusPlatformVersion"))
 
+    // WebAuthn engine only (ADR-0028): challenge generation, CBOR decoding,
+    // attestation handling, signature and counter verification. Registration,
+    // authentication and session issuance stay in islandr's own auth package —
+    // quarkus-security-webauthn was rejected because it brings a second
+    // authenticated-session mechanism with its own cookie, which would not
+    // inherit the per-request access re-check from #53.
+    // Pulls only vertx-auth-common besides vertx-core, which is already pinned
+    // to 4.5.27 by the resolution rule below.
+    implementation("io.vertx:vertx-auth-webauthn:4.5.27")
+
     // Web layer
     implementation("io.quarkus:quarkus-rest")
     implementation("io.quarkus:quarkus-rest-jackson")
@@ -127,7 +137,7 @@ configurations.all {
 // alert pending a dedicated look (see #20).
 
 group = "de.chriscohnen.islandr"
-version = "0.22.0"
+version = "0.23.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

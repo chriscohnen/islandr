@@ -15,6 +15,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * The poller is driven directly (not via the scheduler) so the assertion is
@@ -66,6 +67,49 @@ class ActivityPollerTest {
         assertThat(updated)
                 .as("poller should have written lastSeenAt after at most 20 ticks")
                 .isTrue();
+    }
+
+    /**
+     * The poller stores the handshake it read, not the moment it read it. The
+     * distinction is invisible while a peer is actually connected — both values
+     * are "a few seconds ago" — and decides everything once it is not: a peer
+     * whose last handshake is days old has to age out of CONNECTED, and cannot
+     * if every tick stamps the current time.
+     */
+    @Test
+    void poll_storesTheHandshakeItRead_notThePollTime() {
+        String peerId = createPeerAndRegisterWithWg("10.8.0.11");
+        Instant tenDaysAgo = Instant.now().minus(10, ChronoUnit.DAYS);
+        mock().pinnedHandshake = tenDaysAgo;
+
+        poller.poll();
+
+        assertThat(lastSeenAtOf(peerId))
+                .as("lastSeenAt should be the handshake wg reported, not the poll time")
+                .isCloseTo(tenDaysAgo, within(2, ChronoUnit.SECONDS));
+        assertThat(findPeer(peerId).connectionStatus(Instant.now()))
+                .as("a peer last seen ten days ago is not connected")
+                .isEqualTo(PeerConnectionStatus.DISCONNECTED);
+    }
+
+    /**
+     * A gateway that has been unreachable for days still appears on the
+     * interface with its last, frozen handshake. Counting a presence sample for
+     * it on every tick is what the heatmap reads as "the site was up": its
+     * outage marker is {@code sampleHits === 0} for a site peer, so a row that
+     * keeps filling hides exactly the outage it is meant to show (issue #77).
+     */
+    @Test
+    void poll_doesNotCountPresenceForAStaleHandshake() {
+        String peerId = createPeerAndRegisterWithWg("10.8.0.12");
+        mock().pinnedHandshake = Instant.now().minus(10, ChronoUnit.DAYS);
+
+        poller.poll();
+        poller.poll();
+
+        assertThat(dailySampleHits(peerId))
+                .as("a peer whose handshake is ten days old was not present today")
+                .isZero();
     }
 
     @Test

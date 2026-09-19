@@ -17,6 +17,8 @@
 | OIDC Provider | ← Islandr | HTTPS | Islandr fetches JWKS and verifies ID tokens for Microsoft 365 / Google users. Authorization Code Flow — redirect goes through the user's browser, not a server-to-server call. |
 | WireGuard | ← Islandr | Shell (wg CLI) | Islandr calls `wg set wg0 peer …` to add/update peers and `wg show wg0 dump` to poll activity. |
 | nftables | ← Islandr | Shell (nft CLI) | Islandr writes a ruleset file, validates it with `nft -c -f`, and applies it atomically with `nft -f`. |
+| API Consumer / Integration *(optional)* | → Islandr | HTTPS + API key | Reads peers, users, roles, grants and the audit log through the external facade under `/api/external/v1`, and disables an account or a single peer. Off unless an admin enables the facade and issues a key ([ADR-0026](../adr/0026-external-api-facade.md)); an MCP adapter is one such consumer ([ADR-0027](../adr/0027-mcp-adapter.md)). |
+| Webhook Receiver *(optional)* | ← Islandr | HTTPS | Islandr POSTs a signed payload per subscribed event. Operated by someone else, so it may be slow or unreachable — delivery is recorded per attempt, never blocking the action that caused the event. |
 | Reverse Proxy *(optional)* | ↔ Islandr | HTTP | Operator-provided. Terminates TLS, forwards `/api/v1/*` to Islandr backend, serves static frontend files. Islandr can be reached directly on port 8080 without one (e.g. in development or behind an existing TLS terminator). Not a managed component of Islandr — therefore not a building block in Chapter 5. |
 
 ## 3.2 Technical Context

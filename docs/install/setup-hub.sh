@@ -595,6 +595,16 @@ Firewall writes are PAUSED (dry-run)
   console/rescue access on the provider side, plus:
     sudo nft delete table inet islandr
 
+Reaching the console by name, with no domain
+  Peers can resolve the hub as hub.islandr.internal once the DNS resolver is on
+  (Settings -> DNS). No public CA can issue a certificate for that name — it
+  belongs to nobody, so there is nothing to prove ownership of. Settings -> TLS
+  offers a self-signed one for it and shows its SHA-256 fingerprint. Compare
+  that fingerprint once in the browser and accept it; if it ever changes
+  without you creating a new certificate, stop and find out why.
+  With your own domain, ignore all of this and put a reverse proxy in front —
+  see docs/install/reverse-proxy.md.
+
 Managing the service
   sudo systemctl status islandr        state and last log lines
   sudo systemctl restart islandr       after editing /etc/default/islandr

@@ -41,6 +41,15 @@ public class MockWgAdapter implements WgAdapter {
      */
     public volatile boolean forceUnavailable;
 
+    /**
+     * Test seam: when set, {@link #showPeers} reports exactly this handshake for
+     * every peer instead of the random 70%-online mix. Needed to assert on the
+     * *age* of a handshake — the random mix can only ever produce something from
+     * the last three minutes, which is the one case where a poller that stores
+     * the poll time and one that stores the handshake look identical.
+     */
+    public volatile Instant pinnedHandshake;
+
     private final Map<String, MockPeer> peers = new LinkedHashMap<>();
 
     private record MockPeer(String publicKey, String allowedIps, Instant addedAt) {}
@@ -112,11 +121,12 @@ public class MockWgAdapter implements WgAdapter {
     public synchronized List<PeerStatus> showPeers(String iface) {
         if (forceUnavailable) throw new ProxyUnavailableException("mock: proxy unavailable");
         List<PeerStatus> out = new ArrayList<>(peers.size());
+        Instant pinned = pinnedHandshake;
         for (MockPeer p : peers.values()) {
-            boolean active = ThreadLocalRandom.current().nextDouble() < 0.7;
-            Instant lastHandshake = active
-                    ? Instant.now().minusSeconds(ThreadLocalRandom.current().nextInt(180))
-                    : null;
+            boolean active = pinned != null || ThreadLocalRandom.current().nextDouble() < 0.7;
+            Instant lastHandshake = pinned != null
+                    ? pinned
+                    : (active ? Instant.now().minusSeconds(ThreadLocalRandom.current().nextInt(180)) : null);
             long rx = active ? ThreadLocalRandom.current().nextLong(1_000_000, 50_000_000) : 0;
             long tx = active ? ThreadLocalRandom.current().nextLong(1_000_000, 50_000_000) : 0;
             String endpoint = active
@@ -145,6 +155,7 @@ public class MockWgAdapter implements WgAdapter {
     public synchronized void reset() {
         peers.clear();
         forceUnavailable = false;
+        pinnedHandshake = null;
     }
 
     private static String abbreviate(String publicKey) {

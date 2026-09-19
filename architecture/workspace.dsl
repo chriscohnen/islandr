@@ -17,6 +17,8 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
         reverseProxy = softwareSystem "Cloudflare / Reverse Proxy"  "Fully optional edge layer — Cloudflare, or a self-hosted reverse proxy (Caddy, nginx, Traefik). Islandr terminates TLS itself (dummy cert until an admin uploads one, hot-swapped at runtime) and can be reached directly with no proxy of any kind in front of it (ADR-0015)." "External"
         letsEncrypt  = softwareSystem "Let's Encrypt (ACME CA)" "Fully optional — only contacted when an admin sets a domain and enables ACME in Settings. Islandr's own hand-rolled RFC 8555 client requests, validates (HTTP-01), and renews a certificate directly; no certificate library, no external ACME client (ADR-0019)." "External"
         resourceHost = softwareSystem "Resource Host" "A machine behind the VPN inside a site (e.g. an RDP server). For browser-based RDP the hub connects to it directly over TLS and relays to the browser." "External"
+        apiConsumer  = softwareSystem "API Consumer / Integration" "Fully optional — a script, a configuration-management run, or an MCP adapter that reads the hub state and disables accounts through the external facade under /api/external/v1, authenticated by an API key. Off unless an admin enables the facade and issues a key (ADR-0026, ADR-0027)." "External"
+        webhookReceiver = softwareSystem "Webhook Receiver" "Fully optional — an endpoint an admin subscribes to events with. Islandr POSTs a signed payload per event; the receiver is operated by someone else and may be unreachable." "External"
         dnsUpstream  = softwareSystem "DNS Upstream" "Fully optional — only reached when the resource DNS resolver is enabled in Settings. Public or admin-configured recursive resolver(s) (default 1.1.1.1 / 8.8.8.8, Settings.dnsResolverUpstream) the hub forwards any query outside its own managed resource zone to, verbatim and unparsed (ADR-0023)." "External"
 
         // ── Islandr ───────────────────────────────────────────────────────
@@ -34,21 +36,25 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
 
             backend = container "Islandr Backend" "REST API, domain logic, WireGuard and nftables adapters, OIDC token verification, activity polling, audit logging." "Quarkus 3 / Java 21 (native binary)" "Backend" {
 
-                authPkg      = component "auth"      "Session management, local login (per-user PBKDF2 password or ENV admin), OIDC callback, admin bootstrap (seeds admin@local), session filter." "JAX-RS + CDI"
+                authPkg      = component "auth"      "Session management, local login (per-user PBKDF2 password or ENV admin), OIDC callback, admin bootstrap (seeds admin@local), session filter. Progressive login throttle per account and source address. WebAuthn ceremonies for the recovery admin, with vertx-auth-webauthn as protocol engine behind Islandr own endpoints and session cookie (ADR-0028)." "JAX-RS + CDI"
                 identityPkg  = component "identity"  "OIDC provider registry, JWKS cache, ID token verification." "CDI"
                 peerPkg      = component "peer"      "Peer lifecycle (create, enable, disable, delete), QR code generation, activity poller." "JAX-RS + CDI + @Scheduled"
                 aclPkg       = component "acl"       "Sites, Resources, ResourcePorts, Roles, RoleResourceGrants, ACL matrix API. Browser-RDP WebSocket proxy (IronRDP RDCleanPath) with a per-port zero-trust grant check." "JAX-RS + CDI"
-                firewallPkg  = component "firewall"  "Full ruleset computation from ACL model, nft -c -f validation, atomic nft -f reload. Real/Mock/DryRun adapters." "CDI"
+                firewallPkg  = component "firewall"  "Full ruleset computation from ACL model, nft -c -f validation, atomic nft -f reload. Real/Mock/DryRun adapters. A boot-time table keeps the hub closed until Islandr is enforcing (ADR-0031)." "CDI"
                 wgPkg        = component "wg"        "WireGuard CLI adapter. Real/Mock/DryRun implementations selected via islandr.wg.mode config." "CDI"
                 userPkg      = component "user"      "User management, avatar resolution (Gravatar → MS365 photo → deterministic initials)." "JAX-RS + CDI"
                 auditPkg     = component "audit"     "Immutable append-only audit log. Written on every mutating action across all packages." "CDI"
-                settingsPkg  = component "settings"  "Runtime instance settings (WG config, private key retention, OIDC providers). Stored in DB, audited." "JAX-RS + CDI"
+                settingsPkg  = component "settings"  "Runtime instance settings (WG config, private key retention, OIDC providers, trusted reverse proxies). Stored in DB, audited." "JAX-RS + CDI"
                 dashboardPkg = component "dashboard" "Dashboard aggregation: online peer count, audit summary, firewall status." "JAX-RS + CDI"
-                dnsPkg       = component "dns"       "Minimal DNS resolver (UDP/best-effort TCP :53), opt-in in Settings. Authoritative for the managed resource zone (Resource.dnsName), ACL-filtered answers (NXDOMAIN for resources the querying peer has no grant on); everything else forwarded upstream byte-for-byte, unparsed. Hand-rolled RFC 1035 wire format, no library (ADR-0023)." "CDI"
-                tlsPkg       = component "tls"       "TLS keystore management. Hot-swaps between dummy self-signed cert and an admin-uploaded or ACME-issued cert at runtime, no restart (ADR-0015)." "CDI"
+                dnsPkg       = component "dns"       "Minimal DNS resolver (UDP/best-effort TCP :53), opt-in in Settings. Authoritative for the managed resource zone (Resource.dnsName), ACL-filtered answers (NXDOMAIN for resources the querying peer has no grant on); everything else forwarded upstream byte-for-byte, unparsed. Also authoritative for the hub itself (hub.<zone> plus an optional alias) without an ACL check, because the ruleset filters forwarded traffic, not traffic to the hub. Hand-rolled RFC 1035 wire format, no library (ADR-0023)." "CDI"
+                tlsPkg       = component "tls"       "TLS keystore management. Hot-swaps between a self-signed cert and an admin-uploaded or ACME-issued cert at runtime, no restart (ADR-0015). Issues its own certificate for the hub names for installations with no domain, where no public CA can issue at all, and exposes its SHA-256 fingerprint for a one-time comparison." "CDI"
                 acmePkg      = component "acme"      "Hand-rolled RFC 8555 ACME client. Requests, validates (HTTP-01 or DNS-01 manual mode), and renews a certificate when ACME is enabled in Settings; no certificate library (ADR-0019, ADR-0020)." "JAX-RS + CDI + @Scheduled"
                 proxyPkg     = component "proxy"     "Host-side Unix-socket-proxy channel for wg/nft when the backend runs unprivileged in a container. Adapter-mode resolution (explicit > container-detected > mock), degraded 'enforcement unavailable' status (ADR-0012)." "CDI"
                 discoveryPkg = component "discovery" "Admin-triggered device discovery: enumerates a site's CIDR, probes host liveness with unprivileged sockets, fingerprints a resource type from open ports, bulk-imports the reviewed selection as Resource rows (ADR-0014)." "JAX-RS + CDI"
+                externalPkg  = component "external"  "Read-mostly machine-facing facade under /api/external/v1 (peers, users, roles, sites, resources, grants, audit). Separate from the console API on purpose: it is versioned, API-key authenticated and can be switched off entirely (ADR-0026)." "JAX-RS + CDI"
+                apikeyPkg    = component "apikey"    "API keys for the external facade: issue, hash, revoke, last-used tracking, and the request filter that authenticates them. Keys are shown once at creation and stored hashed." "JAX-RS + CDI"
+                webhookPkg   = component "webhook"   "Outbound event notifications: subscription management, per-event dispatch with an HMAC signature, and a delivery record per attempt." "JAX-RS + CDI"
+                hosthealthPkg = component "hosthealth" "Periodic CPU, memory and swap sampling of the hub itself, for the dashboard load card. Real/mock selectable via islandr.host-health.mode." "CDI + @Scheduled"
                 adminPkg     = component "admin"     "Instance config export/import, seeded-data timestamp repair on import, version/update-check endpoint." "JAX-RS + CDI"
             }
 
@@ -125,6 +131,16 @@ workspace "Islandr" "WireGuard VPN management platform — C4 architecture model
         discoveryPkg -> resourceHost "Unprivileged liveness/port probes over the existing WireGuard route" "TCP/UDP"
         discoveryPkg -> aclPkg      "Bulk-imports reviewed hosts as Resource rows"
         adminPkg    -> auditPkg     "Logs config import/export"
+        externalPkg -> apikeyPkg    "Every request is authenticated by an API key" "ApiKeyAuthFilter"
+        externalPkg -> aclPkg       "Reads sites, resources, roles and effective grants"
+        externalPkg -> peerPkg      "Lists peers, creates them, and disables single peers"
+        externalPkg -> userPkg      "Lists users and disables an account with its peers"
+        externalPkg -> auditPkg     "Reads the audit log, and logs its own mutations"
+        apikeyPkg   -> auditPkg     "Logs key issue and revoke"
+        webhookPkg  -> auditPkg     "Logs subscription changes"
+        dashboardPkg -> hosthealthPkg "Reads the latest CPU / memory sample for the load card"
+        apiConsumer -> externalPkg  "Reads state and disables accounts or peers" "HTTPS + API key"
+        webhookPkg  -> webhookReceiver "Posts a signed event payload per subscription" "HTTPS"
 
         // ── Deployment 1: native binary on the Hub VM (production) ─────────
         native = deploymentEnvironment "Native (systemd)" {

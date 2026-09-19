@@ -303,6 +303,16 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "dns_resolver_upstream", length = 255)
     public String dnsResolverUpstream;
 
+    /**
+     * An extra name the resolver answers for the hub itself, next to the fixed
+     * {@code hub.<zone>} record. Optional, empty by default, and deliberately
+     * allowed to sit outside the managed zone: the point is to answer the name
+     * an admin already uses for the console, so reaching it does not depend on
+     * an upstream resolver being available.
+     */
+    @Column(name = "dns_hub_alias", length = 253)
+    public String dnsHubAlias;
+
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);
     }

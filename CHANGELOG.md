@@ -8,6 +8,20 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 0.23.0
+
+- **Fixed: a peer stayed "Connected" after it had gone.** The status badge and the "last handshake" column showed the time of the poll rather than the handshake, so Stale and Disconnected were unreachable for any peer that had ever connected ([#87](https://github.com/chriscohnen/islandr/issues/87)).
+- **Fixed: the activity heatmap could not report a site outage** — a gateway unreachable for days kept filling its row, so the one case the outage marker exists for never fired.
+- **Security keys for the local recovery admin — the endpoints, not yet the console.** Registration, assertion and credential management work over `/api/v1/auth/webauthn`, and an assertion issues the same session a password does; several authenticators can be registered. **There is no screen for it yet** — the console follows in the next release. Note the constraint it inherits from the standard: a credential binds to a name, so a console reached at `https://10.0.0.1` cannot use security keys at all — which is what `hub.<zone>` below exists for ([ADR-0028](docs/adr/0028-webauthn-library-and-integration.md), [#67](https://github.com/chriscohnen/islandr/issues/67)).
+- **The resolver answers for the hub itself** — `hub.<zone>` plus an optional alias, so the console is reachable by name without an `/etc/hosts` entry on every device.
+- **A self-signed certificate for those names**, for installations with no domain — no public CA can issue for them at all. Settings shows its SHA-256 fingerprint to compare once, rather than leaving a warning to be clicked away.
+- **External API: a user or a single peer can be disabled.** Disabling a user takes their peers down with the account.
+- **External API: effective grants and the audit log are readable** — who can reach what, and who changed it. Read-only; the audit log's purge has no counterpart there.
+- **Fixed: resource cards cut the name short, and their buttons needed a mouse.** Deleting moved into the edit dialog, the full name is available on hover, and the actions no longer appear only on hover — a tablet can use them now.
+- **Admins can reach their own self-service portal** — the link existed only for non-admin accounts, though the page always worked.
+
+---
+
 ## 0.22.0
 
 - **Fail-closed boot firewall** — a hub whose Islandr does not start now forwards nothing, instead of forwarding the peers in `<iface>.conf` unfiltered. Existing installs need `setup-hub.sh` re-run ([ADR-0031](docs/adr/0031-fail-closed-boot-ruleset.md), [#84](https://github.com/chriscohnen/islandr/issues/84)).

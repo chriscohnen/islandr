@@ -1,9 +1,6 @@
 package de.chriscohnen.islandr.user;
 
 import de.chriscohnen.islandr.audit.AuditService;
-import de.chriscohnen.islandr.firewall.RulesetService;
-import de.chriscohnen.islandr.peer.Peer;
-import de.chriscohnen.islandr.peer.PeerService;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -53,9 +50,8 @@ public class UserAccessExpiryJob {
             name = "islandr.user-access-expiry.enabled", defaultValue = "true")
     boolean enabled;
 
-    @Inject PeerService peers;
+    @Inject UserAccessService access;
     @Inject AuditService audit;
-    @Inject RulesetService rulesets;
 
     @Scheduled(every = "60s",
                identity = "islandr-user-access-expiry",
@@ -77,21 +73,20 @@ public class UserAccessExpiryJob {
         List<User> due = User.list("validUntil is not null and validUntil <= ?1", now);
         if (due.isEmpty()) return;
 
-        boolean anyChange = false;
         for (User u : due) {
             // Only the peers still up matter. Re-running over a user whose
             // peers are already down must stay silent, or every tick would
             // re-audit the same expiry forever.
-            List<Peer> live = Peer.list("userId = ?1 and enabled = true", u.id);
-            if (live.isEmpty()) continue;
+            // Zero means nothing was still up — a re-run over an already
+            // expired user has to stay silent, or every tick re-audits the
+            // same expiry forever.
+            int disabled = access.withdrawPeerAccess(u.id);
+            if (disabled == 0) continue;
 
-            for (Peer p : live) peers.setEnabled(p.id, false);
-            anyChange = true;
             audit.logEvent(SYSTEM_ACTOR, "user.access_expire",
                     "User:" + u.name + " (" + u.id + ")",
                     Map.of("reason", "validUntil elapsed",
-                           "peersDisabled", String.valueOf(live.size())));
+                           "peersDisabled", String.valueOf(disabled)));
         }
-        if (anyChange) rulesets.recomputeFromHook();
     }
 }

@@ -90,6 +90,20 @@ sequenceDiagram
     Portal->>Lena: Step 3 — "Verbindung erkannt ✓"
 ```
 
+## 6.4 Application Startup
+
+On startup, Islandr runs the following initialization sequence (relevant for ops and troubleshooting):
+
+1. **Flyway** — runs pending migration scripts against the configured datasource.
+2. **AdminBootstrap** — if `ISLANDR_ADMIN_PASSWORD` is set and no admin user exists, creates the local admin.
+3. **`tls` keystore** — loads the managed or uploaded certificate; where none exists and the hub has no domain, issues a self-signed certificate for `hub.<zone>` and the configured alias. Swappable later at runtime without a restart ([ADR-0015](../adr/0015-tls-certificate-management.md)).
+4. **FirewallBootstrap** — reads current DB state and applies the full nftables ruleset (unless `islandr.firewall.boot-apply=false`), then removes the fail-closed boot table that has kept the hub from forwarding since before `wg-quick` ([ADR-0031](../adr/0031-fail-closed-boot-ruleset.md)).
+5. **ActivityPoller** — starts the 30-second polling loop; `hosthealth` and, when enabled, the `acme` renewal check start on their own schedules.
+6. **`dns` resolver** — binds UDP/TCP 53 on the tunnel address only, when enabled in Settings.
+7. **HTTP server** — Quarkus starts accepting requests on port 8080.
+
+If FirewallBootstrap fails (nft not available, syntax error), Islandr logs the error and starts anyway — but the boot table is then **not** removed, so the hub stays closed rather than forwarding unfiltered. The failure is visible in the Admin Console dashboard.
+
 ## 6.5 OIDC Login Flow
 
 Felix or Lena opens the Admin Console or Self-Service Portal and logs in via Microsoft 365 (or any configured OIDC provider). This scenario covers the `auth` and `identity` packages, which appear in the Chapter 5 building-block view but are absent from scenarios 6.1–6.4.
@@ -111,18 +125,6 @@ Felix or Lena opens the Admin Console or Self-Service Portal and logs in via Mic
 - User unknown and auto-registration disabled → login rejected; admin must create the user first.
 
 > A PlantUML sequence diagram for this flow will be added when the project's diagram generation pipeline (`.github/workflows/docs.yml`) is extended to render sequence diagrams from `.puml` files under `docs/arc42/`.
-
-## 6.4 Application Startup
-
-On startup, Islandr runs the following initialization sequence (relevant for ops and troubleshooting):
-
-1. **Flyway** — runs pending migration scripts against the configured datasource.
-2. **AdminBootstrap** — if `ISLANDR_ADMIN_PASSWORD` is set and no admin user exists, creates the local admin.
-3. **FirewallBootstrap** — reads current DB state and applies the full nftables ruleset (unless `islandr.firewall.boot-apply=false`).
-4. **ActivityPoller** — starts the 30-second polling loop.
-5. **HTTP server** — Quarkus starts accepting requests on port 8080.
-
-If FirewallBootstrap fails (nft not available, syntax error), Islandr logs the error and starts anyway — the existing kernel rules remain in place. The failure is visible in the Admin Console dashboard.
 
 ## 6.6 Configuration without enforcement — Docker, proxy absent (v2)
 
@@ -221,20 +223,42 @@ sequenceDiagram
 - **Ephemeral jobs** — a hub restart mid-scan drops the in-memory job (TD-005); the operator simply re-runs it, which is cheap.
 - **On the record** — scan start and import are both audited (BR-037, §8.4), because a scan reaches into a remote network.
 
-## 6.7 Device Discovery — scan a site's CIDR and import resources
+## 6.8 An integration disables a leaver — external API, and the error path when it is off
 
-Felix has a new site with nine cameras and does not want to type nine IPs into the resource form. This scenario exercises the `discovery` package (Chapter 5) end-to-end and covers UC-05 / F-21 / BR-032–BR-037 ([ADR-0014](../adr/0014-device-discovery.md)). The scan uses **unprivileged sockets only** — it never touches `wg`, `nft`, or the socket proxy, so it also works while enforcement is degraded (§6.6).
+An identity system notices that an employee has left and calls the external facade. This scenario exercises `external`, `apikey`, `user`, `peer`, `firewall` and `audit`, and it exists because the console path is not the only way state changes — a 1.0 stability promise covers this interface, so it has to be written down.
 
 ```mermaid
 sequenceDiagram
-    actor Felix as Admin
-    participant GUI as Admin Console
-    participant API as DiscoveryResource
-    participant JOB as DiscoveryJobs
-    participant SCN as DiscoveryScanner / HostProbe
-    participant SITE as Site network (via WireGuard route)
-    participant DB as Database
+    participant INT as API Consumer
+    participant FLT as ExternalApiToggleFilter
+    participant KEY as ApiKeyAuthFilter
+    participant EXT as UserExternalResource
+    participant SVC as UserAccessService
+    participant WG as wg adapter
+    participant FW as RulesetService
     participant AUD as Audit log
 
-    Felix->>GUI: "Geräte finden" on the site
-    GUI->>Felix: consent copy — "Der Hub baut testweise TCP-Ver
+    INT->>FLT: PUT /api/external/v1/users/{id}/enabled { false }
+    alt facade disabled in Settings
+        FLT-->>INT: 404 — the interface does not exist while switched off
+    else facade enabled
+        FLT->>KEY: pass through
+        alt key missing, unknown or revoked
+            KEY-->>INT: 401
+        else key valid
+            KEY->>EXT: authenticated request, key recorded as used
+            EXT->>SVC: disable user, cascade to their peers
+            SVC->>WG: withdrawPeerAccess — remove each peer from the interface
+            SVC->>FW: recompute and reload the ruleset
+            SVC->>AUD: user.disable + peer.disable per peer, actor = the key
+            EXT-->>INT: 200 { enabled: false, peersDisabled: n }
+        end
+    end
+```
+
+**Error/recovery characteristics:**
+- **Off means gone, not forbidden** — with the facade disabled the path answers `404`, so a scan of a hub that does not use the interface learns nothing about it.
+- **One cascade, one implementation** — disabling runs through the same service the console uses. A second copy is exactly the defect #83 fixed in 0.22.0, where a duplicated grant query drifted and denied access the ruleset allowed.
+- **Deliberately no delete** — the facade can disable, never remove. An identity system with a hiccup then costs an access outage, not lost history; the audit trail stays intact either way.
+- **The key is the actor** — every mutation is audited against the key, not against a person, so the audit log distinguishes machine action from human action ([ADR-0026](../adr/0026-external-api-facade.md)).
+- **A leaked key is admin-equivalent** (R-184) — there is no per-key scoping yet. That is the known cost of the current design, not an oversight.

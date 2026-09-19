@@ -2,8 +2,6 @@ package de.chriscohnen.islandr.audit;
 
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
-import io.quarkus.panache.common.Parameters;
-import io.quarkus.panache.common.Sort;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
@@ -18,7 +16,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -36,9 +33,6 @@ import java.util.Map;
 @Consumes(MediaType.APPLICATION_JSON)
 public class AuditResource {
 
-    static final int DEFAULT_LIMIT = 50;
-    static final int MAX_LIMIT = 200;
-
     @Inject AuditService auditService;
 
     @GET
@@ -49,30 +43,9 @@ public class AuditResource {
                                         @QueryParam("limit") Integer limit) {
         Auth.requireAdmin(ctx);
 
-        int n = limit == null ? DEFAULT_LIMIT : Math.max(1, Math.min(limit, MAX_LIMIT));
-
-        // Build the query dynamically. Panache doesn't have a query builder
-        // worth pulling in, so we assemble a small WHERE/params manually.
-        List<String> where = new ArrayList<>();
-        Parameters params = new Parameters();
-        if (beforeIso != null && !beforeIso.isBlank()) {
-            where.add("createdAt < :before");
-            params.and("before", parseIso(beforeIso));
-        }
-        if (actor != null && !actor.isBlank()) {
-            where.add("actor = :actor");
-            params.and("actor", actor);
-        }
-        if (action != null && !action.isBlank()) {
-            where.add("action = :action");
-            params.and("action", action);
-        }
-        String hql = where.isEmpty() ? null : String.join(" and ", where);
-
-        var query = (hql == null)
-                ? AuditLog.<AuditLog>findAll(Sort.by("createdAt").descending().and("id"))
-                : AuditLog.<AuditLog>find(hql, Sort.by("createdAt").descending().and("id"), params);
-        return query.page(0, n).list().stream().map(AuditDto.Response::from).toList();
+        Instant before = (beforeIso == null || beforeIso.isBlank()) ? null : parseIso(beforeIso);
+        return auditService.query(before, actor, action, limit)
+                .stream().map(AuditDto.Response::from).toList();
     }
 
     /**

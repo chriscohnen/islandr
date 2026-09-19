@@ -34,6 +34,9 @@ public final class SettingsDto {
             // Resource-name DNS resolver (ADR-0023).
             boolean dnsResolverEnabled,
             String dnsResolverZone,
+            // An extra name the resolver answers for the hub itself, next to
+            // the fixed hub.<zone> record. May sit outside the managed zone.
+            String dnsHubAlias,
             // Where the resolver forwards non-zone queries — independent of
             // wgClientDns, see Settings.java for why.
             String dnsResolverUpstream,
@@ -90,11 +93,19 @@ public final class SettingsDto {
             // trustedProxies is empty: that is exactly when the environment
             // applies again on the next restart, so the console has to say so
             // rather than let a reboot silently re-trust an address.
-            String trustedProxiesSeed
+            String trustedProxiesSeed,
+            // Self-signed certificate state (the no-domain case). The
+            // fingerprint is what turns "accept this warning" into a check the
+            // admin can actually perform.
+            String tlsFingerprint,
+            boolean tlsNamesOutOfDate,
+            String hubCertNames
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
                                      Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo,
-                                     String trustedProxiesSeed) {
+                                     String trustedProxiesSeed,
+                                     String tlsFingerprint, boolean tlsNamesOutOfDate,
+                                     String hubCertNames) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
@@ -108,6 +119,7 @@ public final class SettingsDto {
                     s.activityRetentionDays,
                     s.dnsResolverEnabled,
                     s.dnsResolverZone,
+                    s.dnsHubAlias,
                     s.dnsResolverUpstream,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
@@ -140,7 +152,8 @@ public final class SettingsDto {
                     s.externalApiEnabled,
                     s.trustedProxies,
                     s.clientIpHeader,
-                    trustedProxiesSeed);
+                    trustedProxiesSeed,
+                    tlsFingerprint, tlsNamesOutOfDate, hubCertNames);
         }
     }
 
@@ -268,6 +281,13 @@ public final class SettingsDto {
             @Pattern(regexp = "^$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
                     message = "must be a valid domain name")
             String dnsResolverZone,
+
+            // optional — an extra name for the hub itself. Deliberately allowed
+            // outside the managed zone, so an installation can keep using the
+            // name it already has for the console.
+            @Pattern(regexp = "^$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+                    message = "must be a valid domain name")
+            String dnsHubAlias,
 
             // optional — where the resolver forwards non-zone queries. Blank →
             // DnsQueryHandler falls back to a hardcoded default (1.1.1.1, 8.8.8.8).
