@@ -35,6 +35,10 @@ tags:
     description: Resources reachable through a site (hosts, services).
   - name: roles
     description: Roles used to grant resource access.
+  - name: grants
+    description: Effective access — who can reach which resource, and how.
+  - name: audit
+    description: The audit log, read-only.
 
 paths:
   /peers:
@@ -89,6 +93,39 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /peers/{id}/enabled:
+    put:
+      operationId: setPeerEnabled
+      summary: Enable or disable a single peer
+      description: >
+        Leaves the owning user's account untouched — the granularity a lost or
+        replaced device needs, where the person keeps their access and one
+        machine loses it.
+      tags: [peers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledRequest"
+      responses:
+        "200":
+          description: The peer after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Peer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No peer with that id.
+
   /users:
     get:
       operationId: listUsers
@@ -105,6 +142,41 @@ paths:
                   $ref: "#/components/schemas/User"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /users/{id}/enabled:
+    put:
+      operationId: setUserEnabled
+      summary: Enable or disable a user
+      description: >
+        Disabling withdraws network access, not just the login: the user's
+        peers are switched off with the account. Re-enabling does **not**
+        switch them back on — some may have been off for unrelated reasons
+        before the account was locked, so letting a device reconnect stays an
+        explicit, per-peer action via `/peers/{id}/enabled`.
+      tags: [users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledRequest"
+      responses:
+        "200":
+          description: The user after the change. Setting the value it already has is a no-op.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No user with that id.
 
   /sites:
     get:
@@ -137,6 +209,92 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Resource"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /grants:
+    get:
+      operationId: listGrants
+      summary: Every grant in effect
+      description: >
+        Who can reach what, resolved the same way the firewall ruleset and the
+        self-service portal resolve it — role grants, type grants, network
+        grants and direct user or site grants, each as its own row. A user who
+        reaches one resource through two paths appears twice, on purpose: an
+        access review needs to see both.
+
+
+        **This returns the installation's complete access picture in a single
+        call.** That is a different kind of payload from listing peers. Treat
+        the response accordingly, and prefer a short-lived key for a job that
+        only reports.
+
+
+        A `network-grant` row has no `resourceId`: it names a network, and
+        covers hosts Islandr may never have been told about.
+      tags: [grants]
+      responses:
+        "200":
+          description: Every grant currently in effect.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Grant"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /audit:
+    get:
+      operationId: listAudit
+      summary: Read the audit log
+      description: >
+        Newest first. Page by passing the `createdAt` of the oldest entry you
+        received as `before`. `actor` and `action` match exactly — no substring
+        search, which would quietly widen what a review returns.
+
+
+        Read-only by design: the admin API's purge has no counterpart here,
+        because an integration that can delete the audit trail is not an audit
+        trail.
+      tags: [audit]
+      parameters:
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Cursor — return entries older than this timestamp (ISO-8601).
+        - name: actor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        "200":
+          description: A page of audit entries, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+        "400":
+          description: '`before` was not a valid ISO-8601 timestamp.'
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -193,6 +351,79 @@ components:
         deviceType: { type: string, nullable: true }
         hasPresharedKey: { type: boolean }
         validUntil: { type: string, format: date-time, nullable: true }
+
+    Grant:
+      type: object
+      properties:
+        subjectType:
+          type: string
+          enum: [user, site]
+        subjectId:
+          type: string
+        subjectName:
+          type: string
+        resourceId:
+          type: string
+          nullable: true
+          description: Null on a network grant, which names a network rather than one resource.
+        resourceName:
+          type: string
+          nullable: true
+        siteId:
+          type: string
+          nullable: true
+        siteName:
+          type: string
+          nullable: true
+        kind:
+          type: string
+          enum: [role, type-grant, network-grant, user-direct, site-direct]
+        roleId:
+          type: string
+          nullable: true
+        roleName:
+          type: string
+          nullable: true
+        allPorts:
+          type: boolean
+        ports:
+          type: array
+          items:
+            type: string
+          description: Port labels a limited grant is scoped to; empty when allPorts is true.
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        actor:
+          type: string
+        action:
+          type: string
+        target:
+          type: string
+        meta:
+          type: string
+          description: Raw JSON string, shape depends on the action.
+        createdAt:
+          type: string
+          format: date-time
+
+    EnabledRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        reason:
+          type: string
+          description: >
+            Optional free-text context for the audit log (peers only). Never
+            stored on the peer itself.
+      example:
+        enabled: false
+        reason: offboarded
 
     PeerCreateRequest:
       type: object

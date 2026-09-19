@@ -9,24 +9,31 @@ import java.util.List;
  * {@code TlsService.wrapPkcs1RsaKeyAsPkcs8} already uses for PKCS1 import
  * (ADR-0019), extended with the handful of extra primitives a PKCS#10 CSR
  * needs (OBJECT IDENTIFIER, UTF8String, IA5String, BIT STRING, SET, and a
- * context-specific tag for the CSR "attributes" field). Not a general ASN.1
+ * context-specific tag for the CSR "attributes" field), plus UTCTime and a
+ * BOOLEAN for the self-signed certificates in {@code tls}. Not a general ASN.1
  * library — exactly the constructs this codebase's certificate handling uses,
  * nothing more.
+ *
+ * <p>Public because it is now shared beyond the ACME client. It stays here
+ * rather than moving to a package of its own: ACME is still its main caller,
+ * and a one-class package would only add a name to remember.
  */
-final class Der {
+public final class Der {
 
     private Der() {}
 
-    static final int TAG_INTEGER = 0x02;
-    static final int TAG_BIT_STRING = 0x03;
-    static final int TAG_OCTET_STRING = 0x04;
-    static final int TAG_OID = 0x06;
-    static final int TAG_UTF8_STRING = 0x0c;
-    static final int TAG_SEQUENCE = 0x30;
-    static final int TAG_SET = 0x31;
-    static final int TAG_IA5_STRING = 0x16;
+    public static final int TAG_BOOLEAN = 0x01;
+    public static final int TAG_INTEGER = 0x02;
+    public static final int TAG_BIT_STRING = 0x03;
+    public static final int TAG_OCTET_STRING = 0x04;
+    public static final int TAG_OID = 0x06;
+    public static final int TAG_UTF8_STRING = 0x0c;
+    public static final int TAG_SEQUENCE = 0x30;
+    public static final int TAG_SET = 0x31;
+    public static final int TAG_IA5_STRING = 0x16;
+    public static final int TAG_UTC_TIME = 0x17;
 
-    static byte[] tagged(int tag, byte[] content) {
+    public static byte[] tagged(int tag, byte[] content) {
         byte[] length = length(content.length);
         byte[] out = new byte[1 + length.length + content.length];
         out[0] = (byte) tag;
@@ -35,7 +42,7 @@ final class Der {
         return out;
     }
 
-    static byte[] length(int len) {
+    public static byte[] length(int len) {
         if (len < 0x80) return new byte[]{(byte) len};
         int byteCount = 1;
         int tmp = len;
@@ -49,15 +56,15 @@ final class Der {
         return out;
     }
 
-    static byte[] sequence(byte[]... parts) {
+    public static byte[] sequence(byte[]... parts) {
         return tagged(TAG_SEQUENCE, concat(parts));
     }
 
-    static byte[] set(byte[]... parts) {
+    public static byte[] set(byte[]... parts) {
         return tagged(TAG_SET, concat(parts));
     }
 
-    static byte[] integer(int value) {
+    public static byte[] integer(int value) {
         return tagged(TAG_INTEGER, new byte[]{(byte) value});
     }
 
@@ -65,7 +72,7 @@ final class Der {
      *  rule DER requires whenever the high bit of the first byte would otherwise
      *  flip the sign (e.g. every raw ECDSA {@code r}/{@code s} component, which
      *  come out of {@link java.math.BigInteger#toByteArray()} needing exactly this). */
-    static byte[] integer(byte[] unsignedMagnitudeBigEndian) {
+    public static byte[] integer(byte[] unsignedMagnitudeBigEndian) {
         byte[] v = unsignedMagnitudeBigEndian;
         int off = 0;
         while (off < v.length - 1 && v[off] == 0) off++;
@@ -75,21 +82,21 @@ final class Der {
         return tagged(TAG_INTEGER, content);
     }
 
-    static byte[] utf8String(String s) {
+    public static byte[] utf8String(String s) {
         return tagged(TAG_UTF8_STRING, s.getBytes(StandardCharsets.UTF_8));
     }
 
-    static byte[] ia5String(String s) {
+    public static byte[] ia5String(String s) {
         return tagged(TAG_IA5_STRING, s.getBytes(StandardCharsets.US_ASCII));
     }
 
-    static byte[] octetString(byte[] content) {
+    public static byte[] octetString(byte[] content) {
         return tagged(TAG_OCTET_STRING, content);
     }
 
     /** DER BIT STRING with zero unused bits — every use here wraps byte-aligned
      *  content (a signature or a JDK-supplied SubjectPublicKeyInfo key value). */
-    static byte[] bitString(byte[] content) {
+    public static byte[] bitString(byte[] content) {
         byte[] withUnusedBitsPrefix = new byte[content.length + 1];
         withUnusedBitsPrefix[0] = 0x00;
         System.arraycopy(content, 0, withUnusedBitsPrefix, 1, content.length);
@@ -99,12 +106,26 @@ final class Der {
     /** Context-specific constructed tag (the CSR "attributes" field is
      *  {@code [0] IMPLICIT SET OF Attribute} — tag 0xA0, content identical to
      *  what a SET's content would be). */
-    static byte[] contextConstructed(int tagNumber, byte[]... parts) {
+    public static byte[] contextConstructed(int tagNumber, byte[]... parts) {
         return tagged(0xA0 | (tagNumber & 0x1F), concat(parts));
     }
 
     /** OBJECT IDENTIFIER from dotted-decimal form (e.g. "1.2.840.10045.4.3.2"). */
-    static byte[] oid(String dotted) {
+    /** {@code UTCTime}, the form X.509 requires for dates before 2050 —
+     *  {@code YYMMDDHHMMSSZ}, always UTC, seconds always present. */
+    public static byte[] utcTime(java.time.Instant when) {
+        String text = java.time.format.DateTimeFormatter.ofPattern("yyMMddHHmmss")
+                .withZone(java.time.ZoneOffset.UTC).format(when) + "Z";
+        return tagged(TAG_UTC_TIME, text.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+    }
+
+    /** DER BOOLEAN — {@code 0xFF} for true, since DER (unlike BER) allows no
+     *  other non-zero encoding. */
+    public static byte[] bool(boolean value) {
+        return tagged(TAG_BOOLEAN, new byte[]{(byte) (value ? 0xFF : 0x00)});
+    }
+
+    public static byte[] oid(String dotted) {
         String[] parts = dotted.split("\\.");
         int first = Integer.parseInt(parts[0]);
         int second = Integer.parseInt(parts[1]);
@@ -140,7 +161,7 @@ final class Der {
         return out;
     }
 
-    static byte[] concatAll(List<byte[]> parts) {
+    public static byte[] concatAll(List<byte[]> parts) {
         return concat(parts.toArray(new byte[0][]));
     }
 }

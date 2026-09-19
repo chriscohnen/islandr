@@ -454,6 +454,12 @@ body {
   flex: none;
 }
 
+/* A destructive action in a footer sits apart from confirm/cancel, so it is
+   never the button the hand lands on by reflex. */
+.modal-footer-left {
+  margin-right: auto;
+}
+
 /* Several modals wrap .modal-body + .modal-footer in a <form> so Enter
    submits (modal-header stays outside, as a sibling, for its own close
    button). That form is a plain block box, not a flex item — it broke the
@@ -1554,7 +1560,21 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
   transition: opacity 120ms cubic-bezier(0.2,0,0.2,1);
 }
 
-.res-card:hover .res-actions {
+/* Fading in on hover is a nicety for a mouse and a dead end for a finger:
+   without hover the button never appears, and editing a resource becomes
+   impossible on a tablet. Where the pointer cannot hover, the action is
+   simply always there. */
+@media (hover: none) {
+  .res-actions {
+    opacity: 1;
+  }
+}
+
+/* focus-within, not just hover: a button at opacity 0 still takes keyboard
+   focus, so tabbing through the list used to move the focus ring onto
+   something invisible. */
+.res-card:hover .res-actions,
+.res-card:focus-within .res-actions {
   opacity: 1;
 }
 

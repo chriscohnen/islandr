@@ -186,19 +186,17 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 0.22.0
+### What's new in 0.23.0
 
 Every version: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Fail-closed boot firewall** — if Islandr does not start, the hub now forwards nothing instead of forwarding unfiltered. Existing installs need `setup-hub.sh` re-run ([ADR-0031](docs/adr/0031-fail-closed-boot-ruleset.md))
-- **Brute-force protection for local logins** — a progressive delay per account and per source address, never a lockout, plus a failure log line fail2ban can match ([docs/install/fail2ban.md](docs/install/fail2ban.md))
-- **Trusted reverse proxies are a setting** — name your proxy under Settings → Reverse proxy and failed logins record the real client address, not the proxy's
-- **Resource ports can be edited** — correcting a path prefix no longer means deleting the port and its grants
-- **Avatar upload** — admins set anyone's picture, users their own; no Gravatar call needed
-- **Entra ID setup checks itself** — a test that names the wrong field, and the admin-consent return no longer reports a CSRF error
-- **DNS server per network, settable in the scan dialog** — without it a `/24` imports as a column of `computer-42`
-- Fixed: browser-RDP refused sessions the portal allowed, the downloaded `.rdp` ignored the port's clipboard setting, and IPv6-only peers were offered for an import that could not succeed
+- **Fixed: a peer stayed "Connected" after it had gone** — the status column showed the time of the poll, not the handshake, so Stale and Disconnected were unreachable for any peer that had ever connected ([#87](https://github.com/chriscohnen/islandr/issues/87))
+- **Security keys for the local recovery admin** — register several authenticators and sign in with one; the console must be reached by name, since an IP address cannot carry a credential ([#67](https://github.com/chriscohnen/islandr/issues/67))
+- **The hub answers for its own name** — `hub.<zone>` plus an optional alias, so the console is reachable without an `/etc/hosts` entry on every device
+- **A self-signed certificate for those names**, for installations with no domain, with its fingerprint shown to compare once
+- **The external API can disable a user or a peer**, and can read the effective grants and the audit log
+- Fixed: the activity heatmap could not report a site outage; resource cards cut the name short and their buttons needed a mouse; admins had no link to their own self-service portal
 
 ### Roadmap
 

@@ -107,7 +107,11 @@ public class DnsResource {
                 ? queryHandler.resolve(body.name(), body.sourceIp().trim())
                 : queryHandler.resolveForAdminPreview(body.name());
         if (r instanceof DnsQueryHandler.Resolution.Answer a) {
-            java.util.List<String> granted = asPeer ? null : queryHandler.grantedUserLabels(a.resourceId());
+            // The hub's own record has no resource behind it and no grants to
+            // list — asking who may reach it would answer "everyone", which is
+            // the point of it having no ACL check in the first place.
+            java.util.List<String> granted = (asPeer || a.resourceId() == null)
+                    ? null : queryHandler.grantedUserLabels(a.resourceId());
             return new LookupResponse("answer", a.ip(), a.fqdn(), null, granted);
         }
         if (r instanceof DnsQueryHandler.Resolution.NxDomain) {

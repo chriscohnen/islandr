@@ -182,7 +182,7 @@ class ConfigImportRoundTripTest {
                 orig.wgPersistentKeepalive(),
                 null, null, null,
                 null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
                 original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
@@ -294,7 +294,7 @@ class ConfigImportRoundTripTest {
                 orig.wgPersistentKeepalive(),
                 orig.tunnelMode(), orig.allowedIpsMode(), orig.splitSupernet(),
                 null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(
                 original.version(), original.exportedAt(), original.appVersion(), original.privateKeysIncluded(),
@@ -454,7 +454,7 @@ class ConfigImportRoundTripTest {
                 orig.tunnelMode(), orig.allowedIpsMode(), orig.splitSupernet(),
                 orig.wgSubnet6(), orig.hubLat(), orig.hubLon(), orig.hubLocationLabel(),
                 orig.nominatimUrl(), orig.ironRdpEnabled(), orig.activityRetentionDays(),
-                orig.dnsResolverEnabled(), orig.dnsResolverZone(), orig.dnsResolverUpstream(),
+                orig.dnsResolverEnabled(), orig.dnsResolverZone(), orig.dnsHubAlias(), orig.dnsResolverUpstream(),
                 null);
 
         ConfigExportDto.Export legacyExport = new ConfigExportDto.Export(

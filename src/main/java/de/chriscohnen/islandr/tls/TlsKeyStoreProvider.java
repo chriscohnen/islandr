@@ -77,7 +77,12 @@ public class TlsKeyStoreProvider implements KeyStoreProvider {
                 // shape, only the *source* of the material differs (AcmeService's
                 // issuance flow instead of an admin upload), so it reuses this path
                 // rather than needing a parallel one.
-                case "managed", "acme" -> managedOptions(s.tlsCertPem, s.tlsKeyPem);
+                // "selfsigned" joins these for the same reason "acme" does: the
+                // material is PEM in the same two columns, only its source
+                // differs — here SelfSignedCert instead of an upload or an
+                // issuance. It is untrusted by construction and says so
+                // elsewhere; the loading path has no opinion about that.
+                case "managed", "acme", "selfsigned" -> managedOptions(s.tlsCertPem, s.tlsKeyPem);
                 case "referenced" -> referencedOptions(s);
                 default -> dummyOptions();
             };

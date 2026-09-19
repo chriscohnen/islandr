@@ -83,6 +83,7 @@ export default defineComponent({
         activityRetentionDays: 180,
         dnsResolverEnabled: false,
         dnsResolverZone: "",
+        dnsHubAlias: "",
         dnsResolverUpstream: "",
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
@@ -105,6 +106,10 @@ export default defineComponent({
       // TLS (ADR-0015) — separate mini-form with its own PUT/DELETE endpoints,
       // not bundled into the main settings save.
       tlsMode: "none",
+      tlsFingerprint: null,
+      tlsNamesOutOfDate: false,
+      hubCertNames: "",
+      selfSigning: false,
       tlsCertExpiresAt: null,
       tlsCertInfo: null,  // { subjectCn, sans, notBefore, notAfter, issuer } | null
       tlsPemInput: "",
@@ -284,6 +289,7 @@ export default defineComponent({
           activityRetentionDays: s.activityRetentionDays || 180,
           dnsResolverEnabled: !!s.dnsResolverEnabled,
           dnsResolverZone: s.dnsResolverZone || "",
+          dnsHubAlias: s.dnsHubAlias || "",
           dnsResolverUpstream: s.dnsResolverUpstream || "",
         };
         this.computedAllowedIpsPreview = s.computedAllowedIpsPreview || "";
@@ -295,6 +301,9 @@ export default defineComponent({
         };
         this.trustedProxiesSeed = s.trustedProxiesSeed || null;
         this.tlsMode = s.tlsMode || "none";
+        this.tlsFingerprint = s.tlsFingerprint || null;
+        this.tlsNamesOutOfDate = !!s.tlsNamesOutOfDate;
+        this.hubCertNames = s.hubCertNames || "";
         this.tlsCertExpiresAt = s.tlsCertExpiresAt || null;
         this.tlsCertInfo = s.tlsCertInfo || null;
         this.acmeDomain = s.acmeDomain || null;
@@ -370,6 +379,7 @@ export default defineComponent({
           activityRetentionDays: (this.form.activityRetentionDays === "" || this.form.activityRetentionDays == null
             || Number.isNaN(this.form.activityRetentionDays)) ? 180 : this.form.activityRetentionDays,
           dnsResolverZone: this.form.dnsResolverZone.trim() === "" ? null : this.form.dnsResolverZone.trim(),
+          dnsHubAlias: this.form.dnsHubAlias.trim() === "" ? null : this.form.dnsHubAlias.trim(),
           dnsResolverUpstream: this.form.dnsResolverUpstream.trim() === "" ? null : this.form.dnsResolverUpstream.trim(),
           // Empty string, not null: null means "leave unchanged" on the server,
           // so clearing the field has to be able to say "nobody may speak for a
@@ -432,6 +442,26 @@ export default defineComponent({
       }
     },
 
+    /** Generates (or renews) the self-signed certificate for the hub's own
+     *  names. Only offered where nothing better can exist — with a real
+     *  certificate in place the server refuses, and the button is not shown. */
+    async generateSelfSigned() {
+      this.selfSigning = true;
+      this.error = null;
+      try {
+        const res = await fetch("/api/v1/settings/tls/self-signed", { method: "POST" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const s = await res.json();
+        this.tlsMode = s.tlsMode;
+        this.tlsFingerprint = s.tlsFingerprint || null;
+        this.tlsNamesOutOfDate = !!s.tlsNamesOutOfDate;
+        this.hubCertNames = s.hubCertNames || "";
+      } catch (e) {
+        this.error = t("settings.tls_self_signed_error", { error: e.message });
+      } finally {
+        this.selfSigning = false;
+      }
+    },
     async uploadTls() {
       if (!this.tlsPemInput.trim()) return;
       this.tlsUploading = true;
@@ -1081,6 +1111,12 @@ export default defineComponent({
           </div>
 
           <div v-if="form.dnsResolverEnabled" class="field">
+            <label for="dnsHubAlias">{{ t('settings.dns_hub_alias_label') }}</label>
+            <input id="dnsHubAlias" class="input mono" v-model="form.dnsHubAlias" placeholder="konsole.firma.de" />
+            <div class="field-hint">{{ t('settings.dns_hub_alias_hint', { hub: 'hub.' + (form.dnsResolverZone.trim() || 'islandr.internal') }) }}</div>
+          </div>
+
+          <div v-if="form.dnsResolverEnabled" class="field">
             <label for="dnsResolverUpstream">{{ t('settings.dns_resolver_upstream_label') }}</label>
             <input id="dnsResolverUpstream" class="input mono" v-model="form.dnsResolverUpstream" placeholder="1.1.1.1, 8.8.8.8" />
             <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap; margin-top: var(--space-2)">
@@ -1214,6 +1250,25 @@ export default defineComponent({
 
         <div v-if="tlsMode === 'none'" class="callout callout-warn" style="margin-top: var(--space-3)">
           {{ t('settings.tls_dummy_active') }}
+        </div>
+
+        <!-- The no-domain case. No public CA can issue for hub.<zone>, so the
+             honest offer is a certificate accepted once against a fingerprint,
+             not a name that cannot be verified at all. -->
+        <div v-if="tlsMode === 'none' || tlsMode === 'selfsigned'" class="callout callout-info" style="margin-top: var(--space-3)">
+          <div>{{ t('settings.tls_self_signed_intro', { names: hubCertNames }) }}</div>
+          <div v-if="tlsFingerprint" class="mono" style="margin-top: var(--space-2); font-size: var(--text-xs); word-break: break-all">
+            {{ t('settings.tls_fingerprint_label') }}: {{ tlsFingerprint }}
+          </div>
+          <div v-if="tlsNamesOutOfDate" style="margin-top: var(--space-2)">
+            {{ t('settings.tls_self_signed_stale') }}
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" style="margin-top: var(--space-3)"
+                  :disabled="selfSigning" @click="generateSelfSigned">
+            {{ selfSigning ? t('settings.tls_self_signed_working')
+                           : (tlsMode === 'selfsigned' ? t('settings.tls_self_signed_renew')
+                                                       : t('settings.tls_self_signed_btn')) }}
+          </button>
         </div>
 
         <div style="margin-top: var(--space-4); display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden">

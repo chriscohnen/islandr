@@ -1,6 +1,6 @@
 # ADR-0028 — WebAuthn for the recovery admin: Vert.x auth as an engine, Islandr keeps the login flow
 
-**Status:** Proposed
+**Status:** Accepted (backend implemented in 0.23.0, issue #67)
 **Date:** 2026-09-05
 **Deciders:** Christian Cohnen
 **Target release:** none yet — [#67](https://github.com/chriscohnen/islandr/issues/67) is filed but unscoped; this ADR decides only *how* WebAuthn would be integrated, so the scope decision is not made twice.
@@ -60,6 +60,34 @@ Baseline: **A — `vertx-auth-webauthn` as engine, Islandr owns endpoints and se
 **E scores above the baseline and is still not the decision.** That is not a defect in the matrix; it is the matrix doing its job. TOTP is genuinely cheaper and #67 names it as an acceptable smaller first step. It loses only on phishing resistance — a TOTP code can be relayed to a lookalike origin, a WebAuthn assertion cannot, because the credential is cryptographically bound to the origin. For the account that can rewrite every ACL and every peer on the hub, that one property is the reason the feature was filed at all, and the decision accepts a higher cost to keep it. An implementer who reverses that judgement should record it here rather than silently shipping TOTP.
 
 C and D are both capable and standards-correct. They lose on the native-image criterion for the same reason: their CBOR/JSON and cryptography dependencies (Jackson, BouncyCastle) need reflection configuration that Islandr would then own and have to keep working across releases, and `webauthn4j` brings an enterprise feature surface far beyond one credential on one account.
+
+## Implementation note (2026-09-19, 0.23.0)
+
+The backend is built: `WebAuthnCredential` + `V79`, `WebAuthnCredentialStore`,
+`WebAuthnChallenges`, `WebAuthnService` over `io.vertx:vertx-auth-webauthn:4.5.27`
+(the 4.5 line this ADR names; the patch version moved with the CVE bumps applied
+to `vertx-core`), and `WebAuthnResource` under `/api/v1/auth/webauthn`. A
+successful assertion issues a session through `SessionService`, as decided.
+
+Two facts surfaced during implementation that this ADR did not state, and both
+constrain the feature rather than the design:
+
+**A relying-party id cannot be an IP address.** A console reached as
+`https://10.77.140.1` cannot use security keys at all — there is no registrable
+domain to bind a credential to. WebAuthn therefore *depends on* the hub having
+a name, which is what the resolver's `hub.<zone>` record (same release) exists
+for. Deployments that reach the console by address must give it a name first.
+
+**A credential is bound to the name it was registered under.** A key enrolled
+at `hub.islandr.internal` is not offered at `konsole.firma.de`, and the browser
+gives no reason for it. The relying-party id is therefore stored with each
+credential, and the API distinguishes "a key is registered" from "a key is
+usable from here" so the console can explain what the browser will not.
+
+**Not covered by automated tests:** the cryptographic half — a browser
+producing an attestation or assertion this server accepts. That is the engine's
+job and needs a real authenticator; the tests cover challenge issuance, the
+counter rule, the relying-party binding and every refusal path.
 
 ## Consequences
 

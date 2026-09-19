@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.AclService;
 import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.peer.Peer;
+import de.chriscohnen.islandr.peer.IpSubnet;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.settings.SettingsService;
 import de.chriscohnen.islandr.user.User;
@@ -30,6 +31,10 @@ import java.util.Locale;
 public class DnsQueryHandler {
 
     static final String DEFAULT_ZONE = "islandr.internal";
+    /** The label the hub answers for inside its own zone. Fixed, not
+     *  configurable: a name that varies per installation is one more thing to
+     *  look up before you can reach the console. */
+    public static final String HUB_LABEL = "hub";
     static final List<String> DEFAULT_UPSTREAMS = List.of("1.1.1.1", "8.8.8.8");
 
     @Inject SettingsService settingsSvc;
@@ -51,6 +56,17 @@ public class DnsQueryHandler {
     @Transactional
     public Resolution resolve(String queriedName, String sourceIp) {
         Settings s = settingsSvc.get();
+
+        // The hub's own name comes first and without an ACL check. The check
+        // that guards resource names exists so a name never points at a host
+        // nftables is about to drop packets for — it does not apply here: the
+        // generated ruleset filters *forwarded* traffic, and every peer reaches
+        // the hub itself regardless. Refusing the name would protect nothing,
+        // and would break it for site gateways, which have no owning user and
+        // so fail the resource path's identity check by construction.
+        Resolution hub = resolveHub(s, queriedName);
+        if (hub != null) return hub;
+
         ZoneLookup lookup = lookupZone(s, queriedName);
         if (lookup.status() == ZoneStatus.NOT_MANAGED) return NOT_MANAGED;
         if (lookup.status() == ZoneStatus.NO_MATCH) return NXDOMAIN;
@@ -92,6 +108,13 @@ public class DnsQueryHandler {
         Settings s = settingsSvc.get();
         String zone = normalizeZone(s.dnsResolverZone);
         String candidate = normalizeName(queriedName);
+
+        // Same hub record as the real path — an admin checking "hub.<zone>" in
+        // the preview should see what a peer would get, not an NXDOMAIN that
+        // only means the preview does not know about it.
+        Resolution hub = resolveHub(s, candidate);
+        if (hub != null) return hub;
+
         ZoneLookup lookup = lookupZone(s, candidate);
 
         if (lookup.status() == ZoneStatus.NOT_MANAGED) {
@@ -139,6 +162,47 @@ public class DnsQueryHandler {
         }
         labels.sort(String::compareTo);
         return labels;
+    }
+
+    /**
+     * The hub's own A record: the fixed {@code hub.<zone>} plus, when set, the
+     * admin's own alias.
+     *
+     * <p>The alias is matched before the zone test on purpose — it is allowed
+     * to sit outside the managed zone, because the name worth answering is the
+     * one an admin already uses. Answering it inside the tunnel is what keeps
+     * the console reachable by name when the upstream resolver is not, which is
+     * exactly when someone is trying to open it.
+     *
+     * @return the answer, or {@code null} when this query is not about the hub
+     *         and the normal resource path should handle it
+     */
+    private Resolution resolveHub(Settings s, String queriedName) {
+        if (!s.dnsResolverEnabled) return null;
+        String name = normalizeName(queriedName);
+        String hubName = HUB_LABEL + "." + normalizeZone(s.dnsResolverZone);
+        String alias = (s.dnsHubAlias == null || s.dnsHubAlias.isBlank())
+                ? null : normalizeName(s.dnsHubAlias);
+        boolean isHub = name.equals(hubName) || (alias != null && name.equals(alias));
+        if (!isHub) return null;
+
+        String ip = hubAddress(s);
+        // No tunnel address to answer with (subnet unset or unparseable) is not
+        // an NXDOMAIN for a name we own — it is us having nothing to say. Fall
+        // through so the query takes its normal course instead of a lie.
+        if (ip == null) return null;
+        return new Resolution.Answer(ip, name, null);
+    }
+
+    /** The hub's tunnel address, by the same network+1 convention the peer
+     *  configs and the Atlas graph already use. */
+    private static String hubAddress(Settings s) {
+        if (s.wgSubnet == null || s.wgSubnet.isBlank()) return null;
+        try {
+            return IpSubnet.parse(s.wgSubnet).networkAddress();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private enum ZoneStatus { NOT_MANAGED, NO_MATCH, FOUND }

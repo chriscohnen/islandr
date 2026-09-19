@@ -14,6 +14,9 @@ import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import java.util.LinkedHashMap;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.container.ContainerRequestContext;
@@ -86,5 +89,34 @@ public class PeerExternalResource {
                         "type", out.peer().type(), "via", "external-api"));
         rulesets.recomputeFromHook();
         return Response.created(URI.create("/api/external/v1/peers/" + out.peer().id())).entity(out).build();
+    }
+
+    /**
+     * Enables or disables a single peer, leaving its owner's account alone —
+     * the granularity a lost or replaced device needs, where the person keeps
+     * their access and one machine loses it.
+     *
+     * <p>Mirrors {@code PUT /api/v1/peers/{id}/enabled}, including the optional
+     * free-text {@code reason}, which is audit-log context only and is never
+     * stored on the peer.
+     */
+    @PUT
+    @Path("/{id}/enabled")
+    public PeerDto.Response setEnabled(@Context ContainerRequestContext ctx,
+                                       @PathParam("id") String id,
+                                       PeerDto.EnabledRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        PeerDto.Response p = peers.setEnabled(id, body != null && body.enabled());
+        String action = (body != null && body.enabled()) ? "peer.enable" : "peer.disable";
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("name", p.name());
+        detail.put("assignedIp", p.assignedIp());
+        detail.put("via", "external-api");
+        if (body != null && body.reason() != null && !body.reason().isBlank()) {
+            detail.put("reason", body.reason());
+        }
+        audit.logEvent(a.principal(), action, "Peer:" + p.name() + " (" + id + ")", detail);
+        rulesets.recomputeFromHook();
+        return p;
     }
 }

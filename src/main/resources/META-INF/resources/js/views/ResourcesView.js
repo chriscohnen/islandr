@@ -387,14 +387,26 @@ export default defineComponent({
         this.submitting = false;
       }
     },
+    /** Delete from inside the edit dialog — same confirm, same call, and the
+     *  dialog closes only once it actually succeeded, so a failure leaves the
+     *  form open with the error rather than dropping the user back onto a list
+     *  where nothing changed. */
+    async deleteFromEdit() {
+      const id = this.editId;
+      if (!id) return;
+      const deleted = await this.deleteResource({ id, name: this.form.name });
+      if (deleted) this.closeModal();
+    },
     async deleteResource(r) {
-      if (!confirm(t("resources.confirm_delete", { name: r.name }))) return;
+      if (!confirm(t("resources.confirm_delete", { name: r.name }))) return false;
       try {
         const res = await fetch("/api/v1/resources/" + r.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         await this.loadResources();
+        return true;
       } catch (e) {
         this.error = t("resources.error_delete", { error: e.message });
+        return false;
       }
     },
     setView(mode) {
@@ -867,15 +879,19 @@ export default defineComponent({
             <Icon :name="r.type || 'computer'" :size="22" />
           </div>
           <div class="res-identity">
-            <div class="res-name">{{ r.name }}</div>
+            <div class="res-name" :title="r.name">{{ r.name }}</div>
             <div class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
             <div v-if="r.mac" class="mono" style="font-size: var(--text-xs); color: var(--fg3)">
               {{ r.mac }}<span v-if="r.vendor"> · {{ r.vendor }}</span>
             </div>
           </div>
+          <!-- One action on the card. Deleting moved into the edit dialog:
+               the name is the card's point and a discovery-supplied one
+               ("Canon MB5450 series") loses exactly the distinguishing half to
+               two buttons. Delete is still one click away, still confirmed,
+               and still reachable by touch — it is not a hover-only menu. -->
           <div class="res-actions">
             <button class="btn btn-ghost btn-sm" @click="openEdit(r)"><Icon name="edit" :size="13" />{{ t('resources.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteResource(r)"><Icon name="trash" :size="13" />{{ t('resources.btn_delete') }}</button>
           </div>
         </div>
 
@@ -1171,6 +1187,8 @@ export default defineComponent({
 
           </div>
           <div class="modal-footer">
+            <button v-if="modal === 'edit'" type="button" class="btn btn-danger modal-footer-left"
+                    @click="deleteFromEdit()"><Icon name="trash" :size="14" />{{ t('resources.btn_delete') }}</button>
             <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('common.cancel') }}</button>
             <button type="submit" class="btn btn-primary" :disabled="submitting">
               {{ submitting ? t('resources.btn_saving') : t('resources.btn_save') }}

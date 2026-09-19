@@ -62,7 +62,7 @@ class ExternalApiToggleFilterTest {
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
                 cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
-                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsResolverUpstream, enabled,
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsHubAlias, cur.dnsResolverUpstream, enabled,
                 cur.trustedProxies, cur.clientIpHeader
         ), "test");
     }

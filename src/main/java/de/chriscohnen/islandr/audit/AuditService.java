@@ -1,7 +1,13 @@
 package de.chriscohnen.islandr.audit;
 
+import io.quarkus.panache.common.Parameters;
+import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import java.util.Map;
 
@@ -58,5 +64,42 @@ public class AuditService {
     @Transactional
     public void logEvent(String actor, String action, String target, Map<String, Object> details) {
         AuditLog.of(actor, action, target, AuditDiff.details(details)).persist();
+    }
+
+    public static final int DEFAULT_LIMIT = 50;
+    public static final int MAX_LIMIT = 200;
+
+    /**
+     * Reads the log, newest first. Cursor pagination via {@code before}: the
+     * first page omits it, every following page passes the {@code createdAt} of
+     * the oldest entry it received. {@code actor} and {@code action} match
+     * exactly — no substring search, since a prefix match on an action name
+     * would quietly widen what an access review returns.
+     *
+     * <p>Lives here rather than in the resource because two callers read the
+     * log now — the admin console and the external facade — and a second copy
+     * of a filter is a second place for it to drift.
+     */
+    public List<AuditLog> query(Instant before, String actor, String action, Integer limit) {
+        int n = limit == null ? DEFAULT_LIMIT : Math.max(1, Math.min(limit, MAX_LIMIT));
+        List<String> where = new ArrayList<>();
+        Parameters params = new Parameters();
+        if (before != null) {
+            where.add("createdAt < :before");
+            params.and("before", before);
+        }
+        if (actor != null && !actor.isBlank()) {
+            where.add("actor = :actor");
+            params.and("actor", actor);
+        }
+        if (action != null && !action.isBlank()) {
+            where.add("action = :action");
+            params.and("action", action);
+        }
+        Sort newestFirst = Sort.by("createdAt").descending().and("id");
+        var q = where.isEmpty()
+                ? AuditLog.<AuditLog>findAll(newestFirst)
+                : AuditLog.<AuditLog>find(String.join(" and ", where), newestFirst, params);
+        return q.page(0, n).list();
     }
 }

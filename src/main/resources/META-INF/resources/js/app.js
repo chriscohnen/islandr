@@ -340,7 +340,19 @@ const App = defineComponent({
           <router-link to="/webhooks" class="nav-item"><Icon name="link" />{{ t('nav.webhooks') }}</router-link>
           <router-link to="/api-keys" class="nav-item"><Icon name="identity" />{{ t('nav.api_keys') }}</router-link>
 
+          <!-- An admin in a small team is a user too, with their own devices
+               and their own grants — and had no way to reach the portal short
+               of typing the URL, since the link below lived in the non-admin
+               branch only. The preview (?as=<userId>) is not a substitute: it
+               answers "what does this person see", not "what can I do", and
+               deliberately hides device creation. In the footer next to
+               Settings rather than in the admin navigation above, because it
+               belongs to the account, not to running the system. Always shown:
+               an empty portal explains itself through the existing empty
+               state, and the alternative is a special case that has to stay
+               correct forever. -->
           <div class="sidebar-footer">
+            <router-link to="/my-access" class="nav-item"><Icon name="peers" />{{ t('nav.my_access') }}</router-link>
             <router-link to="/settings" class="nav-item"><Icon name="settings" />{{ t('nav.settings') }}</router-link>
           </div>
         </template>

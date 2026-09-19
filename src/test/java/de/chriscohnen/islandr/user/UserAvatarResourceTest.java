@@ -137,7 +137,7 @@ class UserAvatarResourceTest {
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
                 cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
-                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsResolverUpstream, cur.externalApiEnabled,
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsHubAlias, cur.dnsResolverUpstream, cur.externalApiEnabled,
                 cur.trustedProxies, cur.clientIpHeader
         ), "test");
     }

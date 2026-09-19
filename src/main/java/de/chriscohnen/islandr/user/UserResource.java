@@ -4,8 +4,6 @@ import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
 import de.chriscohnen.islandr.firewall.RulesetService;
-import de.chriscohnen.islandr.peer.Peer;
-import de.chriscohnen.islandr.peer.PeerService;
 import io.quarkus.panache.common.Sort;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -38,7 +36,7 @@ public class UserResource {
 
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
-    @Inject PeerService peers;
+    @Inject UserAccessService access;
     @Inject de.chriscohnen.islandr.crypto.PasswordHasher passwordHasher;
 
     /** Returns the profile of the currently authenticated user. Available to all logged-in users. */
@@ -159,20 +157,12 @@ public class UserResource {
         String action = wanted ? "user.enable" : "user.disable";
         audit.logUpdate(a.principal(), action, "User:" + u.name + " (" + u.id + ")",
                 Map.of("enabled", !wanted), Map.of("enabled", wanted));
-        // Disabling a user only ever blocked their portal/OIDC login — their
-        // already-configured WireGuard peers kept working until someone
-        // separately disabled each one. That's surprising for anyone locking
-        // an account (e.g. an offboarding/IdM-driven deprovisioning flow):
-        // "disabled" should mean no network access either, not just no new
-        // login. Cascade to every one of this user's peers, the same
-        // wg.removePeer() path a manual per-peer disable already uses —
-        // enabling a user back does NOT re-enable their peers, since some of
-        // those may have been disabled for unrelated reasons before the user
-        // was ever locked; re-activating access stays an explicit admin action.
+        // "Disabled" has to mean no network either, not just no new login —
+        // otherwise a locked account keeps tunnelling from devices it already
+        // has. The cascade and its one-way rule live in UserAccessService, so
+        // every caller that withdraws access applies the same one.
         if (!wanted) {
-            for (Peer peer : Peer.<Peer>list("userId", u.id)) {
-                if (peer.enabled) peers.setEnabled(peer.id, false);
-            }
+            access.withdrawPeerAccess(u.id);
         }
         return UserDto.Response.from(u);
     }
@@ -204,11 +194,7 @@ public class UserResource {
         // Shortening a deadline into the past is an immediate revocation, not
         // something to leave sitting until the next scheduled tick.
         if (u.isExpiredAt(Instant.now())) {
-            boolean any = false;
-            for (Peer peer : Peer.<Peer>list("userId", u.id)) {
-                if (peer.enabled) { peers.setEnabled(peer.id, false); any = true; }
-            }
-            if (any) rulesets.recomputeFromHook();
+            access.withdrawPeerAccess(u.id);
         }
         return UserDto.Response.from(u);
     }

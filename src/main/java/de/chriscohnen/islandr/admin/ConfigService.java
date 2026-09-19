@@ -43,7 +43,7 @@ public class ConfigService {
                 s.wgSubnet6,
                 s.hubLat, s.hubLon, s.hubLocationLabel,
                 s.nominatimUrl, s.ironRdpEnabled, s.activityRetentionDays,
-                s.dnsResolverEnabled, s.dnsResolverZone, s.dnsResolverUpstream,
+                s.dnsResolverEnabled, s.dnsResolverZone, s.dnsHubAlias, s.dnsResolverUpstream,
                 s.externalApiEnabled);
 
         List<ConfigExportDto.OidcProviderSnapshot> providers = OidcProvider.<OidcProvider>listAll()
@@ -612,6 +612,7 @@ public class ConfigService {
             // Pre-ADR-0023 exports lack these fields → keep the entity default (false/null).
             s.dnsResolverEnabled = snap.dnsResolverEnabled() != null ? snap.dnsResolverEnabled() : false;
             s.dnsResolverZone = snap.dnsResolverZone();
+            s.dnsHubAlias = snap.dnsHubAlias();
             s.dnsResolverUpstream = snap.dnsResolverUpstream();
             // Pre-ADR-0026 exports lack this field → keep the entity default (true,
             // facade enabled) rather than silently disabling automation on restore.

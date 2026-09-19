@@ -10,6 +10,7 @@ import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -125,7 +126,11 @@ public class ActivityPoller {
             // and must stay null in the DB.
             if (s.lastHandshake() == null) continue;
 
-            p.lastSeenAt = now;
+            // The handshake wg reported, not the moment we asked. Storing `now`
+            // here made every peer that had ever connected look CONNECTED
+            // forever: PeerConnectionStatus derives the badge from this field,
+            // and its age was reset to zero on every tick.
+            p.lastSeenAt = s.lastHandshake();
             p.lastSeenEndpoint = s.endpoint();
 
             // Delta-accumulation: wg counters reset to 0 on interface restart.
@@ -138,7 +143,15 @@ public class ActivityPoller {
             p.lastSampledRxBytes = s.rxBytes();
             p.lastSampledTxBytes = s.txBytes();
 
-            bumpDailyActivity(p.id, now, Math.max(0, rxDelta), Math.max(0, txDelta));
+            // A gone peer keeps its last handshake on the interface forever, so
+            // "wg reports a handshake" is not "the peer is here". Only a
+            // handshake young enough to mean presence counts as a sample —
+            // otherwise a gateway that has been down for a week keeps filling
+            // its heatmap row, and the outage marker (sampleHits == 0 on a site
+            // peer, issue #77) never fires for the one case it exists for.
+            if (Duration.between(s.lastHandshake(), now).compareTo(PeerConnectionStatus.CONNECTED_WINDOW) < 0) {
+                bumpDailyActivity(p.id, now, Math.max(0, rxDelta), Math.max(0, txDelta));
+            }
 
             updated++;
         }

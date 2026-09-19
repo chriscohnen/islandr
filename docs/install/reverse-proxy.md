@@ -156,6 +156,29 @@ If Cloudflare sits in front (orange-clouded DNS, with or without a reverse proxy
   replayed over a plain-HTTP request if one ever reaches the origin — the rewrite is what actually
   enforces HTTPS-only for the session.
 
+## No domain at all
+
+Both paths above assume a name you own. An installation that exposes nothing and
+has no domain has a third, smaller option: peers resolve the hub through
+Islandr's own resolver as `hub.islandr.internal` (Settings → DNS, ADR-0023),
+and Settings → TLS issues a **self-signed** certificate for that name plus any
+alias you set.
+
+Be clear about what that is and is not. No public certificate authority can ever
+issue for `.internal` — the name belongs to nobody, so there is nothing to prove
+ownership of. ACME does not fail here for want of an open port; it does not
+apply. The certificate is therefore untrusted by construction, and the browser
+says so.
+
+What makes it usable rather than a habit of clicking past warnings is the
+**SHA-256 fingerprint** shown next to it. Compare it once, accept the
+certificate, and treat any later change you did not cause as worth
+investigating. That is a real check; "proceed anyway" is not.
+
+If you do own a domain, use it — a name under it, a reverse proxy or built-in
+ACME, and a certificate browsers already trust. The self-signed path is for the
+case where that is genuinely unavailable, not a shortcut around setting it up.
+
 ## Trade-offs
 
 | | Built-in TLS | Reverse proxy |

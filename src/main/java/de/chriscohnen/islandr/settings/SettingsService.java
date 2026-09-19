@@ -93,6 +93,8 @@ public class SettingsService {
         s.dnsResolverZone = (req.dnsResolverZone() == null || req.dnsResolverZone().isBlank())
                 ? (s.dnsResolverEnabled ? DEFAULT_DNS_RESOLVER_ZONE : null)
                 : req.dnsResolverZone().strip();
+        s.dnsHubAlias = (req.dnsHubAlias() == null || req.dnsHubAlias().isBlank())
+                ? null : req.dnsHubAlias().strip().toLowerCase(java.util.Locale.ROOT);
         s.dnsResolverUpstream = (req.dnsResolverUpstream() == null || req.dnsResolverUpstream().isBlank())
                 ? null : req.dnsResolverUpstream().strip();
         s.updatedAt = Instant.now();
