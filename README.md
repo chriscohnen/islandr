@@ -23,8 +23,8 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **Early access — perfect for a homelab or a spare VM, not your production gateway just yet.**
-> Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so point it at a test box or lab network first and back up `/etc/wireguard/` and the database before upgrading — pre-1.0 releases can still bring breaking changes.
+> **Pre-1.0 — in production use, but the upgrade path is not promised yet.**
+> Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`). Read the release notes before upgrading: until 1.0 a release can still ask for a manual step, and two recent ones did. `scripts/update.sh` backs up both the binary and the database first and rolls both back if the service does not come up — use it rather than replacing the binary by hand.
 > This is exactly the stage where testers make the biggest difference. Kick the tyres, and if you hit a rough edge [open an issue](https://github.com/chriscohnen/islandr/issues) — that feedback is what moves it toward 1.0. Starring or watching the repo is the easiest way to follow releases.
 
 <p align="center">
@@ -181,7 +181,11 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**Early access — core feature set complete, live production testing in progress.**
+**Pre-1.0 — the feature set is complete; the next release is about the upgrade path.**
+1.0 is not a claim that the software is finished. It is one specific promise: that
+upgrading stops asking for manual steps. Two of the last three releases needed one
+(`systemctl edit`, re-running `setup-hub.sh`), and that is the gap being closed —
+so the number arrives when it is earned, not on a date.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
@@ -192,7 +196,7 @@ Every version: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
 - **Fixed: a peer stayed "Connected" after it had gone** — the status column showed the time of the poll, not the handshake, so Stale and Disconnected were unreachable for any peer that had ever connected ([#87](https://github.com/chriscohnen/islandr/issues/87))
-- **Security keys for the local recovery admin** — register several authenticators and sign in with one; the console must be reached by name, since an IP address cannot carry a credential ([#67](https://github.com/chriscohnen/islandr/issues/67))
+- **Security keys for the local recovery admin — endpoints only, no screen yet** — registration and sign-in work over the API and issue an ordinary session; the console for it follows next release. A credential binds to a name, so a hub reached by IP cannot use them ([#67](https://github.com/chriscohnen/islandr/issues/67))
 - **The hub answers for its own name** — `hub.<zone>` plus an optional alias, so the console is reachable without an `/etc/hosts` entry on every device
 - **A self-signed certificate for those names**, for installations with no domain, with its fingerprint shown to compare once
 - **The external API can disable a user or a peer**, and can read the effective grants and the audit log
@@ -206,7 +210,7 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 - [Entra ID user import](https://github.com/chriscohnen/islandr/issues/12) — browse org users and import selected; the Google Workspace half of this shipped in 0.9.1
 
 **v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))
-- [`.deb` package](https://github.com/chriscohnen/islandr/issues/14) for `apt install islandr` on Ubuntu/Debian
+- [Prometheus `/metrics`](https://github.com/chriscohnen/islandr/issues/71) — so the hub reports into the monitoring you already run
 
 ## Documentation
 
