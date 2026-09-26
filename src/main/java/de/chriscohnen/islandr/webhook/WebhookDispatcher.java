@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import de.chriscohnen.islandr.identity.HttpFetcher;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -40,6 +41,11 @@ public class WebhookDispatcher {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final long[] BACKOFF_MILLIS = { 2_000, 8_000 };
+    private static final Logger LOG = Logger.getLogger(WebhookDispatcher.class);
+    // Recording the outcome is one short UPDATE; it only fails when another
+    // connection holds the table at that instant. A few quick retries ride
+    // that out without holding a delivery thread for long.
+    private static final long[] RECORD_BACKOFF_MILLIS = { 50, 100, 200, 400, 800 };
 
     @Inject HttpFetcher http;
     @Inject WebhookDeliveryRecorder recorder;
@@ -86,7 +92,25 @@ public class WebhookDispatcher {
             if (last.success()) break;
             if (i < BACKOFF_MILLIS.length) sleep(BACKOFF_MILLIS[i]);
         }
-        recorder.recordDelivery(w.id(), last.success(), last.error());
+        record(w.id(), last.success(), last.error());
+    }
+
+    /** Runs on the executor, where a thrown exception would vanish into an
+     *  unread Future — so a failure is retried, and logged if it persists,
+     *  rather than leaving the webhook's status silently stale. */
+    private void record(String webhookId, boolean success, String error) {
+        for (int i = 0; ; i++) {
+            try {
+                recorder.recordDelivery(webhookId, success, error);
+                return;
+            } catch (RuntimeException ex) {
+                if (i >= RECORD_BACKOFF_MILLIS.length) {
+                    LOG.warnf(ex, "could not record delivery status for webhook %s", webhookId);
+                    return;
+                }
+                sleep(RECORD_BACKOFF_MILLIS[i]);
+            }
+        }
     }
 
     private record Attempt(boolean success, Integer status, String error) {}
