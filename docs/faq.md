@@ -31,10 +31,10 @@ sudo dmesg -T | grep -iE "oom|killed process"
 sudo journalctl -k -b | grep -iE "oom|killed process"   # if dmesg is restricted
 ```
 
-Look for `Out of memory: Killed process ... (islandr)`. The native binary needs
-about 128 MB resident and 256 MB with headroom; below roughly 192 MB available
-it is killed part-way through startup, typically after half a second of CPU
-time. Add swap:
+Look for `Out of memory: Killed process ... (islandr)`. The unit caps the heap
+at 192 MB (`-Xmx192m`), and the host wants 256 MB with headroom; below roughly
+192 MB available it is killed part-way through startup, typically after half a
+second of CPU time. Add swap:
 
 ```bash
 sudo fallocate -l 1G /swapfile

@@ -12,7 +12,7 @@
 | WireGuard | Kernel module loaded, interface `wg0` configured |
 | nftables | Available, `inet islandr` table managed exclusively by Islandr |
 | CPU | 1 vCPU minimum, 2 recommended |
-| RAM | 128 MB for the native binary; 256 MB with headroom |
+| RAM | Heap capped at 192 MB in the unit (`-Xmx192m`); 256 MB host memory with headroom |
 | Disk | Binary ~50 MB + SQLite file (grows with activity samples) |
 | Network | Public IP, UDP 51820 open for WireGuard, TCP 443 open for HTTPS |
 

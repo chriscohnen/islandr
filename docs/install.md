@@ -13,10 +13,51 @@ Both paths require a **Linux host (Ubuntu 22.04+ or Debian 12+)** with:
 - WireGuard kernel module loaded (`modprobe wireguard`)
 - `nftables` installed and the `nft` CLI available
 - A configured `wg0` interface (a keypair + `[Interface]` section — Islandr manages peers, not the interface itself)
-- **256 MB RAM.** The native binary needs ~128 MB resident, 256 MB with headroom. Below roughly 192 MB the kernel OOM killer terminates it mid-startup: the service shows `code=killed, signal=KILL`, `journalctl -u islandr` carries no stack trace, and only `dmesg`/`journalctl -k` names the cause. A 1 GB swap file is enough on a small VPS.
+- **256 MB RAM.** The unit caps the heap at 192 MB (`-Xmx192m` in `ExecStart`); without that cap a native image takes up to 80% of the host's RAM as its maximum heap and never hands it back, which on a 1 GB VPS showed as 253 MB resident for an idle service. Raise the cap with `ISLANDR_MAX_HEAP` if the journal reports heap pressure. Below roughly 192 MB the kernel OOM killer terminates it mid-startup: the service shows `code=killed, signal=KILL`, `journalctl -u islandr` carries no stack trace, and only `dmesg`/`journalctl -k` names the cause. A 1 GB swap file is enough on a small VPS.
 - **Ports 80 and 443 free.** Islandr terminates TLS itself ([ADR-0015](adr/0015-builtin-tls-termination.md)) and needs port 80 for the ACME HTTP-01 challenge, which RFC 8555 always validates on port 80 — not configurable on either side. On a host that already runs nginx/apache/caddy, bind Islandr to loopback ports instead and put that proxy in front ([reverse-proxy.md](install/reverse-proxy.md)).
 
 macOS and Windows are dev-only. Without `ISLANDR_WG_MODE=real` the binary defaults to a mock adapter — no real tunnel is configured.
+
+---
+
+## Native binary + systemd
+
+Three commands on a fresh Debian or Ubuntu VPS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/docs/install/setup-hub.sh -o setup-hub.sh
+less setup-hub.sh          # read before you run it as root
+sudo bash setup-hub.sh
+```
+
+[`install/setup-hub.sh`](install/setup-hub.sh) checks the prerequisites,
+downloads and verifies the binary, creates the system user, writes the sudoers
+entry, the env file and the unit, starts the service, and prints the installed
+paths plus the start, stop and journal commands at the end.
+
+### Options
+
+```bash
+# Interface other than wg0, or a pinned version:
+sudo WG_INTERFACE=wg1 ISLANDR_VERSION=v0.20.0 bash setup-hub.sh
+# Ports 80/443 already taken by a proxy — bind to loopback instead:
+sudo ISLANDR_HTTP_HOST=127.0.0.1 ISLANDR_HTTP_PORT=8080 ISLANDR_HTTPS_PORT=8443 bash setup-hub.sh
+# Admin Console reachable over the WireGuard tunnel only:
+sudo ISLANDR_HTTP_HOST=10.0.0.1 bash setup-hub.sh    # the hub's wg0 address
+```
+
+`ISLANDR_HTTP_HOST` decides who can reach the console. `0.0.0.0` is every
+interface including the public one and is what the built-in TLS/ACME setup
+needs; the WireGuard address restricts it to tunnel clients; `127.0.0.1` means
+this host only, which is right when a reverse proxy sits in front and wrong
+otherwise — a local `curl` will still succeed and hide the mistake.
+
+### The same thing by hand
+
+Every step the script performs is written out in
+[install/manual.md](install/manual.md) — system user, sudoers entry, env file,
+unit file, the fail-closed boot ruleset, TLS, and encrypted key retention. That
+page is the reference; this one is the path.
 
 ---
 
@@ -53,374 +94,6 @@ Two properties worth knowing once it runs:
 To leave again: **Peers → Export to wg0.conf**, append the downloaded `[Peer]`
 blocks to your server config, then remove the service. The export carries no
 `[Interface]` section.
-
----
-
-## Native binary + systemd
-
-### Scripted, or by hand
-
-[`install/setup-hub.sh`](install/setup-hub.sh) does everything in this section
-in one go — it checks the prerequisites, downloads and verifies the binary,
-creates the user, writes the sudoers entry, the env file and the unit, and
-prints the installed paths plus the start/stop/journal commands at the end:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/chriscohnen/islandr/main/docs/install/setup-hub.sh -o setup-hub.sh
-less setup-hub.sh          # read before you run it as root
-sudo bash setup-hub.sh
-# Interface other than wg0, or a pinned version:
-sudo WG_INTERFACE=wg1 ISLANDR_VERSION=v0.20.0 bash setup-hub.sh
-# Ports 80/443 already taken by a proxy — bind to loopback instead:
-sudo ISLANDR_HTTP_HOST=127.0.0.1 ISLANDR_HTTP_PORT=8080 ISLANDR_HTTPS_PORT=8443 bash setup-hub.sh
-# Admin Console reachable over the WireGuard tunnel only:
-sudo ISLANDR_HTTP_HOST=10.0.0.1 bash setup-hub.sh    # the hub's wg0 address
-```
-
-`ISLANDR_HTTP_HOST` decides who can reach the console. `0.0.0.0` is every
-interface including the public one and is what the built-in TLS/ACME setup
-needs; the WireGuard address restricts it to tunnel clients; `127.0.0.1` means
-this host only, which is right when a reverse proxy sits in front and wrong
-otherwise — a local `curl` will still succeed and hide the mistake.
-
-The steps below are the same thing by hand, and are what you want if you are
-adapting the install to a host that is not a fresh Debian/Ubuntu VPS.
-
-### 1. Download the binary
-
-```bash
-# Detect architecture (amd64 or arm64)
-ARCH=$(dpkg --print-architecture)   # on Debian/Ubuntu
-# ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')  # alternative
-
-cd /tmp
-BASE="https://github.com/chriscohnen/islandr/releases/latest/download"
-curl -fL -O "$BASE/islandr-runner-linux-${ARCH}"
-curl -fL -O "$BASE/islandr-runner-linux-${ARCH}.sha256"
-
-# Verify checksum — this must print "OK" before you install anything
-sha256sum -c "islandr-runner-linux-${ARCH}.sha256"
-mv "islandr-runner-linux-${ARCH}" /tmp/islandr
-```
-
-### 2. Create a dedicated system user
-
-```bash
-sudo useradd -r -s /usr/sbin/nologin -d /var/lib/islandr -m islandr
-```
-
-The `islandr` user has no password, no login shell, and no sudo rights beyond what the next step grants.
-
-### 3. Install the binary and data directory
-
-```bash
-sudo install -d -o islandr -g islandr -m 0750 /opt/islandr
-sudo install -d -o islandr -g islandr -m 0700 /var/lib/islandr/data
-
-sudo install -o islandr -g islandr -m 0755 /tmp/islandr /opt/islandr/islandr
-```
-
-### 4. Grant scoped sudo for nft and wg
-
-Create `/etc/sudoers.d/islandr`:
-
-```bash
-sudo tee /etc/sudoers.d/islandr > /dev/null << 'EOF'
-# Islandr: allow only the nft and wg commands the service needs.
-# nft: validate (-c) and atomically apply a ruleset staged in /var/lib/islandr.
-#      The name pattern is required — a fresh temp file is staged per apply.
-# wg:  manage peers on wg0 only.
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-*.nft
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-*.nft
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr
-# Hands over from the fail-closed boot ruleset to Islandr's own (step 6b).
-# Islandr never creates that table, it only removes it once its own is live.
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft list table inet islandr-boot
-islandr ALL=(root) NOPASSWD: /usr/sbin/nft delete table inet islandr-boot
-islandr ALL=(root) NOPASSWD: /usr/bin/wg set wg0 *
-islandr ALL=(root) NOPASSWD: /usr/bin/wg show wg0 dump
-EOF
-
-sudo chmod 0440 /etc/sudoers.d/islandr
-sudo visudo -c -f /etc/sudoers.d/islandr
-```
-
-`visudo -c` must exit with `parsed OK` before you continue. If `nft` or `wg` live under a different path on your distro, adjust with `which nft` and `which wg`.
-
-The 30s activity poller makes these `wg show` calls noisy in the journal — three lines per tick. Do **not** silence that with a scoped `Defaults!cmnd_alias !pam_session` rule; it breaks every sudo call, `nft` included. [install/hardening.md](install/hardening.md#do-not-silence-the-journal-noise-with-pam_session) explains why.
-
-If your WireGuard interface isn't named `wg0`, replace `wg0` in **both** places it appears here — and set `ISLANDR_WG_INTERFACE` to match in step 5. The interface name is baked into the sudoers rules (`wg set wg0 *`, etc.); running the service against a different interface than what sudoers grants fails silently with permission errors in `journalctl`. ([setup-hub.sh](install/setup-hub.sh) takes this as `WG_INTERFACE=wg1 sudo ./setup-hub.sh` instead.)
-
-### 5. Configure environment variables
-
-```bash
-# Generate a strong admin password
-ADMIN_PW="$(openssl rand -base64 24)"
-
-# Generate the private-key-retention encryption key (ADR-0007). Without this,
-# only the "never"/"plaintext" retention modes are selectable in Settings —
-# generating it now means "encrypted" is available from the first start.
-ENCRYPTION_KEY="$(openssl rand -base64 32)"
-
-sudo tee /etc/default/islandr > /dev/null << EOF
-# Local recovery admin — leave ISLANDR_ADMIN_PASSWORD empty to disable local login.
-ISLANDR_ADMIN_USER=admin
-ISLANDR_ADMIN_PASSWORD=${ADMIN_PW}
-
-# Private-key-retention encryption key (ADR-0007) — see step 9 to upgrade to a
-# TPM2-bound key via systemd-creds instead.
-ISLANDR_ENCRYPTION_KEY=${ENCRYPTION_KEY}
-
-# WireGuard + firewall
-ISLANDR_WG_INTERFACE=wg0
-ISLANDR_WG_MODE=real
-ISLANDR_NFT_MODE=real
-ISLANDR_USE_SUDO=true
-# Device discovery (ADR-0014) scans for real by default — no setting needed.
-# Set ISLANDR_DISCOVERY_MODE=mock to get two fixed synthetic hosts instead
-# (e.g. a staging box you don't want probing a real subnet).
-
-# Database (SQLite — adequate for small teams; see ADR-0004 for PostgreSQL path)
-QUARKUS_DATASOURCE_JDBC_URL=jdbc:sqlite:/var/lib/islandr/data/islandr.db
-
-# HTTP — bind to loopback only; put a reverse proxy in front for TLS
-QUARKUS_HTTP_HOST=127.0.0.1
-QUARKUS_HTTP_PORT=8080
-
-QUARKUS_LOG_LEVEL=INFO
-EOF
-
-sudo chown root:islandr /etc/default/islandr
-sudo chmod 0640 /etc/default/islandr
-
-echo "Admin password: ${ADMIN_PW}"
-echo "Save this — it is only stored in /etc/default/islandr."
-```
-
-### 6. Install and start the systemd unit
-
-> **Why `Before=wg-quick@…`:** nftables rules do not survive a reboot, and
-> Islandr applies its table at startup. If the tunnel came up first, every peer
-> written in `<iface>.conf` could forward unfiltered until Islandr was ready —
-> the kernel's own FORWARD policy is `accept` when no other firewall is loaded.
-> Starting Islandr first closes that window; its rules match on `iifname`, which
-> is resolved per packet, so they are in place before the interface exists. The
-> peers Islandr manages are applied once the interface is up, at startup or on
-> the next activity-poller tick. **Existing installs** do not get this from an
-> update — add it with `sudo systemctl edit islandr` (`[Unit]` /
-> `Before=wg-quick@wg0.service`, with your interface name).
->
-> Ordering alone does not help if Islandr fails to start at all — a failed
-> start counts as finished, so `wg-quick` proceeds and no table is ever applied.
-> That case is covered by the fail-closed boot ruleset below, which
-> `setup-hub.sh` installs and which Islandr removes once its own table is live.
-
-
-```bash
-sudo tee /etc/systemd/system/islandr.service > /dev/null << 'EOF'
-[Unit]
-Description=Islandr — WireGuard access management
-After=network-online.target
-Wants=network-online.target
-
-# Ordering only, no dependency: Islandr must not start or stop the tunnel.
-# Replace wg0 if your interface is named differently.
-Before=wg-quick@wg0.service
-
-StartLimitIntervalSec=300
-StartLimitBurst=5
-
-[Service]
-User=islandr
-Group=islandr
-WorkingDirectory=/var/lib/islandr
-EnvironmentFile=/etc/default/islandr
-ExecStart=/opt/islandr/islandr
-
-# Do not "harden" the next four lines without reading install/hardening.md —
-# NoNewPrivileges=true and a CapabilityBoundingSet each break every sudo
-# nft/wg call, silently, until the first one runs.
-NoNewPrivileges=false
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/islandr
-PrivateTmp=true
-
-# Lets the unprivileged user bind 80/443 (TLS) and 53 (resource DNS). Grants
-# nothing else — not root, not CAP_NET_ADMIN.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-
-# Slow on purpose: a crash loop at 3s floods the journal past the first, only
-# useful stack trace. StartLimit* above gives up rather than looping forever.
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now islandr
-sudo systemctl status islandr
-```
-
-Several of these settings look wrong for a hardened unit and are load-bearing —
-`NoNewPrivileges=false`, the missing `CapabilityBoundingSet`, `PrivateTmp`,
-the restart timing. [install/hardening.md](install/hardening.md) explains each
-one and the outage it prevents. Read it before you tighten anything.
-
-
-### 6b. The fail-closed boot ruleset
-
-Islandr's nftables table is built from the database and applied at startup, and
-it does not survive a reboot. If Islandr then fails to start — OOM-killed on a
-small hub, or refusing a migrated schema — systemd gives up after about a
-minute, `wg-quick` brings the interface up regardless, and the hub forwards
-whatever is written in `<iface>.conf` with no access control at all. The
-dangerous part is the shape: the VPN appears to work, so nobody investigates.
-
-`setup-hub.sh` installs a second, minimal table for exactly that window
-([ADR-0031](adr/0031-fail-closed-boot-ruleset.md)):
-
-```
-/etc/islandr/boot.nft                            table inet islandr-boot
-/etc/systemd/system/islandr-boot-firewall.service oneshot, before wg-quick@<iface>
-```
-
-It drops forwarding into and out of the WireGuard interface and accepts
-everything else, so the host's other forwarding — Docker, a second interface —
-is untouched. Islandr deletes the table **after** applying its own, never
-before, so there is no moment with neither.
-
-`/etc/nftables.conf` is deliberately not touched. Your own ruleset there stays
-yours; Islandr ships its own unit and its own file, for the same one-writer
-reason [ADR-0030](adr/0030-wireguard-config-file-ownership.md) gives for the
-WireGuard config.
-
-**What this trades.** A hub whose Islandr does not start forwards nothing,
-where before it would at least have carried the peers from the config file. For
-an access-control product that is the right direction, but it is an
-availability decision: "the control plane is down, so traffic stops" rather
-than "the control plane is down, so everyone may do anything".
-
-**On a fresh install, firewall writes are paused** (dry-run is the default), so
-Islandr applies nothing and keeps the boot table on purpose — opening the hub
-on the strength of a setting whose point is that nothing is enforced yet would
-defeat it. Until you activate enforcement in **Settings → Firewall**, the
-tunnel comes up and forwards nothing. The Admin Console says so, in as many
-words, rather than leaving you to diagnose a routing fault.
-
-If the handover ever fails, both tables are live and a drop in either wins, so
-granted traffic stays blocked. That is reported in the console and in the
-journal; the manual fix is:
-
-```bash
-sudo nft delete table inet islandr-boot
-```
-
-**Existing installs** do not get any of this from an update, same as the
-ordering change in 0.21.0 — re-run `setup-hub.sh`, or create the two files by
-hand.
-
-### 7. Verify
-
-```bash
-# Follow logs
-sudo journalctl -u islandr -f
-
-# Smoke test from your laptop via SSH tunnel
-ssh -L 8080:127.0.0.1:8080 user@your-hub
-# then open http://localhost:8080
-```
-
-### 8. First start: the firewall is not enforced yet
-
-A fresh install comes up in **dry-run mode** (`firewall_dry_run = 1`). Islandr
-builds the WireGuard peer set and the nftables ruleset, validates them with
-`nft -c -f`, and logs what it *would* do — but writes nothing. `nft list table
-inet islandr` stays empty and existing peers on the interface are untouched.
-
-This is deliberate: installing on a VPS you are currently reaching *through*
-that same WireGuard tunnel must not cut your own session. Configure resources,
-groups and the ACL matrix first, look at the generated ruleset, then activate.
-
-Turn it off in **Settings → Firewall** ("Firewall-Schreiben pausieren"). The
-Dashboard carries a banner for as long as dry-run is on, so a paused install
-does not look like a working one.
-
-Before you activate, over a WireGuard-only SSH session: confirm the ACL matrix
-grants your own peer access to this host on port 22. If you do lock yourself
-out, the fix needs console or rescue access from the provider:
-
-```bash
-sudo nft delete table inet islandr   # drop islandr's ruleset, tunnel comes back
-```
-
-### 9. TLS (required for production)
-
-Islandr binds to `127.0.0.1:8080`. Put a reverse proxy in front for TLS.
-
-**Caddy** (simplest — automatic Let's Encrypt):
-
-```
-islandr.yourdomain.com {
-    reverse_proxy 127.0.0.1:8080
-}
-```
-
-**nginx:**
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name islandr.yourdomain.com;
-    ssl_certificate     /etc/ssl/certs/islandr.crt;
-    ssl_certificate_key /etc/ssl/private/islandr.key;
-    location / { proxy_pass http://127.0.0.1:8080; }
-}
-```
-
-### 10. Encrypted private key retention (optional, recommended for compliance)
-
-By default, private keys are never stored (`retention=never`). If you enable `retention=plaintext`
-you can switch to `retention=encrypted` so keys are AES-256-GCM encrypted at rest. A DB-only
-breach cannot recover peer private keys without the separate master key.
-
-Step 5 already generated `ISLANDR_ENCRYPTION_KEY` into `/etc/default/islandr`, so `encrypted` is
-selectable in Settings right away. The steps below are only needed if you want the key upgraded
-from a plain env var to a **TPM2-bound** credential (stronger — the key can't be read by copying
-the env file off the disk):
-
-```bash
-# 1. Generate a 32-byte key and encrypt it, machine-bound via TPM2 (requires systemd ≥ 248):
-openssl rand -base64 32 | sudo systemd-creds encrypt --tpm2=yes - /etc/islandr/kek.cred
-sudo chown root:islandr /etc/islandr/kek.cred
-sudo chmod 0440 /etc/islandr/kek.cred
-
-# 2. Add to the [Service] section of /etc/systemd/system/islandr.service:
-#    LoadCredentialEncrypted=ENCRYPTION_KEY:/etc/islandr/kek.cred
-sudo systemctl edit islandr   # adds an override.conf with the line above
-
-# 3. Tell Islandr where to find the decrypted key at runtime (add to /etc/default/islandr):
-echo "ISLANDR_ENCRYPTION_KEY_PATH=/run/credentials/islandr.service/ENCRYPTION_KEY" | \
-    sudo tee -a /etc/default/islandr
-
-# 4. Reload and restart:
-sudo systemctl daemon-reload
-sudo systemctl restart islandr
-
-# 5. In Admin Console: Settings → Private Key Retention → encrypted
-#    Islandr auto-migrates any existing plaintext keys in the same transaction.
-```
-
-Without TPM2 (fallback — key is encrypted with the machine's host key, no hardware binding):
-```bash
-openssl rand -base64 32 | sudo systemd-creds encrypt - /etc/islandr/kek.cred
-```
-
-Docker has no `systemd-creds`, so it stays on the env-var key generated in the
-[Docker Compose](#docker-compose) section's `.env` file — that's already sufficient to make
-`encrypted` selectable in Settings.
 
 ---
 
