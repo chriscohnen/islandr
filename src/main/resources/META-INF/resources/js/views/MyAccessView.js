@@ -12,6 +12,7 @@ import PortalActivityHeatmap from "/js/PortalActivityHeatmap.js";
 //   GET    /api/v1/peers/mine               — list own peers
 //   POST   /api/v1/peers/mine                — add a device
 //   GET    /api/v1/peers/mine/{id}/conf      — re-show .conf (plaintext only)
+//   PUT    /api/v1/peers/mine/{id}            — rename / re-categorise a device
 //   PUT    /api/v1/peers/mine/{id}/public-key — rotate the public key
 export default defineComponent({
   name: "MyAccessView",
@@ -45,9 +46,12 @@ export default defineComponent({
       // userId the view is scoped to (null = own, set = admin impersonation)
       viewAsUserId: null,
       viewAsUserName: null,
-      modalMode: null, // null | "create" | "secret" | "rotate"
+      modalMode: null, // null | "create" | "secret" | "rotate" | "edit"
       // create form
       newDevice: { name: "", publicKey: "", category: "stationary" },
+      // edit form (peer-self-edit): rename and re-categorise an existing device
+      editPeer: null,
+      editForm: { name: "", category: "stationary" },
       importPublicKey: false,
       submitting: false,
       detectedPlatform: (() => {
@@ -527,6 +531,61 @@ export default defineComponent({
       this.modalMode = "rotate";
     },
 
+    // Rename a device and/or change its category (issue: peer-self-edit).
+    // Same two-way stationary/mobile choice as creation, not the fuller
+    // admin enum — this is the portal, which never exposes more than the
+    // decision an end user can actually make sense of.
+    openEdit(peer) {
+      this.editPeer = peer;
+      this.editForm = {
+        name: peer.name,
+        category: (peer.deviceType === "mobile" || peer.deviceType === "tablet") ? "mobile" : "stationary",
+      };
+      this.formError = null;
+      this.modalMode = "edit";
+    },
+
+    async submitEdit() {
+      if (!this.editForm.name.trim()) {
+        this.formError = t("myaccess.err_name");
+        return;
+      }
+      this.submitting = true;
+      this.formError = null;
+      try {
+        const res = await fetch("/api/v1/peers/mine/" + this.editPeer.id, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: this.editForm.name.trim(),
+            deviceType: this.editForm.category === "mobile" ? "mobile" : "desktop",
+          }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        this.closeModal();
+        await this.load();
+      } catch (e) {
+        this.formError = t("myaccess.error_edit", { error: e.message });
+      } finally {
+        this.submitting = false;
+      }
+    },
+
+    // Self-service "soft delete": the device disappears from this list and
+    // stops working immediately, but the row itself survives — only an
+    // admin's real delete removes it (users-self-delete-peer). Destructive,
+    // so it confirms, same as every other destructive action here.
+    async removePeer(peer) {
+      if (!confirm(t("myaccess.confirm_remove_peer"))) return;
+      try {
+        const res = await fetch("/api/v1/peers/mine/" + peer.id, { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await this.load();
+      } catch (e) {
+        this.error = t("myaccess.error_remove_peer", { error: e.message });
+      }
+    },
+
     async submitRotate() {
       if (!this.rotateKey.trim()) {
         this.formError = t("myaccess.err_key");
@@ -558,6 +617,7 @@ export default defineComponent({
       this.secret = null;
       this.rotatePeer = null;
       this.rotateKey = "";
+      this.editPeer = null;
       this.formError = null;
       this.copyState = "idle";
     },
@@ -587,11 +647,16 @@ export default defineComponent({
     },
 
     canReshow(peer) {
-      // /conf only returns 200 when the server has stored the private half —
-      // i.e. retention='plaintext' AND the key was server-generated. We can't
-      // know that from the peer row alone, so the button stays visible and the
-      // 404 path handles the "no stored conf" case.
-      return this.retention === "plaintext";
+      // /conf returns 200 whenever the server actually stored the private
+      // half — plaintext OR encrypted retention, both of which
+      // PeerService#reshow decrypts transparently. Only retention='never'
+      // genuinely never stores it. Checked against 'plaintext' alone until
+      // now, which wrongly hid this button under 'encrypted' too — the one
+      // other mode where re-downloading a lost .conf actually works. We
+      // still can't know from the peer row alone whether *this particular*
+      // peer's key was server-generated, so the button stays visible and the
+      // 404 path handles that one remaining "no stored conf" case.
+      return this.retention !== "never";
     },
 
     formatDate(iso) { return formatDate(iso); },
@@ -997,7 +1062,9 @@ export default defineComponent({
           <td class="muted">{{ formatDate(p.createdAt) }}</td>
           <td style="text-align: right">
             <button v-if="canReshow(p)" class="btn btn-ghost btn-sm" @click="openReshow(p.id)"><Icon name="qr-code" :size="13" />{{ t('myaccess.btn_qr') }}</button>
+            <button v-if="!viewAsUserId" class="btn btn-ghost btn-sm" @click="openEdit(p)"><Icon name="edit" :size="13" />{{ t('myaccess.btn_edit') }}</button>
             <button class="btn btn-ghost btn-sm" @click="openRotate(p)"><Icon name="rotate" :size="13" />{{ t('myaccess.btn_rotate') }}</button>
+            <button v-if="!viewAsUserId" class="btn btn-ghost btn-sm" @click="removePeer(p)"><Icon name="trash" :size="13" />{{ t('myaccess.btn_remove_peer') }}</button>
           </td>
         </tr>
       </tbody>
@@ -1292,6 +1359,21 @@ export default defineComponent({
         <PortalActivityHeatmap v-if="activityLoaded" :user-id="viewAsUserId" />
       </template>
       </section>
+
+      <!-- Everyone in the company lands here, and nowhere on this page did it
+           say what "here" is. The licence line added for 1.0 sits in Settings
+           and on the sign-in screen — two places an ordinary employee never
+           sees, because they arrive straight in the portal.
+
+           The name is always a link, it just does not look like one until you
+           reach for it. A link that appears on hover would not exist on a
+           phone at all, which the brief rules out and which has already been
+           fixed twice in this codebase. -->
+      <p class="myaccess-project-note">
+        <a href="https://islandr-gateway.net" target="_blank" rel="noopener"
+           class="myaccess-project-link">{{ t('myaccess.project_name') }}</a>
+        <span aria-hidden="true"> · </span>{{ t('myaccess.project_license') }}
+      </p>
     </div>
 
     <div v-if="!viewAsUserId && modalMode" class="modal-backdrop" @click.self="closeModal">
@@ -1386,13 +1468,58 @@ export default defineComponent({
         </form>
       </div>
 
+      <div v-else-if="modalMode === 'edit'" class="modal">
+        <div class="modal-header">
+          <h2>{{ t('myaccess.btn_edit') }} — {{ editPeer?.name }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeModal">✕</button>
+        </div>
+        <form @submit.prevent="submitEdit">
+          <div class="modal-body">
+            <div v-if="formError" class="error-banner">{{ formError }}</div>
+
+            <div class="field" style="margin-bottom: var(--space-4)">
+              <label for="editDevName">{{ t('myaccess.label_device_name') }}</label>
+              <input id="editDevName" class="input" v-model="editForm.name" required :placeholder="t('myaccess.ph_device_name')" />
+            </div>
+
+            <fieldset class="key-mode">
+              <legend>{{ t('myaccess.category_section') }}</legend>
+              <label class="key-mode-option">
+                <input type="radio" :checked="editForm.category === 'stationary'" @change="editForm.category = 'stationary'" />
+                <div>
+                  <div class="key-mode-title">{{ t('myaccess.category_stationary') }}</div>
+                  <div class="key-mode-hint">{{ t('myaccess.category_stationary_hint') }}</div>
+                </div>
+              </label>
+              <label class="key-mode-option">
+                <input type="radio" :checked="editForm.category === 'mobile'" @change="editForm.category = 'mobile'" />
+                <div>
+                  <div class="key-mode-title">{{ t('myaccess.category_mobile') }}</div>
+                  <div class="key-mode-hint">{{ t('myaccess.category_mobile_hint') }}</div>
+                </div>
+              </label>
+            </fieldset>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('peer.btn_cancel') }}</button>
+            <button type="submit" class="btn btn-primary" :disabled="submitting">
+              {{ submitting ? t('peer.btn_saving') : t('peer.btn_save') }}
+            </button>
+          </div>
+        </form>
+      </div>
+
       <div v-else-if="modalMode === 'secret' && secret" class="modal modal-xl">
         <div class="modal-header">
           <h2>{{ secretIsReshow ? t('peer.secret_title_re') : t('peer.secret_title_new') }} — {{ secret.peer?.name }}</h2>
           <button class="btn btn-ghost btn-sm" @click="closeModal">✕</button>
         </div>
         <div class="modal-body">
-          <div v-if="!secretIsReshow && secret.privateKey && retention !== 'plaintext'" class="callout callout-warning">
+          <!-- Only retention='never' truly means "gone once you close this" —
+               'encrypted' stores it too (PeerService#reshow decrypts it), so
+               warning here as if it didn't would tell a user the config is
+               lost when My access can hand it back to them any time. -->
+          <div v-if="!secretIsReshow && secret.privateKey && retention === 'never'" class="callout callout-warning">
             <div>
               <strong>{{ t('peer.warn_once') }}</strong>
               {{ t('peer.warn_once_desc') }}

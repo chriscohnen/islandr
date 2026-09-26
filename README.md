@@ -190,17 +190,18 @@ so the number arrives when it is earned, not on a date.
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 0.23.0
+### What's new in 1.0.0
 
 Every version: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Fixed: a peer stayed "Connected" after it had gone** — the status column showed the time of the poll, not the handshake, so Stale and Disconnected were unreachable for any peer that had ever connected ([#87](https://github.com/chriscohnen/islandr/issues/87))
-- **Security keys for the local recovery admin — endpoints only, no screen yet** — registration and sign-in work over the API and issue an ordinary session; the console for it follows next release. A credential binds to a name, so a hub reached by IP cannot use them ([#67](https://github.com/chriscohnen/islandr/issues/67))
-- **The hub answers for its own name** — `hub.<zone>` plus an optional alias, so the console is reachable without an `/etc/hosts` entry on every device
-- **A self-signed certificate for those names**, for installations with no domain, with its fingerprint shown to compare once
-- **The external API can disable a user or a peer**, and can read the effective grants and the audit log
-- Fixed: the activity heatmap could not report a site outage; resource cards cut the name short and their buttons needed a mouse; admins had no link to their own self-service portal
+- **Upgrades are boring — and now proven so.** `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not. Every tagged build installs the previous release, upgrades to it and rolls back again, asserting after each step ([ADR-0033](docs/adr/0033-what-1-0-promises.md))
+- **Settings hands you the update instead of just announcing it** — the command with a copy button, the rollback beside it, and whether a rollback actually exists. `update.sh` and `backup.sh` ship as release assets
+- **On the Quarkus LTS line** (3.33.3.2). The previous pin claimed LTS and was not, which is how a critical Netty advisory became unfixable without anyone noticing ([ADR-0032](docs/adr/0032-quarkus-lts-line.md))
+- **External API: grants carry their ports as values** — transport included, so a port-limited grant can finally be turned into a rule
+- **Security keys have a console** — a "sign in with a security key" button next to the password, registered and managed from Settings; the password stays a complete path on its own. An offline escape hatch too: `ISLANDR_WEBAUTHN_RESET=true` clears every registered authenticator on the recovery admin, audit-logged, for the case where you cannot sign in to remove one ([#67](https://github.com/chriscohnen/islandr/issues/67))
+- **The console says it is open source** — EUPL-1.2 next to the version and in the login footer, with the trademark boundary named
+- Fixed: Settings and My access were unreachable on a phone; discovery showed port numbers where it can show names; the avatar's edit controls sat permanently in the topbar
 
 ### Roadmap
 
@@ -211,6 +212,61 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 
 **v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))
 - [Prometheus `/metrics`](https://github.com/chriscohnen/islandr/issues/71) — so the hub reports into the monitoring you already run
+
+## What 1.0 promises
+
+Not that the software is finished — that **upgrading stops being an event**.
+Concretely, semantic versioning covers these and only these, and breaking any
+of them takes a major version:
+
+| Covered | Not covered |
+|---|---|
+| The external API (`/api/external/v1`) — paths, shapes, meanings | The console API (`/api/v1`), which serves the bundled UI and changes with it |
+| `ISLANDR_*` variables and `/etc/default/islandr` | The frontend modules and CSS — no build step, so no published surface |
+| Database migrations: forward, automatic, never hand-run SQL | The schema itself. Migrations are the promise, their shape is not |
+| `setup-hub.sh`, `install-proxy.sh`, `update.sh`, `backup.sh` — flags, variables, paths | Internal Java packages. This ships a binary, not a library |
+| Database location, unit name, sudoers scope | The WireGuard interface config — that file is yours, Islandr never writes it |
+
+Downgrades are covered by neither: migrations run forward only, so going back
+means restoring the backup `update.sh` takes before it swaps anything.
+
+The reasoning is in [ADR-0033](docs/adr/0033-what-1-0-promises.md). The upgrade
+and rollback path is exercised by CI on every tag, not only described here.
+
+## Upgrading
+
+The console tells you when a release exists — Settings shows the version and a check button, and
+the command to install it next to the result. The command is the same one either way:
+
+```bash
+sudo curl -fsSL -o /opt/islandr/update.sh \
+  https://github.com/chriscohnen/islandr/releases/latest/download/update.sh
+sudo bash /opt/islandr/update.sh
+```
+
+`update.sh` is not a thin wrapper around a download. It verifies the checksum, then copies the
+running binary to `islandr.prev` and takes a hot `sqlite3 .backup` of the database before
+swapping anything. It watches the new version for fifteen seconds — longer than the unit's
+`RestartSec`, so a process that starts and immediately dies is not mistaken for a healthy one —
+and **restores both if it does not stay up**. A failed update ends where it began.
+
+The database backup is the part people skip and shouldn't: migrations run at startup and there are
+no undo migrations, so a version that migrates and *then* fails leaves a schema the previous binary
+refuses to validate. Putting back only the binary would not start either.
+
+```bash
+sudo bash /opt/islandr/update.sh --rollback   # undo the last update
+sudo bash /opt/islandr/update.sh --pre        # include release candidates
+sudo bash /opt/islandr/update.sh v1.0.0       # pin a version
+```
+
+Separately, `backup.sh` writes a rotated, compressed copy of the database on a schedule — see
+[docs/install.md](docs/install.md#backups). The rollback above covers the last update; that covers
+everything else.
+
+**The console will not update the hub for you, and that is deliberate.** It would be restarting the
+service it is served from, so a migration that failed would take away the very page meant to report
+the outcome.
 
 ## Documentation
 

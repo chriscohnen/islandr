@@ -557,6 +557,44 @@ This just hands `forward` traffic back to whatever else is on the host; islandr 
 
 ---
 
+## Security keys, and getting back in without one
+
+The local recovery admin can register security keys (WebAuthn / passkeys). Two
+things about that are worth knowing before you enrol one.
+
+**A credential is bound to a name, and an IP address is not one.** A console
+reached at `https://10.77.140.1` cannot use security keys at all — not for want
+of a feature, but because the standard has nothing to bind the credential to.
+That is what the resolver's `hub.<zone>` record and the self-signed certificate
+exist for; with a real domain in front, the domain works just as well.
+
+**If every key is lost, the way back in is on the hub, not in the browser.**
+
+```bash
+sudo sed -i 's/^#\?ISLANDR_WEBAUTHN_RESET=.*/ISLANDR_WEBAUTHN_RESET=true/' /etc/default/islandr \
+  || echo 'ISLANDR_WEBAUTHN_RESET=true' | sudo tee -a /etc/default/islandr
+sudo systemctl restart islandr
+```
+
+The service starts normally and removes every key registered for the recovery
+admin; the password login is untouched and still works. The removal is written
+to the audit log — whoever runs a reset is not necessarily whoever notices it
+happened.
+
+**Then take the variable out again.** While it stays set, *every* restart
+clears the keys registered since — including one enrolled a minute ago. Islandr
+warns about this in the log on every boot while it is set, but the log is not
+where you will be looking.
+
+```bash
+sudo sed -i '/^ISLANDR_WEBAUTHN_RESET=/d' /etc/default/islandr
+sudo systemctl restart islandr
+```
+
+Setting it needs shell access on the hub, which already implies the database
+and this file — so it is not a new way in, only a documented way back
+([ADR-0028](adr/0028-webauthn-library-and-integration.md)).
+
 ## Backups
 
 `scripts/backup.sh` writes a consistent, gzip-compressed, rotated backup of the SQLite database —

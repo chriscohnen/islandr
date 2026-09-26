@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
@@ -23,6 +24,7 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.resteasy.reactive.ResponseStatus;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -75,6 +77,16 @@ public class MyPeerResource {
     ) {}
 
     @RegisterForReflection
+    public record UpdateMineRequest(
+            @NotBlank String name,
+
+            // Same enum as creation; "" clears it back to none.
+            @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
+                    message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
+            String deviceType
+    ) {}
+
+    @RegisterForReflection
     public record RotateKeyRequest(
             @NotBlank
             @Pattern(regexp = "^[A-Za-z0-9+/]{43}=$",
@@ -86,7 +98,12 @@ public class MyPeerResource {
     public List<PeerDto.Response> listMine(@Context ContainerRequestContext ctx) {
         AuthContext a = Auth.require(ctx);
         String userId = requireOrgUserId(a);
-        return Peer.<Peer>list("userId = ?1", Sort.by("createdAt").descending(), userId)
+        // A peer with a pending deletion request is gone as far as its owner
+        // is concerned (they asked for exactly that) — it still exists for
+        // requestDeletionMine, ownedOr404, and the admin list, which is what
+        // lets an admin actually finish the removal.
+        return Peer.<Peer>list("userId = ?1 and deletionRequestedAt is null",
+                        Sort.by("createdAt").descending(), userId)
                 .stream().map(PeerDto.Response::from).toList();
     }
 
@@ -134,6 +151,13 @@ public class MyPeerResource {
             byPeer.computeIfAbsent(row.id.peerId, k -> new HashMap<>()).put(row.id.day, row);
         }
 
+        // Same value on every row here — every peer in this response belongs to
+        // the one userId this call resolved above — but kept in the response
+        // rather than special-cased away, since MyPeerResource explicitly
+        // promises the admin endpoint's own shape (see this method's Javadoc).
+        de.chriscohnen.islandr.user.User owner = de.chriscohnen.islandr.user.User.findById(userId);
+        String userName = owner != null ? owner.name : null;
+
         List<PeerDto.ActivityHeatmapRow> peerRows = myPeers.stream()
                 .map(p -> {
                     Map<String, PeerDailyActivity> byDay = byPeer.getOrDefault(p.id, Map.of());
@@ -143,7 +167,8 @@ public class MyPeerResource {
                             .map(d -> byDay.containsKey(d) ? byDay.get(d).rxBytes : 0L).toList();
                     List<Long> txBytes = days.stream()
                             .map(d -> byDay.containsKey(d) ? byDay.get(d).txBytes : 0L).toList();
-                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, p.deviceType, sampleHits, rxBytes, txBytes, p.createdAt);
+                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, p.deviceType, sampleHits, rxBytes, txBytes, p.createdAt,
+                            p.userId, userName);
                 }).toList();
 
         return new PeerDto.ActivityHeatmapResponse(days, peerRows);
@@ -211,6 +236,26 @@ public class MyPeerResource {
         return peers.reshow(id);
     }
 
+    /** Rename a device and/or change its category (issue: peer-self-edit).
+     *  IP, CIDR and ownership stay an admin-only concern reachable through
+     *  {@code PUT /api/v1/peers/{id}} — this endpoint cannot touch them. */
+    @PUT
+    @Path("/{id}")
+    public PeerDto.Response updateMine(@Context ContainerRequestContext ctx,
+                                       @PathParam("id") String id,
+                                       @Valid UpdateMineRequest body) {
+        AuthContext a = Auth.require(ctx);
+        String userId = requireOrgUserId(a);
+        Peer existing = ownedOr404(id, userId);
+        String oldName = existing.name;
+        String oldDeviceType = existing.deviceType;
+        PeerDto.Response out = peers.updateSelfDetails(id, body.name(), body.deviceType());
+        audit.logUpdate(a.principal(), "peer.update", "Peer:" + out.name() + " (" + id + ")",
+                Map.of("name", oldName, "deviceType", oldDeviceType == null ? "" : oldDeviceType),
+                Map.of("name", out.name(), "deviceType", out.deviceType() == null ? "" : out.deviceType()));
+        return out;
+    }
+
     @PUT
     @Path("/{id}/public-key")
     public PeerDto.Response rotateMine(@Context ContainerRequestContext ctx,
@@ -230,6 +275,27 @@ public class MyPeerResource {
         // Public key doesn't appear in the nftables rules (which are IP:port
         // tuples), but the kernel-side wg map changed and a recompute keeps
         // any future "rule based on peer" generation consistent. Cheap.
+        rulesets.recomputeFromHook();
+        return out;
+    }
+
+    /**
+     * Self-service "soft delete" (issue: users-self-delete-peer). The device
+     * disappears from the caller's own list and stops working immediately,
+     * but the row itself stays — only an admin's real {@code DELETE
+     * /api/v1/peers/{id}} removes it. 202, not 204: the caller's request is
+     * accepted, but nothing has actually been deleted yet.
+     */
+    @DELETE
+    @Path("/{id}")
+    @ResponseStatus(202)
+    public PeerDto.Response requestDeletionMine(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.require(ctx);
+        String userId = requireOrgUserId(a);
+        ownedOr404(id, userId);
+        PeerDto.Response out = peers.requestDeletion(id);
+        audit.logEvent(a.principal(), "peer.deletion_requested", "Peer:" + id,
+                Map.of("selfService", true));
         rulesets.recomputeFromHook();
         return out;
     }

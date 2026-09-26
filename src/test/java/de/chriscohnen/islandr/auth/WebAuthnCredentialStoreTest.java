@@ -120,6 +120,48 @@ class WebAuthnCredentialStoreTest {
     }
 
     @Test
+    void upsertFromCeremonyCreatesAnUnknownCredentialInsteadOfThrowing() {
+        // The engine's updater callback fires during registration too, for a
+        // credential id it has never seen — recordAssertion's throw-on-unknown
+        // would fail the whole ceremony there, which is exactly the regression
+        // this guards against.
+        store.upsertFromCeremony(RP, SUBJECT, "cred-new", "key-new", 0);
+
+        assertThat(store.list(SUBJECT)).hasSize(1);
+        assertThat(signCountOf("cred-new")).isZero();
+    }
+
+    @Test
+    void upsertFromCeremonyAppliesTheCounterRuleToAKnownCredential() {
+        store.register(SUBJECT, RP, "cred-a", "key-a", 7, null);
+
+        store.upsertFromCeremony(RP, SUBJECT, "cred-a", "key-a", 8);
+        assertThat(signCountOf("cred-a")).isEqualTo(8);
+
+        assertThatThrownBy(() -> store.upsertFromCeremony(RP, SUBJECT, "cred-a", "key-a", 8))
+                .isInstanceOf(WebAuthnCredentialStore.CloneSuspectedException.class);
+    }
+
+    @Test
+    void setLabelAttachesTheNameChosenAtRegistration() {
+        store.upsertFromCeremony(RP, SUBJECT, "cred-new", "key-new", 0);
+
+        store.setLabel("cred-new", "YubiKey am Schlüsselbund");
+
+        assertThat(store.list(SUBJECT)).extracting(c -> c.label)
+                .containsExactly("YubiKey am Schlüsselbund");
+    }
+
+    @Test
+    void setLabelIgnoresABlankLabel() {
+        store.upsertFromCeremony(RP, SUBJECT, "cred-new", "key-new", 0);
+
+        store.setLabel("cred-new", "  ");
+
+        assertThat(store.list(SUBJECT).get(0).label).isNull();
+    }
+
+    @Test
     void aCredentialBelongingToSomeoneElseIsNotRemoved() {
         WebAuthnCredential c = store.register(SUBJECT, RP, "cred-a", "key-a", 0, null);
 

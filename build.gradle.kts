@@ -81,63 +81,54 @@ dependencies {
     testImplementation("org.assertj:assertj-core:3.27.7")
 }
 
-// Force several transitive dependencies to patched releases within the same
-// minor line the Quarkus 3.29.4 BOM already uses, so CVE fixes land without
-// moving off the pinned Quarkus version (see project_quarkus_lts_pin — we stay
-// on LTS on purpose). enforcedPlatform (above) silently overrides any plain
+// Force a few transitive dependencies to patched releases within the same line
+// the Quarkus 3.33 LTS BOM already uses, so CVE fixes land without moving off
+// the LTS line (see project_quarkus_lts_pin — we sit on LTS on purpose, and as
+// of 2026-09-19 that means the 3.33 line, identifiable by its four-segment
+// backport releases; 3.29 had none and was never LTS).
+//
+// enforcedPlatform (above) silently overrides any plain
 // implementation("group:artifact:version") declaration back to the BOM's
 // version, so these overrides MUST go through resolutionStrategy.eachDependency,
 // not a version string on the dependency itself — this also covers transitive
 // submodules that aren't declared directly (e.g. Netty's many codec modules).
+//
+// The 3.33.3.2 BOM already ships jackson 2.21.5, postgresql 42.7.13 and
+// vertx-core 4.5.31 — every force we carried on 3.29.4 for those is now either
+// equal to or older than the BOM, so they are gone rather than pinning us
+// backwards.
 configurations.all {
     resolutionStrategy.eachDependency {
-        if (requested.group == "io.netty") {
-            // CAPPED AT 4.1.135.Final — do not bump further without re-running a native
-            // build. Netty 4.1.136.Final changes the constructor signature of
-            // io.netty.handler.ssl.ReferenceCountedOpenSslClientContext, which Quarkus
-            // 3.29.4's Vert.x GraalVM substitution (VertxSubstitutions.java,
-            // Target_DefaultSslContextFactory) calls directly at native-image build
-            // time with the old signature — native build fails with "Discovered
-            // unresolved method during parsing" even though the JVM test suite passes
-            // fine (substitutions only run in the native codepath). CVEs fixed in
-            // 4.1.136.Final (CVE-2026-59898/59899/59900/59901/59919/59921/56745/56746/
-            // 55831/55833/55851) are therefore NOT fixable via a same-line version bump
-            // on this Quarkus version — needs either a Quarkus upgrade or a Quarkus-side
-            // fix to the substitution, tracked as an open Dependabot alert.
-            useVersion("4.1.135.Final")
-            because("4.1.136.Final breaks the native build (Quarkus 3.29.4 Vert.x GraalVM substitution incompatibility) — capped here pending a Quarkus upgrade")
-        }
-        if (requested.group == "org.postgresql" && requested.name == "postgresql") {
-            useVersion("42.7.12")
-            because("CVE-2026-42198 (SCRAM auth CPU exhaustion) and CVE-2026-54291 (channel-binding downgrade); same 42.7.x line as Quarkus 3.29 BOM")
-        }
-        if (requested.group == "com.fasterxml.jackson.core" &&
-            (requested.name == "jackson-core" || requested.name == "jackson-databind")) {
-            useVersion("2.21.5")
-            because("Multiple CVEs in jackson-databind/jackson-core (CVE-2026-54512/54513/54514/54515/59888 + GHSA-72hv-8253-57qq incomplete-fix follow-up); same 2.x line as Quarkus 3.29 BOM")
-        }
-        if (requested.group == "com.fasterxml.jackson.core" && requested.name == "jackson-annotations") {
-            // jackson-annotations only ships minor-numbered releases (2.21, not 2.21.5) —
-            // keep it aligned with the 2.21.x core/databind force above without a patch suffix.
-            useVersion("2.21")
-            because("Keep jackson-annotations in lockstep with the jackson-core/jackson-databind 2.21.x force above")
-        }
-        if (requested.group == "io.vertx" && requested.name == "vertx-core") {
-            useVersion("4.5.27")
-            because("CVE-2026-1002 (static handler cache DoS) and CVE-2026-6860 (unbounded SNI SslContext cache growth); same 4.5.x line as Quarkus 3.29 BOM")
+        // tcnative artifacts live on their own 2.0.x line (the BOM pins 2.0.78.Final)
+        // and have no 4.1.x release at all — a blanket io.netty force asks for a
+        // netty-tcnative-classes:4.1.137.Final that does not exist and fails resolution.
+        if (requested.group == "io.netty" && !requested.name.startsWith("netty-tcnative")) {
+            // The BOM ships 4.1.136.Final. 4.1.137.Final fixes CVE-2026-59898 and
+            // CVE-2026-59921 (netty-handler, netty-codec-http), which 4.1.136 does
+            // not — hence one step past the BOM, staying inside 4.1.x.
+            //
+            // HISTORY, do not re-introduce blindly: on Quarkus 3.29.4 this was
+            // CAPPED at 4.1.135.Final, because 4.1.136 changed the constructor of
+            // io.netty.handler.ssl.ReferenceCountedOpenSslClientContext, which that
+            // version's Vert.x GraalVM substitution called with the old signature —
+            // the native build failed while the JVM test suite passed. The 3.33 BOM
+            // ships 4.1.136 itself, so the substitution there expects the new
+            // signature. Any change here needs a NATIVE build to verify; tests alone
+            // cannot see this class of failure.
+            useVersion("4.1.137.Final")
+            because("CVE-2026-59898 (critical) and CVE-2026-59921, unfixed in the BOM's 4.1.136.Final; same 4.1.x line")
         }
     }
 }
 // NOT force-overridden: io.opentelemetry:opentelemetry-api (CVE-2026-45292,
 // medium, unbounded memory in W3C baggage propagation, fixed in 1.62.0). The
-// BOM currently resolves 1.46.0 — a 16-minor-version jump is too large to
-// treat as a same-line patch bump like the others above; the OTel API's
-// compatibility with the Quarkus-managed OTel SDK/exporter at that distance
-// needs real verification, not a one-line force. Left as an open Dependabot
-// alert pending a dedicated look (see #20).
+// 3.33 BOM resolves 1.57.0 — closer than the 1.46.0 that 3.29.4 carried, but
+// still five minors short, and the OTel API's compatibility with the
+// Quarkus-managed OTel SDK/exporter at that distance needs real verification
+// rather than a one-line force. Left as an open Dependabot alert (see #20).
 
 group = "de.chriscohnen.islandr"
-version = "0.23.0"
+version = "1.0.0-rc.1"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

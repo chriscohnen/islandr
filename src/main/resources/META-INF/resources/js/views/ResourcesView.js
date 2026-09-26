@@ -56,6 +56,18 @@ export default defineComponent({
       selectedGroupId: "",
       groupError: null,
       groupApplyInfo: null,  // small feedback line after a successful apply
+      // Port-range scan (port-scan-range): one resource's own IP, admin-typed
+      // range, TCP-only. Separate state from the device-discovery scan above —
+      // different job registry on the server, different target shape (one IP,
+      // not a CIDR), and the two can run for different resources at once.
+      portScanFor: null,        // resource id the panel is open for
+      portScanSpec: "",         // admin input; empty = server default (PortRange.DEFAULT_SPEC)
+      portScanState: null,      // null | 'running' | 'done' | 'cancelled' | 'error'
+      portScanJobId: null,
+      portScanProgress: { done: 0, total: 0 },
+      portScanPorts: [],        // [{ port, service, added }], appended as found
+      portScanError: null,
+      portScanPollTimer: null,
       // Device discovery (ADR-0014)
       scanOpen: false,
       scanState: null,       // 'consent' | 'running' | 'done' | 'error'
@@ -93,6 +105,7 @@ export default defineComponent({
     await Promise.all([this.loadSite(), this.loadResources(), this.loadPortGroups()]);
     this._offEscape = onEscape(() => {
       if (this.scanOpen) this.closeScan();
+      else if (this.portScanFor) this.closePortScan();
       else if (this.modal) this.closeModal();
     });
     this._offSlash = onSlashFocus(() => this.$refs.searchInput);
@@ -101,6 +114,7 @@ export default defineComponent({
     // Navigating away mid-scan must not leave a poll loop running or a scan
     // orphaned on the hub — closeScan clears the timer and cancels the job.
     if (this.scanOpen) this.closeScan();
+    if (this.portScanFor) this.closePortScan();
     if (this._offEscape) this._offEscape();
     if (this._offSlash) this._offSlash();
   },
@@ -212,6 +226,7 @@ export default defineComponent({
       return {
         computer: t("resources.type_computer"),
         router: t("resources.type_router"),
+        accesspoint: t("resources.type_accesspoint"),
         printer: t("resources.type_printer"),
         nas: t("resources.type_nas"),
         camera: t("resources.type_camera"),
@@ -485,6 +500,122 @@ export default defineComponent({
       this.portFormFor = null;
       this.portEditId = null;
       this.portError = null;
+    },
+    // -- Port-range scan (port-scan-range) -----------------------------------
+    // One resource's own IP, admin-typed range, TCP-only — the counterpart to
+    // the device-discovery scan above, which enumerates a whole CIDR at 15
+    // fixed ports to decide what is alive. This one already knows the target
+    // and asks what it offers.
+    openPortScan(resourceId) {
+      this.portScanFor = resourceId;
+      this.portScanSpec = "";
+      this.portScanState = null;
+      this.portScanJobId = null;
+      this.portScanProgress = { done: 0, total: 0 };
+      this.portScanPorts = [];
+      this.portScanError = null;
+      // Only one inline panel open at a time.
+      this.closePortForm();
+      this.groupFormFor = null;
+    },
+    closePortScan() {
+      if (this.portScanPollTimer) { clearTimeout(this.portScanPollTimer); this.portScanPollTimer = null; }
+      // Best-effort cancel a scan still running on the hub.
+      if (this.portScanJobId && this.portScanState === "running") {
+        fetch("/api/v1/resources/" + this.portScanFor + "/port-scan/" + this.portScanJobId, { method: "DELETE" }).catch(() => {});
+      }
+      this.portScanFor = null;
+      this.portScanState = null;
+      this.portScanJobId = null;
+    },
+    async startPortScan() {
+      this.portScanState = "running";
+      this.portScanError = null;
+      this.portScanPorts = [];
+      this.portScanProgress = { done: 0, total: 0 };
+      try {
+        const res = await fetch("/api/v1/resources/" + this.portScanFor + "/port-scan", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ports: this.portScanSpec.trim() || null }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          // 409 here is always a malformed range — the one thing an admin
+          // typed that this endpoint can reject, shown as it came.
+          throw new Error(body || "HTTP " + res.status);
+        }
+        const started = await res.json();
+        this.portScanJobId = started.jobId;
+        this.pollPortScan();
+      } catch (e) {
+        this.portScanState = "error";
+        this.portScanError = t("resources.port_scan_error", { error: e.message });
+      }
+    },
+    /** Stops the sweep but keeps the panel and what it already found (same
+     *  reasoning as the discovery scan's abortScan) — an admin who has seen
+     *  enough should not have to scan again to act on it. */
+    async cancelPortScan() {
+      if (this.portScanPollTimer) { clearTimeout(this.portScanPollTimer); this.portScanPollTimer = null; }
+      try {
+        await fetch("/api/v1/resources/" + this.portScanFor + "/port-scan/" + this.portScanJobId, { method: "DELETE" });
+      } catch (e) {
+        // The job is the hub's to stop; if the call failed we still show what we have.
+      }
+      await this.pollPortScan();
+    },
+    async pollPortScan() {
+      try {
+        const res = await fetch("/api/v1/resources/" + this.portScanFor + "/port-scan/" + this.portScanJobId);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const s = await res.json();
+        this.portScanProgress = { done: s.done, total: s.total };
+        const state = s.state.toLowerCase();
+        // Merge rather than replace: an already-added port must not lose its
+        // _added flag just because the panel re-rendered from a fresh poll.
+        const addedByPort = new Map(this.portScanPorts.map((p) => [p.port, p._added]));
+        this.portScanPorts = (s.openPorts || []).map((p) => ({ ...p, _added: addedByPort.get(p.port) || false }));
+        if (state === "running") {
+          this.portScanPollTimer = setTimeout(() => this.pollPortScan(), 400);
+          return;
+        }
+        this.portScanState = state; // 'done' | 'cancelled' | 'failed'
+        if (state === "failed") this.portScanError = t("resources.port_scan_error", { error: s.error || "?" });
+      } catch (e) {
+        this.portScanState = "error";
+        this.portScanError = t("resources.port_scan_error", { error: e.message });
+      }
+    },
+    /** Guesses a protocol label from the scanned service name — best-effort,
+     *  same spirit as the backend's own fallback for a discovery import,
+     *  editable afterwards like any other port. */
+    portScanProtocolGuess(service) {
+      const known = ["SSH", "HTTP", "HTTPS", "SMB", "RDP", "VNC"];
+      return known.includes(service) ? service : "CUSTOM";
+    },
+    /** Adds one scanned port as a real ResourcePort — the same endpoint the
+     *  manual "Add port" form posts to, so nothing here re-implements the
+     *  validation or the audit trail that already lives there. */
+    async addScannedPort(p) {
+      try {
+        const res = await fetch("/api/v1/resources/" + this.portScanFor + "/ports", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            port: p.port, portEnd: null, transport: "tcp",
+            protocol: this.portScanProtocolGuess(p.service),
+            label: p.service || null, pathPrefix: null,
+            maxConcurrentUsers: null, maxReservationMinutes: null, autoApproveReservations: true,
+            rdpClipboard: false, rdpFileTransfer: false, rdpAccessMode: "native",
+          }),
+        });
+        if (!res.ok) { this.portScanError = await res.text(); return; }
+        p._added = true;
+        await this.loadResources();
+      } catch (e) {
+        this.portScanError = t("resources.port_scan_error", { error: e.message });
+      }
     },
     // One-line summary of what a port is configured as, for the chip title —
     // the chip itself only has room for the two or three that change what the
@@ -912,6 +1043,66 @@ export default defineComponent({
                       @click="groupFormFor === r.id ? closeGroupForm() : openGroupForm(r.id)">
                 {{ groupFormFor === r.id ? '✕ ' + t('common.cancel') : '+ ' + t('resources.from_group') }}
               </button>
+              <button class="btn btn-ghost btn-sm"
+                      @click="portScanFor === r.id ? closePortScan() : openPortScan(r.id)">
+                {{ portScanFor === r.id ? '✕ ' + t('common.cancel') : t('resources.btn_port_scan') }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Port-range scan panel (port-scan-range) -->
+          <div v-if="portScanFor === r.id" class="res-inline-form">
+            <p class="muted" style="margin: 0 0 var(--space-2)">{{ t('resources.port_scan_intro') }}</p>
+
+            <form v-if="!portScanState || portScanState === 'error'" @submit.prevent="startPortScan">
+              <div class="res-form-row">
+                <div class="field" style="margin: 0; flex: 1">
+                  <label>{{ t('resources.port_scan_range_label') }}</label>
+                  <input class="input mono" v-model="portScanSpec" :placeholder="t('resources.port_scan_range_ph')" />
+                  <span class="muted" style="font-size: var(--text-xs)">{{ t('resources.port_scan_range_hint') }}</span>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm" style="align-self: flex-end">
+                  {{ t('resources.port_scan_start') }}
+                </button>
+              </div>
+              <div v-if="portScanError" class="error-banner" style="margin-top: var(--space-2)">{{ portScanError }}</div>
+            </form>
+
+            <div v-else>
+              <div v-if="portScanState === 'running'" class="progress" role="progressbar"
+                   :aria-valuenow="portScanProgress.done" :aria-valuemin="0" :aria-valuemax="portScanProgress.total"
+                   style="margin-bottom: var(--space-2)">
+                <div class="progress-fill" :style="{ width: (portScanProgress.total ? (100 * portScanProgress.done / portScanProgress.total) : 0) + '%' }"></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2)">
+                <span class="mono" style="font-size: var(--text-xs)">
+                  {{ portScanState === 'running'
+                      ? t('resources.port_scan_running', { done: portScanProgress.done, total: portScanProgress.total, found: portScanPorts.length })
+                      : portScanState === 'cancelled' ? t('resources.port_scan_cancelled')
+                      : t('resources.port_scan_done', { found: portScanPorts.length, total: portScanProgress.total }) }}
+                </span>
+                <button v-if="portScanState === 'running'" type="button" class="btn btn-ghost btn-sm" @click="cancelPortScan">
+                  {{ t('resources.port_scan_cancel') }}
+                </button>
+              </div>
+
+              <p v-if="portScanState !== 'running' && portScanPorts.length === 0" class="muted" style="font-size: var(--text-xs)">
+                {{ t('resources.port_scan_none_found') }}
+              </p>
+
+              <div v-if="portScanPorts.length > 0" class="res-port-chips">
+                <span v-for="p in portScanPorts" :key="p.port" class="res-port-chip">
+                  <span class="mono" style="font-size: var(--text-xs)">{{ p.port }}/tcp</span>
+                  <span style="color: var(--fg2); font-size: var(--text-xs)">{{ p.service || t('resources.port_scan_unnamed') }}</span>
+                  <button v-if="!p._added" type="button" class="btn btn-ghost btn-sm" style="padding: 0 6px"
+                          @click="addScannedPort(p)">{{ t('resources.port_scan_add') }}</button>
+                  <span v-else class="mono" style="font-size: var(--text-xs); color: var(--success-solid)">✓ {{ t('resources.port_scan_added') }}</span>
+                </span>
+              </div>
+
+              <button v-if="portScanState !== 'running'" type="button" class="btn btn-ghost btn-sm" style="margin-top: var(--space-2)" @click="closePortScan">
+                {{ t('resources.port_scan_close') }}
+              </button>
             </div>
           </div>
 
@@ -1119,6 +1310,7 @@ export default defineComponent({
                 <label v-for="opt in [
                   {v:'computer',   l: t('resources.type_computer')},
                   {v:'router',     l: t('resources.type_router')},
+                  {v:'accesspoint',l: t('resources.type_accesspoint')},
                   {v:'printer',    l: t('resources.type_printer')},
                   {v:'nas',        l: t('resources.type_nas')},
                   {v:'camera',     l: t('resources.type_camera')},

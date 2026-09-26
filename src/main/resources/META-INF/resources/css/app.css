@@ -31,7 +31,55 @@ body {
   display: grid;
   place-items: center;
   padding: var(--space-6);
+  position: relative;
+  isolation: isolate;
 }
+
+/* The canvas sits behind the card and covers the page. `isolation` keeps its
+   negative z-index inside this stacking context rather than sliding under the
+   app background. */
+/* The meteor layer keeps the same z-index as the sky and wins on DOM order
+   alone: two negative-z-index siblings paint in document order, and both stay
+   behind the card. Lifting it to 0 would have put it in front of the card,
+   because a positioned element at 0 paints above static content. */
+.login-space {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The one ambient motion this screen carries. The topology hub pulse holds the
+   budget on the dashboard, and the two never share a view — the sign-in screen
+   has no topology on it. Same two-layer glow-pulse as the hub node on the
+   marketing site's hero constellation (islandr-gateway.net) — same 1.8s,
+   same ease-in-out, same alternate direction, same reduced-motion exit —
+   so the mark reads as the same brand animation wherever it appears. */
+.login-lockup-pulse-outer {
+  transform-origin: 64px 27px;
+  animation: login-lockup-glow-outer 1.8s ease-in-out infinite alternate;
+}
+.login-lockup-pulse-inner {
+  transform-origin: 64px 27px;
+  animation: login-lockup-glow-inner 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes login-lockup-glow-inner {
+  from { opacity: 0.9; transform: scale(1); }
+  to   { opacity: 1;   transform: scale(1.18); filter: drop-shadow(0 0 6px #9FECF8); }
+}
+@keyframes login-lockup-glow-outer {
+  from { opacity: 0.22; transform: scale(1); }
+  to   { opacity: 0.38; transform: scale(1.22); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-lockup-pulse-outer,
+  .login-lockup-pulse-inner { animation: none; }
+}
+
 
 .center-card {
   width: 100%;
@@ -163,6 +211,13 @@ body {
   font-size: var(--text-sm);
   font-weight: 500;
   border-left: 2px solid transparent;
+  /* Hover and active existed; the transition did not, so the background
+     snapped between them. That single missing line is most of what makes an
+     interface feel unfinished next to a desktop application. */
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    border-left-color var(--dur) var(--ease-standard);
   transition: background var(--dur) var(--ease-standard), color var(--dur) var(--ease-standard);
   position: relative;
 }
@@ -176,6 +231,32 @@ body {
   background: var(--accent-soft-bg);
   color: var(--accent);
   border-left-color: var(--accent);
+}
+
+/* Press feedback, the same 0.5px the buttons use — consistency is the point,
+   not the pixel. And one focus treatment, so the ring does not differ per
+   component. */
+.sidebar .nav-item:active {
+  transform: translateY(0.5px);
+}
+
+.sidebar .nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
+
+/* The icon answers alongside the colour. One property changing on its own is
+   what reads as "web page"; an application tends to reply in more than one
+   channel at once. */
+.sidebar .nav-item svg {
+  opacity: 0.75;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.sidebar .nav-item:hover svg,
+.sidebar .nav-item.router-link-active svg {
+  opacity: 1;
 }
 
 .sidebar .nav-item .count {
@@ -254,9 +335,18 @@ body {
     overflow-y: visible;
   }
   .sidebar .wordmark,
-  .sidebar .section-label,
-  .sidebar .sidebar-footer {
+  .sidebar .section-label {
     display: none;
+  }
+  /* The footer holds Settings and My access — two ways in, not decoration, so
+     hiding it here left them reachable only by typing the URL. `contents`
+     dissolves the wrapper so both links become direct children of the bar and
+     pick up the .nav-item rule below, exactly like every other entry. It also
+     drops the desktop `margin-top: auto` and the divider, which mean nothing
+     in a horizontal row. A plain div has no semantics for `contents` to
+     discard — the accessibility caveat applies to lists and tables. */
+  .sidebar .sidebar-footer {
+    display: contents;
   }
   .sidebar .nav-item {
     height: 32px;
@@ -320,6 +410,36 @@ body {
 
 .empty-state p {
   margin: 0 0 var(--space-6) 0;
+}
+
+/* The constellation from the landing page, carried into the product. The empty
+   state is the only generous free area here — thirteen views share this class,
+   and a fresh installation consists of little else. Applied as a mask so it
+   takes currentColor and follows the theme; a background-image cannot, and the
+   first attempt drew it in the SVG's default fill, which is black, and was
+   therefore invisible on the night canvas. */
+.empty-state {
+  position: relative;
+  padding-top: calc(var(--space-12) + 64px);
+}
+
+.empty-state::before {
+  content: "";
+  position: absolute;
+  top: var(--space-8);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 108px;
+  height: 76px;
+  background-color: currentColor;
+  opacity: 0.16;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20240%20168%22%3E%3Cpath%20d%3D%22M30%20150L90%20124L130%2074L198%2036M130%2074L112%2026%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%22150%22%20r%3D%224.5%22%2F%3E%3Ccircle%20cx%3D%2290%22%20cy%3D%22124%22%20r%3D%224%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%2274%22%20r%3D%225.5%22%2F%3E%3Ccircle%20cx%3D%22198%22%20cy%3D%2236%22%20r%3D%224.5%22%2F%3E%3Ccircle%20cx%3D%22112%22%20cy%3D%2226%22%20r%3D%228%22%2F%3E%3C%2Fsvg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20240%20168%22%3E%3Cpath%20d%3D%22M30%20150L90%20124L130%2074L198%2036M130%2074L112%2026%22%20fill%3D%22none%22%20stroke%3D%22%23000%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%22150%22%20r%3D%224.5%22%2F%3E%3Ccircle%20cx%3D%2290%22%20cy%3D%22124%22%20r%3D%224%22%2F%3E%3Ccircle%20cx%3D%22130%22%20cy%3D%2274%22%20r%3D%225.5%22%2F%3E%3Ccircle%20cx%3D%22198%22%20cy%3D%2236%22%20r%3D%224.5%22%2F%3E%3Ccircle%20cx%3D%22112%22%20cy%3D%2226%22%20r%3D%228%22%2F%3E%3C%2Fsvg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  pointer-events: none;
 }
 
 .error-banner {
@@ -678,9 +798,13 @@ body {
   text-transform: uppercase;
 }
 
-/* Editable avatar (issue #85). The pencil badge is always visible — the
-   action has to be reachable by touch, not revealed on hover. */
+/* Editable avatar (issue #85). The pencil is the one permanent control;
+   removing a picture is one tap behind it (menu below), not a second icon
+   that used to sit next to the avatar on every touch device — there is no
+   hover there to reveal it on, so @media (hover: none) used to show it
+   permanently, right where this task's whole point was to stop that. */
 .avatar-edit-wrap {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -724,24 +848,89 @@ body {
   line-height: 1;
   border-radius: 999px;
   background: var(--surface);
-  border: 1px solid var(--border);
+  /* --border alone sits too close to --surface in dark mode to read as an
+     edge against an arbitrary photo behind it — --border-strong plus a
+     shadow keeps the badge legible regardless of what it's floating over. */
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-xs);
   color: var(--fg2);
 }
 
-.avatar-remove-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--fg3);
-  font-size: 10px;
-  line-height: 1;
-  padding: 2px;
-  border-radius: 2px;
-  transition: color 120ms, background 120ms;
+/* The avatar in the topbar is there to say who you are, not to be edited. The
+   pencil badge sat on it permanently, which put standing emphasis on an
+   action taken about once a year. It fades in on hover or keyboard focus
+   instead.
+
+   Not hover-only, which the brief rules out and which this component had
+   avoided on purpose: an element at opacity 0 is unreachable on a touch device
+   and still takes tab focus, so the ring would land on something invisible.
+   `:focus-within` answers the second, the hover query below the first. It
+   keeps its layout space, so nothing shifts when it appears. */
+.avatar-edit-wrap .avatar-edit-badge {
+  opacity: 0;
+  transition: opacity 150ms cubic-bezier(0.2, 0, 0.2, 1);
 }
 
-.avatar-remove-btn:hover:not(:disabled) {
+.avatar-edit-wrap:hover .avatar-edit-badge,
+.avatar-edit-wrap:focus-within .avatar-edit-badge {
+  opacity: 1;
+}
+
+/* No hover to reveal it with — showing it permanently is the only way it
+   exists at all here. */
+@media (hover: none) {
+  .avatar-edit-wrap .avatar-edit-badge {
+    opacity: 1;
+  }
+}
+
+/* The two-item "change / remove" menu the pencil opens once a picture
+   exists. Anchored to .avatar-edit-wrap (position: relative above), so it
+   floats below the avatar regardless of where that sits in the page — a
+   32px row in a dense user list and a 28px topbar corner both work without
+   a bespoke offset for each. */
+.avatar-edit-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.avatar-edit-menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-2);
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-align: left;
+  color: var(--fg1);
+  cursor: pointer;
+}
+
+.avatar-edit-menu-item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.avatar-edit-menu-item:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.avatar-edit-menu-item-danger {
   color: var(--danger-fg);
+}
+
+.avatar-edit-menu-item-danger:hover:not(:disabled) {
   background: var(--danger-bg);
 }
 
@@ -1815,7 +2004,14 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
-  transition: background 120ms cubic-bezier(0.2,0,0.2,1);
+  /* This is the one list that builds its rows itself instead of using .table,
+     so it did not inherit the accent hairline every other list got. Same
+     treatment, same reason: a row that highlights in grey is every tool ever
+     built. Inset rather than a border, so the 40px icon column does not move. */
+  box-shadow: inset 2px 0 0 0 transparent;
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
 }
 
 .allres-row:last-child {
@@ -1824,6 +2020,7 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
 
 .allres-row:hover {
   background: var(--surface-2);
+  box-shadow: inset 2px 0 0 0 var(--accent);
 }
 
 .allres-icon-col {
@@ -2135,6 +2332,10 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
 .myaccess-resources { order: 1; }
 .myaccess-devices   { order: 2; }
 .myaccess-setup     { order: 3; }
+/* The stack orders its children explicitly, so a new child without an `order`
+   takes the default 0 and lands above all of them. The project note belongs
+   under everything, not over it. */
+.myaccess-project-note { order: 4; }
 .myaccess-stack.is-onboarding .myaccess-setup     { order: 1; }
 .myaccess-stack.is-onboarding .myaccess-devices   { order: 2; }
 .myaccess-stack.is-onboarding .myaccess-resources { order: 3; }
@@ -2189,6 +2390,81 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
   line-height: 1.5;
   color: var(--fg3);
 }
+
+/* A sticky first column paints its own background over the row, so the accent
+   hairline and the hover tint both disappeared behind it — visible everywhere
+   except the one table where the left column is pinned, which is the ACL
+   matrix. The hairline moves onto the cell there, and the cell answers hover
+   like the rest of the row. */
+.table tbody tr > td.sticky-col {
+  /* The background belongs here rather than inline: an inline value beats any
+     stylesheet rule, so the row's hover tint could never reach these cells. */
+  background: var(--surface);
+}
+
+.table tbody tr:hover > td.sticky-col {
+  background: var(--surface-2);
+}
+
+/* The hairline between the pinned pair and the scrolling columns. */
+.table tbody tr > td.sticky-col-divider {
+  box-shadow: 1px 0 0 var(--border);
+}
+
+.table tbody tr > td.sticky-col:first-child {
+  box-shadow: inset 2px 0 0 0 transparent;
+  transition: background var(--dur-fast) var(--ease-standard),
+              box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.table tbody tr:hover > td.sticky-col:first-child {
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+/* Both shadows on one element, or the divider would cancel the hairline. */
+.table tbody tr:hover > td.sticky-col-divider {
+  box-shadow: 1px 0 0 var(--border);
+}
+
+/* Quiet by default: the note says what this is without competing with the
+   devices the page is actually for. */
+.myaccess-project-note {
+  margin: var(--space-10) 0 var(--space-4);
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--fg3);
+}
+
+/* Always a link — it simply does not look like one until reached for. Making
+   the link itself appear on hover would leave it unreachable on a phone, which
+   the brief rules out; the same mistake was fixed on the resource cards and on
+   the avatar badge. Colour and underline answer hover and keyboard focus
+   alike, so the keyboard is not a second-class way through. */
+.myaccess-project-link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+
+.myaccess-project-link:hover,
+.myaccess-project-link:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.myaccess-project-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* No hover to reveal it with — show it as a link from the start. */
+@media (hover: none) {
+  .myaccess-project-link {
+    color: var(--accent);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .myaccess-setup-chevron,
   .myaccess-setup > summary { transition: none; }
@@ -2203,3 +2479,17 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
   @keyframes pulse { 0%, 100% { opacity: 1; } }
 }
 
+/* Someone who asked the system for less motion gets every state, just without
+   the travel — they still see what is interactive. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar .nav-item,
+  .sidebar .nav-item svg,
+  .table tbody tr,
+  .allres-row {
+    transition: none;
+  }
+  .sidebar .nav-item:active,
+  .card-hover:active {
+    transform: none;
+  }
+}

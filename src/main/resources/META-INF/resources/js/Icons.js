@@ -104,6 +104,12 @@ export const PATHS = {
     '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
   ],
 
+  // key-round — Lucide MIT (WebAuthn security key, ADR-0028)
+  key: [
+    '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/>',
+    '<circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+  ],
+
   // shield-off — Lucide MIT (revoke admin)
   'shield-off': [
     '<path d="M19.69 14a6.9 6.9 0 0 0 .31-2V5l-8-3-3.16 1.18"/>',
@@ -187,14 +193,29 @@ export const PATHS = {
     '<line x1="10" x2="10.01" y1="16" y2="16"/>',
   ],
 
-  // router — Router/Layer-3-Switch (FRITZ!Box, UCG, OPNsense, Mikrotik …)
+  // Router/Layer-3-Switch (FRITZ!Box, UCG, OPNsense, Mikrotik …). Bewusst OHNE
+  // Funkwellen: die lesen sich als Access Point, und genau der bekommt jetzt
+  // sein eigenes Icon (unten) statt sich das des Routers zu leihen. Das
+  // Gehäuse trägt stattdessen zwei gegenläufige Pfeile: weiterleiten zwischen
+  // zwei Netzen. Ein Extender bleibt weiterhin ohne eigenen Typ — er reicht
+  // ein Netz nur weiter, er trennt keines.
   router: [
     '<rect width="20" height="8" x="2" y="14" rx="2"/>',
     '<path d="M6.01 18H6"/>',
     '<path d="M10.01 18H10"/>',
-    '<path d="M15 10v4"/>',
-    '<path d="M17.84 7.17a4 4 0 0 0-5.66 0"/>',
-    '<path d="M20.66 4.34a8 8 0 0 0-11.31 0"/>',
+    '<path d="M8 12V5"/>',
+    '<path d="m5 8 3-3 3 3"/>',
+    '<path d="M16 5v7"/>',
+    '<path d="m13 9 3 3 3-3"/>',
+  ],
+
+  // wifi — Access Point (reines Funknetz, kein Layer-3-Routing). Genau die
+  // Funkbögen, die aus dem Router-Icon oben deshalb entfernt wurden.
+  accesspoint: [
+    '<path d="M12 20h.01"/>',
+    '<path d="M2 8.82a15 15 0 0 1 20 0"/>',
+    '<path d="M5 12.859a10 10 0 0 1 14 0"/>',
+    '<path d="M8.5 16.429a5 5 0 0 1 7 0"/>',
   ],
 
   // video — Kamera (RTSP/ONVIF/Web-UI)

@@ -42,9 +42,13 @@ public class Resource extends PanacheEntityBase {
     @Column(name = "description", columnDefinition = "TEXT")
     public String description;
 
-    /** UI-metadata. Allowed: computer | printer | nas | switch. See V12 migration. */
+    /** UI-metadata; not enforced against the firewall model. The set of valid
+     *  values lives entirely in {@code ResourceDto}/{@code DiscoveryDto}'s
+     *  {@code @Pattern} regex now — the column itself carries no CHECK
+     *  constraint (removed in V80, {@code db.migration.V80__resource_type_open_set}),
+     *  so adding a type is a regex-and-GUI change, not a migration. */
     @NotBlank
-    @Column(name = "type", nullable = false, length = 16)
+    @Column(name = "type", nullable = false, length = 32)
     public String type;
 
     /** Optional DNS label for the resource-name resolver (ADR-0023, MVP —

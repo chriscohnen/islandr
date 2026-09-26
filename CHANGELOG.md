@@ -8,6 +8,27 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.0.0
+
+- **What the number promises: upgrades are boring.** Not that the software is finished — that moving from one release to the next stops asking for manual steps. `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not stay up ([ADR-0033](docs/adr/0033-what-1-0-promises.md)).
+- **That path is exercised by CI on every tag, not merely asserted.** It installs the previous release, upgrades to the tag, and rolls back, checking after each step that the service is up, the version moved, `/etc/default/islandr` is byte-identical and both halves of the backup came back. `update.sh --rollback` had until now never run in any job — it would have executed for the first time during a failed upgrade.
+- **Settings closes the gap between "an update exists" and having it** — the command with a copy button, the rollback named beside it, whether a rollback actually exists, and a plain statement of what `update.sh` secures on its own. `update.sh` and `backup.sh` ship as release assets now; the docs previously pointed at a file only a clone contained.
+- **Quarkus moves onto the LTS line** (3.29.4 → 3.33.3.2). The old pin claimed LTS and was not — that line ended at `.4`, which is how a critical Netty advisory became unfixable without anyone noticing. Five forced dependency versions collapse to one ([ADR-0032](docs/adr/0032-quarkus-lts-line.md)).
+- **External API: a grant carries its ports as values, not only as labels.** `portDetails` adds id, port, portEnd, transport, protocol and the admin's own label. The old `ports` field is a rendering — `"SSH 22"`, with the transport dropped — so port-limited grants were not actionable through the API at all. Additive; `ports` is unchanged.
+- **An open port gets a name instead of a number.** Discovery resolves `(port, transport)` against a bundled IANA-derived table — from the classpath, never over the network, because "no outbound connections" is a promise and a name lookup is exactly the kind of convenience that quietly breaks one.
+- **Security keys have a console now, offered next to the password, never instead of it.** A "sign in with a security key" button appears on the login screen once one is registered; registration and removal live in Settings next to the local admin account. The password stays a complete, unrestricted path on its own — losing a key cannot lock anyone out on its own ([ADR-0028](docs/adr/0028-webauthn-library-and-integration.md), [#67](https://github.com/chriscohnen/islandr/issues/67)).
+- **An offline escape hatch for security keys.** `ISLANDR_WEBAUTHN_RESET=true` plus a restart clears every authenticator registered for the recovery admin, audit-logged, and lets the service come up normally. ADR-0028 answered the lockout risk with a command that did not exist; removing a credential required a session you no longer have.
+- **A fresh install probes its own WireGuard public key.** Settings used to show the seed migration's placeholder until an admin clicked "Read from WireGuard" and noticed; it now runs that same probe itself the first time Settings loads with setup incomplete. Never auto-saved — it only fills the form, same as the manual click did.
+- **A user can rename their own device and change its category** without deleting and recreating it.
+- **The console says it is open source, and what that does not cover.** EUPL-1.2 next to the version in Settings and in the login footer, with the trademark boundary linked rather than implied. It had appeared only in the OpenAPI metadata.
+- **Fixed: Settings and My access were unreachable on a phone** — the sidebar footer sat outside the collapsed navigation, so two entries had no tap target at all under 720px.
+- **The console looks like the product it belongs to.** The landing page's constellation fills the empty states, a night sky sits behind the sign-in card with the logo breathing over it — the same glow-pulse as the marketing site's hub node — and tables answer the pointer with a hairline instead of nothing. All of it theme-aware and `prefers-reduced-motion` aware.
+- **Atlas: hovering a grant row lights up the edge it belongs to**, network grants included, and the revoke tool now looks destructive — red button, and the doomed edge dashed rather than merely red.
+- **Fixed: the dashboard's "no OIDC provider" hint nagged at a deliberately local-only setup.** It fired on the absence of OIDC alone, though any user with a local password can already sign in without one — it checks for that now, not OIDC by itself.
+- Fixed: the avatar's edit badge was invisible against a dark photo in dark mode; the avatar's edit controls sat permanently in the topbar; the portal's project note sat above the content it annotates; the "All resources" list missed the accent hairline every other list has.
+
+---
+
 ## 0.23.0
 
 - **Fixed: a peer stayed "Connected" after it had gone.** The status badge and the "last handshake" column showed the time of the poll rather than the handshake, so Stale and Disconnected were unreachable for any peer that had ever connected ([#87](https://github.com/chriscohnen/islandr/issues/87)).

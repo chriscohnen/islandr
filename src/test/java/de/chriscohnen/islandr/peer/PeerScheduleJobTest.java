@@ -116,6 +116,26 @@ class PeerScheduleJobTest {
         assertThat(reloaded.enabledSource).isEqualTo("schedule");
     }
 
+    @Transactional
+    void markDeletionRequested(String peerId) {
+        Peer.<Peer>findById(peerId).deletionRequestedAt = Instant.now();
+    }
+
+    /** The owner asked for this device to go away (users-self-delete-peer);
+     *  a schedule window opening later must not silently reconnect it before
+     *  an admin gets to the actual delete — regardless of enabledSource. */
+    @Test
+    void tick_deletionRequested_isNeverReEnabledByAnOpenWindow() {
+        Peer p = persistPeer(false, "manual", null);
+        markDeletionRequested(p.id);
+        persistSchedule(p.id, ALL_DAYS, openFrom(), openTo());
+
+        job.tick();
+
+        Peer reloaded = Peer.findById(p.id);
+        assertThat(reloaded.enabled).isFalse();
+    }
+
     @Test
     void tick_validUntilInPast_disablesPeerAndIsTerminalDespiteOpenWindow() {
         Peer p = persistPeer(true, null, Instant.now().minus(1, ChronoUnit.DAYS));

@@ -400,30 +400,16 @@ public class AclResolutionService {
                 .getResultList();
         Set<String> limitedGrantIds = new HashSet<>();
         for (Object[] row : grantRows) if (!(Boolean) row[4]) limitedGrantIds.add((String) row[0]);
-        Map<String, List<String>> portLabelsByGrant = new HashMap<>();
-        if (!limitedGrantIds.isEmpty()) {
-            @SuppressWarnings("unchecked")
-            List<Object[]> portRows = em.createNativeQuery(
-                            "SELECT gp.grant_id, p.port, p.port_end, p.protocol "
-                                    + "FROM role_resource_grant_ports gp "
-                                    + "JOIN resource_ports p ON p.id = gp.port_id "
-                                    + "WHERE gp.grant_id IN ?1")
-                    .setParameter(1, limitedGrantIds)
-                    .getResultList();
-            for (Object[] p : portRows) {
-                String gid = (String) p[0];
-                Integer portEnd = p[2] == null ? null : ((Number) p[2]).intValue();
-                portLabelsByGrant.computeIfAbsent(gid, k -> new ArrayList<>())
-                        .add(formatPortLabel(((Number) p[1]).intValue(), portEnd, (String) p[3]));
-            }
-        }
+        Map<String, List<AtlasDto.PortDetail>> portDetailsByGrant = loadPortDetails("role_resource_grant_ports", limitedGrantIds);
         for (Object[] g : grantRows) {
             String grantId = (String) g[0], roleId = (String) g[1], roleName = (String) g[2],
                    resourceId = (String) g[3];
             boolean allPorts = (Boolean) g[4];
-            List<String> portLabels = allPorts ? List.of() : portLabelsByGrant.getOrDefault(grantId, List.of());
+            List<AtlasDto.PortDetail> details = allPorts ? List.of() : portDetailsByGrant.getOrDefault(grantId, List.of());
+            List<String> portLabels = details.stream()
+                    .map(d -> formatPortLabel(d.port(), d.portEnd(), d.protocol())).toList();
             for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
-                edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "role", roleId, roleName, allPorts, portLabels));
+                edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "role", roleId, roleName, allPorts, portLabels, details));
             }
         }
 
@@ -437,7 +423,7 @@ public class AclResolutionService {
         for (Object[] g : typeGrantRows) {
             String roleId = (String) g[0], roleName = (String) g[1], resourceId = (String) g[2];
             for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
-                edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "type-grant", roleId, roleName, true, List.of()));
+                edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "type-grant", roleId, roleName, true, List.of(), List.of()));
             }
         }
 
@@ -448,28 +434,14 @@ public class AclResolutionService {
                 .getResultList();
         Set<String> limitedUserGrantIds = new HashSet<>();
         for (Object[] row : userGrantRows) if (!(Boolean) row[3]) limitedUserGrantIds.add((String) row[0]);
-        Map<String, List<String>> portLabelsByUserGrant = new HashMap<>();
-        if (!limitedUserGrantIds.isEmpty()) {
-            @SuppressWarnings("unchecked")
-            List<Object[]> portRows = em.createNativeQuery(
-                            "SELECT gp.grant_id, p.port, p.port_end, p.protocol "
-                                    + "FROM user_resource_grant_ports gp "
-                                    + "JOIN resource_ports p ON p.id = gp.port_id "
-                                    + "WHERE gp.grant_id IN ?1")
-                    .setParameter(1, limitedUserGrantIds)
-                    .getResultList();
-            for (Object[] p : portRows) {
-                String gid = (String) p[0];
-                Integer portEnd = p[2] == null ? null : ((Number) p[2]).intValue();
-                portLabelsByUserGrant.computeIfAbsent(gid, k -> new ArrayList<>())
-                        .add(formatPortLabel(((Number) p[1]).intValue(), portEnd, (String) p[3]));
-            }
-        }
+        Map<String, List<AtlasDto.PortDetail>> portDetailsByUserGrant = loadPortDetails("user_resource_grant_ports", limitedUserGrantIds);
         for (Object[] g : userGrantRows) {
             String grantId = (String) g[0], userId = (String) g[1], resourceId = (String) g[2];
             boolean allPorts = (Boolean) g[3];
-            List<String> portLabels = allPorts ? List.of() : portLabelsByUserGrant.getOrDefault(grantId, List.of());
-            edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "user-direct", null, null, allPorts, portLabels));
+            List<AtlasDto.PortDetail> details = allPorts ? List.of() : portDetailsByUserGrant.getOrDefault(grantId, List.of());
+            List<String> portLabels = details.stream()
+                    .map(d -> formatPortLabel(d.port(), d.portEnd(), d.protocol())).toList();
+            edges.add(new AtlasDto.Edge("user", userId, resourceId, null, "user-direct", null, null, allPorts, portLabels, details));
         }
 
         // Direct site grants — already site-scoped, no fan-out, symmetric to
@@ -480,28 +452,14 @@ public class AclResolutionService {
                 .getResultList();
         Set<String> limitedSiteGrantIds = new HashSet<>();
         for (Object[] row : siteGrantRows) if (!(Boolean) row[3]) limitedSiteGrantIds.add((String) row[0]);
-        Map<String, List<String>> portLabelsBySiteGrant = new HashMap<>();
-        if (!limitedSiteGrantIds.isEmpty()) {
-            @SuppressWarnings("unchecked")
-            List<Object[]> portRows = em.createNativeQuery(
-                            "SELECT gp.grant_id, p.port, p.port_end, p.protocol "
-                                    + "FROM site_resource_grant_ports gp "
-                                    + "JOIN resource_ports p ON p.id = gp.port_id "
-                                    + "WHERE gp.grant_id IN ?1")
-                    .setParameter(1, limitedSiteGrantIds)
-                    .getResultList();
-            for (Object[] p : portRows) {
-                String gid = (String) p[0];
-                Integer portEnd = p[2] == null ? null : ((Number) p[2]).intValue();
-                portLabelsBySiteGrant.computeIfAbsent(gid, k -> new ArrayList<>())
-                        .add(formatPortLabel(((Number) p[1]).intValue(), portEnd, (String) p[3]));
-            }
-        }
+        Map<String, List<AtlasDto.PortDetail>> portDetailsBySiteGrant = loadPortDetails("site_resource_grant_ports", limitedSiteGrantIds);
         for (Object[] g : siteGrantRows) {
             String grantId = (String) g[0], siteId = (String) g[1], resourceId = (String) g[2];
             boolean allPorts = (Boolean) g[3];
-            List<String> portLabels = allPorts ? List.of() : portLabelsBySiteGrant.getOrDefault(grantId, List.of());
-            edges.add(new AtlasDto.Edge("site", siteId, resourceId, null, "site-direct", null, null, allPorts, portLabels));
+            List<AtlasDto.PortDetail> details = allPorts ? List.of() : portDetailsBySiteGrant.getOrDefault(grantId, List.of());
+            List<String> portLabels = details.stream()
+                    .map(d -> formatPortLabel(d.port(), d.portEnd(), d.protocol())).toList();
+            edges.add(new AtlasDto.Edge("site", siteId, resourceId, null, "site-direct", null, null, allPorts, portLabels, details));
         }
 
         // Network grants (#78, ADR-0029), same fan-out-to-every-role-member
@@ -515,7 +473,7 @@ public class AclResolutionService {
         for (Object[] g : networkGrantRows) {
             String roleId = (String) g[0], roleName = (String) g[1], siteId = (String) g[2];
             for (String userId : usersByRole.getOrDefault(roleId, List.of())) {
-                edges.add(new AtlasDto.Edge("user", userId, null, siteId, "network-grant", roleId, roleName, true, List.of()));
+                edges.add(new AtlasDto.Edge("user", userId, null, siteId, "network-grant", roleId, roleName, true, List.of(), List.of()));
             }
         }
 
@@ -544,6 +502,42 @@ public class AclResolutionService {
             } catch (RuntimeException ignored) { /* IPv6 is optional anyway */ }
         }
         return new String[] { ip4, ip6 };
+    }
+
+    /**
+     * The ports a set of limited grants is scoped to, keyed by grant id.
+     *
+     * <p>Three grant kinds — role, user-direct, site-direct — carry ports
+     * through three join tables that differ in nothing but their name. They
+     * used to carry three copies of this query too, which is the shape a
+     * defect takes when only two of them are updated (#83). The table name is
+     * the only variable, and it never comes from a request: the three literals
+     * below are the only callers.
+     *
+     * @param joinTable one of {@code role_resource_grant_ports},
+     *                  {@code user_resource_grant_ports},
+     *                  {@code site_resource_grant_ports}
+     */
+    private Map<String, List<AtlasDto.PortDetail>> loadPortDetails(String joinTable, Set<String> grantIds) {
+        if (grantIds.isEmpty()) return Map.of();
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery(
+                        "SELECT gp.grant_id, p.id, p.port, p.port_end, p.transport, p.protocol, p.label "
+                                + "FROM " + joinTable + " gp "
+                                + "JOIN resource_ports p ON p.id = gp.port_id "
+                                + "WHERE gp.grant_id IN ?1")
+                .setParameter(1, grantIds)
+                .getResultList();
+        Map<String, List<AtlasDto.PortDetail>> byGrant = new HashMap<>();
+        for (Object[] r : rows) {
+            Integer portEnd = r[3] == null ? null : ((Number) r[3]).intValue();
+            int port = ((Number) r[2]).intValue();
+            String protocol = (String) r[5];
+            byGrant.computeIfAbsent((String) r[0], k -> new ArrayList<>())
+                    .add(new AtlasDto.PortDetail((String) r[1], port, portEnd,
+                            (String) r[4], protocol, (String) r[6]));
+        }
+        return byGrant;
     }
 
     static String formatPortLabel(int port, Integer portEnd, String protocol) {

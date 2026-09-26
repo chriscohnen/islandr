@@ -21,7 +21,29 @@ public class AtlasDto {
     public record Edge(
             String subjectType, String subjectId, String resourceId, String siteId, String kind,
             String roleId, String roleName,
-            boolean allPorts, List<String> portLabels) {}
+            boolean allPorts, List<String> portLabels, List<PortDetail> portDetails) {}
+
+    /**
+     * One port a limited grant is scoped to, in the form a machine can act on.
+     *
+     * <p>{@code portLabels} above is the console's rendering — {@code "SSH 22"},
+     * built from the UI's application label and the number. It cannot be parsed
+     * back: {@code transport} (tcp/udp/both) never appears in it, and that is
+     * the one field a firewall rule cannot be written without. This record
+     * carries the values themselves, so a consumer of the external API never
+     * has to take a display string apart.
+     *
+     * @param protocol the UI's application label (RDP / SSH / HTTP / CUSTOM),
+     *                 kept because it is what a human recognises — it is not
+     *                 the transport and must not be read as one.
+     * @param label    the free-text name an admin gave this port, or null.
+     *                 Not the rendered string in {@code portLabels} above:
+     *                 that one is built from protocol and number, this one is
+     *                 what a person typed ("RDP for IT" next to "RDP for VPN").
+     */
+    public record PortDetail(
+            String id, int port, Integer portEnd, String transport,
+            String protocol, String label) {}
 
     public record RoleOption(String id, String name, List<String> memberUserIds) {}
 

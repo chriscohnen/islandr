@@ -438,6 +438,23 @@ public class PeerService {
                 peer.presharedKey);
     }
 
+    /**
+     * The narrow self-service edit (issue: peer-self-edit): a device's name
+     * and category, nothing else. Unlike {@link #update}, this never touches
+     * IP, CIDR, owner or PSK — those are admin concerns reachable only through
+     * that method, guarded by {@code Auth.requireAdmin}. Neither field affects
+     * the firewall ruleset, so there is no recompute here.
+     */
+    @Transactional
+    public PeerDto.Response updateSelfDetails(String peerId, String name, String deviceType) {
+        Peer peer = Peer.findById(peerId);
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
+        peer.name = name;
+        peer.deviceType = (deviceType == null || deviceType.isBlank()) ? null : deviceType;
+        peer.updatedAt = java.time.Instant.now();
+        return PeerDto.Response.from(peer);
+    }
+
     @Transactional
     public PeerDto.Response rotatePublicKey(String peerId, String newPublicKey) {
         Peer peer = Peer.findById(peerId);
@@ -565,9 +582,39 @@ public class PeerService {
         return setEnabled(peerId, enabled, "schedule");
     }
 
+    /**
+     * Self-service "soft delete" (issue: users-self-delete-peer): the owning
+     * user asks, from "My access", for this device to go away. The row stays
+     * — only an admin's real {@link #delete} removes it — but the peer stops
+     * working immediately, the same {@code wg.removePeer} path {@link
+     * #setEnabled} already takes, rather than merely disappearing from the
+     * user's own list while quietly staying reachable.
+     *
+     * <p>Idempotent: asking again just re-stamps the timestamp. The caller
+     * (MyPeerResource) is responsible for verifying the peer belongs to the
+     * requesting user before calling this — the same split {@link
+     * #rotatePublicKey} already uses.
+     */
+    @Transactional
+    public PeerDto.Response requestDeletion(String peerId) {
+        Peer peer = Peer.findById(peerId);
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
+        setEnabled(peerId, false, "manual");
+        peer.deletionRequestedAt = java.time.Instant.now();
+        return PeerDto.Response.from(peer);
+    }
+
     private PeerDto.Response setEnabled(String peerId, boolean enabled, String source) {
         Peer peer = Peer.findById(peerId);
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
+        // Re-enabling is how an admin says "keep it" — clears a pending
+        // self-service deletion request, or it would sit on an active peer
+        // forever with no UI to remove it (found while verifying this
+        // feature: re-enabling "the chef" left the badge on regardless).
+        // Only reachable for enabled=true from the admin's own toggle;
+        // PeerScheduleJob skips a deletion-requested peer entirely, so a
+        // schedule can never trigger this branch for one.
+        if (enabled) peer.deletionRequestedAt = null;
         if (peer.enabled == enabled) {
             peer.enabledSource = source;
             return PeerDto.Response.from(peer);

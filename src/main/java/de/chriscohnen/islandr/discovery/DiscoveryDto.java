@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.discovery;
 
+import de.chriscohnen.islandr.acl.ResourceTypes;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -39,7 +40,7 @@ public final class DiscoveryDto {
             @NotBlank String ip,
             @NotBlank String name,
             @NotBlank
-            @Pattern(regexp = "^(computer|router|printer|nas|camera|iot|virt-host|rackserver|kvm|management|other)$",
+            @Pattern(regexp = "^(" + ResourceTypes.PATTERN + ")$",
                     message = "type must be a valid resource type (resolve 'unknown' before importing)")
             String type,
             List<Integer> ports,
@@ -61,4 +62,13 @@ public final class DiscoveryDto {
     public record ImportRequest(@Valid List<ImportHost> hosts) {}
 
     public record ImportResult(int imported, int skipped) {}
+
+    /** One TCP port a port-range scan found open on a resource. {@code service}
+     *  is the bundled table's name for it, or null when nothing knows the port. */
+    public record OpenPortView(int port, String service) {}
+
+    public record PortScanStatus(String state, int total, int done, int found,
+                                 List<OpenPortView> openPorts, String error) {}
+
+    public record PortScanStarted(String jobId) {}
 }

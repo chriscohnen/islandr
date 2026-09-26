@@ -415,6 +415,13 @@ export default defineComponent({
               <span v-if="scheduledPeerIds[p.id]" class="muted" style="font-size: var(--text-xs)">
                 {{ t('peers.has_schedule') }}
               </span>
+              <!-- The owner asked, from "My access", for this device to go
+                   away — disabled already, but the row survives until an
+                   admin does the actual delete. Status is never color-only:
+                   icon + text, the badge is reinforcement. -->
+              <span v-if="p.deletionRequestedAt" class="badge badge-warning" style="width: fit-content">
+                <Icon name="trash" :size="11" />{{ t('peers.deletion_requested') }}
+              </span>
             </div>
           </td>
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>

@@ -157,6 +157,7 @@ export default defineComponent({
         ["nas", t("resources.type_nas")],
         ["printer", t("resources.type_printer")],
         ["router", t("resources.type_router")],
+        ["accesspoint", t("resources.type_accesspoint")],
         ["camera", t("resources.type_camera")],
         ["iot", t("resources.type_iot")],
         ["virt-host", t("resources.type_virt")],
@@ -704,11 +705,11 @@ export default defineComponent({
           </thead>
           <tbody>
             <tr v-for="r in filteredActiveResources" :key="r.id">
-              <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle">
+              <td class="sticky-col" style="position: sticky; left: 0; vertical-align: middle">
                 <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.4">{{ r.name }}</div>
                 <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); font-weight: 400; line-height: 1.3; margin-top: 2px">{{ r.ip }}</div>
               </td>
-              <td style="position: sticky; left: 220px; background: var(--surface); text-align: right; padding-right: var(--space-4); vertical-align: middle; box-shadow: 1px 0 0 var(--border)">
+              <td class="sticky-col sticky-col-divider" style="position: sticky; left: 220px; text-align: right; padding-right: var(--space-4); vertical-align: middle">
                 <span class="mono muted" style="font-size: var(--text-sm)">{{ r.ports.length }}</span>
               </td>
               <td v-for="role in roles" :key="role.id" style="text-align: center; vertical-align: middle">

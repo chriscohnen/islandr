@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { t, locale, formatDate } from "/js/i18n.js";
 import { Icon } from "/js/Icons.js";
+import { registerSecurityKey } from "/js/webauthnClient.js";
 
 // Public resolvers offered as one-click fill-ins for the client-DNS field —
 // IPv4 and IPv6 addresses toggle independently, so dual-stack setups (wgSubnet6)
@@ -40,6 +41,12 @@ export default defineComponent({
       probing: false,
       probeResult: null,
       probedIfMtu: null,
+      // Security keys for the local recovery admin (ADR-0028, issue #67).
+      webauthnCredentials: [],
+      webauthnHostSupportsKeys: true,
+      webauthnLabel: "",
+      webauthnRegistering: false,
+      webauthnError: null,
       error: null,
       info: null,
       savedRetention: "never",
@@ -98,6 +105,9 @@ export default defineComponent({
       importFileName: "",
       versionCheck: null,
       versionChecking: false,
+      updateCopied: false,
+      updateCopyFailed: false,
+      backups: null,
       enforcement: null,
       // Read-only: what /etc/default/islandr names as trusted proxies. Only
       // meaningful while the field itself is empty — that is the state in which
@@ -162,6 +172,15 @@ export default defineComponent({
     if (this.tlsMode === "managed") this.tlsTab = "origin";
     this.loadEnforcement();
     this.refreshAllowedIpsPreview();
+    // Fresh install: the WireGuard public key still holds the seed migration's
+    // placeholder (V3), which is what setupComplete=false actually means. The
+    // real value sits one `wg show` away — probe for it automatically instead
+    // of leaving the placeholder in the field until an admin notices the hint
+    // text and clicks Probe themselves. Silent on failure: this runs on every
+    // visit until the admin saves, and a probe that can't succeed yet (e.g.
+    // the interface isn't up) shouldn't nag on a page that isn't about that.
+    if (!this.meta.setupComplete) this.probeWg({ silent: true });
+    this.loadWebauthn();
   },
   watch: {
     // Live preview: recompute against unsaved form values whenever tunnel mode,
@@ -722,9 +741,13 @@ export default defineComponent({
       }
     },
 
-    async probeWg() {
+    // silent=true is the automatic, on-load attempt (mounted() above) — it
+    // fills the form on success exactly like a manual click, but stays quiet
+    // on failure rather than greeting every visit to an incomplete setup
+    // with an error banner for something the admin hasn't asked for yet.
+    async probeWg({ silent = false } = {}) {
       this.probing = true;
-      this.error = null;
+      if (!silent) this.error = null;
       try {
         const iface = this.wgInterface;
         const res = await fetch("/api/v1/settings/wg-probe?iface=" + encodeURIComponent(iface));
@@ -739,9 +762,9 @@ export default defineComponent({
           this.form.wgMtu = data.mtu;
         }
         this.probeResult = data;
-        this.info = t("settings.wg_probe_success", { iface: data.iface, port: data.listenPort });
+        if (!silent) this.info = t("settings.wg_probe_success", { iface: data.iface, port: data.listenPort });
       } catch (e) {
-        this.error = t("settings.wg_probe_error", { error: e.message });
+        if (!silent) this.error = t("settings.wg_probe_error", { error: e.message });
       } finally {
         this.probing = false;
       }
@@ -750,6 +773,48 @@ export default defineComponent({
     adoptProbedPort() {
       const base = (this.form.wgServerEndpoint || "").replace(/:\d+$/, "");
       this.form.wgServerEndpoint = base + ":" + this.probeResult.listenPort;
+    },
+
+    // -- Security keys for the local recovery admin (ADR-0028, issue #67) ---
+    async loadWebauthn() {
+      try {
+        const [creds, avail] = await Promise.all([
+          fetch("/api/v1/auth/webauthn").then((r) => (r.ok ? r.json() : [])),
+          fetch("/api/v1/auth/webauthn/availability").then((r) => (r.ok ? r.json() : null)),
+        ]);
+        this.webauthnCredentials = creds;
+        // Default true (don't block the button on a failed fetch) — the
+        // register call itself still fails with a clear message if the host
+        // genuinely can't carry a credential; this only skips a redundant
+        // client-side "no" the server would say anyway.
+        if (avail) this.webauthnHostSupportsKeys = avail.hostSupportsKeys;
+      } catch {
+        // Non-fatal — the rest of Settings works without this card.
+      }
+    },
+    async registerWebauthnKey() {
+      this.webauthnRegistering = true;
+      this.webauthnError = null;
+      try {
+        await registerSecurityKey(this.webauthnLabel.trim() || null);
+        this.webauthnLabel = "";
+        await this.loadWebauthn();
+      } catch (e) {
+        this.webauthnError = t("settings.webauthn_register_error", { error: e.message });
+      } finally {
+        this.webauthnRegistering = false;
+      }
+    },
+    async removeWebauthnKey(cred) {
+      if (!confirm(t("settings.webauthn_confirm_remove", { label: cred.label || t("settings.webauthn_unnamed") }))) return;
+      this.webauthnError = null;
+      try {
+        const res = await fetch("/api/v1/auth/webauthn/" + cred.id, { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await this.loadWebauthn();
+      } catch (e) {
+        this.webauthnError = t("settings.webauthn_remove_error", { error: e.message });
+      }
     },
 
     async setIfMtu() {
@@ -866,9 +931,57 @@ export default defineComponent({
       return t("settings.enforcement_socket_degraded");
     },
 
+    // The console deliberately does not update the hub itself. It would be
+    // restarting the service it is served from, and a migration that fails
+    // would take away the very page meant to report the outcome — leaving an
+    // admin with a spinner and no hub. The command below is the whole feature:
+    // it is the step that used to be missing between "an update exists" and
+    // actually having it.
+    updateCommand() {
+      return "sudo curl -fsSL -o /opt/islandr/update.sh "
+        + "https://github.com/chriscohnen/islandr/releases/latest/download/update.sh"
+        + " && sudo bash /opt/islandr/update.sh";
+    },
+    rollbackCommand() {
+      return "sudo bash /opt/islandr/update.sh --rollback";
+    },
+    async copyUpdateCommand(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // Same reason as the OIDC redirect URI: a hub reached over plain
+          // HTTP has no secure context, and that is a normal state here.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          if (!ok) throw new Error("execCommand copy failed");
+        }
+        this.updateCopied = true;
+        setTimeout(() => (this.updateCopied = false), 2000);
+      } catch (_) {
+        this.updateCopyFailed = true;
+        setTimeout(() => (this.updateCopyFailed = false), 2000);
+      }
+    },
+
     async checkVersion() {
       this.versionChecking = true;
       this.versionCheck = null;
+      // Asked for alongside the version, because the two answers belong
+      // together: "an update exists" is only half of what an admin needs
+      // before running one. A failure here must not fail the version check,
+      // so it is handled separately and simply leaves the line out.
+      fetch("/api/v1/version/backups")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => { this.backups = b; })
+        .catch(() => { this.backups = null; });
       try {
         const r = await fetch("/api/v1/version/check");
         this.versionCheck = await r.json();
@@ -1462,6 +1575,55 @@ export default defineComponent({
       </template>
 
       <template v-if="settingsTab === 'access'">
+      <!-- Security keys for the local recovery admin (ADR-0028, issue #67) —
+           offered alongside the password, never instead of it. -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-2); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_webauthn') }}</h2>
+        <p class="field-hint" style="margin: 0 0 var(--space-4)">{{ t('settings.webauthn_hint') }}</p>
+
+        <div v-if="!webauthnHostSupportsKeys" class="callout callout-warning" style="margin-bottom: var(--space-4)">
+          {{ t('settings.webauthn_no_hostname') }}
+        </div>
+
+        <div v-if="webauthnError" class="error-banner" style="margin-bottom: var(--space-4)">{{ webauthnError }}</div>
+
+        <div v-if="webauthnCredentials.length === 0" class="muted" style="font-size: var(--text-sm); margin-bottom: var(--space-4)">
+          {{ t('settings.webauthn_none') }}
+        </div>
+        <ul v-else style="list-style: none; margin: 0 0 var(--space-4); padding: 0; display: flex; flex-direction: column; gap: var(--space-2)">
+          <li v-for="cred in webauthnCredentials" :key="cred.id"
+              style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--surface-2); border-radius: var(--radius-sm)">
+            <span style="display: flex; align-items: center; gap: var(--space-2); min-width: 0">
+              <Icon name="key" :size="15" style="flex-shrink: 0" />
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                {{ cred.label || t('settings.webauthn_unnamed') }}
+              </span>
+              <span class="muted mono" style="font-size: var(--text-xs); flex-shrink: 0">{{ cred.rpId }}</span>
+            </span>
+            <span style="display: flex; align-items: center; gap: var(--space-3); flex-shrink: 0">
+              <span class="muted" style="font-size: var(--text-xs)">
+                {{ cred.lastUsedAt ? t('settings.webauthn_last_used', { date: formatDate(cred.lastUsedAt) }) : t('settings.webauthn_never_used') }}
+              </span>
+              <button type="button" class="btn btn-ghost btn-sm" @click="removeWebauthnKey(cred)">
+                {{ t('common.delete') }}
+              </button>
+            </span>
+          </li>
+        </ul>
+
+        <form @submit.prevent="registerWebauthnKey" style="display: flex; gap: var(--space-2); align-items: flex-end; flex-wrap: wrap">
+          <div class="field" style="margin: 0; flex: 1; min-width: 180px">
+            <label for="webauthnLabel">{{ t('settings.webauthn_label_field') }}</label>
+            <input id="webauthnLabel" class="input" v-model="webauthnLabel"
+                   :placeholder="t('settings.webauthn_label_ph')" :disabled="!webauthnHostSupportsKeys" />
+          </div>
+          <button type="submit" class="btn btn-secondary btn-sm" :disabled="webauthnRegistering || !webauthnHostSupportsKeys">
+            <Icon name="key" :size="14" />
+            {{ webauthnRegistering ? t('settings.webauthn_registering') : t('settings.webauthn_register_btn') }}
+          </button>
+        </form>
+      </div>
+
       <!-- Firewall -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_firewall') }}</h2>
@@ -1593,6 +1755,50 @@ export default defineComponent({
           </span>
         </span>
         <span v-if="versionCheck && versionCheck.error" style="font-size: var(--text-sm); color: var(--status-warn)">{{ versionCheck.error }}</span>
+
+        <!-- That Islandr is open source is its strongest argument against a
+             hosted alternative, and until now it was stated only in files
+             nobody opens — the licence appeared in openapi.yml and nowhere in
+             the console. The scope line matters as much as the name: read on
+             its own, "EUPL-1.2" suggests the brand is free too, which
+             TRADEMARK.md says it is not. -->
+        <span class="muted" style="font-size: var(--text-sm); display: flex; align-items: center; gap: var(--space-2)">
+          <span>{{ t('settings.license_label') }}:</span>
+          <a href="https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12"
+             target="_blank" rel="noopener">EUPL-1.2</a>
+          <span>·</span>
+          <a href="https://github.com/chriscohnen/islandr" target="_blank" rel="noopener">{{ t('settings.license_source') }}</a>
+        </span>
+        <span class="field-hint" style="flex-basis: 100%; margin-top: calc(var(--space-2) * -1)">{{ t('settings.license_scope') }}</span>
+
+        <div v-if="versionCheck && !versionCheck.error && !versionCheck.upToDate"
+             style="flex-basis: 100%; margin-top: var(--space-3)">
+          <label style="display:block; margin-bottom: var(--space-2)">{{ t('settings.update_how') }}</label>
+          <div style="display:flex; gap: var(--space-2); align-items:flex-start; margin-bottom: var(--space-2)">
+            <pre class="code-block" style="flex:1; min-width:0; margin:0; white-space:pre-wrap; word-break:break-all">{{ updateCommand() }}</pre>
+            <button type="button" class="btn btn-ghost btn-sm"
+                    :aria-label="t('common.copy')"
+                    :title="updateCopyFailed ? t('common.copy_failed') : (updateCopied ? t('common.copied') : t('common.copy'))"
+                    @click="copyUpdateCommand(updateCommand())">
+              <Icon :name="updateCopied ? 'check' : 'copy'" :size="14" />
+            </button>
+          </div>
+          <div class="field-hint">{{ t('settings.update_safety') }}</div>
+          <div v-if="backups" class="field-hint" style="margin-top: var(--space-2)">
+            <span v-if="backups.present">
+              {{ t('settings.backup_present', { when: formatDate(backups.database.modifiedAt) }) }}
+            </span>
+            <span v-else-if="backups.binary.present || backups.database.present"
+                  style="color: var(--status-warn)">
+              {{ t('settings.backup_partial') }}
+            </span>
+            <span v-else>{{ t('settings.backup_none') }}</span>
+          </div>
+          <div class="field-hint" style="margin-top: var(--space-2)">
+            {{ t('settings.update_rollback') }}
+            <code class="mono">{{ rollbackCommand() }}</code>
+          </div>
+        </div>
       </div>
 
     </form>

@@ -70,7 +70,13 @@ public class WebAuthnService {
                     // what an acceptable counter is lives in the store.
                     .authenticatorUpdater(a -> {
                         try {
-                            store.recordAssertion(a.getCredID(), a.getCounter());
+                            // Fires for both ceremonies, and cannot say which:
+                            // registration hands over a full Authenticator (key,
+                            // counter, userName) for an id we have never seen, an
+                            // assertion hands over one we already hold. The store
+                            // tells the two apart by whether the row exists yet.
+                            store.upsertFromCeremony(id, a.getUserName(), a.getCredID(),
+                                    a.getPublicKey(), a.getCounter());
                             return Future.succeededFuture();
                         } catch (RuntimeException ex) {
                             return Future.failedFuture(ex);
@@ -134,32 +140,29 @@ public class WebAuthnService {
         if (challenge == null) {
             throw new CeremonyFailedException("no challenge is pending — start again");
         }
+        // There is exactly one identity this can ever be — the recovery admin
+        // — for both ceremonies, so it is known up front rather than left for
+        // the response's own userHandle to supply. A non-resident assertion
+        // carries no userHandle at all, and the engine requires one or the
+        // other.
         WebAuthnCredentials credentials = new WebAuthnCredentials()
                 .setOrigin(origin)
                 .setDomain(rpId)
                 .setChallenge(challenge)
-                .setUsername(registration ? WebAuthnCredential.LOCAL_ADMIN : null)
+                .setUsername(WebAuthnCredential.LOCAL_ADMIN)
                 .setWebauthn(browserResponse);
 
         var user = await(engineFor(rpId).authenticate(credentials), registration ? "registration" : "assertion");
         String credentialId = browserResponse.getString("id");
         if (registration) {
-            Authenticator fresh = newlyRegistered(rpId, credentialId);
-            store.register(WebAuthnCredential.LOCAL_ADMIN, rpId, credentialId,
-                    fresh.getPublicKey(), fresh.getCounter(), label);
+            // The row itself was already created by the updater callback above,
+            // as part of the same future chain await() just waited out — this
+            // only attaches the label the caller chose.
+            store.setLabel(credentialId, label);
         }
         LOG.infof("webauthn: %s succeeded for %s at %s",
                 registration ? "registration" : "assertion", user.subject(), rpId);
         return credentialId;
-    }
-
-    /** After a registration the engine has already pushed the new authenticator
-     *  through the updater, which for an unknown credential is a no-op in this
-     *  design — so it is read back here rather than guessed at. */
-    private Authenticator newlyRegistered(String rpId, String credentialId) {
-        List<Authenticator> found = fetch(rpId, new Authenticator().setCredID(credentialId));
-        if (!found.isEmpty()) return found.get(0);
-        throw new CeremonyFailedException("the authenticator did not return a usable credential");
     }
 
     private static void requireName(String rpId) {

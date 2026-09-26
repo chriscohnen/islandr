@@ -1,6 +1,8 @@
 import { defineComponent } from "vue";
 import { t } from "/js/i18n.js";
 import { avatarVersion, chooseAndUploadAvatar, removeAvatar } from "/js/avatarUpload.js";
+import { onEscape } from "/js/keyboard.js";
+import { Icon } from "/js/Icons.js";
 
 // Avatar with two-stage fallback:
 //   1. <img> at /api/v1/users/{id}/avatar (covers MS Graph / Google / Gravatar cache)
@@ -29,6 +31,7 @@ function initials(name) {
 
 export default defineComponent({
   name: "Avatar",
+  components: { Icon },
   props: {
     user: { type: Object, required: true },  // { id, name, ... }
     size: { type: Number, default: 32 },
@@ -39,7 +42,7 @@ export default defineComponent({
   },
   emits: ["changed", "error"],
   data() {
-    return { imgFailed: false, busy: false };
+    return { imgFailed: false, busy: false, menuOpen: false };
   },
   computed: {
     src() {
@@ -63,10 +66,43 @@ export default defineComponent({
     "user.id"() { this.imgFailed = false; },
     src() { this.imgFailed = false; },
   },
+  beforeUnmount() {
+    if (this._offMenuEscape) this._offMenuEscape();
+  },
   methods: {
     t(key, vars) { return t(key, vars); },
+    // The pencil is the only entry point (issue: removing a picture used to
+    // sit as its own permanent icon next to the avatar, visible on every
+    // touch device since there is no hover there to reveal it on). With a
+    // picture already set there are two things the pencil could mean, so it
+    // opens a two-item menu instead of assuming "change"; with no picture
+    // there is only one thing to do, so it skips the menu entirely.
+    onEditClick() {
+      if (this.hasImage) this.toggleMenu();
+      else this.upload();
+    },
+    toggleMenu() {
+      if (this.menuOpen) this.closeMenu();
+      else this.openMenu();
+    },
+    openMenu() {
+      this.menuOpen = true;
+      this._offMenuEscape = onEscape(() => this.closeMenu());
+    },
+    closeMenu() {
+      this.menuOpen = false;
+      if (this._offMenuEscape) { this._offMenuEscape(); this._offMenuEscape = null; }
+    },
+    // Focus leaving the whole control (not just moving between its own
+    // buttons) closes the menu — relatedTarget is null for a click landing
+    // outside any focusable element, which $el.contains would miss.
+    onFocusOut(evt) {
+      if (this.$el.contains(evt.relatedTarget)) return;
+      this.closeMenu();
+    },
     async upload() {
       if (this.busy || !this.user.id) return;
+      this.closeMenu();
       this.busy = true;
       try {
         const r = await chooseAndUploadAvatar(this.user.id);
@@ -78,6 +114,7 @@ export default defineComponent({
     },
     async remove() {
       if (this.busy || !this.user.id) return;
+      this.closeMenu();
       if (!confirm(t("avatar.confirm_remove"))) return;
       this.busy = true;
       try {
@@ -94,19 +131,29 @@ export default defineComponent({
       <img v-if="hasImage" :src="src" :alt="user.name || ''" @error="imgFailed = true" />
       <span v-else class="avatar-initials" :style="{ backgroundColor: bgColor }">{{ initials }}</span>
     </span>
-    <!-- Editable: the badge is always visible, so the action is reachable by
-         touch and not hidden behind a hover. -->
-    <span v-else class="avatar-edit-wrap">
-      <button type="button" class="avatar-edit-btn" :disabled="busy" @click="upload"
+    <!-- Editable: the pencil badge fades in on hover or keyboard focus, and
+         stays visible where there is no hover at all (app.css) — quiet
+         without becoming hover-only. It is the only permanent control:
+         removing a picture is one tap behind it, in the menu, not a second
+         icon standing next to the avatar on every touch device. -->
+    <span v-else class="avatar-edit-wrap" @focusout="onFocusOut">
+      <button type="button" class="avatar-edit-btn" :disabled="busy" @click="onEditClick"
+              :aria-haspopup="hasImage ? 'true' : null" :aria-expanded="hasImage ? String(menuOpen) : null"
               :title="t('avatar.change')" :aria-label="t('avatar.change')">
         <span class="avatar" :style="{ width: size + 'px', height: size + 'px', fontSize: (size * 0.4) + 'px' }">
           <img v-if="hasImage" :src="src" :alt="user.name || ''" @error="imgFailed = true" />
           <span v-else class="avatar-initials" :style="{ backgroundColor: bgColor }">{{ initials }}</span>
         </span>
-        <span class="avatar-edit-badge" aria-hidden="true">✎</span>
+        <span class="avatar-edit-badge" aria-hidden="true"><Icon name="edit" :size="8" /></span>
       </button>
-      <button v-if="hasImage" type="button" class="avatar-remove-btn" :disabled="busy" @click="remove"
-              :title="t('avatar.remove')" :aria-label="t('avatar.remove')">✕</button>
+      <div v-if="menuOpen" class="avatar-edit-menu" role="menu">
+        <button type="button" role="menuitem" class="avatar-edit-menu-item" :disabled="busy" @click="upload">
+          {{ t('avatar.change') }}
+        </button>
+        <button type="button" role="menuitem" class="avatar-edit-menu-item avatar-edit-menu-item-danger" :disabled="busy" @click="remove">
+          {{ t('avatar.remove') }}
+        </button>
+      </div>
     </span>
   `,
 });

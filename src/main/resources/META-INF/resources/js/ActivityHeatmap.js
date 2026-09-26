@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { t, formatDate, locale } from "/js/i18n.js";
 import { Icon } from "/js/Icons.js";
+import Avatar from "/js/Avatar.js";
 
 // Connection activity heatmap (#32): peers x days, GitHub-contribution-graph
 // style. Inverted from GitHub's layout (days as columns, not weeks) since
@@ -8,7 +9,7 @@ import { Icon } from "/js/Icons.js";
 // column table pattern already used by the ACL matrix (AclMatrixView.js).
 export default defineComponent({
   name: "ActivityHeatmap",
-  components: { Icon },
+  components: { Icon, Avatar },
   props: {
     days: { type: Number, default: 30 },
   },
@@ -227,6 +228,10 @@ export default defineComponent({
             <tr v-for="p in result.peers" :key="p.peerId">
               <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle; font-size: var(--text-sm); height: 20px; padding-top: 0; padding-bottom: 0">
                 <span style="display: inline-flex; align-items: center; gap: 6px">
+                  <!-- Naming is per-user and free-form (#77): two peers named
+                       "Laptop" are otherwise indistinguishable in this matrix.
+                       No avatar for a site peer — it has no owning user. -->
+                  <Avatar v-if="p.userId" :user="{ id: p.userId, name: p.userName }" :size="16" :title="p.userName" />
                   <Icon :name="peerIconName(p)" :size="13" :title="peerIconTitle(p)" :style="peerIconStyle(p)" />
                   <span :style="p.type === 'site' ? 'font-weight: 600' : ''">{{ p.name }}</span>
                 </span>

@@ -35,6 +35,11 @@ import java.util.Map;
  *       persisting extra state to make this fully robust.</li>
  * </ol>
  *
+ * <p>A peer with {@link Peer#deletionRequestedAt} set is skipped by passes 2
+ * and 3 regardless of {@code enabledSource}: its owner asked for it to be
+ * removed, and a schedule window opening later must not silently reconnect
+ * it before an admin gets to the actual delete.</p>
+ *
  * One {@code rulesets.recomputeFromHook()} call per tick, not per peer.
  */
 @ApplicationScoped
@@ -93,6 +98,11 @@ public class PeerScheduleJob {
             Peer p = Peer.findById(s.peerId);
             if (p == null || isExpired(p, now)) continue;
             if ("manual".equals(p.enabledSource)) continue;
+            // A deletion request wins over any schedule, permanently — the
+            // owner asked for this device to be gone; a window opening later
+            // must not silently reconnect it out from under an admin who
+            // hasn't gotten to the final delete yet.
+            if (p.deletionRequestedAt != null) continue;
             boolean shouldBeEnabled = schedules.evaluateWindow(s, now);
             if (p.enabled != shouldBeEnabled) {
                 flip(p, shouldBeEnabled, "schedule");
@@ -109,6 +119,7 @@ public class PeerScheduleJob {
             Peer p = Peer.findById(s.peerId);
             if (p == null || isExpired(p, now)) continue;
             if (!"manual".equals(p.enabledSource)) continue;
+            if (p.deletionRequestedAt != null) continue;
             boolean nowActive = schedules.evaluateWindow(s, now);
             boolean wasActive = schedules.evaluateWindow(s, previousTick);
             if (nowActive != wasActive) {

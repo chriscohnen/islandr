@@ -110,6 +110,7 @@ public class DashboardResource {
         DashboardDto.SetupStatus setup = new DashboardDto.SetupStatus(
                 s != null && !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                 activeOidc == null ? null : activeOidc.providerKey,
+                User.count("passwordHash is not null") > 0,
                 s == null ? "never" : s.privateKeyRetention,
                 s != null && s.gravatarEnabled,
                 s != null && s.firewallDryRun);

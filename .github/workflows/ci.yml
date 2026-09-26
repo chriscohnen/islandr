@@ -362,6 +362,8 @@ jobs:
             dist/proxy/islandr-proxy-linux-arm64
             dist/proxy/islandr-proxy-linux-arm64.sha256
             dist/proxy/install-proxy.sh
+            scripts/update.sh
+            scripts/backup.sh
 
   # ── Stage 4: Docker multi-arch image (tags only) ──────────────────────────
   docker:
@@ -672,3 +674,157 @@ jobs:
             || { echo "::error::expected accept rule not found in nftables ruleset"; echo "$NFT_OUT"; cat /tmp/islandr-e2e.log; exit 1; }
 
           echo "✓ install-proxy.sh + real App→islandr-proxy→wg/nft enforcement verified end-to-end"
+
+  # ── Stage 6: E2E upgrade path (tags only, after release exists) ───────────
+  #
+  # The one thing a 1.0 promises is that upgrading stops being an event
+  # (ADR-0033). Stage 5 proves a *fresh* install works. Nothing proved the way
+  # from one release to the next, and nothing ever ran `update.sh --rollback` —
+  # so the path that whole promise rests on would have executed for the first
+  # time during a failed upgrade, which is the worst moment to find it broken.
+  # Tracked as R-196.
+  #
+  # It is also the first time `setup-hub.sh` runs anywhere but on a human's VPS.
+  e2e-upgrade:
+    name: E2E — setup-hub.sh, update.sh and its rollback
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Keep off 80/443. The runner has them free, but a privileged bind adds a
+      # failure mode that has nothing to do with what this job is testing.
+      ISLANDR_HTTP_HOST: 127.0.0.1
+      ISLANDR_HTTP_PORT: "8080"
+      ISLANDR_HTTPS_PORT: "8443"
+      BASE: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wireguard-tools nftables sqlite3 jq
+
+      # setup-hub.sh refuses without a configured interface — islandr manages
+      # peers, not the interface itself (ADR-0030).
+      - name: Create a real wg0 interface
+        run: |
+          set -euo pipefail
+          sudo modprobe wireguard
+          sudo ip link add wg0 type wireguard
+          umask 077
+          wg genkey > /tmp/wg0.key
+          sudo wg set wg0 private-key /tmp/wg0.key listen-port 51820
+          rm -f /tmp/wg0.key
+          sudo ip addr add 10.8.0.1/24 dev wg0
+          sudo ip link set wg0 up
+
+      # The release immediately before this tag — what a hub in the field is
+      # running when this one appears. Drafts are skipped; release candidates
+      # are not, because upgrading from an RC is a real case.
+      - name: Determine the release to upgrade from
+        id: prev
+        run: |
+          set -euo pipefail
+          PREV=$(gh api "repos/${{ github.repository }}/releases?per_page=30" \
+            --jq '[.[] | select(.draft == false) | .tag_name]
+                  | map(select(. != "${{ github.ref_name }}")) | .[0] // ""')
+          if [ -z "$PREV" ]; then
+            echo "::notice::no earlier release exists — nothing to upgrade from"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "upgrading from $PREV to ${{ github.ref_name }}"
+            echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install the previous release the way an admin does
+        if: steps.prev.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          sudo -E ISLANDR_VERSION="${{ steps.prev.outputs.tag }}" \
+               ISLANDR_SKIP_MEM_CHECK=1 \
+               bash docs/install/setup-hub.sh
+
+      # Everything below reads the version through the console API, because
+      # that is what an operator looks at — not at the file on disk. The
+      # credentials come out of /etc/default/islandr, which setup-hub.sh wrote.
+      - name: Assert the previous release is up and serving
+        if: steps.prev.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/version/check" || true)
+            [ "$code" != "000" ] && break
+            sleep 2
+          done
+          USER=$(sudo sed -n 's/^ISLANDR_ADMIN_USER=//p' /etc/default/islandr)
+          PW=$(sudo sed -n 's/^ISLANDR_ADMIN_PASSWORD=//p' /etc/default/islandr)
+          curl -sf -c /tmp/cj.txt -o /dev/null -X POST "$BASE/api/v1/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg u "$USER" --arg p "$PW" '{username:$u,password:$p}')"
+          GOT=$(curl -sf -b /tmp/cj.txt "$BASE/api/v1/settings" | jq -r .version)
+          WANT="${{ steps.prev.outputs.tag }}"; WANT="${WANT#v}"
+          echo "running $GOT, expected $WANT"
+          [ "$GOT" = "$WANT" ] || { echo "::error::wrong version before the upgrade"; exit 1; }
+          sudo sha256sum /etc/default/islandr | cut -d' ' -f1 > /tmp/conf.before
+          sudo sqlite3 /var/lib/islandr/data/islandr.db \
+            "CREATE TABLE e2e_marker (v TEXT); INSERT INTO e2e_marker VALUES ('before-upgrade');"
+
+      - name: Upgrade to this tag
+        if: steps.prev.outputs.skip == 'false'
+        run: sudo -E bash scripts/update.sh "${{ github.ref_name }}"
+
+      - name: Assert the new version is live and the configuration untouched
+        if: steps.prev.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          systemctl is-active --quiet islandr || { sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
+          USER=$(sudo sed -n 's/^ISLANDR_ADMIN_USER=//p' /etc/default/islandr)
+          PW=$(sudo sed -n 's/^ISLANDR_ADMIN_PASSWORD=//p' /etc/default/islandr)
+          curl -sf -c /tmp/cj.txt -o /dev/null -X POST "$BASE/api/v1/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg u "$USER" --arg p "$PW" '{username:$u,password:$p}')"
+          GOT=$(curl -sf -b /tmp/cj.txt "$BASE/api/v1/settings" | jq -r .version)
+          WANT="${{ github.ref_name }}"; WANT="${WANT#v}"
+          [ "$GOT" = "$WANT" ] || { echo "::error::upgrade did not take: $GOT"; exit 1; }
+          # An upgrade that rewrites the operator's configuration breaks the
+          # promise instead of keeping it — ADR-0033 counts this file as covered.
+          sudo sha256sum /etc/default/islandr | cut -d' ' -f1 > /tmp/conf.after
+          diff /tmp/conf.before /tmp/conf.after \
+            || { echo "::error::/etc/default/islandr was modified by the upgrade"; exit 1; }
+          # Both backups have to exist, or the rollback below has nothing to
+          # restore and would pass for the wrong reason.
+          sudo test -f /opt/islandr/islandr.prev
+          sudo test -f /var/lib/islandr/data/islandr.db.prev
+          # Change the marker now, *after* the backup was taken. Without this
+          # the value would read the same either way and the rollback check
+          # below would pass whether or not the database was actually restored.
+          sudo sqlite3 /var/lib/islandr/data/islandr.db \
+            "UPDATE e2e_marker SET v = 'after-upgrade';"
+
+      - name: Roll back, and assert both the binary and the database came back
+        if: steps.prev.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          sudo -E bash scripts/update.sh --rollback
+          systemctl is-active --quiet islandr || { sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
+          USER=$(sudo sed -n 's/^ISLANDR_ADMIN_USER=//p' /etc/default/islandr)
+          PW=$(sudo sed -n 's/^ISLANDR_ADMIN_PASSWORD=//p' /etc/default/islandr)
+          curl -sf -c /tmp/cj.txt -o /dev/null -X POST "$BASE/api/v1/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg u "$USER" --arg p "$PW" '{username:$u,password:$p}')"
+          GOT=$(curl -sf -b /tmp/cj.txt "$BASE/api/v1/settings" | jq -r .version)
+          WANT="${{ steps.prev.outputs.tag }}"; WANT="${WANT#v}"
+          [ "$GOT" = "$WANT" ] || { echo "::error::rollback left $GOT running"; exit 1; }
+          # The database half is the one that is easy to get wrong and quiet
+          # about it: migrations run at startup and there are no undo
+          # migrations, so restoring only the binary leaves a schema it refuses.
+          # The marker was changed after the backup was taken, so reading the
+          # pre-upgrade value proves the file itself came back — not merely
+          # that a table with that name still exists.
+          MARK=$(sudo sqlite3 /var/lib/islandr/data/islandr.db \
+            "SELECT v FROM e2e_marker;" 2>/dev/null || echo MISSING)
+          [ "$MARK" = "before-upgrade" ] \
+            || { echo "::error::database was not restored (marker: $MARK)"; exit 1; }

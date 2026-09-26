@@ -73,6 +73,26 @@ class PeerActivityHeatmapResourceTest {
         row.persist();
     }
 
+    record PeerAndOwner(String peerId, String userId, String userName) {}
+
+    @Transactional
+    PeerAndOwner createPeerWithNamedOwner(String peerName, String ownerName) {
+        User u = User.createNew(ownerName, "owner-" + UUID.randomUUID() + "@firma.de");
+        u.persist();
+        Peer p = new Peer();
+        p.id = UUID.randomUUID().toString();
+        p.userId = u.id;
+        p.name = peerName;
+        p.publicKey = "pk-" + UUID.randomUUID();
+        p.assignedIp = "10.9.0." + (1 + (int) (Math.random() * 200));
+        p.enabled = true;
+        p.createdAt = Instant.now();
+        p.updatedAt = p.createdAt;
+        p.type = "client";
+        p.persist();
+        return new PeerAndOwner(p.id, u.id, ownerName);
+    }
+
     @Test
     void defaultWindow_is30Days() {
         given().when().get("/api/v1/peers/activity-heatmap")
@@ -113,5 +133,39 @@ class PeerActivityHeatmapResourceTest {
                 .then().statusCode(200)
                 .body("peers.find { it.peerId == '" + peerId + "' }.rxBytes[0]", equalTo(12345))
                 .body("peers.find { it.peerId == '" + peerId + "' }.txBytes[0]", equalTo(6789));
+    }
+
+    /**
+     * Naming is per-user and free-form: two peers could both be called
+     * "Laptop" and be indistinguishable in the matrix without knowing who
+     * they belong to. The row carries the owner's id and name so the
+     * frontend can prepend an avatar (#dashboard-peer-owner).
+     */
+    @Test
+    void rowCarriesTheOwningUsersIdAndName() {
+        PeerAndOwner owned = createPeerWithNamedOwner("Laptop", "Jonas Weber");
+        given().when().get("/api/v1/peers/activity-heatmap")
+                .then().statusCode(200)
+                .body("peers.find { it.peerId == '" + owned.peerId() + "' }.userId", equalTo(owned.userId()))
+                .body("peers.find { it.peerId == '" + owned.peerId() + "' }.userName", equalTo("Jonas Weber"));
+    }
+
+    @Transactional
+    String createSitePeer(String name) {
+        Peer site = Peer.createNew(null, name,
+                "SITEPUBKEY" + UUID.randomUUID().toString().replace("-", "").substring(0, 20) + "=", "10.8.0.241");
+        site.type = "site";
+        site.persist();
+        return site.id;
+    }
+
+    /** A site peer has no owning user — the row must say so, not guess. */
+    @Test
+    void sitePeerRow_hasNoOwner() {
+        String siteId = createSitePeer("site-gw-" + UUID.randomUUID());
+        given().when().get("/api/v1/peers/activity-heatmap")
+                .then().statusCode(200)
+                .body("peers.find { it.peerId == '" + siteId + "' }.userId", equalTo(null))
+                .body("peers.find { it.peerId == '" + siteId + "' }.userName", equalTo(null));
     }
 }

@@ -152,6 +152,12 @@ public class PeerResource {
                     .put(row.id.day, row);
         }
 
+        // One query for every user's name, not one per peer — a peer's own
+        // naming is free-form and per-user, so "Laptop" tells an admin
+        // nothing about whose device it is without this.
+        java.util.Map<String, String> userNamesById = de.chriscohnen.islandr.user.User.<de.chriscohnen.islandr.user.User>listAll()
+                .stream().collect(java.util.stream.Collectors.toMap(u -> u.id, u -> u.name));
+
         java.util.List<PeerDto.ActivityHeatmapRow> peerRows = Peer.<Peer>listAll(Sort.by("name")).stream()
                 .map(p -> {
                     java.util.Map<String, PeerDailyActivity> byDay = byPeer.getOrDefault(p.id, java.util.Map.of());
@@ -161,7 +167,9 @@ public class PeerResource {
                             .map(d -> byDay.containsKey(d) ? byDay.get(d).rxBytes : 0L).toList();
                     java.util.List<Long> txBytes = days.stream()
                             .map(d -> byDay.containsKey(d) ? byDay.get(d).txBytes : 0L).toList();
-                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, p.deviceType, sampleHits, rxBytes, txBytes, p.createdAt);
+                    String userName = p.userId != null ? userNamesById.get(p.userId) : null;
+                    return new PeerDto.ActivityHeatmapRow(p.id, p.name, p.type, p.deviceType, sampleHits, rxBytes, txBytes, p.createdAt,
+                            p.userId, userName);
                 }).toList();
 
         return new PeerDto.ActivityHeatmapResponse(days, peerRows);
