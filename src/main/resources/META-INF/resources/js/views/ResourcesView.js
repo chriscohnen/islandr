@@ -507,6 +507,15 @@ export default defineComponent({
     // fixed ports to decide what is alive. This one already knows the target
     // and asks what it offers.
     openPortScan(resourceId) {
+      // A scan running for a different resource has a poll loop still
+      // ticking (setTimeout, reading this.portScanFor/portScanJobId
+      // reactively) — switching those out from under it without first
+      // tearing it down the same way closePortScan() would sends the next
+      // tick's request at the new resource with the old (or a blanked)
+      // job id, which 404s and orphans the still-running scan server-side.
+      if (this.portScanFor && this.portScanFor !== resourceId) {
+        this.closePortScan();
+      }
       this.portScanFor = resourceId;
       this.portScanSpec = "";
       this.portScanState = null;
