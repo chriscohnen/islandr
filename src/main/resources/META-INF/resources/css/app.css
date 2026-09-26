@@ -1787,7 +1787,18 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin-bottom: var(--space-2);
+}
+
+/* Three buttons (add, from group, scan) plus the label no longer fit one row
+   at the grid's own 360px card minimum — port-scan-range added the third
+   one after this layout was set. Wrapping instead of clipping: the card's
+   own overflow:hidden was cutting "Ports scannen" off mid-word rather than
+   showing it on a line of its own. */
+.res-ports-header > div {
+  flex-wrap: wrap;
 }
 
 .res-port-chips {

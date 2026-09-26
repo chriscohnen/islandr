@@ -574,8 +574,23 @@ export default defineComponent({
         const state = s.state.toLowerCase();
         // Merge rather than replace: an already-added port must not lose its
         // _added flag just because the panel re-rendered from a fresh poll.
+        // Also check the resource's own port list — a port added before this
+        // scan even started (by hand, or from a port group) is still "added"
+        // as far as the button is concerned; without this, clicking
+        // "Übernehmen" on it just fails with a 409 the panel never showed
+        // (see the fix to the error banner's visibility below), and to the
+        // admin nothing happens at all.
+        // Keyed on port+transport, same as the backend's own conflict check
+        // (portConflictExists) — the scan and addScannedPort both only ever
+        // deal in single tcp ports, so that's what this checks against.
+        const resource = this.resources.find((r) => r.id === this.portScanFor);
+        const existingTcpPorts = new Set(
+          (resource?.ports || []).filter((rp) => rp.transport === "tcp" && rp.portEnd == null).map((rp) => rp.port));
         const addedByPort = new Map(this.portScanPorts.map((p) => [p.port, p._added]));
-        this.portScanPorts = (s.openPorts || []).map((p) => ({ ...p, _added: addedByPort.get(p.port) || false }));
+        this.portScanPorts = (s.openPorts || []).map((p) => ({
+          ...p,
+          _added: addedByPort.get(p.port) || existingTcpPorts.has(p.port) || false,
+        }));
         if (state === "running") {
           this.portScanPollTimer = setTimeout(() => this.pollPortScan(), 400);
           return;
@@ -1045,7 +1060,9 @@ export default defineComponent({
               </button>
               <button class="btn btn-ghost btn-sm"
                       @click="portScanFor === r.id ? closePortScan() : openPortScan(r.id)">
-                {{ portScanFor === r.id ? '✕ ' + t('common.cancel') : t('resources.btn_port_scan') }}
+                {{ portScanFor !== r.id ? t('resources.btn_port_scan')
+                    : (portScanState && portScanState !== 'running') ? '✕ ' + t('resources.port_scan_close')
+                    : '✕ ' + t('common.cancel') }}
               </button>
             </div>
           </div>
@@ -1085,6 +1102,13 @@ export default defineComponent({
                   {{ t('resources.port_scan_cancel') }}
                 </button>
               </div>
+
+              <!-- Lives here too, not only in the pre-scan form above: a
+                   rejected addScannedPort() (e.g. a genuine conflict the
+                   pre-check below didn't catch) used to fail silently once
+                   the panel had moved past the form, since this was the
+                   form's error banner only. -->
+              <div v-if="portScanError" class="error-banner" style="margin-bottom: var(--space-2)">{{ portScanError }}</div>
 
               <p v-if="portScanState !== 'running' && portScanPorts.length === 0" class="muted" style="font-size: var(--text-xs)">
                 {{ t('resources.port_scan_none_found') }}

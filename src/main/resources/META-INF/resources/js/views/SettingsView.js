@@ -1741,35 +1741,41 @@ export default defineComponent({
         </div>
       </div>
 
-      <div v-if="meta.version" style="padding-top: var(--space-4); border-top: 1px solid var(--border); display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap">
-        <span class="muted" style="font-size: var(--text-sm)">Islandr</span>
-        <span class="mono" style="font-size: var(--text-sm); color: var(--fg2)">v{{ meta.version }}</span>
-        <button class="btn btn-ghost btn-sm" :disabled="versionChecking" @click="checkVersion">
-          {{ versionChecking ? t('settings.version_checking') : t('settings.version_check_btn') }}
-        </button>
-        <span v-if="versionCheck && !versionCheck.error" style="font-size: var(--text-sm); font-family: var(--font-mono)">
-          <span v-if="versionCheck.upToDate" style="color: var(--status-ok)">{{ t('settings.version_current') }}</span>
-          <span v-else style="color: var(--status-warn)">
-            {{ t('settings.version_available', { latest: versionCheck.latest }) }}
-            <a v-if="versionCheck.releaseUrl" :href="versionCheck.releaseUrl" target="_blank" rel="noopener" style="margin-left: var(--space-2)">{{ t('settings.version_release') }}</a>
+      <div v-if="meta.version" style="padding-top: var(--space-4); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--space-3)">
+        <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap">
+          <span class="muted" style="font-size: var(--text-sm)">Islandr</span>
+          <span class="mono" style="font-size: var(--text-sm); color: var(--fg2)">v{{ meta.version }}</span>
+          <button class="btn btn-ghost btn-sm" :disabled="versionChecking" @click="checkVersion">
+            {{ versionChecking ? t('settings.version_checking') : t('settings.version_check_btn') }}
+          </button>
+          <span v-if="versionCheck && !versionCheck.error" style="font-size: var(--text-sm); font-family: var(--font-mono)">
+            <span v-if="versionCheck.upToDate" style="color: var(--status-ok)">{{ t('settings.version_current') }}</span>
+            <span v-else style="color: var(--status-warn)">
+              {{ t('settings.version_available', { latest: versionCheck.latest }) }}
+              <a v-if="versionCheck.releaseUrl" :href="versionCheck.releaseUrl" target="_blank" rel="noopener" style="margin-left: var(--space-2)">{{ t('settings.version_release') }}</a>
+            </span>
           </span>
-        </span>
-        <span v-if="versionCheck && versionCheck.error" style="font-size: var(--text-sm); color: var(--status-warn)">{{ versionCheck.error }}</span>
+          <span v-if="versionCheck && versionCheck.error" style="font-size: var(--text-sm); color: var(--status-warn)">{{ versionCheck.error }}</span>
+        </div>
 
         <!-- That Islandr is open source is its strongest argument against a
              hosted alternative, and until now it was stated only in files
              nobody opens — the licence appeared in openapi.yml and nowhere in
-             the console. The scope line matters as much as the name: read on
-             its own, "EUPL-1.2" suggests the brand is free too, which
-             TRADEMARK.md says it is not. -->
-        <span class="muted" style="font-size: var(--text-sm); display: flex; align-items: center; gap: var(--space-2)">
-          <span>{{ t('settings.license_label') }}:</span>
+             the console. Kept on its own row, separate from the version/
+             update-check row above: sharing a row with unrelated status text
+             was why the scope sentence below read as a stray fragment with
+             no visible subject. And "the licence" is now named explicitly in
+             that sentence instead of assumed from the label next to it, for
+             the same reason: read on its own, "EUPL-1.2" suggests the brand
+             is free too, which TRADEMARK.md says it is not. -->
+        <div style="display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap">
+          <span class="muted" style="font-size: var(--text-sm)">{{ t('settings.license_label') }}:</span>
           <a href="https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12"
-             target="_blank" rel="noopener">EUPL-1.2</a>
-          <span>·</span>
-          <a href="https://github.com/chriscohnen/islandr" target="_blank" rel="noopener">{{ t('settings.license_source') }}</a>
-        </span>
-        <span class="field-hint" style="flex-basis: 100%; margin-top: calc(var(--space-2) * -1)">{{ t('settings.license_scope') }}</span>
+             target="_blank" rel="noopener" style="font-size: var(--text-sm)">EUPL-1.2</a>
+          <span class="muted" style="font-size: var(--text-sm)">·</span>
+          <a href="https://github.com/chriscohnen/islandr" target="_blank" rel="noopener" style="font-size: var(--text-sm)">{{ t('settings.license_source') }}</a>
+          <span class="field-hint" style="flex-basis: 100%; margin-top: 0">{{ t('settings.license_scope') }}</span>
+        </div>
 
         <div v-if="versionCheck && !versionCheck.error && !versionCheck.upToDate"
              style="flex-basis: 100%; margin-top: var(--space-3)">

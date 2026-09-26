@@ -181,11 +181,10 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**Pre-1.0 — the feature set is complete; the next release is about the upgrade path.**
+**1.0.0 — upgrading stops asking for manual steps.**
 1.0 is not a claim that the software is finished. It is one specific promise: that
 upgrading stops asking for manual steps. Two of the last three releases needed one
-(`systemctl edit`, re-running `setup-hub.sh`), and that is the gap being closed —
-so the number arrives when it is earned, not on a date.
+(`systemctl edit`, re-running `setup-hub.sh`), and that is the gap this release closes.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
@@ -200,8 +199,10 @@ Every version: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 - **On the Quarkus LTS line** (3.33.3.2). The previous pin claimed LTS and was not, which is how a critical Netty advisory became unfixable without anyone noticing ([ADR-0032](docs/adr/0032-quarkus-lts-line.md))
 - **External API: grants carry their ports as values** — transport included, so a port-limited grant can finally be turned into a rule
 - **Security keys have a console** — a "sign in with a security key" button next to the password, registered and managed from Settings; the password stays a complete path on its own. An offline escape hatch too: `ISLANDR_WEBAUTHN_RESET=true` clears every registered authenticator on the recovery admin, audit-logged, for the case where you cannot sign in to remove one ([#67](https://github.com/chriscohnen/islandr/issues/67))
+- **A user can rename their own device, change its category, and remove it themselves** in My access — no admin needed for either
+- **A resource can be port-scanned on its own**, not only discovered as part of a whole-CIDR sweep — type a range, scan the resource's own IP, add a hit as a port with one click
 - **The console says it is open source** — EUPL-1.2 next to the version and in the login footer, with the trademark boundary named
-- Fixed: Settings and My access were unreachable on a phone; discovery showed port numbers where it can show names; the avatar's edit controls sat permanently in the topbar
+- Fixed: Settings and My access were unreachable on a phone; discovery showed port numbers where it can show names; the avatar's edit controls sat permanently in the topbar; a fresh install now probes its own WireGuard public key instead of showing a placeholder until someone notices
 
 ### Roadmap
 
