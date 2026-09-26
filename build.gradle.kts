@@ -128,7 +128,7 @@ configurations.all {
 // rather than a one-line force. Left as an open Dependabot alert (see #20).
 
 group = "de.chriscohnen.islandr"
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

@@ -23,9 +23,8 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **Pre-1.0 — in production use, but the upgrade path is not promised yet.**
-> Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`). Read the release notes before upgrading: until 1.0 a release can still ask for a manual step, and two recent ones did. `scripts/update.sh` backs up both the binary and the database first and rolls both back if the service does not come up — use it rather than replacing the binary by hand.
-> This is exactly the stage where testers make the biggest difference. Kick the tyres, and if you hit a rough edge [open an issue](https://github.com/chriscohnen/islandr/issues) — that feedback is what moves it toward 1.0. Starring or watching the repo is the easiest way to follow releases.
+> **Release candidate for 1.0.0.** The upgrade path itself is what 1.0 promises — `update.sh` backs up the binary and the database first and rolls both back if the service does not come up, exercised by CI on every tag — but the number isn't final until that's been checked against a real upgrade outside CI too, not only asserted. Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`); read the release notes before upgrading regardless.
+> This is exactly the stage where testers make the biggest difference. Kick the tyres, and if you hit a rough edge [open an issue](https://github.com/chriscohnen/islandr/issues) — that feedback is what moves it from RC to final. Starring or watching the repo is the easiest way to follow releases.
 
 <p align="center">
   <img src="https://islandr-gateway.net/screenshots/light/dashboard.png" width="49%" alt="Dashboard: live topology diagram, peers, sites and networks">
