@@ -292,6 +292,90 @@ output elsewhere, or point `restic backup` at the destination directory instead.
 
 ---
 
+## Adopting the fail-closed boot ruleset
+
+Skip this if `systemctl status islandr-boot-firewall.service` finds the
+service. If it does not, this hub was set up before 0.22.0, and no update adds
+the ruleset — `update.sh` swaps the binary and deliberately touches nothing
+under `/etc/systemd`. It reports the gap after an update rather than fixing it,
+because changing a unit file behind an administrator's back is the thing the
+1.0 upgrade promise exists to avoid.
+
+What is missing: Islandr's nftables table is built from the database and
+applied at startup, and it does not survive a reboot. If the tunnel comes up
+first — or if Islandr fails to start at all — forwarding runs with the kernel's
+own `accept` policy and the peers written in the interface config. The VPN
+works and access control is not running ([ADR-0031](adr/0031-fail-closed-boot-ruleset.md),
+[#84](https://github.com/chriscohnen/islandr/issues/84)).
+
+Do not re-run `setup-hub.sh` for this — it is not idempotent and expects an
+untouched host. Add the three pieces instead. First the two sudoers lines that
+let Islandr hand over; `visudo -c` before you rely on them, a broken sudoers
+file locks you out of `sudo` entirely:
+
+```bash
+NFT=$(command -v nft)
+sudo tee -a /etc/sudoers.d/islandr >/dev/null <<EOF
+islandr ALL=(root) NOPASSWD: $NFT list table inet islandr-boot
+islandr ALL=(root) NOPASSWD: $NFT delete table inet islandr-boot
+EOF
+sudo visudo -c
+```
+
+Then the ruleset and its unit (replace `wg0` if your interface is named
+differently):
+
+```bash
+NFT=$(command -v nft)
+sudo install -d -m 0755 /etc/islandr
+sudo tee /etc/islandr/boot.nft >/dev/null <<'EOF'
+table inet islandr-boot {
+    chain forward {
+        type filter hook forward priority 0; policy accept;
+        iifname "wg0" drop
+        oifname "wg0" drop
+    }
+}
+EOF
+sudo chmod 0644 /etc/islandr/boot.nft
+sudo tee /etc/systemd/system/islandr-boot-firewall.service >/dev/null <<EOF
+[Unit]
+Description=Islandr — fail-closed boot ruleset (removed once Islandr is enforcing)
+DefaultDependencies=no
+After=nftables.service
+Before=wg-quick@wg0.service network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$NFT -f /etc/islandr/boot.nft
+ExecStop=-$NFT delete table inet islandr-boot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable islandr-boot-firewall.service
+```
+
+**Enable it, do not start it.** Starting the service on a running hub applies
+the drop table immediately and forwarding stops until Islandr removes it, which
+only happens when Islandr next starts. To exercise the handover now rather than
+at the next reboot, do both in one go and accept a few seconds of interruption:
+
+```bash
+sudo systemctl start islandr-boot-firewall && sudo systemctl restart islandr
+sudo nft list tables          # expect: inet islandr — and no inet islandr-boot
+```
+
+A hub of this age is usually missing the unit's boot ordering too. If
+`/etc/systemd/system/islandr.service` has no `Before=wg-quick@<iface>.service`,
+add that and the restart limits from the current template — the unit written by
+[`setup-hub.sh`](install/setup-hub.sh) is the reference.
+
+---
+
 ## Upgrading
 
 **Native binary:** [`scripts/update.sh`](../scripts/update.sh) downloads the target release (latest
