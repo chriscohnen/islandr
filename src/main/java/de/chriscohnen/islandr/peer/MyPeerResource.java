@@ -225,14 +225,11 @@ public class MyPeerResource {
                                              @PathParam("id") String id) {
         AuthContext a = Auth.require(ctx);
         String userId = requireOrgUserId(a);
-        Peer p = ownedOr404(id, userId);
-        if (p.privateKeyPem == null) {
-            // No stored private key — the conf would be useless to the end user
-            // (they can't import it). Send 404 instead of a half-conf they
-            // can't actually use. The frontend hides the "show again" button
-            // in this case anyway.
-            throw new NotFoundException("no stored .conf for this peer — re-add the device");
-        }
+        ownedOr404(id, userId);
+        // Without a stored private key the .conf comes back without its
+        // PrivateKey line and without a QR code. Still worth having: address,
+        // DNS, endpoint and allowed IPs are what a user re-typing a config
+        // by hand gets wrong, and the key they can paste from the device.
         return peers.reshow(id);
     }
 

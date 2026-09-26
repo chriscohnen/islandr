@@ -50,8 +50,9 @@ All checks run in `PeerService.validateSiteCidrs()`.
 | ID | Rule | HTTP status on violation | Implemented in |
 |---|---|---|---|
 | BR-021 | Retention mode `never` (default): the private key is never written to the database | — | `PeerService.createForUser()`: `peer.privateKeyPem` stays null |
-| BR-022 | Retention mode `encrypted`: `EncryptionService` must be configured (key loaded); if not, creation fails | 500 | `PeerService.createForUser()` → `encSvc.isConfigured()` |
+| BR-022 | Retention mode `encrypted`: `EncryptionService` must be configured (key loaded); if not, creation fails with a plain-text reason in the body | 503 | `PeerService.createForUser()` → `encryptionKeyMissing()` |
 | BR-023 | The private key is returned in the creation response exactly once; it is absent from all subsequent reads | — | `PeerDto.CreateResponse` / `PeerDto.Response.from()` |
+| BR-038 | Settings refuse retention mode `encrypted` while no encryption key is loaded, on every save and from every previous mode | 400 | `SettingsService.update()` |
 
 ### 1.5 Firewall
 
@@ -282,8 +283,16 @@ Feature: Private key retention
     Given settings.privateKeyRetention is "encrypted"
     And EncryptionService is not configured (no ISLANDR_ENCRYPTION_KEY)
     When an admin creates a new peer
-    Then the server responds with 500
+    Then the server responds with 503
+    And the response body names the missing encryption key
     And no peer row is created in the database
+
+  Scenario: Switching to "encrypted" without key configured (BR-038)
+    Given settings.privateKeyRetention is "never"
+    And EncryptionService is not configured (no ISLANDR_ENCRYPTION_KEY)
+    When an admin saves the settings with privateKeyRetention "encrypted"
+    Then the server responds with 400
+    And settings.privateKeyRetention stays "never"
 
 
 Feature: Site CIDR overlap

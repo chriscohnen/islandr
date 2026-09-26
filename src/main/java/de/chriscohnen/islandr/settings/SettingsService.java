@@ -38,6 +38,13 @@ public class SettingsService {
         Settings s = get();
         String oldMode = s.privateKeyRetention;
         String newMode = req.privateKeyRetention();
+        // BR-038: without a loaded key, "encrypted" would only move the failure
+        // to the next device someone creates. Refused on every save, not only
+        // on the switch, so an instance already in that state is told too.
+        if ("encrypted".equals(newMode) && !encSvc.isConfigured()) {
+            throw badRequest("Encrypted key retention needs an encryption key, and none is loaded — "
+                    + "set ISLANDR_ENCRYPTION_KEY_PATH or ISLANDR_ENCRYPTION_KEY, or pick another retention mode");
+        }
 
         s.wgSubnet = req.wgSubnet();
         s.wgSubnet6 = (req.wgSubnet6() == null || req.wgSubnet6().isBlank()) ? null : req.wgSubnet6().strip();
@@ -184,11 +191,7 @@ public class SettingsService {
         if (peers.isEmpty()) return;
 
         if ("plaintext".equals(from) && "encrypted".equals(to)) {
-            if (!encSvc.isConfigured()) {
-                throw new WebApplicationException(
-                        "Encrypted retention requires an encryption key — " +
-                        "set ISLANDR_ENCRYPTION_KEY_PATH or ISLANDR_ENCRYPTION_KEY", 400);
-            }
+            // The key is known to be loaded here: update() refuses "encrypted" otherwise (BR-038).
             peers.forEach(p -> p.privateKeyPem = encSvc.encrypt(p.privateKeyPem));
 
         } else if ("encrypted".equals(from) && "plaintext".equals(to)) {

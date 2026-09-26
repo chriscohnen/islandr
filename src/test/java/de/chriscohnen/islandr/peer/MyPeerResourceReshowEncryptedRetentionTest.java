@@ -111,18 +111,25 @@ class MyPeerResourceReshowEncryptedRetentionTest {
                 .body("qrPngBase64", notNullValue());
     }
 
-    /** A user who never created a peer through the server (public-key-only
-     *  import has no equivalent here, but a peer imported without ever
-     *  having a stored private key does) gets 404, not a half-conf. */
+    /** No stored private key (retention "never", or an imported public key):
+     *  the user still gets the .conf with everything the server knows —
+     *  address, DNS, endpoint, allowed IPs — just without the PrivateKey line
+     *  and without a QR code, which would be useless without it. Same as the
+     *  admin-side reshow. */
     @Test
-    void selfServiceReshow_returns404_whenNoPrivateKeyWasEverStored() {
+    void selfServiceReshow_servesConfWithoutKey_whenNoPrivateKeyWasStored() {
         String cookie = orgUserSession();
         String userId = currentUserId;
         String peerId = persistPeerWithoutKey(userId, "imported-device");
 
         given().cookie(SessionFilter.COOKIE_NAME, cookie)
                 .when().get("/api/v1/peers/mine/" + peerId + "/conf")
-                .then().statusCode(404);
+                .then().statusCode(200)
+                .body("peer.id", org.hamcrest.Matchers.equalTo(peerId))
+                .body("privateKey", org.hamcrest.Matchers.nullValue())
+                .body("qrPngBase64", org.hamcrest.Matchers.nullValue())
+                .body("conf", org.hamcrest.Matchers.containsString("[Peer]"))
+                .body("conf", not(org.hamcrest.Matchers.containsString("PrivateKey")));
     }
 
     private String currentUserId;

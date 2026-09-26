@@ -3,6 +3,7 @@ import { auth } from "/js/app.js";
 import { t, setLocale, locale } from "/js/i18n.js";
 import { Icon } from "/js/Icons.js";
 import { browserSupportsWebauthn, loginWithSecurityKey } from "/js/webauthnClient.js";
+import { drawNightScene } from "/js/LoginNightSky.js";
 
 // Login-Card mit Provider-Hierarchie:
 //   1. Aktivierter OIDC-Provider (max. einer) erscheint als prominenter Primär-Button oben.
@@ -147,9 +148,10 @@ export default defineComponent({
     runMeteor(done) {
       const c = this.$refs.meteor;
       // Only against the night sky. A streak across a pale page is a scratch.
-      if (!c || this.theme === "light") { done(); return; }
+      if (!c || this.theme === "light" || !c.clientWidth) { done(); return; }
       const x = c.getContext("2d");
       const w = c.clientWidth, h = c.clientHeight;
+      const horizon = this._horizonY || h;
 
       // Upper half, travelling down and outward — the direction a real one
       // takes across a window.
@@ -170,17 +172,20 @@ export default defineComponent({
         // rendering glitch rather than something that passed.
         const alpha = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
         const hx = x0 + dx * travel * p, hy = y0 + dy * travel * p;
-        const tx = hx - dx * len, ty = hy - dy * len;
-        const g = x.createLinearGradient(tx, ty, hx, hy);
-        g.addColorStop(0, "rgba(180, 220, 240, 0)");
-        g.addColorStop(1, "rgba(200, 235, 250, " + (0.5 * alpha).toFixed(3) + ")");
-        x.strokeStyle = g;
-        x.lineWidth = 1;
-        x.lineCap = "round";
-        x.beginPath();
-        x.moveTo(tx, ty);
-        x.lineTo(hx, hy);
-        x.stroke();
+        // It burns up at the horizon rather than streaking across the water.
+        if (hy < horizon) {
+          const tx = hx - dx * len, ty = hy - dy * len;
+          const g = x.createLinearGradient(tx, ty, hx, hy);
+          g.addColorStop(0, "rgba(180, 220, 240, 0)");
+          g.addColorStop(1, "rgba(215, 240, 252, " + (0.7 * alpha).toFixed(3) + ")");
+          x.strokeStyle = g;
+          x.lineWidth = 1.2;
+          x.lineCap = "round";
+          x.beginPath();
+          x.moveTo(tx, ty);
+          x.lineTo(hx, hy);
+          x.stroke();
+        }
         if (p < 1) {
           this._meteorFrame = requestAnimationFrame(frame);
         } else {
@@ -225,6 +230,13 @@ export default defineComponent({
       x.fillStyle = g;
       x.fillRect(0, 0, w, h);
 
+      // Night: the turning sky and the islands take over from the flat stars.
+      if (dark) {
+        const r = this.$refs;
+        if (r.sky) this._horizonY = drawNightScene(r, w, h);
+        return;
+      }
+
       // Deterministic per size, so a resize does not reshuffle the sky under
       // someone who is mid-thought. Not Math.random().
       let seed = 1013904223;
@@ -236,9 +248,7 @@ export default defineComponent({
         const sy = Math.round(rnd() * h);
         const size = rnd() < 0.8 ? 1 : 1.5;
         const a = rnd() * 0.5 + 0.15;
-        x.fillStyle = dark
-          ? "rgba(180, 220, 240, " + a + ")"
-          : "rgba(31, 148, 173, " + a * 0.55 + ")";
+        x.fillStyle = "rgba(31, 148, 173, " + a * 0.55 + ")";
         x.fillRect(sx, sy, size, size);
       }
     },
@@ -246,7 +256,8 @@ export default defineComponent({
       this.theme = this.theme === "dark" ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", this.theme);
       localStorage.setItem("islandr.theme", this.theme);
-      this.$nextTick(() => this.drawSpace());
+      // The night layers were hidden until now and measured zero wide.
+      this.$nextTick(() => { this.drawSpace(); this.sizeMeteorLayer(); });
     },
     async submitLocal() {
       this.loading = true;
@@ -306,15 +317,22 @@ export default defineComponent({
   },
   template: `
     <div class="center-card-page">
-      <!-- Stars on a canvas rather than a CSS mask: crisp integer-pixel dots
-           with individual alpha read as a sky, where equally-faint circles read
-           as dust. Drawn once and on resize — nothing moves here, so there is
-           no animation loop to burn battery on. -->
+      <!-- Background wash, plus the faint teal dots of the light theme. Drawn
+           once and on resize. -->
       <canvas ref="space" class="login-space" aria-hidden="true"></canvas>
-      <!-- Separate layer so a meteor never forces the sky to be repainted: the
-           sky is drawn once, this one is cleared and redrawn only during the
-           second or so a streak lasts, then goes quiet again. -->
-      <canvas ref="meteor" class="login-space login-space-meteor" aria-hidden="true"></canvas>
+      <!-- Night scene (dark theme only), same as the marketing site's hero:
+           a sky turning once every 12 minutes, islands on the horizon, their
+           lights and the tunnels from the hub. Everything is drawn once per
+           size; the turning is a CSS rotation the compositor does. -->
+      <div v-show="theme === 'dark'" class="login-night" aria-hidden="true">
+        <div ref="skyWrap" class="login-sky"><canvas ref="sky"></canvas></div>
+        <!-- Separate layer so a meteor never forces the sky to be repainted:
+             cleared and redrawn only during the second or so a streak lasts. -->
+        <canvas ref="meteor" class="login-layer"></canvas>
+        <canvas ref="sea" class="login-layer"></canvas>
+        <svg ref="routes" class="login-layer login-routes"></svg>
+        <div ref="lights" class="login-layer"></div>
+      </div>
 
       <div class="center-card login-card">
 
@@ -330,7 +348,7 @@ export default defineComponent({
               <circle class="login-lockup-pulse-outer" cx="64" cy="27" r="13" fill="#6FD3E8" opacity="0.22"/>
               <circle class="login-lockup-pulse-inner" cx="64" cy="27" r="8.5" fill="#9FECF8"/>
             </g>
-            <text x="74" y="53" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="42" font-weight="600" letter-spacing="-1" fill="#172B3A">island<tspan fill="#1F94AD">r</tspan></text>
+            <text class="login-lockup-word" x="74" y="53" font-family="'IBM Plex Sans', system-ui, sans-serif" font-size="42" font-weight="600" letter-spacing="-1">island<tspan fill="#1F94AD">r</tspan></text>
           </svg>
           <span class="login-product-name">Gateway</span>
         </div>

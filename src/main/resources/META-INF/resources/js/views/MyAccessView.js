@@ -495,7 +495,7 @@ export default defineComponent({
         });
         if (!res.ok) {
           const body = await res.text();
-          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 400) : ""));
         }
         this.secret = await res.json();
         this.secretIsReshow = false;
@@ -601,7 +601,7 @@ export default defineComponent({
         });
         if (!res.ok) {
           const body = await res.text();
-          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
+          throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 400) : ""));
         }
         await this.load();
         this.closeModal();
@@ -646,18 +646,6 @@ export default defineComponent({
       URL.revokeObjectURL(url);
     },
 
-    canReshow(peer) {
-      // /conf returns 200 whenever the server actually stored the private
-      // half — plaintext OR encrypted retention, both of which
-      // PeerService#reshow decrypts transparently. Only retention='never'
-      // genuinely never stores it. Checked against 'plaintext' alone until
-      // now, which wrongly hid this button under 'encrypted' too — the one
-      // other mode where re-downloading a lost .conf actually works. We
-      // still can't know from the peer row alone whether *this particular*
-      // peer's key was server-generated, so the button stays visible and the
-      // 404 path handles that one remaining "no stored conf" case.
-      return this.retention !== "never";
-    },
 
     formatDate(iso) { return formatDate(iso); },
 
@@ -1061,7 +1049,9 @@ export default defineComponent({
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>
           <td class="muted">{{ formatDate(p.createdAt) }}</td>
           <td style="text-align: right">
-            <button v-if="canReshow(p)" class="btn btn-ghost btn-sm" @click="openReshow(p.id)"><Icon name="qr-code" :size="13" />{{ t('myaccess.btn_qr') }}</button>
+            <!-- Every device: without a stored private key the .conf comes
+                 back without its PrivateKey line and without a QR. -->
+            <button class="btn btn-ghost btn-sm" @click="openReshow(p.id)"><Icon name="qr-code" :size="13" />{{ t('myaccess.btn_qr') }}</button>
             <button v-if="!viewAsUserId" class="btn btn-ghost btn-sm" @click="openEdit(p)"><Icon name="edit" :size="13" />{{ t('myaccess.btn_edit') }}</button>
             <button class="btn btn-ghost btn-sm" @click="openRotate(p)"><Icon name="rotate" :size="13" />{{ t('myaccess.btn_rotate') }}</button>
             <button v-if="!viewAsUserId" class="btn btn-ghost btn-sm" @click="removePeer(p)"><Icon name="trash" :size="13" />{{ t('myaccess.btn_remove_peer') }}</button>
@@ -1535,6 +1525,11 @@ export default defineComponent({
               {{ t('peer.warn_reshow') }}
             </div>
           </div>
+          <div v-else-if="secretIsReshow && !secret.privateKey" class="callout callout-info">
+            <div>
+              {{ t('myaccess.reshow_no_key_a') }}<code>PrivateKey</code>{{ t('myaccess.reshow_no_key_b') }}
+            </div>
+          </div>
 
           <div class="secret-block" :class="{ 'secret-block-no-qr': !secret.qrPngBase64 }">
             <div v-if="secret.qrPngBase64" class="qr">
@@ -1554,9 +1549,13 @@ export default defineComponent({
         </div>
         <div class="modal-footer">
           <button class="btn btn-ghost" @click="copyConf">
-            {{ copyState === "copied" ? t('peer.btn_copied') : t('peer.btn_copy') }}
+            <Icon :name="copyState === 'copied' ? 'check' : 'copy'" :size="16" />
+            <span>{{ copyState === "copied" ? t('peer.btn_copied') : t('peer.btn_copy') }}</span>
           </button>
-          <button class="btn btn-secondary" @click="downloadConf">{{ t('peer.btn_download') }}</button>
+          <button class="btn btn-secondary" @click="downloadConf">
+            <Icon name="download" :size="16" />
+            <span>{{ t('peer.btn_download') }}</span>
+          </button>
           <button class="btn btn-primary" @click="closeModal">{{ t('peer.btn_done') }}</button>
         </div>
       </div>

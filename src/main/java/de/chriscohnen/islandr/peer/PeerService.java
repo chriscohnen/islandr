@@ -113,11 +113,7 @@ public class PeerService {
             if (settings.isPlaintextRetention()) {
                 peer.privateKeyPem = privateKeyForResponse;
             } else if (settings.isEncryptedRetention()) {
-                if (!encSvc.isConfigured()) {
-                    throw new WebApplicationException(
-                            "Encrypted retention is configured but no encryption key is loaded — " +
-                            "set ISLANDR_ENCRYPTION_KEY_PATH or ISLANDR_ENCRYPTION_KEY", 500);
-                }
+                if (!encSvc.isConfigured()) throw encryptionKeyMissing();
                 peer.privateKeyPem = encSvc.encrypt(privateKeyForResponse);
             }
         }
@@ -165,6 +161,21 @@ public class PeerService {
                 conf,
                 qrPng,
                 presharedKey);
+    }
+
+    /**
+     * BR-022: retention says {@code encrypted} but no key is loaded. 503, not
+     * 500 — nothing is broken in the code, the instance is missing its key —
+     * and the reason goes in the body, so the person at the form reads why
+     * instead of a bare status code.
+     */
+    private static WebApplicationException encryptionKeyMissing() {
+        String message = "Private keys are set to be stored encrypted, but no encryption key is loaded. "
+                + "An administrator has to load the key (ISLANDR_ENCRYPTION_KEY_PATH or ISLANDR_ENCRYPTION_KEY) "
+                + "or pick another key retention mode in the settings.";
+        return new WebApplicationException(message,
+                Response.status(Response.Status.SERVICE_UNAVAILABLE).entity(message)
+                        .type(jakarta.ws.rs.core.MediaType.TEXT_PLAIN).build());
     }
 
     public PeerDto.CreateResponse reshow(String peerId) {
@@ -512,11 +523,7 @@ public class PeerService {
         if (settings.isPlaintextRetention()) {
             peer.privateKeyPem = kp.privateKey();
         } else if (settings.isEncryptedRetention()) {
-            if (!encSvc.isConfigured()) {
-                throw new WebApplicationException(
-                        "Encrypted retention is configured but no encryption key is loaded — " +
-                        "set ISLANDR_ENCRYPTION_KEY_PATH or ISLANDR_ENCRYPTION_KEY", 500);
-            }
+            if (!encSvc.isConfigured()) throw encryptionKeyMissing();
             peer.privateKeyPem = encSvc.encrypt(kp.privateKey());
         }
         peer.keyRotatedAt = java.time.Instant.now();

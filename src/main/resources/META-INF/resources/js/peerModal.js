@@ -1093,9 +1093,13 @@ export const peerModalTemplate = `
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" @click="copyConf">
-          {{ copyState === "copied" ? t('peer.btn_copied') : t('peer.btn_copy') }}
+          <Icon :name="copyState === 'copied' ? 'check' : 'copy'" :size="16" />
+          <span>{{ copyState === "copied" ? t('peer.btn_copied') : t('peer.btn_copy') }}</span>
         </button>
-        <button class="btn btn-secondary" @click="downloadConf">{{ t('peer.btn_download') }}</button>
+        <button class="btn btn-secondary" @click="downloadConf">
+          <Icon name="download" :size="16" />
+          <span>{{ t('peer.btn_download') }}</span>
+        </button>
         <button class="btn btn-primary" @click="closeModal">{{ t('peer.btn_done') }}</button>
       </div>
     </div>
