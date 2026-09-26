@@ -32,9 +32,10 @@ sudo journalctl -k -b | grep -iE "oom|killed process"   # if dmesg is restricted
 ```
 
 Look for `Out of memory: Killed process ... (islandr)`. The unit caps the heap
-at 192 MB (`-Xmx192m`), and the host wants 256 MB with headroom; below roughly
-192 MB available it is killed part-way through startup, typically after half a
-second of CPU time. Add swap:
+at 96 MB (`-Xmx96m`), which on a 1 GB VPS measured 236 MB resident during a
+discovery scan and 252.8 MB at peak — so 256 MB of host memory is a floor, not
+a comfortable figure. Below roughly 192 MB available it is killed part-way
+through startup, typically after half a second of CPU time. Add swap:
 
 ```bash
 sudo fallocate -l 1G /swapfile

@@ -23,7 +23,7 @@
 #   ISLANDR_BINARY=/tmp/islandr   use a local build, no download
 #   ISLANDR_HTTP_HOST=127.0.0.1   bind loopback for a reverse proxy
 #   ISLANDR_HTTP_PORT=8080        + ISLANDR_HTTPS_PORT=8443
-#   ISLANDR_MAX_HEAP=256m         cap the Java heap            (default 192m)
+#   ISLANDR_MAX_HEAP=192m         cap the Java heap             (default 96m)
 #   ISLANDR_SKIP_MEM_CHECK=1      install despite too little RAM
 #   TRUSTED_PROXIES=127.0.0.1     reverse proxy in front: whose forwarded
 #                                 header may name the real client (see below)
@@ -43,10 +43,15 @@ ISLANDR_HTTP_HOST="${ISLANDR_HTTP_HOST:-0.0.0.0}"
 ISLANDR_HTTP_PORT="${ISLANDR_HTTP_PORT:-80}"
 ISLANDR_HTTPS_PORT="${ISLANDR_HTTPS_PORT:-443}"
 # A native image with no -Xmx takes up to 80% of the host's RAM as its maximum
-# heap and the collector has no reason to hand any of it back — measured on a
-# 1 GB VPS: 253 MB resident, 29.8% of the machine, for an idle service. Capping
-# it makes the figure a constant instead of a share of whatever box it landed on.
-ISLANDR_MAX_HEAP="${ISLANDR_MAX_HEAP:-192m}"
+# heap and grows into it, so the resident figure is a share of whatever box it
+# landed on rather than a property of the service. Capping it makes the number
+# a constant. 96m is not the smallest that runs — it is the largest that keeps
+# the worst case inside the 256 MB this guide asks for: measured on a 1 GB VPS,
+# 236 MB resident during a discovery scan against a real subnet, 252.8 MB peak.
+# The heap is the smaller half of that; image heap, the mapped binary, thread
+# stacks and Netty's direct buffers are about 190 MB and -Xmx does not touch
+# them, which is why halving the cap from 192m saved 38 MB and not 96.
+ISLANDR_MAX_HEAP="${ISLANDR_MAX_HEAP:-96m}"
 # Nothing is guessed here. Binding to loopback strongly suggests a proxy is in
 # front, but it is not proof, and trusting an address that nothing sits behind
 # is exactly the mistake this setting exists to prevent — so unset means nobody

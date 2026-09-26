@@ -158,13 +158,14 @@ User=islandr
 Group=islandr
 WorkingDirectory=/var/lib/islandr
 EnvironmentFile=/etc/default/islandr
-ExecStart=/opt/islandr/islandr -Xmx192m
+ExecStart=/opt/islandr/islandr -Xmx96m
 
 # Without -Xmx a native image takes up to 80% of the host's RAM as its maximum
-# heap, and the collector has no reason to give any of it back: on a 1 GB VPS
-# that showed as 253 MB resident, 29.8% of the machine, for an idle service.
-# The cap makes the number a constant rather than a share of the hardware.
-# Raise it if the journal reports heap pressure.
+# heap and grows into it, so the resident figure follows the size of the host
+# rather than the needs of the service. Measured on a 1 GB VPS with this cap:
+# 236 MB resident during a discovery scan, 252.8 MB peak, CPU unchanged. The
+# heap is the smaller half — image heap, the mapped binary, thread stacks and
+# Netty's direct buffers are roughly 190 MB and -Xmx does not cover them.
 
 # Do not "harden" the next four lines without reading install/hardening.md —
 # NoNewPrivileges=true and a CapabilityBoundingSet each break every sudo
