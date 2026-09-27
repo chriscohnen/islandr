@@ -426,7 +426,11 @@ export default defineComponent({
       }
     },
 
-    async removeTypeGrant(id) {
+    async removeTypeGrant(g) {
+      const roleName = (this.roles.find(r => r.id === g.roleId) || {}).name || g.roleId;
+      if (!await confirmDialog(t("acl.confirm_revoke_type", {
+            role: roleName, type: this.typeLabel(g.resourceType) }))) return;
+      const id = g.id;
       this.typeGrantError = null;
       try {
         const res = await fetch("/api/v1/acl/type-grants/" + id, { method: "DELETE" });
@@ -466,7 +470,10 @@ export default defineComponent({
       }
     },
 
-    async removeNetworkGrant(id) {
+    async removeNetworkGrant(g) {
+      const roleName = (this.roles.find(r => r.id === g.roleId) || {}).name || g.roleId;
+      if (!await confirmDialog(t("acl.confirm_revoke_network", { role: roleName }))) return;
+      const id = g.id;
       this.networkGrantError = null;
       try {
         const res = await fetch("/api/v1/acl/network-grants/" + id, { method: "DELETE" });
@@ -504,6 +511,8 @@ export default defineComponent({
     },
 
     async removeUserGrant(g) {
+      if (!await confirmDialog(t("acl.confirm_revoke_user", {
+            user: g.userName, resource: g.resourceName }))) return;
       await this.applyUserGrant(g.userId, g.resourceId, false, [], null);
     },
 
@@ -559,6 +568,8 @@ export default defineComponent({
     },
 
     async removeSiteGrant(g) {
+      if (!await confirmDialog(t("acl.confirm_revoke_site", {
+            site: g.grantorSiteName, resource: g.resourceName }))) return;
       await this.applySiteGrant(g.siteId, g.resourceId, false, []);
     },
 
@@ -759,7 +770,7 @@ export default defineComponent({
                   <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
                   <td>{{ typeLabel(g.resourceType) }}</td>
                   <td>
-                    <button class="btn btn-ghost btn-sm" @click="removeTypeGrant(g.id)" :title="t('acl.type_grant_remove')">✕</button>
+                    <button class="btn btn-ghost btn-sm" @click="removeTypeGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
                   </td>
                 </tr>
               </tbody>
@@ -803,7 +814,7 @@ export default defineComponent({
                 <tr v-for="g in networkGrantsForActiveSite" :key="g.id">
                   <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
                   <td>
-                    <button class="btn btn-ghost btn-sm" @click="removeNetworkGrant(g.id)" :title="t('acl.network_grant_remove')">✕</button>
+                    <button class="btn btn-ghost btn-sm" @click="removeNetworkGrant(g)" :title="t('acl.network_grant_remove')">✕</button>
                   </td>
                 </tr>
               </tbody>
