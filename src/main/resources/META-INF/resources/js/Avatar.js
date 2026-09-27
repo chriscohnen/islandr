@@ -3,6 +3,7 @@ import { t } from "/js/i18n.js";
 import { avatarVersion, chooseAndUploadAvatar, removeAvatar } from "/js/avatarUpload.js";
 import { onEscape } from "/js/keyboard.js";
 import { Icon } from "/js/Icons.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Avatar with two-stage fallback:
 //   1. <img> at /api/v1/users/{id}/avatar (covers MS Graph / Google / Gravatar cache)
@@ -115,7 +116,7 @@ export default defineComponent({
     async remove() {
       if (this.busy || !this.user.id) return;
       this.closeMenu();
-      if (!confirm(t("avatar.confirm_remove"))) return;
+      if (!await confirmDialog(t("avatar.confirm_remove"))) return;
       this.busy = true;
       try {
         const r = await removeAvatar(this.user.id);

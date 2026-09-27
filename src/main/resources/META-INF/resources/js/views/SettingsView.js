@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { t, locale, formatDate } from "/js/i18n.js";
 import { Icon } from "/js/Icons.js";
 import { registerSecurityKey } from "/js/webauthnClient.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Public resolvers offered as one-click fill-ins for the client-DNS field —
 // IPv4 and IPv6 addresses toggle independently, so dual-stack setups (wgSubnet6)
@@ -512,7 +513,7 @@ export default defineComponent({
     },
 
     async resetTls() {
-      if (!confirm(t("settings.tls_reset_confirm"))) return;
+      if (!await confirmDialog(t("settings.tls_reset_confirm"))) return;
       this.tlsUploading = true;
       this.tlsError = null;
       this.tlsInfo = null;
@@ -806,7 +807,7 @@ export default defineComponent({
       }
     },
     async removeWebauthnKey(cred) {
-      if (!confirm(t("settings.webauthn_confirm_remove", { label: cred.label || t("settings.webauthn_unnamed") }))) return;
+      if (!await confirmDialog(t("settings.webauthn_confirm_remove", { label: cred.label || t("settings.webauthn_unnamed") }))) return;
       this.webauthnError = null;
       try {
         const res = await fetch("/api/v1/auth/webauthn/" + cred.id, { method: "DELETE" });
@@ -894,7 +895,7 @@ export default defineComponent({
 
     async confirmImport() {
       if (!this.configImportData) return;
-      if (!confirm(t("settings.config_import_confirm"))) return;
+      if (!await confirmDialog(t("settings.config_import_confirm"))) return;
       this.configImporting = true;
       this.configImportError = null;
       try {

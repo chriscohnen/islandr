@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
 import { onEscape } from "/js/keyboard.js";
 import { Icon } from "/js/Icons.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Identity-Seite mit Hierarchie: aktiver Provider als Hero oben, alle anderen
 // als kompakte "Strip"-Karten darunter. Genau einer kann aktiv sein — das wird
@@ -363,7 +364,7 @@ export default defineComponent({
       }
     },
     async clearGwsSettings() {
-      if (!confirm(t("identity.gws_clear") + "?")) return;
+      if (!await confirmDialog(t("identity.gws_clear") + "?")) return;
       this.gwsForm = { serviceAccountJson: "", impersonationEmail: "" };
       await this.saveGwsSettings();
     },
@@ -447,7 +448,7 @@ export default defineComponent({
       }
     },
     async deleteCustomProvider(id) {
-      if (!confirm(t("identity.custom_delete_confirm"))) return;
+      if (!await confirmDialog(t("identity.custom_delete_confirm"))) return;
       try {
         const res = await fetch("/api/v1/identity/custom-providers/" + id, { method: "DELETE" });
         if (!res.ok) {

@@ -1,5 +1,6 @@
 import { createApp, defineComponent, reactive } from "vue";
 import { t, setLocale, locale } from "/js/i18n.js";
+import { ConfirmDialog } from "/js/confirmDialog.js";
 import { createRouter, createWebHashHistory } from "vue-router";
 
 import LoginView from "/js/views/LoginView.js";
@@ -135,7 +136,7 @@ router.beforeEach(async (to) => {
 // ---------------------------------------------------------------------------
 const App = defineComponent({
   name: "App",
-  components: { Avatar, Icon },
+  components: { Avatar, Icon, ConfirmDialog },
   data() {
     return {
       setupComplete: true,
@@ -458,6 +459,9 @@ const App = defineComponent({
         <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" :iron-rdp-enabled="ironRdpEnabled" :google-ws-available="googleWsAvailable" @settings-changed="onSettingsChanged" />
       </main>
     </div>
+    <!-- One instance for the whole console, outside the shell so it also
+         covers the login view. confirmDialog() drives it from anywhere. -->
+    <ConfirmDialog />
   `,
 });
 

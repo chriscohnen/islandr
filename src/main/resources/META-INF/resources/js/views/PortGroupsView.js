@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 import { onEscape } from "/js/keyboard.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Port-group templates (admin-managed). A group is a named bundle of
 // (port, transport, protocol, label) tuples that the admin can apply to a
@@ -128,7 +129,7 @@ export default defineComponent({
       }
     },
     async deleteGroup(g) {
-      if (!confirm(t("portgroups.confirm_del", { name: g.name }))) return;
+      if (!await confirmDialog(t("portgroups.confirm_del", { name: g.name }))) return;
       try {
         const res = await fetch("/api/v1/port-groups/" + g.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);

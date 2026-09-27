@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
 import { onEscape, onSaveShortcut, onSlashFocus } from "/js/keyboard.js";
 import { Icon } from "/js/Icons.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // The Rollen × Ressourcen grant matrix (PRD §F-B, ADR-0006).
 // Layout: one tab per site (the resources column-set scopes to that site),
@@ -344,9 +345,9 @@ export default defineComponent({
       this.picker = null;
     },
 
-    discardAll() {
+    async discardAll() {
       if (!this.dirty) return;
-      if (!confirm(t("acl.confirm_discard", { n: this.dirtyCount }))) return;
+      if (!await confirmDialog(t("acl.confirm_discard", { n: this.dirtyCount }))) return;
       this.pending = {};
     },
 

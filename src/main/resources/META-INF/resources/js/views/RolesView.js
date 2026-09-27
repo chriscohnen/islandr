@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 import { onEscape } from "/js/keyboard.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Roles list + per-role membership editor. Grants for a role live in the
 // matrix view; this view focuses on "what is this role and who is in it".
@@ -101,9 +102,9 @@ export default defineComponent({
     },
     async deleteRole(role) {
       if (role.grantCount > 0) {
-        if (!confirm(t("roles.confirm_delete_grants", { n: role.grantCount }))) return;
+        if (!await confirmDialog(t("roles.confirm_delete_grants", { n: role.grantCount }))) return;
       } else {
-        if (!confirm(t("roles.confirm_delete", { name: role.name }))) return;
+        if (!await confirmDialog(t("roles.confirm_delete", { name: role.name }))) return;
       }
       try {
         const res = await fetch("/api/v1/roles/" + role.id, { method: "DELETE" });

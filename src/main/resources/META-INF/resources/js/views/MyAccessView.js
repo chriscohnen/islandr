@@ -5,6 +5,7 @@ import { onEscape } from "/js/keyboard.js";
 import TopologyDiagram from "/js/TopologyDiagram.js";
 import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import PortalActivityHeatmap from "/js/PortalActivityHeatmap.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Self-service view: an org user manages their own devices. No site peers,
 // no IP picker (the server chooses), no other user's data.
@@ -576,7 +577,7 @@ export default defineComponent({
     // admin's real delete removes it (users-self-delete-peer). Destructive,
     // so it confirms, same as every other destructive action here.
     async removePeer(peer) {
-      if (!confirm(t("myaccess.confirm_remove_peer"))) return;
+      if (!await confirmDialog(t("myaccess.confirm_remove_peer"))) return;
       try {
         const res = await fetch("/api/v1/peers/mine/" + peer.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);

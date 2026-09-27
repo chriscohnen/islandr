@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 import { onEscape, onSlashFocus } from "/js/keyboard.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Resources of a single site. The site is passed via route param :siteId.
 // Each resource has a list of ports (port + transport + protocol-label).
@@ -413,7 +414,7 @@ export default defineComponent({
       if (deleted) this.closeModal();
     },
     async deleteResource(r) {
-      if (!confirm(t("resources.confirm_delete", { name: r.name }))) return false;
+      if (!await confirmDialog(t("resources.confirm_delete", { name: r.name }))) return false;
       try {
         const res = await fetch("/api/v1/resources/" + r.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -445,7 +446,7 @@ export default defineComponent({
     async bulkDelete() {
       const n = this.selectedIds.length;
       if (n === 0) return;
-      if (!confirm(t("resources.confirm_bulk_delete", { n }))) return;
+      if (!await confirmDialog(t("resources.confirm_bulk_delete", { n }))) return;
       this.bulkDeleting = true;
       try {
         const res = await fetch("/api/v1/resources/bulk-delete", {
@@ -725,7 +726,7 @@ export default defineComponent({
       }
     },
     async deletePort(resourceId, port) {
-      if (!confirm(t("resources.confirm_port"))) return;
+      if (!await confirmDialog(t("resources.confirm_port"))) return;
       try {
         const res = await fetch("/api/v1/resources/" + resourceId + "/ports/" + port.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);

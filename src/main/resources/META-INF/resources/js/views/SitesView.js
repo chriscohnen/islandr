@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 import { onEscape } from "/js/keyboard.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Sites = organisational grouping for resources. The CIDR is informational,
 // rendered next to the name; it does NOT participate in nftables rules.
@@ -290,7 +291,7 @@ export default defineComponent({
         alert(t("sites.confirm_res", { n: site.resourceCount }));
         return;
       }
-      if (!confirm(t("sites.confirm_del", { name: site.name }))) return;
+      if (!await confirmDialog(t("sites.confirm_del", { name: site.name }))) return;
       try {
         const res = await fetch("/api/v1/sites/" + site.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);
