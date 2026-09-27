@@ -397,6 +397,12 @@ neither a draft nor a prerelease, the same one the Admin Console's version check
 You do not need to know the version number. Release candidates are only installed when you ask for
 them, by `--pre` or by naming the tag.
 
+Fetch it again every time, as the first line above does. **`update.sh` updates
+the binary, never itself** — a copy kept in your home directory stays whatever
+it was the day you downloaded it, including the checks it does not yet have.
+Each release also carries it as an asset, if you would rather pin the script to
+the version it installs.
+
 Read it before piping straight to `sudo bash` if you'd rather not fetch-and-run blind.
 
 Before swapping the binary it copies the current one to `/opt/islandr/islandr.prev` and takes a

@@ -148,6 +148,14 @@ sudo install -d -o islandr -g islandr /opt/islandr
 sudo install -o islandr -g islandr -m 0755 "islandr-runner-linux-${ARCH}" /opt/islandr/islandr
 ```
 
+Every release binary carries build provenance, so you can check that the file you
+downloaded is the one this repository built, rather than trusting the checksum
+published beside it:
+
+```bash
+gh attestation verify "islandr-runner-linux-${ARCH}" --repo chriscohnen/islandr
+```
+
 That is the binary only. [`docs/install/setup-hub.sh`](docs/install/setup-hub.sh) does the whole
 thing — service user, scoped sudo, env file, systemd unit — and checks the prerequisites first:
 

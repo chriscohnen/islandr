@@ -26,6 +26,18 @@ sha256sum -c "islandr-runner-linux-${ARCH}.sha256"
 mv "islandr-runner-linux-${ARCH}" /tmp/islandr
 ```
 
+The checksum proves the download arrived intact. It does not prove the release
+is the one this repository built — whoever could replace the binary could
+replace the `.sha256` beside it. For that, verify the build provenance, which
+is checked against GitHub rather than against us:
+
+```bash
+gh attestation verify "islandr-runner-linux-${ARCH}" --repo chriscohnen/islandr
+```
+
+It names the workflow, the commit and the run that produced exactly this file.
+Releases from before 1.0.0 carry no attestation and the command will say so.
+
 ### 2. Create a dedicated system user
 
 ```bash

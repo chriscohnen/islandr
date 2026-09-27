@@ -294,6 +294,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
+      # Build provenance: id-token mints the short-lived OIDC identity this
+      # workflow signs with, attestations stores the result. No key material
+      # anywhere — a signing key kept as a repository secret would live in the
+      # same place it is meant to prove something against.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -325,6 +331,22 @@ jobs:
             (cd dist && sha256sum "islandr-runner-linux-$arch" > "islandr-runner-linux-$arch.sha256")
             chmod +x dist/islandr-runner-linux-$arch
           done
+
+      # A checksum published beside its binary proves the download was not
+      # corrupted, not that the release is the one this repository built:
+      # whoever could replace the binary could replace the .sha256 with it.
+      # The attestation binds each file to the workflow, the commit and the
+      # run that produced it, and it is verified against GitHub rather than
+      # against us:
+      #   gh attestation verify ./islandr-runner-linux-amd64 --repo chriscohnen/islandr
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/islandr-runner-linux-amd64
+            dist/islandr-runner-linux-arm64
+            dist/proxy/islandr-proxy-linux-amd64
+            dist/proxy/islandr-proxy-linux-arm64
 
       # The curated, operator-facing notes live in CHANGELOG.md — write them once
       # there and ship them as the release body. generate_release_notes still
