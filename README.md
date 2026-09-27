@@ -23,8 +23,8 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **Release candidate for 1.0.0.** The upgrade path itself is what 1.0 promises — `update.sh` backs up the binary and the database first and rolls both back if the service does not come up, exercised by CI on every tag — but the number isn't final until that's been checked against a real upgrade outside CI too, not only asserted. Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`); read the release notes before upgrading regardless.
-> This is exactly the stage where testers make the biggest difference. Kick the tyres, and if you hit a rough edge [open an issue](https://github.com/chriscohnen/islandr/issues) — that feedback is what moves it from RC to final. Starring or watching the repo is the easiest way to follow releases.
+> **1.0.0 is out.** What the number promises is that upgrades are boring, not that the software is finished: `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not stay up — and CI walks that path, rollback included, on every tag. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
   <img src="https://islandr-gateway.net/screenshots/light/dashboard.png" width="49%" alt="Dashboard: live topology diagram, peers, sites and networks">
@@ -210,6 +210,10 @@ Every version: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 - **External API: grants carry their ports as values** — transport included, so a port-limited grant can finally be turned into a rule
 - **Security keys have a console** — a "sign in with a security key" button next to the password, registered and managed from Settings; the password stays a complete path on its own. An offline escape hatch too: `ISLANDR_WEBAUTHN_RESET=true` clears every registered authenticator on the recovery admin, audit-logged, for the case where you cannot sign in to remove one ([#67](https://github.com/chriscohnen/islandr/issues/67))
 - **A user can rename their own device, change its category, and remove it themselves** in My access — no admin needed for either
+- **Every released binary carries build provenance** — `gh attestation verify <file> --repo chriscohnen/islandr` names the workflow, the commit and the run that built it, checked against GitHub rather than against us
+- **Destructive actions ask in the console's own voice**, not the browser's grey box — and revoking access in Roles & ACL now asks at all, naming what it takes away and from whom
+- **The heap is capped**, so the memory figure is a constant rather than a share of the host: measured at 236 MB resident on a 1 GB VPS during a discovery scan
+- **The updater reports a hub with no fail-closed boot ruleset** — it shipped in 0.22.0 and no update can add it, so installs older than that never had it and nothing said so
 - **A resource can be port-scanned on its own**, not only discovered as part of a whole-CIDR sweep — type a range, scan the resource's own IP, add a hit as a port with one click
 - **The console says it is open source** — EUPL-1.2 next to the version and in the login footer, with the trademark boundary named
 - Fixed: Settings and My access were unreachable on a phone; discovery showed port numbers where it can show names; the avatar's edit controls sat permanently in the topbar; a fresh install now probes its own WireGuard public key instead of showing a placeholder until someone notices
