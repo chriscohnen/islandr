@@ -38,6 +38,13 @@ gh attestation verify "islandr-runner-linux-${ARCH}" --repo chriscohnen/islandr
 It names the workflow, the commit and the run that produced exactly this file.
 Releases from before 1.0.0 carry no attestation and the command will say so.
 
+This is not a step in every install. It needs the GitHub CLI installed and
+signed in — the lookup goes through the GitHub API, which `gh` will not call
+without a token even for a public repository — so run it on the machine you
+download from and copy the binary to the hub afterwards. The hub itself never
+needs `gh`. The checksum above stays the routine check; this one is for the
+moment you decide whether to trust the project at all.
+
 ### 2. Create a dedicated system user
 
 ```bash

@@ -55,8 +55,16 @@ public class WebAuthnService {
         public CeremonyFailedException(String message) { super(message); }
     }
 
-    private WebAuthn engineFor(String rpId) {
-        return engines.computeIfAbsent(rpId, id -> {
+    /**
+     * One engine per relying party <em>and ceremony</em>. They differ in a
+     * single respect, and it is the one that matters: only the registration
+     * engine's updater may create a credential row. A login that reaches the
+     * updater with an id we have never seen is not a first registration, it is
+     * a caller asking us to trust a key nobody ever approved.
+     */
+    private WebAuthn engineFor(String rpId, boolean registration) {
+        return engines.computeIfAbsent(rpId + "|" + registration, unusedKey -> {
+            String id = rpId;
             WebAuthnOptions options = new WebAuthnOptions()
                     .setRelyingParty(new RelyingParty().setName("Islandr").setId(id))
                     .setTimeoutInMilliseconds(WebAuthnChallenges.TTL.toMillis());
@@ -70,13 +78,17 @@ public class WebAuthnService {
                     // what an acceptable counter is lives in the store.
                     .authenticatorUpdater(a -> {
                         try {
-                            // Fires for both ceremonies, and cannot say which:
-                            // registration hands over a full Authenticator (key,
-                            // counter, userName) for an id we have never seen, an
-                            // assertion hands over one we already hold. The store
-                            // tells the two apart by whether the row exists yet.
-                            store.upsertFromCeremony(id, a.getUserName(), a.getCredID(),
-                                    a.getPublicKey(), a.getCounter());
+                            if (registration) {
+                                store.upsertFromCeremony(id, a.getUserName(), a.getCredID(),
+                                        a.getPublicKey(), a.getCounter());
+                            } else {
+                                // Assertions may only ever advance the counter of
+                                // a row that already exists. recordAssertion
+                                // throws on an unknown id rather than creating
+                                // one — that refusal is the last line of defence
+                                // if the ceremony check above is ever bypassed.
+                                store.recordAssertion(a.getCredID(), a.getCounter());
+                            }
                             return Future.succeededFuture();
                         } catch (RuntimeException ex) {
                             return Future.failedFuture(ex);
@@ -110,8 +122,8 @@ public class WebAuthnService {
                 .put("rawId", WebAuthnCredential.LOCAL_ADMIN)
                 .put("name", WebAuthnCredential.LOCAL_ADMIN)
                 .put("displayName", displayName == null ? "Islandr recovery admin" : displayName);
-        JsonObject options = await(engineFor(rpId).createCredentialsOptions(user), "register challenge");
-        challenges.put(WebAuthnCredential.LOCAL_ADMIN, rpId, options.getString("challenge"));
+        JsonObject options = await(engineFor(rpId, true).createCredentialsOptions(user), "register challenge");
+        challenges.put(WebAuthnCredential.LOCAL_ADMIN, rpId, true, options.getString("challenge"));
         return options;
     }
 
@@ -122,8 +134,8 @@ public class WebAuthnService {
             throw new CeremonyFailedException("no security key is registered for this address");
         }
         JsonObject options = await(
-                engineFor(rpId).getCredentialsOptions(WebAuthnCredential.LOCAL_ADMIN), "login challenge");
-        challenges.put(WebAuthnCredential.LOCAL_ADMIN, rpId, options.getString("challenge"));
+                engineFor(rpId, false).getCredentialsOptions(WebAuthnCredential.LOCAL_ADMIN), "login challenge");
+        challenges.put(WebAuthnCredential.LOCAL_ADMIN, rpId, false, options.getString("challenge"));
         return options;
     }
 
@@ -136,15 +148,26 @@ public class WebAuthnService {
     public String verify(String rpId, String origin, JsonObject browserResponse, String label,
                          boolean registration) {
         requireName(rpId);
-        String challenge = challenges.consume(WebAuthnCredential.LOCAL_ADMIN, rpId);
+        requireCeremony(browserResponse, registration);
+        String challenge = challenges.consume(WebAuthnCredential.LOCAL_ADMIN, rpId, registration);
         if (challenge == null) {
             throw new CeremonyFailedException("no challenge is pending — start again");
         }
-        // There is exactly one identity this can ever be — the recovery admin
-        // — for both ceremonies, so it is known up front rather than left for
-        // the response's own userHandle to supply. A non-resident assertion
-        // carries no userHandle at all, and the engine requires one or the
-        // other.
+        // There is exactly one identity this can ever be — the recovery admin —
+        // for both ceremonies, so it is named up front rather than left for the
+        // response's own userHandle to supply.
+        //
+        // DO NOT set this to null for assertions. It was null once, and the
+        // engine answered `username can't be null!` on every real login — a
+        // non-resident assertion carries no userHandle, and the engine needs
+        // one of the two. That was found in a browser, not in a test, and no
+        // test here can catch it again.
+        //
+        // Naming the user is safe because it is not what decides the ceremony:
+        // requireCeremony() above refuses a response that answers the other
+        // one, on its shape and before any cryptography, and the login engine's
+        // updater refuses a credential id it has never seen. Those two carry
+        // the property; this line only tells the engine whose keys to consider.
         WebAuthnCredentials credentials = new WebAuthnCredentials()
                 .setOrigin(origin)
                 .setDomain(rpId)
@@ -152,7 +175,7 @@ public class WebAuthnService {
                 .setUsername(WebAuthnCredential.LOCAL_ADMIN)
                 .setWebauthn(browserResponse);
 
-        var user = await(engineFor(rpId).authenticate(credentials), registration ? "registration" : "assertion");
+        var user = await(engineFor(rpId, registration).authenticate(credentials), registration ? "registration" : "assertion");
         String credentialId = browserResponse.getString("id");
         if (registration) {
             // The row itself was already created by the updater callback above,
@@ -163,6 +186,44 @@ public class WebAuthnService {
         LOG.infof("webauthn: %s succeeded for %s at %s",
                 registration ? "registration" : "assertion", user.subject(), rpId);
         return credentialId;
+    }
+
+    /**
+     * The endpoint decides the ceremony, never the response.
+     *
+     * <p>vertx-auth-webauthn reads {@code clientDataJSON.type} and branches on
+     * it, so without this check a {@code webauthn.create} response posted to
+     * the login endpoint runs the registration path. Everything downstream —
+     * challenge, origin, rpIdHash, attestation — then verifies correctly,
+     * because the response really is a well-formed registration. It is simply
+     * not the one that was asked for.
+     *
+     * <p>Checked on the shape alone and before any cryptography, so a refusal
+     * never depends on a signature failing to verify.
+     */
+    private static void requireCeremony(JsonObject browserResponse, boolean registration) {
+        String expected = registration ? "webauthn.create" : "webauthn.get";
+        JsonObject inner = browserResponse == null ? null : browserResponse.getJsonObject("response");
+        String encoded = inner == null ? null : inner.getString("clientDataJSON");
+        if (encoded == null) {
+            throw new CeremonyFailedException("response carries no clientDataJSON");
+        }
+        String type;
+        try {
+            type = new JsonObject(new String(java.util.Base64.getUrlDecoder()
+                    .decode(encoded.replace('+', '-').replace('/', '_').replace("=", "")),
+                    java.nio.charset.StandardCharsets.UTF_8)).getString("type");
+        } catch (RuntimeException e) {
+            throw new CeremonyFailedException("clientDataJSON is not readable");
+        }
+        if (!expected.equals(type)) {
+            LOG.warnf("webauthn: refused a '%s' response at the %s endpoint", type, expected);
+            throw new CeremonyFailedException("this response does not answer the ceremony that was started");
+        }
+        // Belt and braces: an assertion never carries an attestation object.
+        if (!registration && inner.containsKey("attestationObject")) {
+            throw new CeremonyFailedException("an assertion must not carry an attestation");
+        }
     }
 
     private static void requireName(String rpId) {

@@ -35,9 +35,9 @@ public class WebAuthnChallenges {
 
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
 
-    public void put(String subject, String rpId, String challenge) {
+    public void put(String subject, String rpId, boolean registration, String challenge) {
         prune();
-        pending.put(key(subject, rpId), new Pending(challenge, Instant.now().plus(TTL)));
+        pending.put(key(subject, rpId, registration), new Pending(challenge, Instant.now().plus(TTL)));
     }
 
     /**
@@ -45,8 +45,8 @@ public class WebAuthnChallenges {
      *
      * @return the challenge, or {@code null} when there is none or it expired
      */
-    public String consume(String subject, String rpId) {
-        Pending p = pending.remove(key(subject, rpId));
+    public String consume(String subject, String rpId, boolean registration) {
+        Pending p = pending.remove(key(subject, rpId, registration));
         if (p == null || p.expiresAt().isBefore(Instant.now())) return null;
         return p.challenge();
     }
@@ -57,7 +57,15 @@ public class WebAuthnChallenges {
         pending.entrySet().removeIf(e -> e.getValue().expiresAt().isBefore(now));
     }
 
-    private static String key(String subject, String rpId) {
-        return subject + "|" + rpId;
+    /**
+     * The ceremony is part of the key, so a challenge issued for a login can
+     * never be spent on a registration. Without it the two share a slot, and
+     * an unauthenticated caller could fetch a login challenge and present it
+     * as the answer to a registration — which is half of a ceremony-confusion
+     * bypass, the other half being the engine trusting the response's own
+     * claim about which ceremony it is.
+     */
+    private static String key(String subject, String rpId, boolean registration) {
+        return subject + "|" + rpId + "|" + (registration ? "register" : "login");
     }
 }

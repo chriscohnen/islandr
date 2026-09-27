@@ -156,6 +156,9 @@ published beside it:
 gh attestation verify "islandr-runner-linux-${ARCH}" --repo chriscohnen/islandr
 ```
 
+Needs the GitHub CLI signed in, so this belongs on the machine you download
+from rather than on the hub.
+
 That is the binary only. [`docs/install/setup-hub.sh`](docs/install/setup-hub.sh) does the whole
 thing — service user, scoped sudo, env file, systemd unit — and checks the prerequisites first:
 
