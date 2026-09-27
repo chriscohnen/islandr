@@ -93,7 +93,7 @@ public class ConfigService {
                         p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.enabled,
                         includePrivateKeys ? p.privateKeyPem : null,
                         p.type, p.siteAllowedCidrs, p.deviceType, p.presharedKey, p.createdAt,
-                        p.lat, p.lng, p.locationLabel, p.validUntil, p.enabledSource))
+                        p.lat, p.lng, p.locationLabel, p.validUntil, p.enabledSource, p.deletionRequestedAt))
                 .toList();
 
         List<ConfigExportDto.PeerScheduleSnapshot> peerSchedules = PeerSchedule.<PeerSchedule>listAll()
@@ -357,8 +357,8 @@ public class ConfigService {
                             " device_type, preshared_key," +
                             " total_rx_bytes, total_tx_bytes," +
                             " last_sampled_rx_bytes, last_sampled_tx_bytes, created_at," +
-                            " lat, lng, location_label, valid_until, enabled_source)" +
-                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,0,0,0,?12,?13,?14,?15,?16,?17)")
+                            " lat, lng, location_label, valid_until, enabled_source, deletion_requested_at)" +
+                            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,0,0,0,?12,?13,?14,?15,?16,?17,?18)")
                     .setParameter(1, peer.id())
                     .setParameter(2, peer.userId())
                     .setParameter(3, peer.name())
@@ -378,6 +378,9 @@ public class ConfigService {
                     // no recorded source of the current enabled state).
                     .setParameter(16, tsOrNull(peer.validUntil()))
                     .setParameter(17, peer.enabledSource())
+                    // Pre-users-self-delete-peer exports lack this too → null
+                    // (no pending removal request).
+                    .setParameter(18, tsOrNull(peer.deletionRequestedAt()))
                     .executeUpdate();
         }
 

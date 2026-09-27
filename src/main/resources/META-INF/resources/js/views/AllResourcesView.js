@@ -38,6 +38,7 @@ export default defineComponent({
       return {
         computer: t("resources.type_computer"),
         router: t("resources.type_router"),
+        accesspoint: t("resources.type_accesspoint"),
         printer: t("resources.type_printer"),
         nas: t("resources.type_nas"),
         camera: t("resources.type_camera"),

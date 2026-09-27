@@ -73,11 +73,11 @@ public final class ResourceDto {
             String ip,
             String description,
             // Optional in the request; defaults to 'computer' if null/blank.
-            // The CHECK constraint in the DB rejects anything outside the
-            // allowed set, surfacing as HTTP 500 — the UI must restrict the
-            // input to the documented set (see V13 migration).
-            @Pattern(regexp = "^(computer|router|printer|nas|camera|iot|virt-host|rackserver|kvm|management|other)?$",
-                    message = "type must be one of: computer, router, printer, nas, camera, iot, virt-host, rackserver, kvm, management, other")
+            // The database no longer constrains this (V80 dropped the CHECK) —
+            // this Pattern against ResourceTypes.PATTERN is the only gate left,
+            // so the UI must restrict the input to the same set.
+            @Pattern(regexp = "^(" + ResourceTypes.PATTERN + ")?$",
+                    message = "type must be one of: " + ResourceTypes.LIST_FOR_MESSAGE)
             String type,
 
             // Optional — DNS label for the resource-name resolver (ADR-0023).

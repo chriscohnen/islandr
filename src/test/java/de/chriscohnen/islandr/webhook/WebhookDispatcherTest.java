@@ -55,6 +55,38 @@ class WebhookDispatcherTest {
         assertThat(readWebhook(w.id).lastDeliveryStatus).isEqualTo("ok");
     }
 
+    /** Recording the delivery status used to be a single write whose failure
+     *  vanished inside the executor. Under table-lock contention (another
+     *  connection reading webhooks at that moment) the status stayed null for
+     *  good — which is also what made the test above flaky. The write now
+     *  retries briefly; this holds a read transaction open across the
+     *  delivery to force that contention every time. */
+    @Test
+    void publish_recordsStatus_evenWhenTheTableIsBrieflyLocked() throws Exception {
+        Webhook w = svc.create(new WebhookDto.CreateRequest("https://hook.example.com/locked", null,
+                List.of(WebhookEventType.PEER_CONNECTED), null, null, null, null), "admin").webhook();
+        http.postBodyStub(w.url, 200, "ok", null);
+
+        java.util.concurrent.CountDownLatch readOpen = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        Thread reader = new Thread(() -> io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(() -> {
+            Webhook.findById(w.id);
+            readOpen.countDown();
+            try { release.await(); } catch (InterruptedException ignored) { }
+        }));
+        reader.start();
+        readOpen.await();
+
+        dispatcher.publish(WebhookEventType.PEER_CONNECTED, "admin", "Peer:p1", Map.of());
+        waitUntil(() -> http.calls.stream().anyMatch(c -> c.url().equals(w.url)), 2000);
+        Thread.sleep(150);   // the first write attempt has hit the lock by now
+        release.countDown();
+        reader.join();
+
+        waitUntil(() -> "ok".equals(readWebhook(w.id).lastDeliveryStatus), 3000);
+        assertThat(readWebhook(w.id).lastDeliveryStatus).isEqualTo("ok");
+    }
+
     @Test
     void publish_skipsWebhookNotSubscribedToThisEventType() {
         Webhook w = svc.create(new WebhookDto.CreateRequest("https://hook.example.com/b", null,

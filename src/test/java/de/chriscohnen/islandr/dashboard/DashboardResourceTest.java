@@ -151,6 +151,39 @@ class DashboardResourceTest {
         assertThat(body.getString("setup.privateKeyRetention")).isEqualTo("never");
     }
 
+    /**
+     * F-01a: an org user with a local password is a deliberately OIDC-less
+     * setup, not an unfinished one — {@code hasLocalPasswordUsers} is what the
+     * dashboard's OIDC hint checks before nagging. Only asserts the forward
+     * direction (setting a password makes it true): other test classes leave
+     * their own password-bearing users lying around in this shared DB, so
+     * asserting "false" here would depend on suite execution order.
+     */
+    @Test
+    void dashboard_setupBlock_hasLocalPasswordUsers_reflectsAnyUserWithAPassword() {
+        String userId = persistUserWithPassword();
+        try {
+            JsonPath body = given().when().get("/api/v1/dashboard")
+                    .then().statusCode(200).extract().jsonPath();
+            assertThat(body.getBoolean("setup.hasLocalPasswordUsers")).isTrue();
+        } finally {
+            deleteUser(userId);
+        }
+    }
+
+    @Transactional
+    String persistUserWithPassword() {
+        User u = User.createNew("Password User", "pw-" + UUID.randomUUID() + "@firma.de");
+        u.passwordHash = "irrelevant-for-this-test-not-a-real-hash";
+        u.persist();
+        return u.id;
+    }
+
+    @Transactional
+    void deleteUser(String id) {
+        User.deleteById(id);
+    }
+
     @Test
     void dashboard_topology_listsSitesAndResources() {
         JsonPath body = given().when().get("/api/v1/dashboard")

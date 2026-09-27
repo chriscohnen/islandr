@@ -29,6 +29,32 @@ public class VersionResource {
     @ConfigProperty(name = "quarkus.application.version", defaultValue = "dev")
     String appVersion;
 
+    @ConfigProperty(name = "quarkus.datasource.jdbc.url", defaultValue = "")
+    String jdbcUrl;
+
+    /** Where {@code update.sh} keeps the previous binary. Configurable because
+     *  the container layout differs, but the default is the layout
+     *  {@code setup-hub.sh} creates and {@code update.sh} assumes. */
+    @ConfigProperty(name = "islandr.update.binary-backup",
+                    defaultValue = "/opt/islandr/islandr.prev")
+    String binaryBackupPath;
+
+    /**
+     * Whether a rollback exists, for the line beside the update instructions.
+     *
+     * <p>Read-only by design: it reports on the two files {@code update.sh}
+     * leaves behind and does nothing with them. Restoring would need root
+     * (ADR-0011), which is a separate decision with a much higher price.
+     */
+    @GET
+    @Path("/backups")
+    public UpdateBackups.Status backups(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        return UpdateBackups.inspect(
+                java.nio.file.Path.of(binaryBackupPath),
+                UpdateBackups.databaseBackupFrom(jdbcUrl));
+    }
+
     /**
      * On-demand GitHub release check. Never cached, never polled —
      * only called when the admin explicitly clicks the button.

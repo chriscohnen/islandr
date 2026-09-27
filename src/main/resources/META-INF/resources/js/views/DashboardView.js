@@ -56,7 +56,10 @@ export default defineComponent({
           linkText: t("dashboard.setup_wg_action"),
         });
       }
-      if (!s.oidcProvider) {
+      // Only a real gap when nobody but the ENV admin can sign in at all — an
+      // org user with a local password (F-01a) is a deliberately OIDC-less
+      // setup, not an unfinished one, so it stops nagging once that's true.
+      if (!s.oidcProvider && !s.hasLocalPasswordUsers) {
         issues.push({
           severity: "info",
           text: t("dashboard.setup_oidc"),

@@ -5,6 +5,7 @@ import { t, locale, formatDate, formatDay } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
 import { onEscape } from "/js/keyboard.js";
 import { hub, loadHub } from "/js/hub.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Flat list of every peer across every user. This is the main working surface
 // for sysadmins ("show me everything connected"). User-scoped peer creation
@@ -160,7 +161,7 @@ export default defineComponent({
     },
 
     async deletePeer(peerId) {
-      if (!confirm(t("peers.confirm_delete"))) return;
+      if (!await confirmDialog(t("peers.confirm_delete"))) return;
       try {
         const res = await fetch("/api/v1/peers/" + peerId, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -414,6 +415,13 @@ export default defineComponent({
               </span>
               <span v-if="scheduledPeerIds[p.id]" class="muted" style="font-size: var(--text-xs)">
                 {{ t('peers.has_schedule') }}
+              </span>
+              <!-- The owner asked, from "My access", for this device to go
+                   away — disabled already, but the row survives until an
+                   admin does the actual delete. Status is never color-only:
+                   icon + text, the badge is reinforcement. -->
+              <span v-if="p.deletionRequestedAt" class="badge badge-warning" style="width: fit-content">
+                <Icon name="trash" :size="11" />{{ t('peers.deletion_requested') }}
               </span>
             </div>
           </td>

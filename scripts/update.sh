@@ -48,6 +48,26 @@ DL_BASE="https://github.com/${REPO}/releases/download"
 die()  { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 info() { printf '  %s\n' "$*"; }
 
+# The fail-closed boot ruleset (ADR-0031) shipped in 0.22.0, and a hub installed
+# before that never got it — an update swaps the binary and deliberately touches
+# nothing under /etc/systemd, so it cannot arrive on its own. Without it a reboot
+# brings the tunnel up carrying the peers from the interface config while the
+# kernel's FORWARD policy is still `accept`: the VPN works and access control is
+# simply not running. Saying so after an update is the only way such a hub ever
+# finds out, which is why this prints rather than stays quiet.
+check_boot_firewall() {
+  if systemctl list-unit-files islandr-boot-firewall.service --no-legend 2>/dev/null | grep -q .; then
+    return 0
+  fi
+  [[ -f /etc/systemd/system/islandr-boot-firewall.service ]] && return 0
+  printf '\nNOTE: this hub has no fail-closed boot ruleset.\n'
+  printf '  islandr-boot-firewall.service is not installed, so after a reboot the\n'
+  printf '  tunnel forwards unfiltered until Islandr has applied its own nftables\n'
+  printf '  table. Hubs set up before 0.22.0 never received it and no update adds\n'
+  printf '  it. Adding it by hand takes about a minute:\n'
+  printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#adopting-the-fail-closed-boot-ruleset\n'
+}
+
 # "Was it supposed to be running?" — is-active alone answers no for a service
 # stuck in activating (auto-restart), i.e. exactly the crash loop an update is
 # most often meant to fix. Such a service must be started again afterwards.
@@ -264,6 +284,7 @@ info "Binary installed."
 if ! $SHOULD_RUN; then
   printf '\nDone. Islandr %s installed. The service was not running, so it was not\n' "$TARGET"
   printf 'started: systemctl start %s\n' "$SERVICE"
+  check_boot_firewall
   exit 0
 fi
 
@@ -271,6 +292,7 @@ info "Starting ${SERVICE} and watching it for ${SETTLE_SECONDS}s ..."
 if start_and_settle; then
   printf '\nDone. Islandr %s is running.\n' "$TARGET"
   printf 'Previous version kept at %s — undo with: sudo bash %s --rollback\n' "$PREV_BIN" "$0"
+  check_boot_firewall
   exit 0
 fi
 

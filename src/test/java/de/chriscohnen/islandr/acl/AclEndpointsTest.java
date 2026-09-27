@@ -156,6 +156,35 @@ class AclEndpointsTest {
         }
     }
 
+    /**
+     * Exactly the regression above, exercised the way it can no longer happen:
+     * V80 dropped the CHECK constraint entirely (resource-type-open-set), so a
+     * new type added to the @Pattern in ResourceDto/DiscoveryDto is a request
+     * this endpoint accepts, not a 500 from the database.
+     */
+    @Test
+    void resource_update_toAccesspoint_persists() {
+        String siteId = createSite("WIFI", "10.63.0.0/16");
+        String rid = createResource(siteId, "ap-01", "10.63.0.5");
+        String got = given().contentType("application/json")
+                .body("{\"name\":\"ap-01\",\"ip\":\"10.63.0.5\",\"type\":\"accesspoint\"}")
+                .when().put("/api/v1/resources/" + rid)
+                .then().statusCode(200).extract().path("type");
+        assertThat(got).isEqualTo("accesspoint");
+    }
+
+    @Test
+    void resource_update_toUnknownType_stillRejected() {
+        // The pattern is still a closed set — an open column doesn't mean an
+        // open API. Only ResourceTypes.PATTERN grows that set, and only on purpose.
+        String siteId = createSite("BADTYPE", "10.64.0.0/16");
+        String rid = createResource(siteId, "x-01", "10.64.0.5");
+        given().contentType("application/json")
+                .body("{\"name\":\"x-01\",\"ip\":\"10.64.0.5\",\"type\":\"time-machine\"}")
+                .when().put("/api/v1/resources/" + rid)
+                .then().statusCode(400);
+    }
+
     @Test
     void resource_addPort_listsUnderResource() {
         String siteId = createSite("S", "10.25.0.0/16");

@@ -121,6 +121,21 @@ const FIT_PADDING = 0.9;
 // (grant creation) — see onWindowPointerUp.
 const CLICK_DRAG_THRESHOLD = 6;
 
+/**
+ * One identity for one edge, used by the diagram and by the grants table in
+ * AtlasView. It lived in both places with *different* formulas — the table
+ * spelled out resourceId and siteId separately, the diagram collapsed them
+ * into one slot — so the two never produced the same string for the same
+ * edge. Nothing depended on them matching until now, which is exactly how
+ * that kind of drift survives.
+ *
+ * The longer form wins: a network grant carries a siteId and no resourceId,
+ * every other kind the reverse, and keeping both slots cannot collide.
+ */
+export function edgeKey(e) {
+  return [e.subjectType, e.subjectId, e.resourceId, e.siteId, e.kind, e.roleId || ""].join("|");
+}
+
 export default defineComponent({
   name: "AtlasDiagram",
   props: {
@@ -131,6 +146,11 @@ export default defineComponent({
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
     selectedSiteId: { type: String, default: null }, // focused site circle — only edges naming it (as subject or network-grant target) render
     selectedPeerId: { type: String, default: null }, // focused site-gateway peer (ADR-0025 diagnostics target) — ring only, no edge filtering
+    // Edge under the pointer in the grants table below the diagram. Emphasises,
+    // never filters: the selection props above remove edges from the picture,
+    // which would be wrong here — the graph would rebuild on every mouse move
+    // and drop the very edge the eye was following.
+    rowHoverKey: { type: String, default: null },
     connectedUserIds: { type: Array, default: () => [] }, // users with a currently-connected client peer (ADR-0025) — also pingable
     // userId -> that user's currently-connected peers (id/name/assignedIp), same
     // shape AtlasView already builds for the diagnostics buttons — reused here so
@@ -376,9 +396,16 @@ export default defineComponent({
       // the granted site itself is selected — not in the default view, and
       // not while a resource is focused instead (a network grant isn't
       // resource-focused at all).
+      // The hovered table row is the third way in, and it belongs here for
+      // the same reason the other two do: the rule keeps the default view
+      // quiet, it does not hide network grants from someone pointing at one.
+      // A hover names exactly one grant, lasts as long as the pointer does,
+      // and without this the row would dim every other edge and light
+      // nothing — the one outcome worse than not reacting at all.
       source = source.filter((e) => e.kind !== "network-grant" ||
           (this.selectedUserId && e.subjectId === this.selectedUserId) ||
-          (this.selectedSiteId && e.siteId === this.selectedSiteId));
+          (this.selectedSiteId && e.siteId === this.selectedSiteId) ||
+          (this.rowHoverKey && edgeKey(e) === this.rowHoverKey));
       return source
           .filter((e) => {
             if (!this.nodesById.has(e.subjectId)) return false;
@@ -405,7 +432,7 @@ export default defineComponent({
             return {
               edge: e,
               path: curvePath(from.x, from.y, toX, toY),
-              key: e.subjectType + "|" + e.subjectId + "|" + (e.resourceId || e.siteId) + "|" + e.kind + "|" + (e.roleId || ""),
+              key: edgeKey(e),
             };
           });
     },
@@ -868,12 +895,16 @@ export default defineComponent({
                   fill="var(--fg2)" font-size="11" font-family="var(--font-mono)">{{ circle.cidr }}</text>
           </g>
 
+          <!-- Under the revoke tool the hovered edge turns red, thick AND
+               dashed: red alone is the same red a network grant already
+               wears, and a dashed line reads as the connection being cut —
+               the one thing a click here would actually do. -->
           <path v-for="line in edgeLines" :key="line.key" :d="line.path"
                 fill="none"
                 :stroke="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 'var(--danger-solid)' : edgeColor(line.edge.kind)"
-                :stroke-width="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 3.5 : (line.edge.kind === 'network-grant' ? 2.5 : 1.5)"
-                :stroke-dasharray="line.edge.kind === 'network-grant' ? '8 5' : null"
-                :stroke-opacity="tool === 'revoke' ? 0.85 : 0.55"
+                :stroke-width="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 3.5 : (rowHoverKey === line.key ? 3 : (line.edge.kind === 'network-grant' ? 2.5 : 1.5))"
+                :stroke-dasharray="(tool === 'revoke' && hoveredEdgeKey === line.key) ? '5 4' : (line.edge.kind === 'network-grant' ? '8 5' : null)"
+                :stroke-opacity="rowHoverKey ? (rowHoverKey === line.key ? 1 : 0.12) : (tool === 'revoke' ? 0.85 : 0.55)"
                 :style="tool === 'revoke' ? 'cursor: pointer' : ''"
                 :marker-end="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 'url(#atlas-arrow-revoke-hover)' : ('url(#atlas-arrow-' + line.edge.kind + ')')"
                 @pointerenter="onEdgeHover(line.key)"

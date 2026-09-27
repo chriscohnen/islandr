@@ -25,6 +25,7 @@
 // positives a general "unknown identifier" check would produce against
 // mixins and globals.
 
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -254,6 +255,41 @@ function checkScopes(file, source, tpl) {
   }
 }
 
+// Parse every module before looking at templates. This check used to start at
+// the template, which meant a plain syntax error anywhere else in a file went
+// straight past it — and the file it happens in most is i18n.js, which is a
+// single object literal thousands of lines long where one missing comma ends
+// the module. That shipped once: a trailing comma dropped from a string in
+// i18n.js took the whole console down (the SPA never mounts, the page stays
+// blank) and survived the template check, the Java suite and three further
+// tasks, because nothing on the way parses the frontend.
+//
+// Node has no public parser that does not also execute, so this shells out to
+// `node --check` per file. Twenty-nine short processes are cheap next to a
+// console that does not start.
+let parseFailures = 0;
+for (const path of jsFiles(JS_DIR)) {
+  const file = relative(ROOT, path);
+  try {
+    execFileSync(process.execPath, ["--input-type=module", "--check"], {
+      input: readFileSync(path, "utf8"),
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+  } catch (e) {
+    parseFailures++;
+    const detail = (e.stderr?.toString() || e.message).split("\n").slice(0, 4).join("\n    ");
+    errors.push(`${file}  does not parse as a module\n    ${detail}`);
+  }
+}
+
+// A file that does not parse has no meaningful templates to extract, and the
+// extractor would report confusing follow-on damage. Stop here instead.
+if (parseFailures) {
+  console.error(`\n${errors.length} problem(s):\n`);
+  for (const e of errors) console.error("  " + e + "\n");
+  process.exit(1);
+}
+
 let templateCount = 0;
 for (const path of jsFiles(JS_DIR)) {
   const file = relative(ROOT, path);
@@ -275,4 +311,4 @@ if (errors.length) {
   for (const e of errors) console.error("  " + e + "\n");
   process.exit(1);
 }
-console.log(`OK — ${templateCount} templates compile and use their v-for aliases in scope.`);
+console.log(`OK — every module parses; ${templateCount} templates compile and use their v-for aliases in scope.`);

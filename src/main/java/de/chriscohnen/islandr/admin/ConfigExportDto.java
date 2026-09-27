@@ -268,7 +268,14 @@ public class ConfigExportDto {
         // "schedule", "expiry") so a restored peer's audit trail stays legible.
         // Both null on any export from before the Peer-Scheduler existed.
         Instant validUntil,
-        String enabledSource
+        String enabledSource,
+        // Self-service "soft delete" (users-self-delete-peer): non-null means
+        // the owner asked, from "My access", for this device to be removed
+        // and it is disabled pending an admin's real delete. Carried across
+        // export/import so a restore does not silently resurrect a peer its
+        // owner already asked to have gone. Null on any export from before
+        // this field existed.
+        Instant deletionRequestedAt
     ) {}
 
     public record SiteSnapshot(

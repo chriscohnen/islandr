@@ -21,6 +21,9 @@ import static org.hamcrest.Matchers.notNullValue;
  * claiming to have verified it from a test that never ran a browser would be
  * the kind of "must be fine" this project's own loop instructions forbid.
  */
+/* A refused ceremony answers 401, not 500: it is a turned-away caller, not a
+ * broken hub. These cases asserted 500 while CeremonyFailedException had no
+ * mapper — the assertion recorded the defect rather than the intent. */
 @QuarkusTest
 @ExtendWith(AdminSessionExtension.class)
 class WebAuthnResourceTest {
@@ -50,7 +53,7 @@ class WebAuthnResourceTest {
         given().header("Host", "10.77.140.1:8443")
                 .contentType("application/json").body("{}")
                 .when().post("/api/v1/auth/webauthn/register/challenge")
-                .then().statusCode(500);
+                .then().statusCode(401);
     }
 
     @Test
@@ -58,7 +61,7 @@ class WebAuthnResourceTest {
         given().header("Host", "hub.islandr.internal")
                 .contentType("application/json").body("{}")
                 .when().post("/api/v1/auth/webauthn/login/challenge")
-                .then().statusCode(500);
+                .then().statusCode(401);
     }
 
     @Test
@@ -68,7 +71,7 @@ class WebAuthnResourceTest {
                 .contentType("application/json")
                 .body("{\"response\": {\"id\": \"whatever\"}}")
                 .when().post("/api/v1/auth/webauthn/login/verify")
-                .then().statusCode(500);
+                .then().statusCode(401);
     }
 
     @Test

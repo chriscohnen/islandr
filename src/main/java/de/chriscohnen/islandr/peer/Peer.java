@@ -169,6 +169,18 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "enabled_source", length = 16)
     public String enabledSource;
 
+    /** Set when the owning user asks, from "My access", to remove this device
+     *  (issue: users-self-delete-peer) — null = no such request. Setting it
+     *  also disables the peer (see {@link PeerService#requestDeletion}), so it
+     *  stops working immediately rather than merely vanishing from the user's
+     *  own list while staying reachable. The row itself is not removed: only
+     *  an admin's real {@code DELETE} does that — this is the queue for it.
+     *  {@link PeerScheduleJob} skips any peer with this set, in either
+     *  direction, so a schedule can never re-enable a peer its owner asked
+     *  to have removed. */
+    @Column(name = "deletion_requested_at")
+    public Instant deletionRequestedAt;
+
     public boolean isSite() {
         return "site".equals(type);
     }

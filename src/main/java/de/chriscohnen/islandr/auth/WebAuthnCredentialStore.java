@@ -87,7 +87,10 @@ public class WebAuthnCredentialStore {
     public void recordAssertion(String credentialId, long presentedCount) {
         WebAuthnCredential c = WebAuthnCredential.byCredentialId(credentialId);
         if (c == null) throw new IllegalArgumentException("unknown credential");
+        applyCounter(c, presentedCount);
+    }
 
+    private void applyCounter(WebAuthnCredential c, long presentedCount) {
         boolean counterlessAuthenticator = presentedCount == 0 && c.signCount == 0;
         if (!counterlessAuthenticator && presentedCount <= c.signCount) {
             LOG.warnf("webauthn: assertion refused for %s — counter did not advance (%d <= %d)",
@@ -97,6 +100,36 @@ public class WebAuthnCredentialStore {
         }
         c.signCount = presentedCount;
         c.lastUsedAt = Instant.now();
+    }
+
+    /**
+     * The engine's updater callback fires for both ceremonies and cannot tell
+     * them apart itself — only the credential's presence here can. A
+     * registration reaches this as an unseen id, carrying the public key and
+     * counter the engine just verified from the attestation, so it is created
+     * here rather than in {@link #register}, which the caller can no longer
+     * reach in time: the row needs to exist before the engine's own future
+     * resolves, and only then can a label be attached to it.
+     */
+    @Transactional
+    public void upsertFromCeremony(String rpId, String subject, String credentialId,
+                                   String publicKey, long counter) {
+        WebAuthnCredential c = WebAuthnCredential.byCredentialId(credentialId);
+        if (c == null) {
+            WebAuthnCredential.createNew(subject, rpId, credentialId, publicKey, counter, null).persist();
+            return;
+        }
+        applyCounter(c, counter);
+    }
+
+    /** Attaches the label chosen at registration time, once the ceremony's own
+     *  upsert has created the row. A no-op label is left as none rather than
+     *  overwriting a name with blank. */
+    @Transactional
+    public void setLabel(String credentialId, String label) {
+        if (label == null || label.isBlank()) return;
+        WebAuthnCredential c = WebAuthnCredential.byCredentialId(credentialId);
+        if (c != null) c.label = label.strip();
     }
 
     /**

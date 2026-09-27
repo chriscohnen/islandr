@@ -27,7 +27,7 @@ import java.util.Base64;
  *       ({@code LoadCredentialEncrypted=} in the service unit places the key at
  *       {@code /run/credentials/islandr.service/ENCRYPTION_KEY}).
  *   <li>Env var {@code ISLANDR_ENCRYPTION_KEY} (base64, 32 bytes) — fallback for Docker / dev.
- *   <li>Config property {@code islandr.encryption.key} — test profile only (never in production).
+ *   <li>Config property {@code islandr.encryption.key} — test and dev profiles only (never in production).
  * </ol>
  *
  * <p>If none is configured, {@link #isConfigured()} returns {@code false} and the
@@ -72,7 +72,7 @@ public class EncryptionService {
             }
         }
         // ConfigProvider.getConfig() is a runtime API call — no injection-point validation,
-        // safe in Quarkus native. Used for the %test profile key; never set in production.
+        // safe in Quarkus native. Used for the %test and %dev profile keys; never set in production.
         String cfgKey = ConfigProvider.getConfig()
                 .getOptionalValue("islandr.encryption.key", String.class)
                 .orElse("");

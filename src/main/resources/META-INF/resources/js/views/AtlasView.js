@@ -1,6 +1,6 @@
 import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
-import AtlasDiagram from "/js/AtlasDiagram.js";
+import AtlasDiagram, { edgeKey } from "/js/AtlasDiagram.js";
 import { Icon } from "/js/Icons.js";
 import { onEscape } from "/js/keyboard.js";
 
@@ -26,6 +26,9 @@ export default defineComponent({
       loading: false,
       error: null,
       tool: "grant",
+      // Row under the pointer in the grants table — handed to the diagram so
+      // the matching edge stands out. Cleared on leave; no click, no state.
+      rowHoverKey: null,
       selectedRoleId: "", // "" = direct user-grant mode
       selectedUserId: null, // focused user (click-select in direct mode) — only their edges render
       selectedResourceId: null, // focused resource (click-select) — only edges reaching it render
@@ -162,6 +165,7 @@ export default defineComponent({
       return {
         computer: t("resources.type_computer"),
         router: t("resources.type_router"),
+        accesspoint: t("resources.type_accesspoint"),
         printer: t("resources.type_printer"),
         nas: t("resources.type_nas"),
         camera: t("resources.type_camera"),
@@ -256,7 +260,7 @@ export default defineComponent({
               // must be part of the key too — otherwise one user holding
               // network grants on two different sites via the same role
               // would produce two rows with an identical key.
-              key: e.subjectType + "|" + e.subjectId + "|" + e.resourceId + "|" + e.siteId + "|" + e.kind + "|" + (e.roleId || ""),
+              key: edgeKey(e),
               kind: e.kind,
               kindLabel: (EDGE_KIND_LEGEND.find((k) => k.kind === e.kind) || {}).labelKey
                   ? t(EDGE_KIND_LEGEND.find((k) => k.kind === e.kind).labelKey) : e.kind,
@@ -930,7 +934,9 @@ export default defineComponent({
         <button class="btn btn-sm" :class="tool === 'grant' ? 'btn-primary' : 'btn-ghost'" @click="tool = 'grant'">
           <Icon name="link" :size="14" /> {{ t('atlas.tool_grant') }}
         </button>
-        <button class="btn btn-sm" :class="tool === 'revoke' ? 'btn-primary' : 'btn-ghost'" @click="tool = 'revoke'">
+        <!-- Danger, not primary: this mode's every click deletes a grant, and
+             the toggle is the only thing on screen saying which mode is armed. -->
+        <button class="btn btn-sm" :class="tool === 'revoke' ? 'btn-danger' : 'btn-ghost'" @click="tool = 'revoke'">
           <Icon name="unlink" :size="14" /> {{ t('atlas.tool_revoke') }}
         </button>
       </div>
@@ -951,6 +957,7 @@ export default defineComponent({
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-site-id="selectedSiteId"
                        :selected-peer-id="selectedPeerId"
+                       :row-hover-key="rowHoverKey"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
                        :connected-peers-by-user-id="connectedPeersByUserId"
                        :connected-gateway-peer-ids="Object.keys(gatewayLiveByPeerId)"
@@ -1117,7 +1124,8 @@ export default defineComponent({
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in pagedGrantsForTable" :key="row.key">
+            <tr v-for="row in pagedGrantsForTable" :key="row.key"
+                @mouseenter="rowHoverKey = row.key" @mouseleave="rowHoverKey = null">
               <td style="white-space: nowrap">
                 <span style="display: inline-flex; align-items: center; gap: 6px">
                   <svg width="14" height="8" style="flex-shrink: 0">
@@ -1196,7 +1204,7 @@ export default defineComponent({
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" @click="cancelRevokeConfirm">{{ t('atlas.grant_dialog_cancel') }}</button>
-          <button type="button" class="btn btn-primary" :disabled="revokeSaving" @click="confirmRevokeEdge">
+          <button type="button" class="btn btn-danger" :disabled="revokeSaving" @click="confirmRevokeEdge">
             {{ revokeSaving ? t('common.loading') : t('atlas.tool_revoke') }}
           </button>
         </div>

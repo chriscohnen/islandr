@@ -40,7 +40,12 @@ public final class PeerDto {
             Double lng,
             String locationLabel,
             Instant validUntil,         // null = never expires (issue #10/#47)
-            String enabledSource        // "manual" | "schedule" | null (never toggled by either)
+            String enabledSource,       // "manual" | "schedule" | null (never toggled by either)
+            // Set once the owning user asks, from "My access", to remove this
+            // device — null = no such request. The row still exists; an
+            // admin's real DELETE is what actually removes it. Lets the admin
+            // peer list flag which peers are waiting on that.
+            Instant deletionRequestedAt
     ) {
         public static Response from(Peer p) {
             return new Response(
@@ -53,7 +58,7 @@ public final class PeerDto {
                     p.keyRotatedAt, p.pskRotatedAt,
                     p.mtu, p.persistentKeepalive, p.includeDns,
                     p.lat, p.lng, p.locationLabel,
-                    p.validUntil, p.enabledSource);
+                    p.validUntil, p.enabledSource, p.deletionRequestedAt);
         }
     }
 
@@ -296,7 +301,15 @@ public final class PeerDto {
             // peer didn't exist yet" apart from "no activity because the site
             // was down" — only the latter is worth flagging (a client peer
             // going quiet is normal; a site gateway going quiet is not).
-            java.time.Instant createdAt
+            java.time.Instant createdAt,
+            // Naming is per-user and free-form (issue: several peers of the
+            // same shape — "Laptop", "iPhone" — are indistinguishable in the
+            // matrix without knowing who they belong to). null for a site
+            // peer, which has no owning user. Denormalised here rather than
+            // making the frontend fetch /users separately just to render an
+            // avatar next to a name it already has.
+            String userId,
+            String userName
     ) {}
 
     /** Peers x days activity matrix. {@code days} is ascending ISO-8601 date

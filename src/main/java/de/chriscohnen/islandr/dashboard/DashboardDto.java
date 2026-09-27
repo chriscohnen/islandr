@@ -131,8 +131,15 @@ public final class DashboardDto {
     public record SetupStatus(
             boolean wgConfigured,
             // 'microsoft' | 'google' | null. Null means no provider active —
-            // org users can't log in via OIDC, only the local admin works.
+            // org users can't log in via OIDC. They can still log in locally
+            // (F-01a) if an admin has set them a password; see
+            // hasLocalPasswordUsers, which is what actually decides whether
+            // that leaves anyone able to sign in besides the ENV admin.
             String oidcProvider,
+            // True once at least one org user has a local password set
+            // (F-01a) — a deliberately OIDC-less, locally-managed install is
+            // not a setup gap once this is true.
+            boolean hasLocalPasswordUsers,
             String privateKeyRetention,
             boolean gravatarEnabled,
             boolean firewallDryRun

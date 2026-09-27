@@ -1,0 +1,92 @@
+# port,transport,service
+# Curated, not the full IANA registry — see PortServiceLookup for why.
+20,tcp,FTP data
+21,tcp,FTP
+22,tcp,SSH
+23,tcp,Telnet
+25,tcp,SMTP
+53,tcp,DNS
+53,udp,DNS
+67,udp,DHCP server
+68,udp,DHCP client
+69,udp,TFTP
+80,tcp,HTTP
+88,tcp,Kerberos
+110,tcp,POP3
+111,tcp,NFS portmapper
+123,udp,NTP
+135,tcp,MS RPC
+137,udp,NetBIOS name
+138,udp,NetBIOS datagram
+139,tcp,NetBIOS session
+143,tcp,IMAP
+161,udp,SNMP
+162,udp,SNMP trap
+179,tcp,BGP
+389,tcp,LDAP
+427,udp,SLP
+443,tcp,HTTPS
+445,tcp,SMB
+464,tcp,Kerberos password
+465,tcp,SMTPS
+500,udp,IPsec IKE
+514,udp,Syslog
+514,tcp,Shell (rsh)
+515,tcp,LPD printing
+548,tcp,AFP
+554,tcp,RTSP
+587,tcp,SMTP submission
+623,udp,IPMI
+631,tcp,IPP printing
+636,tcp,LDAPS
+873,tcp,rsync
+902,tcp,VMware ESXi
+993,tcp,IMAPS
+995,tcp,POP3S
+1194,udp,OpenVPN
+1433,tcp,MS SQL Server
+1521,tcp,Oracle DB
+1701,udp,L2TP
+1723,tcp,PPTP
+1812,udp,RADIUS auth
+1813,udp,RADIUS accounting
+1883,tcp,MQTT
+1900,udp,SSDP
+2049,tcp,NFS
+2375,tcp,Docker API
+2376,tcp,Docker API (TLS)
+3128,tcp,Squid proxy
+3268,tcp,LDAP global catalog
+3283,tcp,Apple Remote Desktop
+3306,tcp,MySQL / MariaDB
+3389,tcp,RDP
+4500,udp,IPsec NAT-T
+5000,tcp,Synology DSM
+5001,tcp,Synology DSM (HTTPS)
+5060,udp,SIP
+5061,tcp,SIP (TLS)
+5222,tcp,XMPP
+5353,udp,mDNS
+5355,udp,LLMNR
+5432,tcp,PostgreSQL
+5900,tcp,VNC
+5901,tcp,VNC display 1
+6379,tcp,Redis
+8006,tcp,Proxmox VE
+8007,tcp,Proxmox Backup Server
+8080,tcp,HTTP (alternate)
+8083,tcp,Web UI (alternate)
+8096,tcp,Jellyfin
+8123,tcp,Home Assistant
+8443,tcp,HTTPS (alternate)
+8883,tcp,MQTT (TLS)
+9000,tcp,Portainer
+9090,tcp,Cockpit / Prometheus
+9100,tcp,Printer RAW (JetDirect)
+9200,tcp,Elasticsearch
+9418,tcp,Git
+9443,tcp,HTTPS admin UI
+10000,tcp,Webmin
+27017,tcp,MongoDB
+32400,tcp,Plex
+51820,udp,WireGuard

@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 import { onEscape } from "/js/keyboard.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // Outgoing webhooks (issue #68) — a URL + a per-webhook filter of which
 // event types get delivered to it, HMAC-signed. List + create/edit modal +
@@ -136,7 +137,7 @@ export default defineComponent({
       }
     },
     async rotateSecret(w) {
-      if (!confirm(t("webhooks.confirm_rotate"))) return;
+      if (!await confirmDialog(t("webhooks.confirm_rotate"))) return;
       try {
         const res = await fetch("/api/v1/webhooks/" + w.id + "/rotate-secret", {
           method: "POST", headers: { "content-type": "application/json" },
@@ -168,7 +169,7 @@ export default defineComponent({
       }
     },
     async deleteWebhook(w) {
-      if (!confirm(t("webhooks.confirm_delete", { url: w.url }))) return;
+      if (!await confirmDialog(t("webhooks.confirm_delete", { url: w.url }))) return;
       try {
         const res = await fetch("/api/v1/webhooks/" + w.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);

@@ -48,14 +48,24 @@ public class GrantExternalResource {
      *                    then null, because the grant covers hosts Islandr may
      *                    never have been told about.
      * @param ports       the port labels a limited grant is scoped to; empty
-     *                    when {@code allPorts} is true.
+     *                    when {@code allPorts} is true. A rendering, not data:
+     *                    {@code "SSH 22"} names the UI's application label and
+     *                    the number, and carries no transport.
+     * @param portDetails the same ports as values — id, port, range end,
+     *                    transport, application label. This is the field to
+     *                    build a rule from; the labels above are for a human
+     *                    reading the review. Before 1.0 only the labels
+     *                    existed, which left port-limited grants unusable to a
+     *                    consumer and {@code allPorts} grants the only
+     *                    actionable ones.
      */
     public record Grant(
             String subjectType, String subjectId, String subjectName,
             String resourceId, String resourceName,
             String siteId, String siteName,
             String kind, String roleId, String roleName,
-            boolean allPorts, List<String> ports) {}
+            boolean allPorts, List<String> ports,
+            List<AtlasDto.PortDetail> portDetails) {}
 
     @GET
     public List<Grant> listAll(@Context ContainerRequestContext ctx) {
@@ -82,7 +92,7 @@ public class GrantExternalResource {
                     e.resourceId(), res == null ? null : res.name(),
                     siteId, siteId == null ? null : siteNames.get(siteId),
                     e.kind(), e.roleId(), e.roleName(),
-                    e.allPorts(), e.portLabels());
+                    e.allPorts(), e.portLabels(), e.portDetails());
         }).toList();
     }
 }

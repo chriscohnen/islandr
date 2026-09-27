@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
 import { onEscape, onSaveShortcut, onSlashFocus } from "/js/keyboard.js";
 import { Icon } from "/js/Icons.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // The Rollen × Ressourcen grant matrix (PRD §F-B, ADR-0006).
 // Layout: one tab per site (the resources column-set scopes to that site),
@@ -157,6 +158,7 @@ export default defineComponent({
         ["nas", t("resources.type_nas")],
         ["printer", t("resources.type_printer")],
         ["router", t("resources.type_router")],
+        ["accesspoint", t("resources.type_accesspoint")],
         ["camera", t("resources.type_camera")],
         ["iot", t("resources.type_iot")],
         ["virt-host", t("resources.type_virt")],
@@ -343,9 +345,9 @@ export default defineComponent({
       this.picker = null;
     },
 
-    discardAll() {
+    async discardAll() {
       if (!this.dirty) return;
-      if (!confirm(t("acl.confirm_discard", { n: this.dirtyCount }))) return;
+      if (!await confirmDialog(t("acl.confirm_discard", { n: this.dirtyCount }))) return;
       this.pending = {};
     },
 
@@ -424,7 +426,11 @@ export default defineComponent({
       }
     },
 
-    async removeTypeGrant(id) {
+    async removeTypeGrant(g) {
+      const roleName = (this.roles.find(r => r.id === g.roleId) || {}).name || g.roleId;
+      if (!await confirmDialog(t("acl.confirm_revoke_type", {
+            role: roleName, type: this.typeLabel(g.resourceType) }))) return;
+      const id = g.id;
       this.typeGrantError = null;
       try {
         const res = await fetch("/api/v1/acl/type-grants/" + id, { method: "DELETE" });
@@ -464,7 +470,10 @@ export default defineComponent({
       }
     },
 
-    async removeNetworkGrant(id) {
+    async removeNetworkGrant(g) {
+      const roleName = (this.roles.find(r => r.id === g.roleId) || {}).name || g.roleId;
+      if (!await confirmDialog(t("acl.confirm_revoke_network", { role: roleName }))) return;
+      const id = g.id;
       this.networkGrantError = null;
       try {
         const res = await fetch("/api/v1/acl/network-grants/" + id, { method: "DELETE" });
@@ -502,6 +511,8 @@ export default defineComponent({
     },
 
     async removeUserGrant(g) {
+      if (!await confirmDialog(t("acl.confirm_revoke_user", {
+            user: g.userName, resource: g.resourceName }))) return;
       await this.applyUserGrant(g.userId, g.resourceId, false, [], null);
     },
 
@@ -557,6 +568,8 @@ export default defineComponent({
     },
 
     async removeSiteGrant(g) {
+      if (!await confirmDialog(t("acl.confirm_revoke_site", {
+            site: g.grantorSiteName, resource: g.resourceName }))) return;
       await this.applySiteGrant(g.siteId, g.resourceId, false, []);
     },
 
@@ -704,11 +717,11 @@ export default defineComponent({
           </thead>
           <tbody>
             <tr v-for="r in filteredActiveResources" :key="r.id">
-              <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle">
+              <td class="sticky-col" style="position: sticky; left: 0; vertical-align: middle">
                 <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); line-height: 1.4">{{ r.name }}</div>
                 <div style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2); font-weight: 400; line-height: 1.3; margin-top: 2px">{{ r.ip }}</div>
               </td>
-              <td style="position: sticky; left: 220px; background: var(--surface); text-align: right; padding-right: var(--space-4); vertical-align: middle; box-shadow: 1px 0 0 var(--border)">
+              <td class="sticky-col sticky-col-divider" style="position: sticky; left: 220px; text-align: right; padding-right: var(--space-4); vertical-align: middle">
                 <span class="mono muted" style="font-size: var(--text-sm)">{{ r.ports.length }}</span>
               </td>
               <td v-for="role in roles" :key="role.id" style="text-align: center; vertical-align: middle">
@@ -757,7 +770,7 @@ export default defineComponent({
                   <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
                   <td>{{ typeLabel(g.resourceType) }}</td>
                   <td>
-                    <button class="btn btn-ghost btn-sm" @click="removeTypeGrant(g.id)" :title="t('acl.type_grant_remove')">✕</button>
+                    <button class="btn btn-ghost btn-sm" @click="removeTypeGrant(g)" :title="t('acl.type_grant_remove')">✕</button>
                   </td>
                 </tr>
               </tbody>
@@ -801,7 +814,7 @@ export default defineComponent({
                 <tr v-for="g in networkGrantsForActiveSite" :key="g.id">
                   <td>{{ (roles.find(r => r.id === g.roleId) || {}).name || g.roleId }}</td>
                   <td>
-                    <button class="btn btn-ghost btn-sm" @click="removeNetworkGrant(g.id)" :title="t('acl.network_grant_remove')">✕</button>
+                    <button class="btn btn-ghost btn-sm" @click="removeNetworkGrant(g)" :title="t('acl.network_grant_remove')">✕</button>
                   </td>
                 </tr>
               </tbody>

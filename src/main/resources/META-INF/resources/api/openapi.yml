@@ -390,7 +390,50 @@ components:
           type: array
           items:
             type: string
-          description: Port labels a limited grant is scoped to; empty when allPorts is true.
+          description: >
+            Human-readable labels for the ports a limited grant is scoped to,
+            empty when allPorts is true. A rendering, not data — "SSH 22" is the
+            console's application label and the number, and it carries no
+            transport. Do not parse it; read portDetails instead.
+        portDetails:
+          type: array
+          description: >
+            The same ports as values, for building a rule from. Empty when
+            allPorts is true, in which case the grant covers every port on the
+            resource.
+          items:
+            $ref: "#/components/schemas/PortDetail"
+
+    PortDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The ResourcePort id, stable across calls.
+        port:
+          type: integer
+          description: Single port, or the start of a range. 0 means every port.
+        portEnd:
+          type: integer
+          nullable: true
+          description: End of the range, inclusive. Null for a single port.
+        transport:
+          type: string
+          enum: [tcp, udp, both]
+          description: >
+            The transport to filter on. This is the field that does not appear
+            in the `ports` labels at all, and the one a firewall rule cannot be
+            written without.
+        protocol:
+          type: string
+          description: >
+            The console's application label (RDP, SSH, SFTP, HTTP, CUSTOM). It
+            describes what speaks on the port, not how — never read it as the
+            transport.
+        label:
+          type: string
+          nullable: true
+          description: Optional free-text name an admin gave this port.
 
     AuditEntry:
       type: object

@@ -23,9 +23,8 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **Pre-1.0 — in production use, but the upgrade path is not promised yet.**
-> Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`). Read the release notes before upgrading: until 1.0 a release can still ask for a manual step, and two recent ones did. `scripts/update.sh` backs up both the binary and the database first and rolls both back if the service does not come up — use it rather than replacing the binary by hand.
-> This is exactly the stage where testers make the biggest difference. Kick the tyres, and if you hit a rough edge [open an issue](https://github.com/chriscohnen/islandr/issues) — that feedback is what moves it toward 1.0. Starring or watching the repo is the easiest way to follow releases.
+> **1.0.0 is out.** What the number promises is that upgrades are boring, not that the software is finished: `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not stay up — and CI walks that path, rollback included, on every tag. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
   <img src="https://islandr-gateway.net/screenshots/light/dashboard.png" width="49%" alt="Dashboard: live topology diagram, peers, sites and networks">
@@ -149,6 +148,17 @@ sudo install -d -o islandr -g islandr /opt/islandr
 sudo install -o islandr -g islandr -m 0755 "islandr-runner-linux-${ARCH}" /opt/islandr/islandr
 ```
 
+Every release binary carries build provenance, so you can check that the file you
+downloaded is the one this repository built, rather than trusting the checksum
+published beside it:
+
+```bash
+gh attestation verify "islandr-runner-linux-${ARCH}" --repo chriscohnen/islandr
+```
+
+Needs the GitHub CLI signed in, so this belongs on the machine you download
+from rather than on the hub.
+
 That is the binary only. [`docs/install/setup-hub.sh`](docs/install/setup-hub.sh) does the whole
 thing — service user, scoped sudo, env file, systemd unit — and checks the prerequisites first:
 
@@ -181,26 +191,32 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**Pre-1.0 — the feature set is complete; the next release is about the upgrade path.**
+**1.0.0 — upgrading stops asking for manual steps.**
 1.0 is not a claim that the software is finished. It is one specific promise: that
 upgrading stops asking for manual steps. Two of the last three releases needed one
-(`systemctl edit`, re-running `setup-hub.sh`), and that is the gap being closed —
-so the number arrives when it is earned, not on a date.
+(`systemctl edit`, re-running `setup-hub.sh`), and that is the gap this release closes.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 0.23.0
+### What's new in 1.0.0
 
 Every version: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Fixed: a peer stayed "Connected" after it had gone** — the status column showed the time of the poll, not the handshake, so Stale and Disconnected were unreachable for any peer that had ever connected ([#87](https://github.com/chriscohnen/islandr/issues/87))
-- **Security keys for the local recovery admin — endpoints only, no screen yet** — registration and sign-in work over the API and issue an ordinary session; the console for it follows next release. A credential binds to a name, so a hub reached by IP cannot use them ([#67](https://github.com/chriscohnen/islandr/issues/67))
-- **The hub answers for its own name** — `hub.<zone>` plus an optional alias, so the console is reachable without an `/etc/hosts` entry on every device
-- **A self-signed certificate for those names**, for installations with no domain, with its fingerprint shown to compare once
-- **The external API can disable a user or a peer**, and can read the effective grants and the audit log
-- Fixed: the activity heatmap could not report a site outage; resource cards cut the name short and their buttons needed a mouse; admins had no link to their own self-service portal
+- **Upgrades are boring — and now proven so.** `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not. Every tagged build installs the previous release, upgrades to it and rolls back again, asserting after each step ([ADR-0033](docs/adr/0033-what-1-0-promises.md))
+- **Settings hands you the update instead of just announcing it** — the command with a copy button, the rollback beside it, and whether a rollback actually exists. `update.sh` and `backup.sh` ship as release assets
+- **On the Quarkus LTS line** (3.33.3.2). The previous pin claimed LTS and was not, which is how a critical Netty advisory became unfixable without anyone noticing ([ADR-0032](docs/adr/0032-quarkus-lts-line.md))
+- **External API: grants carry their ports as values** — transport included, so a port-limited grant can finally be turned into a rule
+- **Security keys have a console** — a "sign in with a security key" button next to the password, registered and managed from Settings; the password stays a complete path on its own. An offline escape hatch too: `ISLANDR_WEBAUTHN_RESET=true` clears every registered authenticator on the recovery admin, audit-logged, for the case where you cannot sign in to remove one ([#67](https://github.com/chriscohnen/islandr/issues/67))
+- **A user can rename their own device, change its category, and remove it themselves** in My access — no admin needed for either
+- **Every released binary carries build provenance** — `gh attestation verify <file> --repo chriscohnen/islandr` names the workflow, the commit and the run that built it, checked against GitHub rather than against us
+- **Destructive actions ask in the console's own voice**, not the browser's grey box — and revoking access in Roles & ACL now asks at all, naming what it takes away and from whom
+- **The heap is capped**, so the memory figure is a constant rather than a share of the host: measured at 236 MB resident on a 1 GB VPS during a discovery scan
+- **The updater reports a hub with no fail-closed boot ruleset** — it shipped in 0.22.0 and no update can add it, so installs older than that never had it and nothing said so
+- **A resource can be port-scanned on its own**, not only discovered as part of a whole-CIDR sweep — type a range, scan the resource's own IP, add a hit as a port with one click
+- **The console says it is open source** — EUPL-1.2 next to the version and in the login footer, with the trademark boundary named
+- Fixed: Settings and My access were unreachable on a phone; discovery showed port numbers where it can show names; the avatar's edit controls sat permanently in the topbar; a fresh install now probes its own WireGuard public key instead of showing a placeholder until someone notices
 
 ### Roadmap
 
@@ -212,12 +228,69 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 **v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))
 - [Prometheus `/metrics`](https://github.com/chriscohnen/islandr/issues/71) — so the hub reports into the monitoring you already run
 
+## What 1.0 promises
+
+Not that the software is finished — that **upgrading stops being an event**.
+Concretely, semantic versioning covers these and only these, and breaking any
+of them takes a major version:
+
+| Covered | Not covered |
+|---|---|
+| The external API (`/api/external/v1`) — paths, shapes, meanings | The console API (`/api/v1`), which serves the bundled UI and changes with it |
+| `ISLANDR_*` variables and `/etc/default/islandr` | The frontend modules and CSS — no build step, so no published surface |
+| Database migrations: forward, automatic, never hand-run SQL | The schema itself. Migrations are the promise, their shape is not |
+| `setup-hub.sh`, `install-proxy.sh`, `update.sh`, `backup.sh` — flags, variables, paths | Internal Java packages. This ships a binary, not a library |
+| Database location, unit name, sudoers scope | The WireGuard interface config — that file is yours, Islandr never writes it |
+
+Downgrades are covered by neither: migrations run forward only, so going back
+means restoring the backup `update.sh` takes before it swaps anything.
+
+The reasoning is in [ADR-0033](docs/adr/0033-what-1-0-promises.md). The upgrade
+and rollback path is exercised by CI on every tag, not only described here.
+
+## Upgrading
+
+The console tells you when a release exists — Settings shows the version and a check button, and
+the command to install it next to the result. The command is the same one either way:
+
+```bash
+sudo curl -fsSL -o /opt/islandr/update.sh \
+  https://github.com/chriscohnen/islandr/releases/latest/download/update.sh
+sudo bash /opt/islandr/update.sh
+```
+
+`update.sh` is not a thin wrapper around a download. It verifies the checksum, then copies the
+running binary to `islandr.prev` and takes a hot `sqlite3 .backup` of the database before
+swapping anything. It watches the new version for fifteen seconds — longer than the unit's
+`RestartSec`, so a process that starts and immediately dies is not mistaken for a healthy one —
+and **restores both if it does not stay up**. A failed update ends where it began.
+
+The database backup is the part people skip and shouldn't: migrations run at startup and there are
+no undo migrations, so a version that migrates and *then* fails leaves a schema the previous binary
+refuses to validate. Putting back only the binary would not start either.
+
+```bash
+sudo bash /opt/islandr/update.sh --rollback   # undo the last update
+sudo bash /opt/islandr/update.sh --pre        # include release candidates
+sudo bash /opt/islandr/update.sh v1.0.0       # pin a version
+```
+
+Separately, `backup.sh` writes a rotated, compressed copy of the database on a schedule — see
+[docs/install.md](docs/install.md#backups). The rollback above covers the last update; that covers
+everything else.
+
+**The console will not update the hub for you, and that is deliberate.** It would be restarting the
+service it is served from, so a migration that failed would take away the very page meant to report
+the outcome.
+
 ## Documentation
 
 - [docs/features.md](docs/features.md) — the complete feature inventory, grouped by area
 - [docs/install.md](docs/install.md) — Installation guide (native binary + systemd, Docker Compose)
+- [docs/install/manual.md](docs/install/manual.md) — the same install written out step by step, for a host that is not a fresh Debian/Ubuntu VPS
 - [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
 - [docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md) — registering the Entra ID app, the permissions Islandr needs, and the setup errors that do not name their cause
+- [docs/install/dns-clients.md](docs/install/dns-clients.md) — reaching the internal zone from a client, the split-tunnel DNS field that fails silently, and what to check when a name does not resolve
 - [docs/install/fail2ban.md](docs/install/fail2ban.md) — the built-in login backoff, the log line fail2ban matches, and why banning your own reverse proxy is the easy mistake
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)

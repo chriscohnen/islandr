@@ -4,6 +4,7 @@ import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, formatDate, formatDay } from "/js/i18n.js";
 import { onEscape, onSlashFocus } from "/js/keyboard.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // User management. Each row gets a "+ Peer" button that opens the shared
 // peer-create modal. The full peer list across all users lives in PeersView.
@@ -21,6 +22,8 @@ export default defineComponent({
       loading: true,
       error: null,
       quickFilter: "", // matches against display name, nickname, real name, or email — substring, case-insensitive
+      usersSortKey: null,  // null = server order (creation order); 'name' | 'email' | 'peerCount'
+      usersSortDir: 1,     // 1 = asc, -1 = desc
       newUser: { name: "", email: "" },
       submitting: false,
       lang: locale.current,
@@ -64,6 +67,22 @@ export default defineComponent({
         || (u.name || "").toLowerCase().includes(q)
         || (u.email || "").toLowerCase().includes(q));
     },
+    // Sorted on top of the quick filter rather than instead of it, so typing
+    // into the search box never resets whichever column order was chosen.
+    sortedFilteredUsers() {
+      if (!this.usersSortKey) return this.filteredUsers;
+      const key = this.usersSortKey;
+      const dir = this.usersSortDir;
+      const list = [...this.filteredUsers];
+      list.sort((a, b) => {
+        // peerCount is a number — sorting it as a string would put 10 before 2.
+        if (key === "peerCount") return dir * ((a.peerCount || 0) - (b.peerCount || 0));
+        const av = key === "name" ? (a.displayName || a.name || "") : (a[key] || "");
+        const bv = key === "name" ? (b.displayName || b.name || "") : (b[key] || "");
+        return dir * String(av).localeCompare(String(bv), undefined, { numeric: true });
+      });
+      return list;
+    },
   },
   async mounted() {
     await this.load();
@@ -79,6 +98,15 @@ export default defineComponent({
   },
   methods: {
     t(key, vars) { return t(key, vars); },
+
+    usersSortBy(key) {
+      if (this.usersSortKey === key) this.usersSortDir *= -1;
+      else { this.usersSortKey = key; this.usersSortDir = 1; }
+    },
+    usersSortIcon(key) {
+      if (this.usersSortKey !== key) return "↕";
+      return this.usersSortDir === 1 ? "↑" : "↓";
+    },
 
     // The edit modal can move a peer to a different user, and this view groups
     // its rows by user — without the reload the peer would still show under the
@@ -122,7 +150,7 @@ export default defineComponent({
     },
 
     async deleteUser(id) {
-      if (!confirm(t("users.confirm_delete"))) return;
+      if (!await confirmDialog(t("users.confirm_delete"))) return;
       try {
         const res = await fetch("/api/v1/users/" + id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -151,7 +179,7 @@ export default defineComponent({
       const verb = next
         ? t("users.confirm_admin_grant", { name: user.displayName })
         : t("users.confirm_admin_revoke", { name: user.displayName });
-      if (!confirm(verb)) return;
+      if (!await confirmDialog(verb)) return;
       try {
         const res = await fetch("/api/v1/users/" + user.id + "/admin", {
           method: "PUT",
@@ -513,17 +541,23 @@ export default defineComponent({
     <table v-else class="table">
       <thead>
         <tr>
-          <th>{{ t('users.th_name') }}</th>
-          <th>{{ t('users.th_email') }}</th>
+          <th @click="usersSortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('users.th_name') }} <span class="muted" style="font-size: 10px">{{ usersSortIcon('name') }}</span>
+          </th>
+          <th @click="usersSortBy('email')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('users.th_email') }} <span class="muted" style="font-size: 10px">{{ usersSortIcon('email') }}</span>
+          </th>
           <th>{{ t('users.th_role') }}</th>
           <th>{{ t('users.th_status') }}</th>
-          <th>{{ t('users.th_peers') }}</th>
+          <th @click="usersSortBy('peerCount')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('users.th_peers') }} <span class="muted" style="font-size: 10px">{{ usersSortIcon('peerCount') }}</span>
+          </th>
           <th>{{ t('users.th_created') }}</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="u in filteredUsers" :key="u.id" :style="!u.enabled ? 'opacity: 0.55' : ''">
+        <tr v-for="u in sortedFilteredUsers" :key="u.id" :style="!u.enabled ? 'opacity: 0.55' : ''">
           <td>
             <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
               <Avatar :user="u" :size="32" editable @error="error = $event" />

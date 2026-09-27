@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 // API keys for the external automation API (issue #15, ADR-0026). List +
 // create (one-time raw-key reveal, same pattern as a peer's QR/.conf) +
@@ -93,7 +94,7 @@ export default defineComponent({
       try { await navigator.clipboard.writeText(this.curlExample); } catch {}
     },
     async revoke(k) {
-      if (!confirm(t("apikeys.confirm_revoke", { label: k.label }))) return;
+      if (!await confirmDialog(t("apikeys.confirm_revoke", { label: k.label }))) return;
       try {
         const res = await fetch("/api/v1/api-keys/" + k.id, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);

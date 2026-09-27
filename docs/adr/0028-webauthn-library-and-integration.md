@@ -1,6 +1,6 @@
 # ADR-0028 — WebAuthn for the recovery admin: Vert.x auth as an engine, Islandr keeps the login flow
 
-**Status:** Accepted (backend implemented in 0.23.0, issue #67)
+**Status:** Accepted (backend implemented in 0.23.0, console UI shipped in 1.0.0, issue #67)
 **Date:** 2026-09-05
 **Deciders:** Christian Cohnen
 **Target release:** none yet — [#67](https://github.com/chriscohnen/islandr/issues/67) is filed but unscoped; this ADR decides only *how* WebAuthn would be integrated, so the scope decision is not made twice.
@@ -95,13 +95,54 @@ counter rule, the relying-party binding and every refusal path.
 
 **A Vert.x 5 platform upgrade forces a migration** — creates **R-187**. `vertx-auth-webauthn` is superseded by `vertx-auth-webauthn4j` in the Vert.x 5 line, and the rename is not source-compatible. Choosing the extension would have let Quarkus absorb that migration; choosing the engine directly means Islandr performs it. Bounded — the call sites are the four endpoints above — but real, and it lands whenever the pinned platform moves.
 
-**Enforcing a second factor on the break-glass account can lock the operator out** — creates **R-188**, and the design answers it rather than deferring it. Registration *is* the opt-in: with no credential registered the account behaves exactly as today, and the factor is required only once at least one exists, after the password has been verified. Recovery is an offline path — a CLI command on the hub that clears the registered credentials — so losing every authenticator costs a shell session, not the instance.
+> **Update 2026-09-19:** the platform moved, and this did *not* fire. Islandr went from Quarkus 3.29.4 to the 3.33 LTS line, whose BOM still resolves Vert.x **4.5.31** and still ships `vertx-auth-webauthn`. R-187 stays open and unchanged — it is a question of *when* Quarkus adopts Vert.x 5, not of this upgrade.
+
+**Enforcing a second factor on the break-glass account can lock the operator out** — creates **R-188**, and the design answers it rather than deferring it. Registration *is* the opt-in: with no credential registered the account behaves exactly as today. (This paragraph originally assumed the key would become *required* once registered, step-up style, after the password. The console UI decision below settled that question the other way — a key is an *alternative* sign-in, not an added requirement — which removes the lockout risk this paragraph was written to answer, rather than merely mitigating it.) Recovery is an offline path — a CLI command on the hub that clears the registered credentials — so losing every authenticator costs a shell session, not the instance.
+
+> **Update 2026-09-20 — built, and not as a CLI command.** The binary is a
+> server with no command mode, so introducing one for this would mean a second
+> entry point and, in a container, a process nobody starts. The reset is an
+> environment variable read at startup instead: `ISLANDR_WEBAUTHN_RESET=true`,
+> restart, unset. Every other operational switch on this product already works
+> that way, so an operator learns nothing new, and it behaves identically for
+> the native binary and the image. `WebAuthnReset` in the `auth` package, with
+> the audit entry this paragraph requires. The hazard the variable adds —
+> leaving it set wipes freshly enrolled keys on every restart — is answered by
+> warning on *every* boot while it is set, not only the boot that did the work.
+> Documented in `docs/install.md`. **R-188 is mitigated in fact, not only in
+> design.**
 
 That offline reset is deliberately not treated as a backdoor, because it does not widen the trust boundary: anyone who can run it already has shell access on the hub, and with it the database, the environment file holding `ISLANDR_ADMIN_PASSWORD`, and the ability to restart the service. It must, however, be audit-logged like any other credential change — the operator who resets it is not necessarily the one who notices afterwards.
 
 **A new credential store becomes a target** — ties **T-021** (§8.1), mitigation in §8.2. WebAuthn public keys are not secrets, but the signature counter is integrity-relevant: a store that accepts a non-increasing counter without notice loses the clone-detection property the standard provides.
 
 **Nothing changes for OIDC users.** The extension's per-request mechanism would have applied application-wide; an endpoint-scoped flow does not touch a path it is not on.
+
+> **Update 2026-09-22 — the console UI shipped, offered alongside the
+> password.** `webauthn-backend` (0.23.0) left the endpoints unused; three
+> options were on the table for how the login screen would use them —
+> alongside the password, replacing it, or requiring both as a genuine second
+> factor. Decided **alongside**: a "sign in with a security key" button
+> appears next to the local-admin password form once a usable credential is
+> registered — `availability` already told the login screen apart the two
+> ways a key can fail to help (none registered, or registered for a
+> different hostname); the password stays a complete, unrestricted path on
+> its own. Registration and removal live in Settings next to the other
+> account-level switches.
+>
+> Chosen for cost, not for safety margin: it adds a login option without
+> making a claim about the account's security *level* that a later
+> tightening would have to walk back. Whoever wants the stronger property —
+> replacing the password, or requiring both — can still build it once the
+> offline reset (R-188) has run on a real hub, not before; starting there
+> and finding operators lock themselves out would have been the expensive
+> order.
+>
+> **R-188 changes from mitigated to effectively closed by this decision**,
+> not by the offline reset: since a security key is never the *only* way in,
+> losing one cannot lock anyone out on its own — the reset above still
+> matters, but only for the compound case of a lost authenticator on top of
+> a forgotten password.
 
 ## References
 
