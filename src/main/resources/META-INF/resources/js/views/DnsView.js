@@ -107,7 +107,10 @@ export default defineComponent({
       </div>
 
       <div v-if="status.enabled" class="callout callout-warn" style="margin-bottom: var(--space-4)">
-        <div>{{ t('dns.split_tunnel_hint', { zone: status.zone, ip: status.bindAddress }) }}</div>
+        <div>{{ t('dns.split_tunnel_hint', { zone: status.zone, ip: status.bindAddress }) }}
+          <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install/dns-clients.md"
+             target="_blank" rel="noopener"
+             style="color:inherit;text-decoration:underline">{{ t('dns.split_tunnel_more') }}</a></div>
       </div>
 
       <div class="card card-pad" style="margin-bottom: var(--space-5)">

@@ -286,6 +286,7 @@ the outcome.
 - [docs/install/manual.md](docs/install/manual.md) — the same install written out step by step, for a host that is not a fresh Debian/Ubuntu VPS
 - [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
 - [docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md) — registering the Entra ID app, the permissions Islandr needs, and the setup errors that do not name their cause
+- [docs/install/dns-clients.md](docs/install/dns-clients.md) — reaching the internal zone from a client, the split-tunnel DNS field that fails silently, and what to check when a name does not resolve
 - [docs/install/fail2ban.md](docs/install/fail2ban.md) — the built-in login backoff, the log line fail2ban matches, and why banning your own reverse proxy is the easy mistake
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)

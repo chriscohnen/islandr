@@ -1744,6 +1744,14 @@ body {
    height inline (ActivityHeatmap.js) — a table row's rendered height is the
    max across all its cells, so the day cells alone being 20px tall isn't
    enough if the name cell in the same row still demands the default 44px. */
+/* The avatar in a heatmap row identifies whose peer it is — it reports no
+   state, and this card is read for the colour of the cells. At full
+   saturation a column of faces competes with the data it is labelling, so
+   they run desaturated here. Covers both halves of the avatar chain: a photo
+   and the deterministic initials tile, because the filter sits on the root
+   element rather than on the image. */
+.hm-peer-label .avatar { filter: grayscale(1); }
+
 td.heatmap-cell {
   width: 20px;
   height: 20px;

@@ -227,7 +227,7 @@ export default defineComponent({
           <tbody>
             <tr v-for="p in result.peers" :key="p.peerId">
               <td style="position: sticky; left: 0; background: var(--surface); vertical-align: middle; font-size: var(--text-sm); height: 20px; padding-top: 0; padding-bottom: 0">
-                <span style="display: inline-flex; align-items: center; gap: 6px">
+                <span class="hm-peer-label" style="display: inline-flex; align-items: center; gap: 6px">
                   <!-- Naming is per-user and free-form (#77): two peers named
                        "Laptop" are otherwise indistinguishable in this matrix.
                        No avatar for a site peer — it has no owning user. -->

@@ -339,7 +339,13 @@ jobs:
       # run that produced it, and it is verified against GitHub rather than
       # against us:
       #   gh attestation verify ./islandr-runner-linux-amd64 --repo chriscohnen/islandr
+      # Final releases only. A candidate is superseded within days and then
+      # deleted, and an attestation outlives the artifact it describes — it is
+      # keyed by digest, not by tag, so it cannot be cleaned up with the
+      # release. Attesting every RC would leave a growing set of records for
+      # binaries nobody can download any more.
       - name: Attest build provenance
+        if: ${{ !(contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta')) }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
