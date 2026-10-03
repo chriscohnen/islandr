@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import TopologyDiagram from "/js/TopologyDiagram.js";
 import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import ActivityHeatmap from "/js/ActivityHeatmap.js";
+import PeerTrafficRanking from "/js/PeerTrafficRanking.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
@@ -19,7 +20,7 @@ const HEAVY_TRAFFIC_BPS = 50 * 1024; // 50 KB/s
 // numbers. Most cards are clickable shortcuts to the underlying view.
 export default defineComponent({
   name: "DashboardView",
-  components: { TopologyDiagram, TopologyWorldMap, ActivityHeatmap, Icon },
+  components: { TopologyDiagram, TopologyWorldMap, ActivityHeatmap, PeerTrafficRanking, Icon },
   data() {
     return {
       data: null,
@@ -373,6 +374,9 @@ export default defineComponent({
             <button class="btn btn-sm" :class="activeTab === 'heatmap' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'heatmap'">
               {{ t('dashboard.heatmap_title') }}
             </button>
+            <button class="btn btn-sm" :class="activeTab === 'traffic' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'traffic'">
+              {{ t('dashboard.traffic_title') }}
+            </button>
           </div>
 
           <div v-if="activeTab === 'topology'" style="display: flex; align-items: center; gap: var(--space-3)">
@@ -395,6 +399,7 @@ export default defineComponent({
               :sites="data.topology.sites"
               :resources="data.topology.resources"
               :live-peers="liveMode ? livePeers : data.topology.livePeers"
+              :peer-status-counts="data.topology.peerStatusCounts"
               :resource-overflow="data.topology.resourceOverflow"
               :endpoint="data.topology.hubEndpoint"
               :hub-label="data.topology.hubLabel"
@@ -448,6 +453,12 @@ export default defineComponent({
         <!-- Connection activity heatmap: peers x days, who was connected when (#32) -->
         <div v-show="activeTab === 'heatmap'">
           <ActivityHeatmap :days="30" />
+        </div>
+
+        <!-- peer-traffic-ranking: who consumed the most tunnel traffic this/last
+             calendar month — the heatmap above answers "when", this answers "who". -->
+        <div v-show="activeTab === 'traffic'">
+          <PeerTrafficRanking />
         </div>
       </div>
 

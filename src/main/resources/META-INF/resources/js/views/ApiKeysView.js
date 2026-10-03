@@ -3,6 +3,22 @@ import { Icon } from "/js/Icons.js";
 import { t, locale } from "/js/i18n.js";
 import { confirmDialog } from "/js/confirmDialog.js";
 
+// Mirrors ApiKeyScope.CATALOG (backend) — kept as plain data here rather
+// than fetched, since the catalog is fixed per release, not per-install
+// config. The three presets are the "A — Stufen" tier the design settled on
+// for the UI, over a raw scope-per-checkbox grid (loop/TASK.md,
+// apikey-scopes) — the checkboxes beneath them are what a key actually
+// gets, so a preset is just a shortcut for checking a known set.
+const FACADE_SCOPES = [
+  "peers:read", "users:read", "resources:read", "grants:read", "audit:read",
+  "peers:write", "users:write",
+];
+const SCOPE_PRESETS = {
+  readonly: ["peers:read", "users:read", "resources:read", "grants:read", "audit:read"],
+  manage: ["peers:read", "peers:write", "users:read", "users:write"],
+  fullFacade: [...FACADE_SCOPES],
+};
+
 // API keys for the external automation API (issue #15, ADR-0026). List +
 // create (one-time raw-key reveal, same pattern as a peer's QR/.conf) +
 // revoke. No edit — a key's label/scope isn't mutable in v1, only its
@@ -17,6 +33,8 @@ export default defineComponent({
       error: null,
       creating: false,
       newLabel: "",
+      newScopes: [],
+      facadeScopes: FACADE_SCOPES,
       submitting: false,
       revealedKey: null, // { label, rawKey } while the one-time modal is open
       lang: locale.current,
@@ -32,6 +50,13 @@ export default defineComponent({
       if (!this.revealedKey) return "";
       return 'curl -H "Authorization: Bearer ' + this.revealedKey.rawKey + '" \\\n  '
           + location.origin + '/api/external/v1/peers';
+    },
+    // llms-txt-and-handoff: handing an agent a key is only half the
+    // handoff — it also needs to know where the API is described. Shown
+    // right here, where the key is born, not left to documentation an
+    // agent copy-pasting a token has no reason to go looking for.
+    llmsTxtUrl() {
+      return location.origin + "/llms.txt";
     },
   },
   async mounted() {
@@ -55,10 +80,20 @@ export default defineComponent({
     openCreate() {
       this.creating = true;
       this.newLabel = "";
+      this.newScopes = [];
     },
     cancelCreate() {
       this.creating = false;
       this.newLabel = "";
+      this.newScopes = [];
+    },
+    applyPreset(name) {
+      this.newScopes = [...SCOPE_PRESETS[name]];
+    },
+    isPresetActive(name) {
+      const preset = SCOPE_PRESETS[name];
+      return preset.length === this.newScopes.length
+          && preset.every((s) => this.newScopes.includes(s));
     },
     async submitCreate() {
       this.submitting = true;
@@ -66,7 +101,7 @@ export default defineComponent({
         const res = await fetch("/api/v1/api-keys", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ label: this.newLabel }),
+          body: JSON.stringify({ label: this.newLabel, scopes: this.newScopes }),
         });
         if (!res.ok) {
           const body = await res.text();
@@ -92,6 +127,9 @@ export default defineComponent({
     async copyCurl() {
       if (!this.curlExample) return;
       try { await navigator.clipboard.writeText(this.curlExample); } catch {}
+    },
+    async copyLlmsTxtUrl() {
+      try { await navigator.clipboard.writeText(this.llmsTxtUrl); } catch {}
     },
     async revoke(k) {
       if (!await confirmDialog(t("apikeys.confirm_revoke", { label: k.label }))) return;
@@ -131,6 +169,7 @@ export default defineComponent({
         <tr>
           <th>{{ t('apikeys.th_label') }}</th>
           <th>{{ t('apikeys.th_prefix') }}</th>
+          <th>{{ t('apikeys.th_scopes') }}</th>
           <th>{{ t('apikeys.th_created') }}</th>
           <th>{{ t('apikeys.th_last_used') }}</th>
           <th>{{ t('apikeys.th_status') }}</th>
@@ -141,6 +180,14 @@ export default defineComponent({
         <tr v-for="k in keys" :key="k.id">
           <td>{{ k.label }}</td>
           <td class="mono">{{ k.keyPrefix }}…</td>
+          <td>
+            <span v-if="k.scopes.includes('full')" class="badge badge-warning" :title="t('apikeys.scope_full_hint')">
+              <Icon name="shield" :size="13" />{{ t('apikeys.scope_full_label') }}
+            </span>
+            <span v-else style="display: flex; flex-wrap: wrap; gap: var(--space-1)">
+              <span v-for="s in k.scopes" :key="s" class="badge mono" style="font-size: var(--text-xs)">{{ s }}</span>
+            </span>
+          </td>
           <td class="muted" style="font-size: var(--text-xs)">{{ new Date(k.createdAt).toLocaleString(lang) }} · {{ k.createdBy }}</td>
           <td class="muted" style="font-size: var(--text-xs)">
             {{ k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString(lang) : t('apikeys.never_used') }}
@@ -172,10 +219,51 @@ export default defineComponent({
               <input id="akLabel" class="input" type="text" v-model="newLabel" required :placeholder="t('apikeys.field_label_ph')" />
               <div class="field-hint">{{ t('apikeys.field_label_hint') }}</div>
             </div>
+
+            <div class="field">
+              <label>{{ t('apikeys.field_scopes') }}</label>
+              <div class="field-hint" style="margin-bottom: var(--space-2)">{{ t('apikeys.field_scopes_hint') }}</div>
+              <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3)">
+                <button type="button" class="btn btn-sm" :class="isPresetActive('readonly') ? 'btn-secondary' : 'btn-ghost'"
+                        @click="applyPreset('readonly')">{{ t('apikeys.scope_preset_readonly') }}</button>
+                <button type="button" class="btn btn-sm" :class="isPresetActive('manage') ? 'btn-secondary' : 'btn-ghost'"
+                        @click="applyPreset('manage')">{{ t('apikeys.scope_preset_manage') }}</button>
+                <button type="button" class="btn btn-sm" :class="isPresetActive('fullFacade') ? 'btn-secondary' : 'btn-ghost'"
+                        @click="applyPreset('fullFacade')">{{ t('apikeys.scope_preset_full_facade') }}</button>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2)">
+                <label v-for="s in facadeScopes" :key="s" style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 400; text-transform: none; letter-spacing: 0">
+                  <input type="checkbox" :value="s" v-model="newScopes" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                  <span class="mono" style="font-size: var(--text-sm)">{{ s }}</span>
+                </label>
+              </div>
+
+              <div style="border-top: 1px solid var(--border); margin: var(--space-4) 0 var(--space-3)"></div>
+
+              <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 400; text-transform: none; letter-spacing: 0">
+                <input type="checkbox" value="config:export" v-model="newScopes" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                <span class="mono" style="font-size: var(--text-sm)">config:export</span>
+              </label>
+              <div class="field-hint" style="margin: 0 0 var(--space-2)">{{ t('apikeys.scope_config_export_hint') }}</div>
+
+              <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 400; text-transform: none; letter-spacing: 0">
+                <input type="checkbox" value="config:import" v-model="newScopes" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                <span class="mono" style="font-size: var(--text-sm)">config:import</span>
+              </label>
+              <div class="field-hint" style="margin: 0 0 var(--space-3)">{{ t('apikeys.scope_config_import_hint') }}</div>
+
+              <div style="border-top: 1px solid var(--border); margin: 0 0 var(--space-3)"></div>
+
+              <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 400; text-transform: none; letter-spacing: 0">
+                <input type="checkbox" value="full" v-model="newScopes" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                <span>{{ t('apikeys.scope_full_label') }}</span>
+              </label>
+              <div class="field-hint">{{ t('apikeys.scope_full_hint') }}</div>
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="cancelCreate">{{ t('common.cancel') }}</button>
-            <button type="submit" class="btn btn-primary" :disabled="submitting">
+            <button type="submit" class="btn btn-primary" :disabled="submitting || newScopes.length === 0">
               {{ submitting ? t('apikeys.btn_saving') : t('apikeys.btn_create') }}
             </button>
           </div>
@@ -208,6 +296,17 @@ export default defineComponent({
                 <Icon name="copy" :size="13" />
               </button>
             </div>
+          </div>
+
+          <div class="field" style="margin-top: var(--space-4)">
+            <label>{{ t('apikeys.llms_txt_label') }}</label>
+            <div style="display: flex; align-items: center; gap: var(--space-2)">
+              <span class="mono" style="flex: 1; min-width: 0; word-break: break-all; font-size: var(--text-sm)">{{ llmsTxtUrl }}</span>
+              <button type="button" class="btn btn-ghost btn-sm" style="flex-shrink: 0" @click="copyLlmsTxtUrl" :title="t('apikeys.btn_copy')">
+                <Icon name="copy" :size="13" />
+              </button>
+            </div>
+            <div class="field-hint">{{ t('apikeys.llms_txt_hint') }}</div>
           </div>
         </div>
         <div class="modal-footer">

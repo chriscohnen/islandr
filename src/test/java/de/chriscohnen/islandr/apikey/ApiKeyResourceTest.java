@@ -25,24 +25,26 @@ class ApiKeyResourceTest {
 
     @Test
     void create_returnsRawKeyOnceThenListDoesNot() {
-        String id = given().contentType("application/json").body("{ \"label\": \"ci\" }")
+        String id = given().contentType("application/json").body("{ \"label\": \"ci\", \"scopes\": [\"full\"] }")
                 .when().post("/api/v1/api-keys")
                 .then().statusCode(200)
                 .body("rawKey", notNullValue())
                 .body("apiKey.id", notNullValue())
+                .body("apiKey.scopes", hasSize(1))
                 .extract().path("apiKey.id");
 
         given().when().get("/api/v1/api-keys")
                 .then().statusCode(200).body("$", hasSize(1))
                 .body("[0].id", is(id))
-                .body("[0].revoked", is(false));
+                .body("[0].revoked", is(false))
+                .body("[0].scopes", hasSize(1));
         // The list response type has no field for the raw key/hash at all —
         // nothing to assert is null because it was never serialized.
     }
 
     @Test
     void revoke_marksItRevoked() {
-        String id = given().contentType("application/json").body("{ \"label\": \"ci\" }")
+        String id = given().contentType("application/json").body("{ \"label\": \"ci\", \"scopes\": [\"full\"] }")
                 .when().post("/api/v1/api-keys")
                 .then().statusCode(200).extract().path("apiKey.id");
 
@@ -55,7 +57,21 @@ class ApiKeyResourceTest {
 
     @Test
     void create_blankLabel_rejected() {
-        given().contentType("application/json").body("{ \"label\": \"\" }")
+        given().contentType("application/json").body("{ \"label\": \"\", \"scopes\": [\"full\"] }")
+                .when().post("/api/v1/api-keys")
+                .then().statusCode(400);
+    }
+
+    @Test
+    void create_noScopes_rejected() {
+        given().contentType("application/json").body("{ \"label\": \"ci\", \"scopes\": [] }")
+                .when().post("/api/v1/api-keys")
+                .then().statusCode(400);
+    }
+
+    @Test
+    void create_unknownScope_rejected() {
+        given().contentType("application/json").body("{ \"label\": \"ci\", \"scopes\": [\"not-a-real-scope\"] }")
                 .when().post("/api/v1/api-keys")
                 .then().statusCode(400);
     }

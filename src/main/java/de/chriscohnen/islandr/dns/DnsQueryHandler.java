@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.AclService;
 import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.peer.Peer;
+import de.chriscohnen.islandr.peer.PeerSelfShare;
 import de.chriscohnen.islandr.peer.IpSubnet;
 import de.chriscohnen.islandr.settings.Settings;
 import de.chriscohnen.islandr.settings.SettingsService;
@@ -14,9 +15,13 @@ import jakarta.transaction.Transactional;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Resolves a queried DNS name against the managed zone (ADR-0023). A name
@@ -67,22 +72,36 @@ public class DnsQueryHandler {
         Resolution hub = resolveHub(s, queriedName);
         if (hub != null) return hub;
 
+        // Resolved once, shared by the peer-name and resource-grant paths
+        // below — both need "who is asking".
+        Peer sourcePeer = Peer.<Peer>find("assignedIp = ?1 or assignedIpv6 = ?1", sourceIp).firstResult();
+
+        // peer-dns-name-gated-by-self-share: a peer's own name resolves for
+        // its owner and anyone with a live self-share on it (or
+        // unconditionally, for an owner-less site/gateway peer, or when the
+        // admin opted into dnsResolveAllResourcesAndPeers) — see
+        // resolvePeerByName's own doc comment.
+        Resolution peerAnswer = resolvePeerByName(s, queriedName, sourcePeer, false);
+        if (peerAnswer != null) return peerAnswer;
+
         ZoneLookup lookup = lookupZone(s, queriedName);
         if (lookup.status() == ZoneStatus.NOT_MANAGED) return NOT_MANAGED;
         if (lookup.status() == ZoneStatus.NO_MATCH) return NXDOMAIN;
 
         Resource resource = lookup.resource();
-        Peer peer = Peer.<Peer>find("assignedIp = ?1 or assignedIpv6 = ?1", sourceIp).firstResult();
         // No identity to check grants against (unknown source, or a site/gateway
         // peer with no owning user) — deny rather than guess. Conservative
         // default; ADR-0023 leaves the site-peer case as an open question.
-        if (peer == null || peer.userId == null) return NXDOMAIN;
+        if (sourcePeer == null || sourcePeer.userId == null) return NXDOMAIN;
 
         // canReachNow, not hasAnyGrant: on a capacity-limited resource
         // (issue #72) a grant without a live reservation does not reach it,
         // and resolving its name would advertise a host nftables is about to
-        // drop packets for.
-        return aclSvc.canReachNow(peer.userId, resource.id)
+        // drop packets for. dns-resolve-all-resources-option waives this
+        // check entirely when the admin opted in — same "a DNS answer grants
+        // nothing by itself" reasoning resolveHub/resolvePeerByName already
+        // apply unconditionally, just extended to every named resource.
+        return (s.dnsResolveAllResourcesAndPeers || aclSvc.canReachNow(sourcePeer.userId, resource.id))
                 ? new Resolution.Answer(resource.ip, canonicalFqdn(resource, lookup.site(), normalizeZone(s.dnsResolverZone)), resource.id)
                 : NXDOMAIN;
     }
@@ -114,6 +133,13 @@ public class DnsQueryHandler {
         // only means the preview does not know about it.
         Resolution hub = resolveHub(s, candidate);
         if (hub != null) return hub;
+
+        // bypassOwnershipCheck=true: same reasoning as the hub lookup just
+        // above — the preview isn't a connected peer and shouldn't need to
+        // fake being one (or a specific owner/self-share) to see whether a
+        // name resolves at all.
+        Resolution peerAnswer = resolvePeerByName(s, candidate, null, true);
+        if (peerAnswer != null) return peerAnswer;
 
         ZoneLookup lookup = lookupZone(s, candidate);
 
@@ -153,12 +179,34 @@ public class DnsQueryHandler {
      *  admin whether any *real* peer can actually reach it by name. Linear
      *  scan over every user, one {@code hasAnyGrant} check each — accepted
      *  at this codebase's target small-team scale (same trade-off as the
-     *  zone lookup's own per-query site scan, see the class doc). */
+     *  zone lookup's own per-query site scan, see the class doc).
+     *
+     *  <p>Bug fixed 2026-10-03: with {@code Settings#dnsResolveAllResourcesAndPeers}
+     *  on, {@link #resolve} answers for every user regardless of grants (see
+     *  its own `||` there) — this must say the same thing, or the admin
+     *  preview claims "no one can reach this, a real peer would get
+     *  NXDOMAIN" for a name that in fact resolves for everyone. */
+    /** Which of hub/peer/resource a given {@link Resolution.Answer} is — the
+     *  admin lookup preview needs this to pick the right explanation (a
+     *  resource's grants, a peer's ownership/self-share, or the hub's
+     *  unconditional answer all need different wording; showing the
+     *  resource-grants message for a peer name is what produced the
+     *  2026-10-03 bug report). {@code resourceId} alone can't tell hub and
+     *  peer apart — both leave it null — so this also re-checks
+     *  {@link #hubLabels}. */
+    @Transactional
+    public ResolvableNameKind kindOfAnswer(Resolution.Answer a) {
+        if (a.resourceId() != null) return ResolvableNameKind.RESOURCE;
+        Settings s = settingsSvc.get();
+        return hubLabels(s).contains(normalizeName(a.fqdn())) ? ResolvableNameKind.HUB : ResolvableNameKind.PEER;
+    }
+
     @Transactional
     public List<String> grantedUserLabels(String resourceId) {
+        boolean bypassesGrants = settingsSvc.get().dnsResolveAllResourcesAndPeers;
         List<String> labels = new ArrayList<>();
         for (User u : User.<User>listAll()) {
-            if (aclSvc.hasAnyGrant(u.id, resourceId)) labels.add(u.name);
+            if (bypassesGrants || aclSvc.hasAnyGrant(u.id, resourceId)) labels.add(u.name);
         }
         labels.sort(String::compareTo);
         return labels;
@@ -194,6 +242,23 @@ public class DnsQueryHandler {
         return new Resolution.Answer(ip, name, null);
     }
 
+    /** The name(s) that currently resolve to the hub itself — the fixed
+     *  {@code hub.<zone>} plus the admin's own alias, if set. Mirrors
+     *  {@link #resolveHub}'s own guards exactly (resolver enabled, a real
+     *  tunnel address to answer with), so this list — used by
+     *  {@link #resolvableNames()} and {@link #resolvableCount()} for the
+     *  System → DNS page — never claims a name resolves that the real
+     *  {@link #resolve} path would actually refuse. */
+    private List<String> hubLabels(Settings s) {
+        if (!s.dnsResolverEnabled || hubAddress(s) == null) return List.of();
+        List<String> labels = new ArrayList<>();
+        labels.add(HUB_LABEL + "." + normalizeZone(s.dnsResolverZone));
+        if (s.dnsHubAlias != null && !s.dnsHubAlias.isBlank()) {
+            labels.add(normalizeName(s.dnsHubAlias));
+        }
+        return labels;
+    }
+
     /** The hub's tunnel address, by the same network+1 convention the peer
      *  configs and the Atlas graph already use. */
     private static String hubAddress(Settings s) {
@@ -203,6 +268,123 @@ public class DnsQueryHandler {
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    /**
+     * A peer's own name, as a single label directly under the zone apex
+     * (peer-dns-name) — {@code <peer>.<zone>}, the same shape a flat resource
+     * uses, but for the peer's own tunnel address rather than something it
+     * offers.
+     *
+     * <p><b>Gated, since peer-dns-name-gated-by-self-share</b> (it answered
+     * unconditionally for every peer before that — the class's own history
+     * carried a long note about this being a known, deliberately-left-open
+     * gap, back when {@code peer-self-share} itself hadn't shipped yet and
+     * there was no concept of "this one named colleague" to check against):
+     * an owner-less peer (a site/gateway, {@code peer.userId == null}) still
+     * resolves for anyone, same reasoning as {@link #resolveHub} — it is
+     * infrastructure, not a personal device, and access to whatever is
+     * <em>behind</em> it is separately governed by the ACL regardless. A
+     * peer with an owner resolves only for that owner's own other devices,
+     * or a user holding a currently-live {@link PeerSelfShare} on it (any
+     * port — the DNS answer only names an address, never a port), unless
+     * {@code bypassOwnershipCheck} is set (the admin lookup preview) or
+     * {@code Settings#dnsResolveAllResourcesAndPeers} is on (the default —
+     * see that field's own doc comment for why opt-out, not opt-in).
+     *
+     * <p><b>Known gap, not solved here:</b> a peer's label and a flat
+     * resource's {@code dnsName} share the same zone-apex, single-label
+     * namespace but are validated independently of each other (peer names
+     * against each other in {@link de.chriscohnen.islandr.peer.PeerService},
+     * flat resource names against each other in {@code ResourceService}) — a
+     * peer is checked first here, so it would silently shadow a same-named
+     * flat resource rather than either being rejected at write time. Left
+     * open rather than guessed at; revisit if it ever bites in practice.
+     *
+     * @param sourcePeer who is asking — null when unknown or when {@code
+     *        bypassOwnershipCheck} makes it irrelevant (the admin preview,
+     *        which isn't a connected peer and shouldn't need to fake being
+     *        one)
+     * @return the answer, {@link #NXDOMAIN} when the name matches a peer but
+     *         {@code sourcePeer} isn't allowed to resolve it, or {@code null}
+     *         when this is not a peer-name query at all and the normal zone
+     *         lookup should handle it
+     */
+    private Resolution resolvePeerByName(Settings s, String queriedName, Peer sourcePeer, boolean bypassOwnershipCheck) {
+        if (!s.dnsResolverEnabled) return null;
+        String zone = normalizeZone(s.dnsResolverZone);
+        String name = normalizeName(queriedName);
+        if (name.equals(zone) || !name.endsWith("." + zone)) return null;
+        String label = name.substring(0, name.length() - zone.length() - 1);
+        if (label.contains(".")) return null; // peers only ever resolve as a single top-level label
+
+        Peer match = findPeerByDnsLabel(label);
+        if (match == null) return null;
+        if (!bypassOwnershipCheck && !peerNameVisibleTo(match, sourcePeer, s)) return NXDOMAIN;
+        return new Resolution.Answer(match.assignedIp, name, null);
+    }
+
+    /** The actual gate behind {@link #resolvePeerByName} — split out so its
+     *  own doc comment can carry the reasoning without crowding the method
+     *  that also does label-parsing. */
+    private boolean peerNameVisibleTo(Peer target, Peer sourcePeer, Settings s) {
+        if (s.dnsResolveAllResourcesAndPeers) return true;
+        if (target.userId == null) return true; // site/gateway peer — infrastructure, not a personal device
+        if (sourcePeer == null || sourcePeer.userId == null) return false; // no identity to check a share against
+        if (target.userId.equals(sourcePeer.userId)) return true; // the owner's own other devices
+        return PeerSelfShare.find(
+                "ownerPeerId = ?1 and targetUserId = ?2 and revokedAt is null and validUntil > ?3",
+                target.id, sourcePeer.userId, Instant.now()).firstResult() != null;
+    }
+
+    /**
+     * Every peer's DNS label, deduplicated: {@link #slugify}(name), with
+     * {@code -2}, {@code -3}, ... appended for each further peer whose name
+     * slugifies the same way, oldest peer first (stable — a later rename or
+     * new peer never renumbers an earlier one). {@value #HUB_LABEL} is
+     * reserved for the hub itself: a peer that happens to slugify to it is
+     * treated as if position 0 were already taken, so it starts at
+     * {@code hub-2} rather than silently never resolving (the hub's own
+     * fixed record always wins an exact "hub" query, checked before this
+     * method ever runs — see {@link #resolve}).
+     *
+     * <p>Recomputed on every query rather than stored, same MVP trade-off
+     * {@link #slugify} already accepts for site subdomains — see that
+     * method's own doc comment.
+     */
+    private static Peer findPeerByDnsLabel(String label) {
+        for (Map.Entry<Peer, String> e : peerDnsLabels().entrySet()) {
+            if (e.getValue().equals(label)) return e.getKey();
+        }
+        return null;
+    }
+
+    /** This peer's own deduplicated label — see {@link #peerDnsLabels()}. */
+    private static String peerDnsLabel(Peer peer) {
+        return peerDnsLabels().get(peer);
+    }
+
+    /** Builds the full peer→label map in one pass, so {@link #findPeerByDnsLabel}
+     *  and {@link #peerDnsLabel} (query-direction and listing-direction) can
+     *  never disagree about who owns which label — see that method's own doc
+     *  comment for the numbering rule itself. */
+    private static Map<Peer, String> peerDnsLabels() {
+        Map<String, List<Peer>> bySlug = new HashMap<>();
+        for (Peer p : Peer.<Peer>listAll()) {
+            bySlug.computeIfAbsent(slugify(p.name), k -> new ArrayList<>()).add(p);
+        }
+        Map<Peer, String> labels = new HashMap<>();
+        for (Map.Entry<String, List<Peer>> e : bySlug.entrySet()) {
+            String base = e.getKey();
+            List<Peer> group = e.getValue();
+            group.sort(Comparator.comparing(p -> p.createdAt));
+            boolean baseReserved = base.equals(HUB_LABEL);
+            for (int i = 0; i < group.size(); i++) {
+                int ordinal = baseReserved ? i + 2 : i + 1;
+                labels.put(group.get(i), ordinal == 1 ? base : base + "-" + ordinal);
+            }
+        }
+        return labels;
     }
 
     private enum ZoneStatus { NOT_MANAGED, NO_MATCH, FOUND }
@@ -304,35 +486,94 @@ public class DnsQueryHandler {
         return new ResolverConfig(s.dnsResolverEnabled, s.wgSubnet, normalizeZone(s.dnsResolverZone), upstreams);
     }
 
-    /** Count of resources with a DNS name set — the "N resolvable names"
-     *  stat on the System → DNS page. Not scoped by zone/site since there's
-     *  only ever one managed zone per install (ADR-0023). */
+    /** Full DNS name (e.g. {@code "laptop-2.islandr.internal"}) for each of
+     *  {@code peers}, keyed by {@link Peer#id} — myaccess-peer-dns-name-display,
+     *  so "Mein Zugang" can show a device's resolvable name without
+     *  reimplementing the dedupe-numbering ({@link #peerDnsLabels}) in the
+     *  frontend. Empty when the resolver is disabled (nothing would actually
+     *  answer for any of these names). A peer with no entry in the result
+     *  simply has no computed label — should not happen in practice, since
+     *  {@link #peerDnsLabels} assigns one to every peer in the table, but
+     *  callers must not assume every id in {@code peers} comes back.
+     *
+     *  <p>One {@link #peerDnsLabels} build total, not one per peer — that
+     *  method keys its map by peer <em>identity</em> ({@link Peer} doesn't
+     *  override {@code equals}/{@code hashCode}), so its own fresh
+     *  {@code Peer.listAll()} instances can't be looked up with the
+     *  caller-supplied {@code peers} list directly; re-keying by id here is
+     *  what makes that safe. */
     @Transactional
-    public long resolvableCount() {
-        return Resource.count("dnsName is not null");
+    public Map<String, String> peerDnsFqdns(List<Peer> peers) {
+        Settings s = settingsSvc.get();
+        if (!s.dnsResolverEnabled) return Map.of();
+        String zone = normalizeZone(s.dnsResolverZone);
+        Map<String, String> labelsById = new HashMap<>();
+        for (Map.Entry<Peer, String> e : peerDnsLabels().entrySet()) {
+            labelsById.put(e.getKey().id, e.getValue());
+        }
+        Map<String, String> out = new HashMap<>();
+        for (Peer p : peers) {
+            String label = labelsById.get(p.id);
+            if (label != null) out.put(p.id, label + "." + zone);
+        }
+        return out;
     }
 
-    /** Full FQDN for every resource with a DNS name set — lets the System → DNS
-     *  page show the admin the exact string to test instead of leaving them to
-     *  derive the site slug by hand (the German-umlaut slugify fix above is the
-     *  kind of mismatch this sidesteps entirely). Sorted for a stable display
-     *  order; admin-facing only — never touches ACL, same as the rest of this
-     *  page's status data. */
+    /** Count of resources with a DNS name set, plus every peer
+     *  (peer-dns-name) — the "N resolvable names" stat on the System → DNS
+     *  page. Not scoped by zone/site since there's only ever one managed zone
+     *  per install (ADR-0023). */
     @Transactional
-    public List<String> resolvableNames() {
-        String zone = normalizeZone(settingsSvc.get().dnsResolverZone);
+    public long resolvableCount() {
+        return Resource.count("dnsName is not null") + Peer.count() + hubLabels(settingsSvc.get()).size();
+    }
+
+    /** One entry in {@link #resolvableNames()} — the FQDN plus which of the
+     *  three disjoint sources it came from, so the System → DNS page can show
+     *  that without the admin having to parse the name itself
+     *  (dns-resolvable-names-typed). */
+    public enum ResolvableNameKind { HUB, PEER, RESOURCE }
+
+    /** @param fqdn the full name, exactly as {@link #resolvableNames()} used
+     *              to return it (unchanged shape, now paired with a kind)
+     *  @param kind which of hub/peer/resource this name belongs to */
+    public record ResolvableName(String fqdn, ResolvableNameKind kind) {}
+
+    /** Full FQDN for every resource with a DNS name set, plus every peer
+     *  (peer-dns-name) — lets the System → DNS page show the admin the exact
+     *  string to test instead of leaving them to derive the site slug, or a
+     *  peer's deduplicated label, by hand (the German-umlaut slugify fix
+     *  above is the kind of mismatch this sidesteps entirely). Sorted for a
+     *  stable display order; admin-facing only — never touches ACL, same as
+     *  the rest of this page's status data.
+     *
+     *  <p>Returns the FQDN paired with its {@link ResolvableNameKind}
+     *  (dns-resolvable-names-typed) — the three sources below (hub labels,
+     *  the resource loop, the peer loop) already know which is which while
+     *  building the list; this just keeps that instead of flattening it away
+     *  into a bare {@code List<String>} as before. */
+    @Transactional
+    public List<ResolvableName> resolvableNames() {
+        Settings s = settingsSvc.get();
+        String zone = normalizeZone(s.dnsResolverZone);
         List<Resource> named = Resource.<Resource>list("dnsName is not null");
-        List<String> fqdns = new ArrayList<>();
+        List<ResolvableName> fqdns = new ArrayList<>();
+        for (String hub : hubLabels(s)) {
+            fqdns.add(new ResolvableName(hub, ResolvableNameKind.HUB));
+        }
         for (Resource r : named) {
             if (r.dnsFlat) {
-                fqdns.add(canonicalFqdn(r, null, zone));
+                fqdns.add(new ResolvableName(canonicalFqdn(r, null, zone), ResolvableNameKind.RESOURCE));
                 continue;
             }
             Site site = Site.findById(r.siteId);
             if (site == null) continue; // orphaned row, shouldn't happen — skip rather than throw
-            fqdns.add(canonicalFqdn(r, site, zone));
+            fqdns.add(new ResolvableName(canonicalFqdn(r, site, zone), ResolvableNameKind.RESOURCE));
         }
-        fqdns.sort(String::compareTo);
+        for (Peer p : Peer.<Peer>listAll()) {
+            fqdns.add(new ResolvableName(peerDnsLabel(p) + "." + zone, ResolvableNameKind.PEER));
+        }
+        fqdns.sort(Comparator.comparing(ResolvableName::fqdn));
         return fqdns;
     }
 

@@ -65,7 +65,7 @@ class PeerUserReassignTest {
 
     private PeerDto.UpdateRequest req(Peer p, String type, String cidrs, String userId) {
         return new PeerDto.UpdateRequest(p.name, p.assignedIp, p.assignedIpv6, cidrs,
-                null, null, null, null, null, null, null, null, null, type, userId);
+                null, false, null, null, null, null, null, null, null, null, type, userId);
     }
 
     @Test

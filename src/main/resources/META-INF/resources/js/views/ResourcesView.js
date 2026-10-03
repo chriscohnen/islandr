@@ -584,12 +584,13 @@ export default defineComponent({
         const state = s.state.toLowerCase();
         // Merge rather than replace: an already-added port must not lose its
         // _added flag just because the panel re-rendered from a fresh poll.
-        // Also check the resource's own port list — a port added before this
-        // scan even started (by hand, or from a port group) is still "added"
-        // as far as the button is concerned; without this, clicking
-        // "Übernehmen" on it just fails with a 409 the panel never showed
-        // (see the fix to the error banner's visibility below), and to the
-        // admin nothing happens at all.
+        // Also check the resource's own port list — a port that existed
+        // before this scan even started (by hand, or from a port group) must
+        // still be marked so its "Übernehmen" button doesn't offer to add it
+        // again (that would just fail with a 409 the panel never showed, see
+        // the fix to the error banner's visibility below) — but it was never
+        // *added by the scan*, so it gets its own flag and its own label
+        // ("Bekannt", not "✓ Übernommen") rather than falsely claiming credit.
         // Keyed on port+transport, same as the backend's own conflict check
         // (portConflictExists) — the scan and addScannedPort both only ever
         // deal in single tcp ports, so that's what this checks against.
@@ -599,7 +600,8 @@ export default defineComponent({
         const addedByPort = new Map(this.portScanPorts.map((p) => [p.port, p._added]));
         this.portScanPorts = (s.openPorts || []).map((p) => ({
           ...p,
-          _added: addedByPort.get(p.port) || existingTcpPorts.has(p.port) || false,
+          _added: addedByPort.get(p.port) || false,
+          _alreadyKnown: existingTcpPorts.has(p.port),
         }));
         if (state === "running") {
           this.portScanPollTimer = setTimeout(() => this.pollPortScan(), 400);
@@ -614,10 +616,23 @@ export default defineComponent({
     },
     /** Guesses a protocol label from the scanned service name — best-effort,
      *  same spirit as the backend's own fallback for a discovery import,
-     *  editable afterwards like any other port. */
+     *  editable afterwards like any other port. Only a fallback: the backend
+     *  now actively probes each open port (port-protocol-detect) and reports
+     *  a real answer in `p.protocol` whenever it found one, which is always
+     *  preferred over this name-based guess. */
     portScanProtocolGuess(service) {
       const known = ["SSH", "HTTP", "HTTPS", "SMB", "RDP", "VNC"];
       return known.includes(service) ? service : "CUSTOM";
+    },
+    /** One line for the scanned-port chip's tooltip: what was actually seen,
+     *  not just guessed from the port number. */
+    portScanDetail(p) {
+      const parts = [];
+      if (p.title) parts.push(p.title);
+      if (p.certCn) parts.push("Cert CN: " + p.certCn);
+      if (p.nlaRequired === true) parts.push("NLA/CredSSP required");
+      if (p.nlaRequired === false) parts.push(t("resources.port_scan_no_nla"));
+      return parts.join(" · ") || null;
     },
     /** Adds one scanned port as a real ResourcePort — the same endpoint the
      *  manual "Add port" form posts to, so nothing here re-implements the
@@ -629,8 +644,8 @@ export default defineComponent({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             port: p.port, portEnd: null, transport: "tcp",
-            protocol: this.portScanProtocolGuess(p.service),
-            label: p.service || null, pathPrefix: null,
+            protocol: p.protocol || this.portScanProtocolGuess(p.service),
+            label: p.title || p.service || null, pathPrefix: null,
             maxConcurrentUsers: null, maxReservationMinutes: null, autoApproveReservations: true,
             rdpClipboard: false, rdpFileTransfer: false, rdpAccessMode: "native",
           }),
@@ -1125,12 +1140,13 @@ export default defineComponent({
               </p>
 
               <div v-if="portScanPorts.length > 0" class="res-port-chips">
-                <span v-for="p in portScanPorts" :key="p.port" class="res-port-chip">
+                <span v-for="p in portScanPorts" :key="p.port" class="res-port-chip" :title="portScanDetail(p)">
                   <span class="mono" style="font-size: var(--text-xs)">{{ p.port }}/tcp</span>
-                  <span style="color: var(--fg2); font-size: var(--text-xs)">{{ p.service || t('resources.port_scan_unnamed') }}</span>
-                  <button v-if="!p._added" type="button" class="btn btn-ghost btn-sm" style="padding: 0 6px"
+                  <span style="color: var(--fg2); font-size: var(--text-xs)">{{ p.protocol || p.service || t('resources.port_scan_unnamed') }}</span>
+                  <button v-if="!p._added && !p._alreadyKnown" type="button" class="btn btn-ghost btn-sm" style="padding: 0 6px"
                           @click="addScannedPort(p)">{{ t('resources.port_scan_add') }}</button>
-                  <span v-else class="mono" style="font-size: var(--text-xs); color: var(--success-solid)">✓ {{ t('resources.port_scan_added') }}</span>
+                  <span v-else-if="p._added" class="mono" style="font-size: var(--text-xs); color: var(--success-solid)">✓ {{ t('resources.port_scan_added') }}</span>
+                  <span v-else class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ t('resources.port_scan_known') }}</span>
                 </span>
               </div>
 

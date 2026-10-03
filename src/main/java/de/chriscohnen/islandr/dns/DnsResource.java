@@ -48,8 +48,15 @@ public class DnsResource {
             int port,
             long resolvableCount,
             // The exact FQDNs, not just the count — an admin shouldn't have to
-            // derive the site slug by hand to know what to test.
-            java.util.List<String> resolvableNames
+            // derive the site slug by hand to know what to test. Paired with
+            // which of hub/peer/resource each one belongs to
+            // (dns-resolvable-names-typed) — the three sources look identical
+            // as bare strings otherwise.
+            java.util.List<DnsQueryHandler.ResolvableName> resolvableNames,
+            // So the lookup-preview result panel can explain a peer-name
+            // answer correctly (bug report 2026-10-03) without a second
+            // round-trip to /api/v1/settings just for this one flag.
+            boolean dnsResolveAllResourcesAndPeers
     ) {}
 
     @GET
@@ -67,10 +74,10 @@ public class DnsResource {
                 // fail-safe DnsResolverService itself applies
             }
         }
-        java.util.List<String> names = queryHandler.resolvableNames();
+        java.util.List<DnsQueryHandler.ResolvableName> names = queryHandler.resolvableNames();
         return new StatusResponse(
                 s.dnsResolverEnabled, resolverSvc.isRunning(), cfg.zone(), cfg.upstreams(),
-                bindAddress, port, names.size(), names);
+                bindAddress, port, names.size(), names, s.dnsResolveAllResourcesAndPeers);
     }
 
     /** {@code sourceIp}, when set, switches the lookup from the forgiving
@@ -88,15 +95,20 @@ public class DnsResource {
      *  {@code upstream} is which configured upstream server actually answered
      *  a "not-managed" lookup — null for "answer"/"nxdomain" (those never
      *  leave the zone) and also null if every upstream timed out.
-     *  {@code grantedUsers} is only populated for "answer" *and* only when
-     *  {@code sourceIp} was omitted: the plain preview skips the ACL check
-     *  (see {@link DnsQueryHandler#resolveForAdminPreview}), so it resolving
-     *  a name here says nothing about which real peer, if any, would
-     *  actually get an answer on the wire — this lists them so the admin
+     *  {@code grantedUsers} is only populated for a {@code nameKind="resource"}
+     *  answer *and* only when {@code sourceIp} was omitted: the plain preview
+     *  skips the ACL check (see {@link DnsQueryHandler#resolveForAdminPreview}),
+     *  so it resolving a name here says nothing about which real peer, if any,
+     *  would actually get an answer on the wire — this lists them so the admin
      *  doesn't have to separately cross-check the ACL matrix. Meaningless
-     *  (and omitted) once {@code sourceIp} already pins it down to one peer. */
+     *  (and omitted) once {@code sourceIp} already pins it down to one peer.
+     *  {@code nameKind}: "hub" | "peer" | "resource" | null (for a non-"answer"
+     *  result) — a hub or peer name isn't governed by resource grants at all
+     *  (bug report 2026-10-03: a peer name was showing the resource-grants
+     *  "no one can reach this" message), so the frontend needs to know which
+     *  kind of name it's explaining before it picks a message. */
     public record LookupResponse(String result, String ip, String fqdn, String upstream,
-                                  java.util.List<String> grantedUsers) {}
+                                  java.util.List<String> grantedUsers, String nameKind) {}
 
     @POST
     @Path("/lookup")
@@ -107,23 +119,24 @@ public class DnsResource {
                 ? queryHandler.resolve(body.name(), body.sourceIp().trim())
                 : queryHandler.resolveForAdminPreview(body.name());
         if (r instanceof DnsQueryHandler.Resolution.Answer a) {
-            // The hub's own record has no resource behind it and no grants to
-            // list — asking who may reach it would answer "everyone", which is
-            // the point of it having no ACL check in the first place.
-            java.util.List<String> granted = (asPeer || a.resourceId() == null)
+            DnsQueryHandler.ResolvableNameKind kind = queryHandler.kindOfAnswer(a);
+            // Grants are a resource concept — a hub answer is unconditional and
+            // a peer answer is governed by ownership/self-share, neither has a
+            // "list of users with a grant" to show.
+            java.util.List<String> granted = (asPeer || kind != DnsQueryHandler.ResolvableNameKind.RESOURCE)
                     ? null : queryHandler.grantedUserLabels(a.resourceId());
-            return new LookupResponse("answer", a.ip(), a.fqdn(), null, granted);
+            return new LookupResponse("answer", a.ip(), a.fqdn(), null, granted, kind.name().toLowerCase(java.util.Locale.ROOT));
         }
         if (r instanceof DnsQueryHandler.Resolution.NxDomain) {
-            return new LookupResponse("nxdomain", null, null, null, null);
+            return new LookupResponse("nxdomain", null, null, null, null, null);
         }
         // Outside the managed zone — actually ask the configured upstream(s)
         // instead of just reporting "would be forwarded" (a live, on-demand,
         // admin-triggered query; never part of the resolver's own hot path).
         DnsResolverService.UpstreamAnswer up = resolverSvc.queryUpstreamForPreview(body.name());
         if (up != null) {
-            return new LookupResponse("not-managed", up.ip(), null, up.upstream(), null);
+            return new LookupResponse("not-managed", up.ip(), null, up.upstream(), null, null);
         }
-        return new LookupResponse("not-managed", null, null, null, null);
+        return new LookupResponse("not-managed", null, null, null, null, null);
     }
 }

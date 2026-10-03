@@ -393,6 +393,7 @@ public class PeerService {
         } else if (req.deviceType() != null) {
             peer.deviceType = null;
         }
+        peer.isRoadwarrior = req.isRoadwarrior();
         if (peer.isSite()) {
             peer.lat = req.lat();
             peer.lng = req.lng();
@@ -450,18 +451,20 @@ public class PeerService {
     }
 
     /**
-     * The narrow self-service edit (issue: peer-self-edit): a device's name
-     * and category, nothing else. Unlike {@link #update}, this never touches
-     * IP, CIDR, owner or PSK — those are admin concerns reachable only through
-     * that method, guarded by {@code Auth.requireAdmin}. Neither field affects
-     * the firewall ruleset, so there is no recompute here.
+     * The narrow self-service edit (issue: peer-self-edit; extended by
+     * peer-roadwarrior-badge): a device's name, category and roadwarrior
+     * flag, nothing else. Unlike {@link #update}, this never touches IP,
+     * CIDR, owner or PSK — those are admin concerns reachable only through
+     * that method, guarded by {@code Auth.requireAdmin}. None of these fields
+     * affect the firewall ruleset, so there is no recompute here.
      */
     @Transactional
-    public PeerDto.Response updateSelfDetails(String peerId, String name, String deviceType) {
+    public PeerDto.Response updateSelfDetails(String peerId, String name, String deviceType, boolean isRoadwarrior) {
         Peer peer = Peer.findById(peerId);
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
         peer.name = name;
         peer.deviceType = (deviceType == null || deviceType.isBlank()) ? null : deviceType;
+        peer.isRoadwarrior = isRoadwarrior;
         peer.updatedAt = java.time.Instant.now();
         return PeerDto.Response.from(peer);
     }

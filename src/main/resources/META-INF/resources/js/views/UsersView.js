@@ -21,6 +21,7 @@ export default defineComponent({
       users: [],
       loading: true,
       error: null,
+      info: null,
       quickFilter: "", // matches against display name, nickname, real name, or email — substring, case-insensitive
       usersSortKey: null,  // null = server order (creation order); 'name' | 'email' | 'peerCount'
       usersSortDir: 1,     // 1 = asc, -1 = desc
@@ -327,6 +328,8 @@ export default defineComponent({
       this.passwordInput = "";
     },
     async savePassword(userId) {
+      this.error = null;
+      this.info = null;
       try {
         const res = await fetch("/api/v1/users/" + userId + "/password", {
           method: "PUT",
@@ -336,6 +339,14 @@ export default defineComponent({
         if (!res.ok) {
           const b = await res.text();
           throw new Error("HTTP " + res.status + (b ? " — " + b.slice(0, 120) : ""));
+        }
+        const result = await res.json();
+        // session-revoke-on-password-change: a password change ends every
+        // other session of that account — invisible unless we say so, and
+        // an admin who doesn't realize they just signed someone out calls
+        // support.
+        if (result.sessionsRevoked > 0) {
+          this.info = t("users.password_sessions_revoked", { count: result.sessionsRevoked });
         }
         await this.load();
         this.cancelPasswordEdit();
@@ -389,11 +400,11 @@ export default defineComponent({
       this.gwsSelected = new Set(newEmails);
     },
     async importGwsSelected() {
-      if (this.gwsSelected.size === 0) {
-        alert(t("users.gws_none_selected"));
-        return;
-      }
+      // No empty-selection guard here: the only button that calls this is
+      // already :disabled="... || gwsSelected.size === 0", so this can't
+      // actually be reached with nothing selected.
       this.gwsImporting = true;
+      this.gwsError = null;
       try {
         const res = await fetch("/api/v1/users/import/google", {
           method: "POST",
@@ -526,6 +537,7 @@ export default defineComponent({
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+    <div v-if="info" class="callout callout-info" style="margin-bottom: var(--space-4)"><div>{{ info }}</div></div>
 
     <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
 
@@ -547,6 +559,7 @@ export default defineComponent({
           <th @click="usersSortBy('email')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('users.th_email') }} <span class="muted" style="font-size: 10px">{{ usersSortIcon('email') }}</span>
           </th>
+          <th>{{ t('users.th_identity') }}</th>
           <th>{{ t('users.th_role') }}</th>
           <th>{{ t('users.th_status') }}</th>
           <th @click="usersSortBy('peerCount')" style="cursor: pointer; user-select: none; white-space: nowrap">
@@ -620,6 +633,27 @@ export default defineComponent({
                      autofocus />
               <button @click="saveEmail(u.id)" class="btn btn-primary btn-sm" style="height: 28px">✓</button>
               <button @click="cancelEmailEdit" class="btn btn-ghost btn-sm" style="height: 28px">✕</button>
+            </span>
+          </td>
+          <td>
+            <!-- users-identity-pill: how this user can log in, not just
+                 whether — a user can hold both at once (password set, then
+                 also linked to an IdP, or vice versa), so both pills show. -->
+            <span style="display: inline-flex; gap: var(--space-1); flex-wrap: wrap">
+              <span v-if="u.hasLocalPassword" class="badge badge-neutral">
+                <Icon name="key" :size="12" />{{ t('users.identity_local') }}
+              </span>
+              <span v-if="u.oidcProvider" class="badge badge-neutral">
+                <span v-if="u.oidcProvider === 'microsoft'" class="oauth-mark oauth-mark--ms"
+                      style="width: 12px; height: 12px" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span>
+                </span>
+                <span v-else-if="u.oidcProvider === 'google'" class="oauth-mark oauth-mark--google"
+                      style="width: 12px; height: 12px; font-size: 9px" aria-hidden="true">G</span>
+                <Icon v-else name="identity" :size="12" />
+                {{ u.oidcProviderLabel }}
+              </span>
+              <span v-if="!u.hasLocalPassword && !u.oidcProvider" class="muted" style="font-size: var(--text-xs)">—</span>
             </span>
           </td>
           <td>

@@ -40,16 +40,23 @@ public final class DashboardDto {
      *   1. {@code sites} — inner ring, one node per site
      *   2. {@code resources} — outer ring, grouped under their parent site
      * Plus {@code livePeers} — tiny dots near the hub representing peers
-     * that exchanged a handshake in the last 5 minutes. These are the only
-     * thing that comes and goes; everything else is static topology.
+     * that exchanged a handshake recently (connected or stale, never a
+     * peer that's fully disconnected — topology-peer-detail-levels).
+     * These are the only thing that comes and goes; everything else is
+     * static topology.
      *
      * Resources beyond {@link DashboardResource#TOPOLOGY_RESOURCE_CAP}
      * collapse into {@code resourceOverflow} so the SVG stays legible.
+     * {@code peerStatusCounts} is the uncapped truth behind {@code livePeers}
+     * (topology-peer-detail-levels) — the diagram's "tier 3" collapsed
+     * summary needs the real total even once {@code livePeers} itself hits
+     * its cap and stops listing individual peers.
      */
     public record Topology(
             List<TopologySite> sites,
             List<TopologyResource> resources,
             List<TopologyLivePeer> livePeers,
+            PeerStatusCounts peerStatusCounts,
             int resourceOverflow,
             // Public WireGuard endpoint of the hub from Settings — rendered
             // under the central hub node so the operator sees at a glance
@@ -104,7 +111,31 @@ public final class DashboardDto {
             // the tunnel is alive.
             String type,
             String assignedIp,
-            Instant lastSeenAt
+            Instant lastSeenAt,
+            // topology-peer-detail-levels: device category (laptop | desktop |
+            // mobile | tablet | server | other | null) for tier 1/2's icon —
+            // `type` above is client/site, not this.
+            String deviceType,
+            // Already-slugified "<peer>.<zone>" (DnsQueryHandler#peerDnsFqdns),
+            // never the raw name — null when the resolver is off. Shown as
+            // hover detail only; this is the admin's own topology view, so
+            // it's not gated by peer-dns-name-gated-by-self-share the way a
+            // real DNS query is.
+            String dnsFqdn,
+            // "CONNECTED" | "STALE" (PeerConnectionStatus) — never
+            // "DISCONNECTED", those aren't shipped in this list at all.
+            String connectionStatus
+    ) {}
+
+    /** Full connected/stale/disconnected split across every enabled client
+     *  peer (topology-peer-detail-levels) — unlike {@code livePeers}, never
+     *  capped, since tier 3's collapsed summary is exactly three counts and
+     *  costs nothing extra to compute in full. Site peers excluded; they're
+     *  represented as gateway nodes, not in this count. */
+    public record PeerStatusCounts(
+            long connected,
+            long stale,
+            long disconnected
     ) {}
 
     public record PeerStats(

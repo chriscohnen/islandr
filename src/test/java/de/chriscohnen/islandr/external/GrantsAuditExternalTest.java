@@ -44,7 +44,7 @@ class GrantsAuditExternalTest {
     @BeforeEach
     void setUp() {
         wipeKeys();
-        key = apiKeys.create("reporting", "admin").rawKey();
+        key = apiKeys.create("reporting", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
     }
 
     @Transactional

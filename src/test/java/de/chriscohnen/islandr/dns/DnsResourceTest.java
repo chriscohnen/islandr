@@ -46,6 +46,13 @@ class DnsResourceTest {
             s.dnsResolverEnabled = false;
             s.dnsResolverZone = null;
             s.dnsResolverUpstream = null;
+            s.dnsResolveAllResourcesAndPeers = true; // entity/migration default
+            // V3's seeded default — left unreset after a test that overwrites
+            // it (lookup_tagsTheHubAnswer_withNameKindHub needs a real
+            // tunnel address), it broke every other test's assumption about
+            // the default subnet (e.g. SettingsResourceTest, FirewallTest) —
+            // same gotcha DnsQueryHandlerTest's own reset already documents.
+            s.wgSubnet = "10.8.0.0/24";
         });
     }
 
@@ -128,7 +135,52 @@ class DnsResourceTest {
                 .then().statusCode(200)
                 .body("result", equalTo("answer"))
                 .body("ip", equalTo("10.72.0.9"))
-                .body("fqdn", equalTo(fqdn));
+                .body("fqdn", equalTo(fqdn))
+                .body("nameKind", equalTo("resource"));
+    }
+
+    @Test
+    void lookup_tagsTheHubAnswer_withNameKindHub() {
+        // Bug report 2026-10-03: a non-resource answer (hub or peer) was
+        // showing the resource-grants "no user has access" message, which
+        // makes no sense for either — nameKind lets the frontend pick the
+        // right explanation per answer type.
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.dnsResolverEnabled = true;
+            s.dnsResolverZone = ZONE;
+            s.wgSubnet = "10.80.0.0/24";
+        });
+
+        given().contentType("application/json")
+                .body("{ \"name\": \"hub." + ZONE + "\" }")
+                .when().post("/api/v1/dns/lookup")
+                .then().statusCode(200)
+                .body("result", equalTo("answer"))
+                .body("nameKind", equalTo("hub"))
+                .body("grantedUsers", nullValue());
+    }
+
+    @Test
+    void lookup_tagsAPeerNameAnswer_withNameKindPeer_notResource() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.dnsResolverEnabled = true;
+            s.dnsResolverZone = ZONE;
+
+            String key = ("NAMEKINDPEERKEY" + suffix).repeat(4);
+            key = key.substring(0, 43) + "=";
+            Peer.createNew(null, "namekind-peer-" + suffix, key, "10.81." + Math.floorMod(suffix.hashCode(), 250) + ".5").persist();
+        });
+
+        given().contentType("application/json")
+                .body("{ \"name\": \"" + DnsQueryHandler.slugify("namekind-peer-" + suffix) + "." + ZONE + "\" }")
+                .when().post("/api/v1/dns/lookup")
+                .then().statusCode(200)
+                .body("result", equalTo("answer"))
+                .body("nameKind", equalTo("peer"))
+                .body("grantedUsers", nullValue());
     }
 
     @Test
@@ -176,6 +228,10 @@ class DnsResourceTest {
             Settings s = Settings.findById(Settings.SINGLETON_ID);
             s.dnsResolverEnabled = true;
             s.dnsResolverZone = ZONE;
+            // This test is specifically about the ACL-gated path — the
+            // opt-out bypass (default on) would answer for the ungranted
+            // peer too and defeat the point of the assertion below.
+            s.dnsResolveAllResourcesAndPeers = false;
 
             Site site = Site.createNew(siteName, "10.78.0.0/24", null);
             site.persist();
@@ -230,5 +286,45 @@ class DnsResourceTest {
                 .then().statusCode(200)
                 .body("result", equalTo("nxdomain"))
                 .body("ip", nullValue());
+    }
+
+    @Test
+    void lookup_grantedUsers_reflectsTheResolveAllBypass_notJustAclGrants() {
+        // Bug report 2026-10-03: with "Namen unabhängig von Freigaben
+        // auflösen" on, DnsQueryHandler#resolve answers for ANY peer
+        // regardless of ACL grants (that's the whole point of the setting) —
+        // but grantedUserLabels still only listed users with an actual grant,
+        // so the admin preview showed "kein Nutzer hat Zugriff, ein echter
+        // Peer bekäme NXDOMAIN" for a name that would in fact resolve for
+        // every peer. grantedUserLabels must mirror what resolve() actually
+        // does, per its own doc comment ("every user who would actually get
+        // an Answer through the real resolve path").
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String siteName = "BypassSite-" + suffix;
+        String dnsName = "bypassprinter-" + suffix;
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.dnsResolverEnabled = true;
+            s.dnsResolverZone = ZONE;
+            s.dnsResolveAllResourcesAndPeers = true;
+
+            Site site = Site.createNew(siteName, "10.79.0.0/24", null);
+            site.persist();
+            Resource resource = Resource.createNew(site.id, "BypassPrinter-" + suffix, "10.79.0.9", null, "printer");
+            resource.dnsName = dnsName;
+            resource.persist();
+
+            // No grant at all — resolveAll must still list this user.
+            User ungranted = User.createNew("Bypass Ungranted " + suffix, "bypass-ungranted-" + suffix + "@firma.de");
+            ungranted.persist();
+        });
+
+        String fqdn = dnsName + "." + DnsQueryHandler.slugify(siteName) + "." + ZONE;
+        given().contentType("application/json")
+                .body("{ \"name\": \"" + fqdn + "\" }")
+                .when().post("/api/v1/dns/lookup")
+                .then().statusCode(200)
+                .body("result", equalTo("answer"))
+                .body("grantedUsers", org.hamcrest.Matchers.hasItem("Bypass Ungranted " + suffix));
     }
 }

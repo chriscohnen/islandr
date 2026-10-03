@@ -20,6 +20,8 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -59,6 +61,15 @@ public class DnsResolverService {
     private volatile DatagramSocket udpSocket;
     private volatile ServerSocket tcpSocket;
 
+    // One persistent UDP socket per upstream, reused across every forwarded
+    // query instead of opening and closing a fresh one each time (real
+    // socket()/close() syscall overhead at actual query volume — issue
+    // dns-resolver-forward-socket-reuse). Lives for the service's lifetime,
+    // independent of the main listener's own start/stop cycle (reconcile()
+    // can toggle that on every settings save; reopening upstream sockets on
+    // every toggle would defeat the point). Closed only in onShutdown().
+    private final Map<String, DatagramSocket> upstreamSockets = new ConcurrentHashMap<>();
+
     void onStart(@Observes StartupEvent ev) {
         reconcile();
     }
@@ -74,6 +85,8 @@ public class DnsResolverService {
     @PreDestroy
     void onShutdown() {
         stop();
+        for (DatagramSocket sock : upstreamSockets.values()) sock.close();
+        upstreamSockets.clear();
     }
 
     /** Starts or stops the listener to match {@code Settings.dnsResolverEnabled}.
@@ -270,18 +283,52 @@ public class DnsResolverService {
     private byte[] forward(byte[] query) {
         List<String> upstreams = queryHandler.currentConfig().upstreams();
         for (String upstream : upstreams) {
-            try (DatagramSocket sock = new DatagramSocket()) {
-                sock.setSoTimeout(UPSTREAM_TIMEOUT_MS);
-                sock.send(new DatagramPacket(query, query.length, InetAddress.getByName(upstream), 53));
-                byte[] buf = new byte[UPSTREAM_BUFFER_SIZE];
-                DatagramPacket reply = new DatagramPacket(buf, buf.length);
-                sock.receive(reply);
-                return Arrays.copyOf(reply.getData(), reply.getLength());
+            try {
+                return queryUpstream(upstream, query);
             } catch (IOException e) {
                 LOG.debugf("dns resolver: upstream %s failed — %s", upstream, e.getMessage());
             }
         }
         return null;
+    }
+
+    /** Sends {@code query} to {@code upstream} on the pooled, reused socket
+     *  for that upstream and returns its reply — the shared core of
+     *  {@link #forward} and {@link #queryUpstreamForPreview}, which used to
+     *  each open and close their own fresh socket per call.
+     *
+     *  <p>Access is serialized per upstream ({@code synchronized} on the
+     *  pooled socket itself): send-then-receive on a shared, unconnected
+     *  socket has no query-ID correlation in this protocol (see this class's
+     *  own doc — queries are relayed byte-for-byte, never parsed), so only
+     *  one request may be in flight on a given socket at a time. Concurrent
+     *  forwards to *different* upstreams are unaffected — each gets its own
+     *  socket and lock. */
+    private byte[] queryUpstream(String upstream, byte[] query) throws IOException {
+        DatagramSocket sock = upstreamSocket(upstream);
+        synchronized (sock) {
+            sock.send(new DatagramPacket(query, query.length, InetAddress.getByName(upstream), 53));
+            byte[] buf = new byte[UPSTREAM_BUFFER_SIZE];
+            DatagramPacket reply = new DatagramPacket(buf, buf.length);
+            sock.receive(reply);
+            return Arrays.copyOf(reply.getData(), reply.getLength());
+        }
+    }
+
+    /** The persistent socket for this upstream, creating it on first use —
+     *  package-private so {@code DnsResolverServiceTest} can verify reuse
+     *  directly without needing a real upstream to talk to. */
+    DatagramSocket upstreamSocket(String upstream) throws SocketException {
+        DatagramSocket existing = upstreamSockets.get(upstream);
+        if (existing != null && !existing.isClosed()) return existing;
+        synchronized (upstreamSockets) {
+            existing = upstreamSockets.get(upstream);
+            if (existing != null && !existing.isClosed()) return existing;
+            DatagramSocket sock = new DatagramSocket();
+            sock.setSoTimeout(UPSTREAM_TIMEOUT_MS);
+            upstreamSockets.put(upstream, sock);
+            return sock;
+        }
     }
 
     /** {@code upstream} is which configured server actually answered,
@@ -300,13 +347,8 @@ public class DnsResolverService {
     public UpstreamAnswer queryUpstreamForPreview(String name) {
         byte[] query = DnsWireFormat.buildQuery(1, name, DnsWireFormat.TYPE_A);
         for (String upstream : queryHandler.currentConfig().upstreams()) {
-            try (DatagramSocket sock = new DatagramSocket()) {
-                sock.setSoTimeout(UPSTREAM_TIMEOUT_MS);
-                sock.send(new DatagramPacket(query, query.length, InetAddress.getByName(upstream), 53));
-                byte[] buf = new byte[UPSTREAM_BUFFER_SIZE];
-                DatagramPacket reply = new DatagramPacket(buf, buf.length);
-                sock.receive(reply);
-                byte[] data = Arrays.copyOf(reply.getData(), reply.getLength());
+            try {
+                byte[] data = queryUpstream(upstream, query);
                 String ip = DnsWireFormat.parseFirstAnswerAddress(data);
                 if (ip != null) return new UpstreamAnswer(upstream, ip);
             } catch (IOException e) {

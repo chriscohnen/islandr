@@ -1601,16 +1601,40 @@ body {
 }
 .topo .node.live      .node-ring { stroke: var(--success, #16a34a); stroke-width: 2; }
 .topo .node.disabled  .node-ring { stroke: var(--fg3);              stroke-width: 1.4; stroke-dasharray: 2 3; }
-/* Resource rows and network boxes don't carry a live/offline signal (unlike
-   gateways, which have a real WireGuard handshake to report) — coloring
-   their ring green would claim a status we don't actually know. Neutral
-   border for networks (a network is a CIDR grouping, not a device); same
-   accent/opacity as the connecting line for a resource's arc, so it reads
-   as part of the line rather than a separate status indicator. The
-   "expanded" accent highlight (networkRingStyle/gatewayRingStyle inline
-   style) still overrides both — that's a selection state, not a status. */
+/* A network box is a CIDR grouping, not a device — no status to show, just
+   a neutral border. The "expanded" accent highlight (networkRingStyle
+   inline style) still overrides this — that's a selection state, not a
+   status. */
 .topo .node.network   .node-ring { stroke: var(--border); stroke-width: 1.4; }
-.topo .node.resource  .node-ring { stroke: var(--accent); stroke-width: 1.4; opacity: 0.55; }
+/* topology-resource-ring: a resource has no connectivity check of its own —
+   gateway liveness stands in (myaccess-reachability-indicator uses the same
+   source). Stroke width matches the connecting line (1.4) in every state,
+   same as before; only color/dash/opacity carry the status, and "down"
+   additionally dims the icon+label below — status is never color alone.
+   "unknown" (no gateway at this site) keeps the old neutral accent ring. */
+.topo .node.resource.reachability-unknown .node-ring { stroke: var(--accent); stroke-width: 1.4; opacity: 0.55; }
+.topo .node.resource.reachability-live    .node-ring { stroke: var(--success, #16a34a); stroke-width: 1.4; }
+.topo .node.resource.reachability-down    .node-ring { stroke: var(--fg3); stroke-width: 1.4; stroke-dasharray: 3 3; }
+.topo .node.resource.reachability-down    .node-icon { color: var(--fg3); }
+.topo .node.resource.reachability-down    .node-label { fill: var(--fg3); }
+/* topology-peer-detail-levels: tier 1/2 peer nodes — connected is a solid
+   green ring (same convention as every other "live" node), stale dashes the
+   ring and dims icon/label, same "status is never color alone" pattern as
+   the resource ring above. A tier-2 dot (no node-bg/node-icon/node-label
+   children) only needs the ring rule; tier-1's full node picks up the rest. */
+.topo .node.peer.status-live  .node-ring { stroke: var(--success, #16a34a); stroke-width: 1.4; }
+.topo .node.peer.status-stale .node-ring { stroke: var(--fg3); stroke-width: 1.4; stroke-dasharray: 3 3; }
+.topo .node.peer.status-stale .node-icon { color: var(--fg3); }
+.topo .node.peer.status-stale .live-label,
+.topo .node.peer.status-stale .live-ip { fill: var(--fg3); }
+/* Tier-2 orbit dot: status-live/-stale double as the fill too, since a bare
+   <circle> here has no separate node-ring child to style. */
+.topo circle.node.peer.status-live  { fill: var(--success, #16a34a); stroke: none; }
+.topo circle.node.peer.status-stale { fill: var(--fg3); stroke: none; }
+/* Tier-3 collapsed summary's distribution bar. */
+.topo .peer-summary-bar-bg        { fill: var(--surface-2); }
+.topo .peer-summary-bar-connected { fill: var(--success, #16a34a); }
+.topo .peer-summary-bar-stale     { fill: var(--fg3); }
 .topo .node-glyph {
   fill: none;
   stroke: var(--fg1);

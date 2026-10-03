@@ -8,14 +8,28 @@
 
     <!-- Fonts self-hosted via @font-face in tokens.css (ADR-0010) -->
 
-    <!-- Anti-FOUC: apply theme before first paint. Reads localStorage, falls
-         back to OS preference. Must be synchronous and before any CSS paint. -->
+    <!-- Anti-FOUC: apply theme before first paint. Must be synchronous and
+         before any CSS paint.
+
+         An explicit choice (the theme toggle wrote to localStorage) always
+         wins and is never touched again — that's the whole point of the
+         toggle. Without one, the theme follows the viewer's own local clock
+         (7:00-19:00 light, otherwise dark) rather than the OS's
+         prefers-color-scheme: an OS with its own dark-mode schedule already
+         gets this for free via prefers-color-scheme without Islandr doing
+         anything, but a viewer whose OS carries no schedule (or one Islandr
+         cannot see) otherwise gets a single OS-detected value frozen forever
+         (theme-follow-local-time, 2026-09-26). -->
     <script>
       (function () {
         var stored = localStorage.getItem("islandr.theme");
-        var theme = stored === "dark" || stored === "light"
-          ? stored
-          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        var theme;
+        if (stored === "dark" || stored === "light") {
+          theme = stored;
+        } else {
+          var hour = new Date().getHours();
+          theme = (hour < 7 || hour >= 19) ? "dark" : "light";
+        }
         document.documentElement.setAttribute("data-theme", theme);
       })();
     </script>

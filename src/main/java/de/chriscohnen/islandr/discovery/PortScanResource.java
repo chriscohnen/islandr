@@ -74,7 +74,8 @@ public class PortScanResource {
         }
         List<DiscoveryDto.OpenPortView> ports = new ArrayList<>();
         for (PortScanner.OpenPort p : job.openPorts()) {
-            ports.add(new DiscoveryDto.OpenPortView(p.port(), p.service()));
+            ports.add(new DiscoveryDto.OpenPortView(p.port(), p.service(), p.protocol(), p.title(),
+                    p.certCn(), p.certExpiry(), p.nlaRequired()));
         }
         return new DiscoveryDto.PortScanStatus(job.state().name(), job.total(), job.done(), job.found(),
                 ports, job.error());

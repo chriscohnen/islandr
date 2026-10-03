@@ -48,6 +48,8 @@ public class MyPeerResource {
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
     @Inject de.chriscohnen.islandr.settings.SettingsService settings;
+    @Inject PeerSelfShareService shares;
+    @Inject de.chriscohnen.islandr.dns.DnsQueryHandler dns;
 
     // Device categories the portal offers at creation time. "mobile"/"tablet"
     // ("on the go") default to MTU 1280 — the compatibility floor that always
@@ -83,7 +85,12 @@ public class MyPeerResource {
             // Same enum as creation; "" clears it back to none.
             @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
                     message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
-            String deviceType
+            String deviceType,
+
+            // peer-roadwarrior-badge: "I'm currently traveling with this
+            // device" — the owner's own call, toggled as often as their
+            // situation changes.
+            boolean isRoadwarrior
     ) {}
 
     @RegisterForReflection
@@ -102,9 +109,18 @@ public class MyPeerResource {
         // is concerned (they asked for exactly that) — it still exists for
         // requestDeletionMine, ownedOr404, and the admin list, which is what
         // lets an admin actually finish the removal.
-        return Peer.<Peer>list("userId = ?1 and deletionRequestedAt is null",
-                        Sort.by("createdAt").descending(), userId)
-                .stream().map(PeerDto.Response::from).toList();
+        List<Peer> mine = Peer.<Peer>list("userId = ?1 and deletionRequestedAt is null",
+                Sort.by("createdAt").descending(), userId);
+        // myaccess-peer-dns-name-display: one peerDnsFqdns() build for the
+        // whole list, not one per peer (see that method's own doc comment).
+        Map<String, String> fqdns = dns.peerDnsFqdns(mine);
+        // myaccess-share-status-indicator: same bulk-not-per-row shape for
+        // live share counts.
+        List<String> peerIds = mine.stream().map(p -> p.id).toList();
+        Map<String, Long> shareCounts = PeerSelfShare.liveCountsByOwnerPeerIds(peerIds, java.time.Instant.now());
+        return mine.stream()
+                .map(p -> PeerDto.Response.from(p, fqdns.get(p.id), shareCounts.getOrDefault(p.id, 0L)))
+                .toList();
     }
 
     /**
@@ -222,9 +238,20 @@ public class MyPeerResource {
     @GET
     @Path("/{id}/conf")
     public PeerDto.CreateResponse reshowMine(@Context ContainerRequestContext ctx,
-                                             @PathParam("id") String id) {
-        AuthContext a = Auth.require(ctx);
-        String userId = requireOrgUserId(a);
+                                             @PathParam("id") String id,
+                                             @jakarta.ws.rs.QueryParam("userId") String userIdParam) {
+        // Same admin-impersonation pattern as activityHeatmap (#43 follow-up):
+        // "view as" must be able to re-show/download the viewed user's own
+        // config, not the admin's own, or QR/.conf 404s on every peer that
+        // isn't the admin's own.
+        String userId;
+        if (userIdParam != null && !userIdParam.isBlank()) {
+            Auth.requireAdmin(ctx);
+            userId = userIdParam;
+        } else {
+            AuthContext a = Auth.require(ctx);
+            userId = requireOrgUserId(a);
+        }
         ownedOr404(id, userId);
         // Without a stored private key the .conf comes back without its
         // PrivateKey line and without a QR code. Still worth having: address,
@@ -246,10 +273,13 @@ public class MyPeerResource {
         Peer existing = ownedOr404(id, userId);
         String oldName = existing.name;
         String oldDeviceType = existing.deviceType;
-        PeerDto.Response out = peers.updateSelfDetails(id, body.name(), body.deviceType());
+        boolean oldRoadwarrior = existing.isRoadwarrior;
+        PeerDto.Response out = peers.updateSelfDetails(id, body.name(), body.deviceType(), body.isRoadwarrior());
         audit.logUpdate(a.principal(), "peer.update", "Peer:" + out.name() + " (" + id + ")",
-                Map.of("name", oldName, "deviceType", oldDeviceType == null ? "" : oldDeviceType),
-                Map.of("name", out.name(), "deviceType", out.deviceType() == null ? "" : out.deviceType()));
+                Map.of("name", oldName, "deviceType", oldDeviceType == null ? "" : oldDeviceType,
+                        "isRoadwarrior", oldRoadwarrior),
+                Map.of("name", out.name(), "deviceType", out.deviceType() == null ? "" : out.deviceType(),
+                        "isRoadwarrior", out.isRoadwarrior()));
         return out;
     }
 
@@ -295,6 +325,48 @@ public class MyPeerResource {
                 Map.of("selfService", true));
         rulesets.recomputeFromHook();
         return out;
+    }
+
+    // ---- peer-self-share: sharing one of my own ports with a colleague ----
+
+    @POST
+    @Path("/{id}/shares")
+    @ResponseStatus(201)
+    public PeerSelfShareDto.Response createShare(@Context ContainerRequestContext ctx,
+                                                 @PathParam("id") String id,
+                                                 @Valid PeerSelfShareDto.CreateRequest body) {
+        AuthContext a = Auth.require(ctx);
+        String userId = requireOrgUserId(a);
+        PeerSelfShare share = shares.create(id, userId, body.targetEmail(), body.port(), body.durationMinutes());
+        audit.logEvent(a.principal(), "peer.share_created", "Peer:" + id,
+                Map.of("targetEmail", body.targetEmail(), "port", body.port(),
+                        "durationMinutes", body.durationMinutes()));
+        rulesets.recomputeFromHook();
+        return PeerSelfShareDto.Response.from(share, java.time.Instant.now());
+    }
+
+    @GET
+    @Path("/{id}/shares")
+    public List<PeerSelfShareDto.Response> listShares(@Context ContainerRequestContext ctx,
+                                                       @PathParam("id") String id) {
+        AuthContext a = Auth.require(ctx);
+        String userId = requireOrgUserId(a);
+        java.time.Instant now = java.time.Instant.now();
+        List<PeerSelfShareDto.Response> out = new ArrayList<>();
+        for (PeerSelfShare s : shares.listOwn(id, userId)) out.add(PeerSelfShareDto.Response.from(s, now));
+        return out;
+    }
+
+    @DELETE
+    @Path("/shares/{shareId}")
+    public Response revokeShare(@Context ContainerRequestContext ctx, @PathParam("shareId") String shareId) {
+        AuthContext a = Auth.require(ctx);
+        String userId = requireOrgUserId(a);
+        PeerSelfShare share = shares.revoke(shareId, userId);
+        audit.logEvent(a.principal(), "peer.share_revoked", "Peer:" + share.ownerPeerId,
+                Map.of("shareId", shareId));
+        rulesets.recomputeFromHook();
+        return Response.noContent().build();
     }
 
     private static Peer ownedOr404(String peerId, String userId) {

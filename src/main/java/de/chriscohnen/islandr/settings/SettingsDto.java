@@ -22,6 +22,8 @@ public final class SettingsDto {
             boolean oidcAutoProvision,
             boolean firewallDryRun,
             boolean selfServicePeerCreation,
+            // peer-self-share: opt-in (default off) — see Settings.java for why.
+            boolean peerSelfShareEnabled,
             Integer wgMtu,
             boolean wgIncludeMtuInConf,
             int wgPersistentKeepalive,
@@ -40,6 +42,9 @@ public final class SettingsDto {
             // Where the resolver forwards non-zone queries — independent of
             // wgClientDns, see Settings.java for why.
             String dnsResolverUpstream,
+            // dns-resolve-all-resources-option: resolve every named resource
+            // regardless of per-peer grants — see Settings.java for why.
+            boolean dnsResolveAllResourcesAndPeers,
             Instant updatedAt,
             String updatedBy,
             boolean setupComplete,
@@ -111,7 +116,7 @@ public final class SettingsDto {
                     s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
-                    s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
+                    s.selfServicePeerCreation, s.peerSelfShareEnabled, s.wgMtu, s.wgIncludeMtuInConf,
                     s.wgPersistentKeepalive,
                     s.nominatimUrl,
                     s.hubLat, s.hubLon, s.hubLocationLabel,
@@ -121,6 +126,7 @@ public final class SettingsDto {
                     s.dnsResolverZone,
                     s.dnsHubAlias,
                     s.dnsResolverUpstream,
+                    s.dnsResolveAllResourcesAndPeers,
                     s.updatedAt, s.updatedBy,
                     !s.wgServerPublicKey.startsWith("PLACEHOLDER"),
                     version,
@@ -230,6 +236,11 @@ public final class SettingsDto {
             // optional — when false, POST /api/v1/peers/mine returns 403
             boolean selfServicePeerCreation,
 
+            // optional — defaults to false; when true, a self-service user may
+            // share one of their own peer's ports with a single named colleague
+            // (peer-self-share)
+            boolean peerSelfShareEnabled,
+
             // optional — null means not set; stored from probe auto-save or manual entry
             Integer wgMtu,
 
@@ -293,6 +304,16 @@ public final class SettingsDto {
             // DnsQueryHandler falls back to a hardcoded default (1.1.1.1, 8.8.8.8).
             // Independent of wgClientDns — see Settings.java.
             String dnsResolverUpstream,
+
+            // dns-resolve-all-resources-option. When true, every named
+            // resource resolves regardless of per-peer grants (reachability
+            // itself is unaffected — the firewall rules still decide that).
+            // Stored default is true (opt-out) for a fresh/migrated row —
+            // same as every other boolean here, a PUT that omits this field
+            // writes false, not "leave unchanged"; the admin form always
+            // sends the full state, so this only matters to an external
+            // caller constructing a partial request by hand.
+            boolean dnsResolveAllResourcesAndPeers,
 
             // optional — null means "leave unchanged" (SettingsService), so a
             // PUT that doesn't know about this field (an older test, a

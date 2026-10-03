@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.external;
 import de.chriscohnen.islandr.acl.Role;
 import de.chriscohnen.islandr.acl.RoleDto;
 import de.chriscohnen.islandr.acl.RoleService;
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.auth.Auth;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -26,7 +27,7 @@ public class RoleExternalResource {
 
     @GET
     public List<RoleDto.Response> listAll(@Context ContainerRequestContext ctx) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.RESOURCES_READ);
         Map<String, Long> members = roles.memberCounts();
         Map<String, Long> grants = roles.grantCounts();
         return roles.listAll().stream()

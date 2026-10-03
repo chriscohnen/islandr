@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.apikey;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.NotFoundException;
 
 import java.nio.charset.StandardCharsets;
@@ -10,6 +11,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,8 +42,22 @@ public class ApiKeyService {
 
     public record CreateResult(ApiKey apiKey, String rawKey) {}
 
+    /** @param scopes must be non-empty and every entry must be in
+     *         {@link ApiKeyScope#CATALOG} — a key with no scope at all
+     *         could authenticate but could never pass a single
+     *         {@code Auth.requireScope} check, which is a confusing way to
+     *         fail rather than a useful default. */
     @Transactional
-    public CreateResult create(String label, String actor) {
+    public CreateResult create(String label, Set<String> scopes, String actor) {
+        if (scopes == null || scopes.isEmpty()) {
+            throw new BadRequestException("at least one scope is required");
+        }
+        for (String s : scopes) {
+            if (!ApiKeyScope.CATALOG.contains(s)) {
+                throw new BadRequestException("unknown scope: " + s);
+            }
+        }
+
         byte[] buf = new byte[32];
         rng().nextBytes(buf);
         String raw = KEY_PREFIX_LITERAL + Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
@@ -56,7 +72,12 @@ public class ApiKeyService {
         k.createdAt = Instant.now();
         k.createdBy = actor;
         k.persist();
+        for (String s : scopes) ApiKeyScope.createNew(k.id, s).persist();
         return new CreateResult(k, raw);
+    }
+
+    public List<String> scopesOf(String apiKeyId) {
+        return ApiKeyScope.scopesOf(apiKeyId);
     }
 
     /** Called by {@link ApiKeyAuthFilter} on every Bearer-authenticated

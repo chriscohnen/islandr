@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.admin;
 
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.auth.Auth;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -20,7 +21,7 @@ public class ConfigResource {
     public ConfigExportDto.Export export(
             @Context ContainerRequestContext ctx,
             @QueryParam("includePrivateKeys") @DefaultValue("false") boolean includePrivateKeys) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.CONFIG_EXPORT);
         return configService.export(includePrivateKeys);
     }
 
@@ -29,7 +30,7 @@ public class ConfigResource {
     public ConfigExportDto.ImportResult importConfig(
             @Context ContainerRequestContext ctx,
             ConfigExportDto.Export payload) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.CONFIG_IMPORT);
         if (payload == null) throw new BadRequestException("request body required");
         return configService.importConfig(payload);
     }

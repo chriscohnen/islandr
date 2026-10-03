@@ -1,0 +1,43 @@
+# Islandr External API
+
+> Automation-facing REST API for scripts, CI, and infrastructure-as-code.
+> Deliberately separate from the internal `/api/v1` surface the Admin
+> Console's own UI uses — that one is free to change shape as the UI
+> evolves, this one is a stability-committed contract.
+
+Base URL: `/api/external/v1`, relative to wherever this Islandr instance
+is reachable.
+
+Authentication: `Authorization: Bearer <api-key>` — create a key in the
+Admin Console under API Keys. A key only reaches the operations its
+granted scopes cover (shown next to it in that same list) and never
+reaches the console's own internal API unless it additionally holds the
+`full` scope. There is no session/cookie auth here.
+
+## Endpoints
+
+- `GET /peers` (scope `peers:read`) — list every peer
+- `POST /peers` (scope `peers:write`) — create a client peer (pass `userId` as a query parameter) or a site gateway peer (`type: site` in the body)
+- `PUT /peers/{id}/enabled` (scope `peers:write`) — enable or disable one peer, leaving its owner's account untouched
+- `GET /users` (scope `users:read`) — list every user
+- `PUT /users/{id}/enabled` (scope `users:write`) — enable or disable a user; disabling switches off their peers too
+- `GET /sites` (scope `resources:read`) — list every site
+- `GET /resources` (scope `resources:read`) — list every resource, across all sites
+- `GET /roles` (scope `resources:read`) — list every role
+- `GET /grants` (scope `grants:read`) — every access grant currently in effect, resolved the same way the firewall ruleset is
+- `GET /audit` (scope `audit:read`) — read the audit log; read-only, paginated via a `before` cursor
+
+Full request/response schemas, parameters, and error codes:
+[openapi.yml](/api/openapi.yml)
+
+## Limits
+
+- Nothing here can change ACLs, roles, or settings — the writable
+  operations are limited to peer/user enable-disable and peer creation.
+- A key's scopes are fixed at creation; there is no self-service
+  elevation, and `config:export`/`config:import` (full configuration
+  backup/restore, outside this facade entirely) are each their own scope,
+  never bundled into a tier.
+- `GET /grants` returns the installation's complete access picture in a
+  single call — a materially larger payload than listing peers. Prefer a
+  narrowly-scoped, short-lived key for a job that only needs to read it.

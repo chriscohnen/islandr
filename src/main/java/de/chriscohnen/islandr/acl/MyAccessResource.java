@@ -8,7 +8,9 @@ import de.chriscohnen.islandr.settings.SettingsService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.container.ContainerRequestContext;
@@ -17,9 +19,11 @@ import jakarta.ws.rs.core.MediaType;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -44,6 +48,7 @@ public class MyAccessResource {
         // users cannot read the admin-only /settings endpoint (design 2026-06-28).
         return new ResourceDto.MyAccessResponse(
                 settings.get().ironRdpEnabled,
+                settings.get().peerSelfShareEnabled,
                 resolveResources(ctx, userIdParam));
     }
 
@@ -113,11 +118,44 @@ public class MyAccessResource {
                 .toList();
 
         return new DashboardDto.Topology(
-                topoSites, topoResources, List.of(), 0,
+                topoSites, topoResources, List.of(), new DashboardDto.PeerStatusCounts(0, 0, 0), 0,
                 null, // hubEndpoint — Admin-technical, and the portal hub node is decorative only
                 settings.get().hubLocationLabel,
                 settings.get().hubLat,
                 settings.get().hubLon);
+    }
+
+    /** No automatic background poll (deliberate, see TASK.md) — a probe
+     *  happens only when this endpoint is actually called, so the timeout can
+     *  afford to be a real connect attempt rather than a snap judgement. */
+    private static final Duration REACHABILITY_TIMEOUT = Duration.ofSeconds(2);
+
+    @GET
+    @Path("/{id}/reachable")
+    public ResourceDto.ReachabilityView reachable(
+            @Context ContainerRequestContext ctx,
+            @PathParam("id") String resourceId,
+            @QueryParam("userId") String userIdParam) {
+        ResourceDto.MyAccessResource resource = resolveResources(ctx, userIdParam).stream()
+                .filter(r -> r.id().equals(resourceId))
+                .findFirst()
+                // Same posture as a missing job in PortScanResource: a resource
+                // this user has no grant for must not be distinguishable from
+                // one that does not exist at all.
+                .orElseThrow(() -> new NotFoundException("resource not found: " + resourceId));
+
+        // Any granted TCP port answers "is the host up" well enough — this is
+        // a liveness check, not a per-port scan. UDP-only grants have nothing
+        // a connect() can test (PortScanner's own limitation, ADR-0011).
+        Optional<ResourceDto.MyAccessPort> probePort = resource.grantedPorts().stream()
+                .filter(p -> !"udp".equalsIgnoreCase(p.transport()))
+                .filter(p -> p.port() != 0) // 0 = "all ports" wildcard, not itself connectable
+                .min(Comparator.comparingInt(ResourceDto.MyAccessPort::port));
+        if (probePort.isEmpty()) return new ResourceDto.ReachabilityView(null, null);
+
+        Optional<Integer> latencyMs = ReachabilityProbe.probe(resource.ip(), probePort.get().port(), REACHABILITY_TIMEOUT);
+        return latencyMs.map(ms -> new ResourceDto.ReachabilityView(true, ms))
+                .orElse(new ResourceDto.ReachabilityView(false, null));
     }
 
     private static String portLabel(ResourceDto.MyAccessPort p) {

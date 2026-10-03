@@ -62,6 +62,7 @@ export const peerModalMixin = {
       // downstream network — see PRD §7).
       peerType: "client",
       deviceType: "laptop",
+      isRoadwarrior: false,
       siteAllowedCidrs: "",
       // Deployment's WireGuard interface — the key-import copy names it, and a
       // hardcoded "wg0" would tell an operator on wg1 to run the wrong command.
@@ -129,6 +130,7 @@ export const peerModalMixin = {
       this.newPeer = { name: "", assignedIp: "", assignedIpv6: "" };
       this.peerType = "client";
       this.deviceType = "laptop";
+      this.isRoadwarrior = false;
       this.siteAllowedCidrs = "";
       this.siteLat = "";
       this.siteLng = "";
@@ -256,6 +258,7 @@ export const peerModalMixin = {
       this.newPeer = { name: peer.name, assignedIp: peer.assignedIp, assignedIpv6: peer.assignedIpv6 || "" };
       this.peerType = peer.type || "client";
       this.deviceType = peer.deviceType || "laptop";
+      this.isRoadwarrior = !!peer.isRoadwarrior;
       this.siteAllowedCidrs = peer.siteAllowedCidrs || "";
       this.siteLat = peer.lat ?? "";
       this.siteLng = peer.lng ?? "";
@@ -316,6 +319,7 @@ export const peerModalMixin = {
         assignedIp: this.newPeer.assignedIp,
         assignedIpv6: this.newPeer.assignedIpv6 && this.newPeer.assignedIpv6.trim() ? this.newPeer.assignedIpv6.trim() : null,
         deviceType: this.peerType === "client" ? (this.deviceType || null) : null,
+        isRoadwarrior: this.isRoadwarrior,
         presharedKeyAction: this.pskAction || null,
         mtu: this.editMtu || null,
         // Keep an explicit 0 (= keepalive off); only an empty field means "defer to global".
@@ -430,6 +434,10 @@ export const peerModalMixin = {
     },
 
     async openReshow(userId, peerId) {
+      // Page-level `error` (both consumers of this mixin, PeersView and
+      // UsersView, already have one) — this can fail before any modal is
+      // open, so there is nowhere else to show it yet.
+      this.error = null;
       try {
         const res = await fetch("/api/v1/peers/" + peerId + "/conf");
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -438,7 +446,7 @@ export const peerModalMixin = {
         this.secretIsReshow = true;
         this.modalMode = "secret";
       } catch (e) {
-        alert(t("myaccess.error_conf", { error: e.message }));
+        this.error = t("myaccess.error_conf", { error: e.message });
       }
     },
 
@@ -556,6 +564,7 @@ export const peerModalMixin = {
           assignedIpv6: p.assignedIpv6 || null,
           siteAllowedCidrs: p.siteAllowedCidrs || "",
           deviceType: p.deviceType || null,
+          isRoadwarrior: !!p.isRoadwarrior,
           lat: p.lat ?? null,
           lng: p.lng ?? null,
           locationLabel: p.locationLabel || null,
@@ -800,6 +809,13 @@ export const peerModalTemplate = `
                 <span>{{ opt.l }}</span>
               </label>
             </div>
+          </div>
+
+          <div v-if="peerType === 'client'" class="field" style="margin-bottom: var(--space-4)">
+            <label style="display: flex; align-items: center; gap: var(--space-2); font-weight: normal">
+              <input type="checkbox" v-model="isRoadwarrior" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+              {{ t('peer.roadwarrior_label') }}
+            </label>
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">

@@ -38,6 +38,7 @@ public class UserResource {
     @Inject RulesetService rulesets;
     @Inject UserAccessService access;
     @Inject de.chriscohnen.islandr.crypto.PasswordHasher passwordHasher;
+    @Inject de.chriscohnen.islandr.auth.SessionService sessions;
 
     /** Returns the profile of the currently authenticated user. Available to all logged-in users. */
     @GET
@@ -49,7 +50,7 @@ public class UserResource {
             // The ENV admin has no row and therefore no deadline: never
             // expired, always allowed.
             return new UserDto.Response(null, a.principal(), null, a.principal(),
-                    null, true, true, null, 0, null, false, null, false);
+                    null, true, true, null, 0, null, false, null, false, true, null, null);
         }
         User u = User.findById(a.userId());
         if (u == null) throw new jakarta.ws.rs.NotFoundException("user not found");
@@ -223,31 +224,46 @@ public class UserResource {
      * Set (non-blank, min 8 chars) or clear (blank) a user's local password (F-01a).
      * Setting enables local email+password login; clearing disables it (OIDC/ENV only).
      * The password is never echoed back and never audited in plaintext.
+     *
+     * <p><b>session-revoke-on-password-change:</b> every other session of
+     * this account ends — a password change/reset that leaves an existing
+     * session running defeats the point, most acutely when an admin resets
+     * a compromised account's password while the attacker's own session
+     * carries on for up to {@link de.chriscohnen.islandr.auth.SessionService#TTL}.
+     * The one exception is the caller's own current session, reachable only
+     * when an admin targets their own id: changing your own password must
+     * not log you out of the tab you changed it from.
      */
     @PUT
     @Path("/{id}/password")
     @Transactional
-    public UserDto.Response setPassword(@Context ContainerRequestContext ctx,
+    public UserDto.PasswordChangeResponse setPassword(@Context ContainerRequestContext ctx,
                                         @PathParam("id") String id,
                                         UserDto.PasswordRequest body) {
         AuthContext a = Auth.requireAdmin(ctx);
         User u = User.findById(id);
         if (u == null) throw new NotFoundException("user not found: " + id);
+        de.chriscohnen.islandr.auth.Session current =
+                (de.chriscohnen.islandr.auth.Session) ctx.getProperty(de.chriscohnen.islandr.auth.SessionFilter.CTX_SESSION);
+        String keepSessionId = (current != null && id.equals(a.userId())) ? current.id : null;
+
         String pw = body != null ? body.password() : null;
         if (pw == null || pw.isBlank()) {
-            if (u.passwordHash == null) return UserDto.Response.from(u); // no-op, no audit
+            if (u.passwordHash == null) return new UserDto.PasswordChangeResponse(UserDto.Response.from(u), 0); // no-op, no audit
             u.passwordHash = null;
+            int revoked = sessions.revokeAllForUser(u.id, keepSessionId);
             audit.logUpdate(a.principal(), "user.password_reset", "User:" + u.name + " (" + u.id + ")",
-                    Map.of("hadPassword", true), Map.of("hadPassword", false));
-            return UserDto.Response.from(u);
+                    Map.of("hadPassword", true), Map.of("hadPassword", false, "sessionsRevoked", revoked));
+            return new UserDto.PasswordChangeResponse(UserDto.Response.from(u), revoked);
         }
         if (pw.length() < 8) {
             throw new jakarta.ws.rs.BadRequestException("password must be at least 8 characters");
         }
         u.passwordHash = passwordHasher.hash(pw);
+        int revoked = sessions.revokeAllForUser(u.id, keepSessionId);
         audit.logUpdate(a.principal(), "user.password_set", "User:" + u.name + " (" + u.id + ")",
-                Map.of(), Map.of("passwordSet", true));
-        return UserDto.Response.from(u);
+                Map.of(), Map.of("passwordSet", true, "sessionsRevoked", revoked));
+        return new UserDto.PasswordChangeResponse(UserDto.Response.from(u), revoked);
     }
 
     @PUT

@@ -23,7 +23,7 @@ class ApiKeyServiceTest {
 
     @Test
     void create_generatesPrefixedRawKeyAndStoresOnlyHash() {
-        ApiKeyService.CreateResult r = svc.create("ci-script", "admin");
+        ApiKeyService.CreateResult r = svc.create("ci-script", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin");
 
         assertThat(r.rawKey()).startsWith("islandr_");
         assertThat(r.apiKey().keyHash).isNotEqualTo(r.rawKey());
@@ -33,7 +33,7 @@ class ApiKeyServiceTest {
 
     @Test
     void authenticate_validKey_returnsItAndBumpsLastUsed() {
-        ApiKeyService.CreateResult r = svc.create("ci-script", "admin");
+        ApiKeyService.CreateResult r = svc.create("ci-script", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin");
         assertThat(readKey(r.apiKey().id).lastUsedAt).isNull();
 
         ApiKey authenticated = svc.authenticate(r.rawKey());
@@ -56,7 +56,7 @@ class ApiKeyServiceTest {
 
     @Test
     void authenticate_revokedKey_returnsNull() {
-        ApiKeyService.CreateResult r = svc.create("ci-script", "admin");
+        ApiKeyService.CreateResult r = svc.create("ci-script", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin");
         svc.revoke(r.apiKey().id, "admin");
 
         assertThat(svc.authenticate(r.rawKey())).isNull();
@@ -64,7 +64,7 @@ class ApiKeyServiceTest {
 
     @Test
     void revoke_isIdempotent() {
-        ApiKeyService.CreateResult r = svc.create("ci-script", "admin");
+        ApiKeyService.CreateResult r = svc.create("ci-script", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin");
         svc.revoke(r.apiKey().id, "admin");
         svc.revoke(r.apiKey().id, "admin"); // second call must not throw
 

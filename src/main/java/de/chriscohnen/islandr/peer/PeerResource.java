@@ -11,6 +11,8 @@ import de.chriscohnen.islandr.webhook.WebhookDispatcher;
 import de.chriscohnen.islandr.webhook.WebhookEventType;
 import io.quarkus.panache.common.Sort;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -41,6 +43,7 @@ public class PeerResource {
     @Inject RulesetService rulesets;
     @Inject WgAdapter wg;
     @Inject NetworkDiagnosticsService diag;
+    @PersistenceContext EntityManager em;
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
     @GET
@@ -173,6 +176,66 @@ public class PeerResource {
                 }).toList();
 
         return new PeerDto.ActivityHeatmapResponse(days, peerRows);
+    }
+
+    /**
+     * Peers ranked by total tunnel traffic over a billing-sized window
+     * (peer-traffic-ranking) — the heatmap shows a day x peer grid, good for
+     * patterns, useless for "who filled this month's bandwidth cap" on a
+     * metered VPS. {@code window}: "this-month" (default, and the fallback
+     * for any unrecognized value — same lenient-clamp style as {@code days}
+     * on the heatmap endpoint above) or "last-month", both UTC-calendar
+     * months. Aggregated with a {@code GROUP BY} rather than loading every
+     * day row into Java, unlike the heatmap (which needs every individual
+     * day for the grid) — here only the per-peer sum matters.
+     */
+    @GET
+    @Path("/traffic-ranking")
+    public PeerDto.TrafficRankingResponse trafficRanking(@Context ContainerRequestContext ctx,
+                                                           @jakarta.ws.rs.QueryParam("window") String windowParam) {
+        Auth.requireAdmin(ctx);
+        boolean lastMonth = "last-month".equals(windowParam);
+        String window = lastMonth ? "last-month" : "this-month";
+
+        java.time.YearMonth month = lastMonth
+                ? java.time.YearMonth.now(java.time.ZoneOffset.UTC).minusMonths(1)
+                : java.time.YearMonth.now(java.time.ZoneOffset.UTC);
+        String fromDay = month.atDay(1).toString();
+        String toDay = month.atEndOfMonth().toString();
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> sums = em.createQuery(
+                "select pda.id.peerId, sum(pda.rxBytes), sum(pda.txBytes) "
+                + "from PeerDailyActivity pda "
+                + "where pda.id.day >= :from and pda.id.day <= :to "
+                + "group by pda.id.peerId",
+                Object[].class)
+                .setParameter("from", fromDay)
+                .setParameter("to", toDay)
+                .getResultList();
+
+        if (sums.isEmpty()) {
+            return new PeerDto.TrafficRankingResponse(window, fromDay, toDay, List.of());
+        }
+
+        java.util.Map<String, String> userNamesById = de.chriscohnen.islandr.user.User.<de.chriscohnen.islandr.user.User>listAll()
+                .stream().collect(java.util.stream.Collectors.toMap(u -> u.id, u -> u.name));
+
+        List<PeerDto.TrafficRankingRow> rows = new java.util.ArrayList<>();
+        for (Object[] row : sums) {
+            String peerId = (String) row[0];
+            long rx = (Long) row[1];
+            long tx = (Long) row[2];
+            long total = rx + tx;
+            if (total == 0) continue; // nothing consumed this window — not a ranking entry
+            Peer p = Peer.findById(peerId);
+            if (p == null) continue; // deleted since — its activity rows outlive it
+            String userName = p.userId != null ? userNamesById.get(p.userId) : null;
+            rows.add(new PeerDto.TrafficRankingRow(p.id, p.name, p.userId, userName, rx, tx, total));
+        }
+        rows.sort((a, b) -> Long.compare(b.totalBytes(), a.totalBytes()));
+
+        return new PeerDto.TrafficRankingResponse(window, fromDay, toDay, rows);
     }
 
     @GET

@@ -8,6 +8,33 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.1.0
+
+- **The topology diagram gets three tiers of peer detail instead of one dot per connected device.** Up to 8 peers show as full icons with device type, name, status and DNS name on hover; the next 40 collapse to small status dots; beyond that, a single summary bar split by connected/stale/disconnected. The live-peer window also widens from "connected in the last 3 minutes" to "seen in the last 24 hours," so a peer that just went stale does not vanish from the diagram entirely.
+- **An expanded site's resources wrap into multiple columns** instead of running one long column off the bottom of the diagram, and the connecting line to a second column now routes around the first column's icons rather than through them — with the line drawn on top of any node it happens to cross, not underneath it. Expanding a site also collapses an unrelated, independently-expanded gateway group, and dims every node not part of the active drilldown.
+- **The topology resource ring closes, and shows gateway reachability** — a gateway's own up/down state is now visible at a glance alongside the resources behind it, rather than only inferable from its member sites.
+- **A peer-traffic ranking table on the dashboard** lists peers by tunnel traffic for the current or last calendar month, sorted highest first, with a toggle between the two windows.
+- **The firewall no longer writes an audit entry every time it reapplies an unchanged ruleset.** `firewall.apply_ok` only logs when the computed ruleset text actually differs from what is already applied — recomputes triggered by unrelated state changes stopped filling the audit log with no-op entries.
+- **A peer can be marked as a roadwarrior** — a device currently traveling with its owner, often on untrusted networks, independent of device type and meant to be toggled as the situation changes rather than derived from a fixed property.
+- **From the self-service portal, a device owner can share one of their own ports (above 1024) with a named colleague** — time-limited, revocable any time, without touching the ACL matrix. Read directly by the ruleset builder on every recompute, the same way a capacity-limited resource's live reservations already are.
+- **My access gets an on-demand reachability check for shared resources.** The browser cannot `connect()` to an arbitrary LAN address itself, so a new endpoint probes the resource's lowest granted port from the hub and reports up/down.
+- **API keys are scoped instead of full-admin-equivalent** ([ADR-0026](docs/adr/0026-api-key-scopes.md)) — every key previously reached all 186 console endpoints from one Bearer token, including key creation and ACL writes. Enforced at two layers: a facade boundary that denies a key without the `full` scope at the console API, and per-scope checks on the external API.
+- **`llms.txt` describes the external API for agent handoff** — every `/api/external/v1` endpoint with the scope it requires, linked to the full `openapi.yml` schema, served at the conventional root path.
+- **Port scanning detects what actually speaks on a found port**, not just its number: SSH/VNC banners read directly, HTTP/HTTPS/RTSP/RDP probed with a small request-and-check exchange. HTTPS additionally reads the peer certificate (CN, expiry) and the page title; RDP reports whether NLA/CredSSP is required.
+- **Every resolvable DNS name is tagged as hub, peer or resource**, and an admin can opt into resolving every resource's name regardless of grants — a DNS answer only hands out an address, the firewall decides actual reachability. A peer resolves under its own name in the managed zone, including one looked up by an active self-service share rather than ownership alone.
+- **The users list shows how each person can sign in** — local password, the linked OIDC provider, or both — without opening the account.
+- **Self-service device list shows a device-type icon** per entry, and the theme falls back to local time of day (7:00–19:00 light, otherwise dark) when a viewer has never explicitly chosen one and their OS reports no dark-mode schedule.
+- **The last nine native browser dialogs (`alert()`/`prompt()`) are replaced with the app's own themed dialog**, matching the confirm-dialog treatment already used everywhere else in the console.
+- **Fixed: a user's other sessions were not revoked when their password changed.** They now are.
+- **Fixed: an admin's "view as" preview could not re-show a peer's own QR code or `.conf`.**
+- **Fixed: a port scan could claim it added a port that already existed.**
+- **Fixed: a thrown exception's message is now in the HTTP response body** instead of a bare 500.
+- **Fixed: the downloaded OpenAPI spec is named after the app and version**, not a generic filename.
+- **Fixed: the DNS lookup preview now respects the resolve-all-grants bypass**, and explains a peer/hub DNS answer correctly instead of a misleading reason.
+- **Fixed: the Icon component was missing from the DNS view.**
+- **Fixed: a UDP socket is reused per upstream resolver instead of opened per forwarded query.**
+- **Fixed: the activity heatmap's duration tooltip now labels a summed figure across multiple devices as such**, instead of presenting it as one device's duration.
+
 ## 1.0.0
 
 - **What the number promises: upgrades are boring.** Not that the software is finished — that moving from one release to the next stops asking for manual steps. `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not stay up ([ADR-0033](docs/adr/0033-what-1-0-promises.md)).

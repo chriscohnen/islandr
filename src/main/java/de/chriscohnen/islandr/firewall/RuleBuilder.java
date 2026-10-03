@@ -11,6 +11,7 @@ import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.acl.SiteResourceGrant;
 import de.chriscohnen.islandr.acl.UserResourceGrant;
 import de.chriscohnen.islandr.peer.Peer;
+import de.chriscohnen.islandr.peer.PeerSelfShare;
 import de.chriscohnen.islandr.user.User;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
@@ -339,6 +340,42 @@ public class RuleBuilder {
                                 wgInterface, family, peerIp, family, site.cidr,
                                 fitComment("islandr:role=network peer=" + escape(peer.name) + " user="
                                         + escape(userName.getOrDefault(peer.userId, "?")) + " network=" + escape(site.name)));
+                        rulesByKey.put(key, rule);
+                    }
+                }
+            }
+        }
+
+        // peer-self-share: a peer owner's own, narrower-than-ACL grant of one
+        // port to a single named colleague — never a RoleResourceGrant, read
+        // directly here the same way ResourceReservation already is above.
+        // Peer-to-peer, not peer-to-resource, so this bypasses
+        // emitRulesForGrant entirely (resource+port shaped) just like the
+        // whole-network block above it.
+        Map<String, List<Peer>> peersByUser = new HashMap<>();
+        for (Peer p : peers) {
+            if (p.userId != null) peersByUser.computeIfAbsent(p.userId, k -> new ArrayList<>()).add(p);
+        }
+        Map<String, Peer> peerById = new HashMap<>();
+        for (Peer p : peers) peerById.put(p.id, p);
+
+        Instant selfShareNow = Instant.now();
+        for (PeerSelfShare share : PeerSelfShare.<PeerSelfShare>listAll()) {
+            if (!share.isLiveAt(selfShareNow)) continue;
+            Peer ownerPeer = peerById.get(share.ownerPeerId);
+            if (ownerPeer == null) continue; // disabled or deleted since the share was created
+            for (Peer targetPeer : peersByUser.getOrDefault(share.targetUserId, List.of())) {
+                for (String targetIp : peerIpsOf(targetPeer)) {
+                    for (String ownerIp : peerIpsOf(ownerPeer)) {
+                        if (isV6(targetIp) != isV6(ownerIp)) continue;
+                        String family = isV6(targetIp) ? "ip6" : "ip";
+                        String key = targetIp + "|selfshare|" + ownerIp + "|tcp|" + share.port;
+                        if (rulesByKey.containsKey(key)) continue;
+                        String comment = fitComment("islandr:self-share peer=" + escape(targetPeer.name)
+                                + " owner=" + escape(ownerPeer.name) + " port=" + share.port);
+                        String rule = String.format(
+                                "    iifname \"%s\" %s saddr %s %s daddr %s tcp dport %d accept comment \"%s\"",
+                                wgInterface, family, targetIp, family, ownerIp, share.port, comment);
                         rulesByKey.put(key, rule);
                     }
                 }

@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.external;
 
 import de.chriscohnen.islandr.acl.AclResolutionService;
 import de.chriscohnen.islandr.acl.AtlasDto;
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.auth.Auth;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -69,7 +70,7 @@ public class GrantExternalResource {
 
     @GET
     public List<Grant> listAll(@Context ContainerRequestContext ctx) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.GRANTS_READ);
         AtlasDto.Graph g = resolution.buildAtlasGraph();
 
         Map<String, String> userNames = g.users().stream()

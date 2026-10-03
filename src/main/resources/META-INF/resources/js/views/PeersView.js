@@ -31,11 +31,16 @@ export default defineComponent({
       // for the same user does not require re-picking each time).
       createUserId: "",
       filterUserId: "",   // "" = all users
+      filterRoadwarrior: false, // peer-roadwarrior-badge: show only currently-traveling devices
       sortKey: "updatedAt",
       sortDir: -1,        // -1 = desc, 1 = asc
       lang: locale.current,
       // wg import
       importModal: false,
+      // Optional audit-log context when disabling a peer (#47) — asked via a
+      // small modal instead of window.prompt(). Null = no modal open.
+      disableReasonPeer: null,
+      disableReasonInput: "",
       importCandidates: [],
       importLoading: false,
       importError: null,
@@ -72,6 +77,7 @@ export default defineComponent({
       let list = this.filterUserId
         ? this.peers.filter((p) => p.type !== "site" && p.userId === this.filterUserId)
         : [...this.peers];
+      if (this.filterRoadwarrior) list = list.filter((p) => p.isRoadwarrior);
       const k = this.sortKey;
       const d = this.sortDir;
       list.sort((a, b) => {
@@ -114,7 +120,10 @@ export default defineComponent({
   async mounted() {
     loadHub();
     await this.load();
-    this._offEscape = onEscape(() => { if (this.importModal) this.closeImport(); });
+    this._offEscape = onEscape(() => {
+      if (this.importModal) this.closeImport();
+      else if (this.disableReasonPeer) this.disableReasonPeer = null;
+    });
   },
   beforeUnmount() {
     if (this._offEscape) this._offEscape();
@@ -162,30 +171,45 @@ export default defineComponent({
 
     async deletePeer(peerId) {
       if (!await confirmDialog(t("peers.confirm_delete"))) return;
+      this.error = null;
       try {
         const res = await fetch("/api/v1/peers/" + peerId, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         await this.load();
       } catch (e) {
-        alert(t("peers.error_delete", { error: e.message }));
+        this.error = t("peers.error_delete", { error: e.message });
       }
     },
 
-    async toggleEnabled(peer) {
-      const enabling = !peer.enabled;
-      // Reason is optional context for the audit log only (#47) — asked only
-      // when disabling; Cancel just skips it rather than aborting the toggle.
-      const reason = enabling ? null : window.prompt(t("peers.disable_reason_prompt"));
+    toggleEnabled(peer) {
+      // Reason is optional context for the audit log only (#47), asked only
+      // when disabling — re-enabling needs no reason and proceeds directly.
+      if (!peer.enabled) {
+        this.applyEnabledToggle(peer, true, null);
+        return;
+      }
+      this.disableReasonPeer = peer;
+      this.disableReasonInput = "";
+    },
+
+    confirmDisable() {
+      const peer = this.disableReasonPeer;
+      this.disableReasonPeer = null;
+      this.applyEnabledToggle(peer, false, this.disableReasonInput.trim() || null);
+    },
+
+    async applyEnabledToggle(peer, enabling, reason) {
+      this.error = null;
       try {
         const res = await fetch("/api/v1/peers/" + peer.id + "/enabled", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: enabling, reason: reason || null }),
+          body: JSON.stringify({ enabled: enabling, reason }),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
         await this.load();
       } catch (e) {
-        alert(t("peers.error_toggle", { error: e.message }));
+        this.error = t("peers.error_toggle", { error: e.message });
       }
     },
 
@@ -342,6 +366,10 @@ export default defineComponent({
           <option value="">{{ t('peers.all_users') }}</option>
           <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }}</option>
         </select>
+        <label style="display: flex; align-items: center; gap: var(--space-1); font-family: var(--font-sans); font-size: var(--text-sm)">
+          <input type="checkbox" v-model="filterRoadwarrior" style="width: 15px; height: 15px; accent-color: var(--accent); margin: 0" />
+          {{ t('peers.filter_roadwarrior') }}
+        </label>
         <button class="btn btn-primary btn-sm" @click="openCreate" :disabled="users.length === 0">{{ t('peers.create_btn') }}</button>
         <button class="btn btn-ghost btn-sm" @click="openImport">{{ t('peers.import_btn', { iface: wgInterface }) }}</button>
         <button class="btn btn-ghost btn-sm" @click="exportWgConf" :disabled="exporting" :title="t('peers.export_hint', { iface: wgInterface })">{{ t('peers.export_btn', { iface: wgInterface }) }}</button>
@@ -390,6 +418,7 @@ export default defineComponent({
             <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2); color: var(--fg2); font-size: var(--text-sm)">
               <Icon :name="p.deviceType && p.deviceType !== 'other' ? p.deviceType : 'peers'" :size="15" />
               {{ { laptop: t('peers.dev_laptop'), desktop: t('peers.dev_desktop'), mobile: t('peers.dev_mobile'), tablet: t('peers.dev_tablet'), server: t('peers.dev_server'), other: t('peers.dev_other') }[p.deviceType] || t('peers.dev_other') }}
+              <span v-if="p.isRoadwarrior" class="badge badge-neutral" :title="t('peers.roadwarrior_hint')">{{ t('peers.roadwarrior_badge') }}</span>
             </span>
           </td>
           <td>
@@ -441,6 +470,29 @@ export default defineComponent({
     </table>
 
     ${peerModalTemplate}
+
+    <!-- Optional reason when disabling a peer (#47) -->
+    <div v-if="disableReasonPeer" class="modal-backdrop" @click.self="disableReasonPeer = null">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>{{ t('peers.disable_reason_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="disableReasonPeer = null">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" style="margin-top: 0">{{ t('peers.disable_reason_hint', { name: disableReasonPeer.name }) }}</p>
+          <div class="field" style="margin-bottom: 0">
+            <label for="disableReason">{{ t('peers.disable_reason_label') }}</label>
+            <input id="disableReason" class="input" v-model="disableReasonInput"
+                   :placeholder="t('peers.disable_reason_placeholder')"
+                   @keyup.enter="confirmDisable" autofocus />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" @click="disableReasonPeer = null">{{ t('peer.btn_cancel') }}</button>
+          <button type="button" class="btn btn-primary" @click="confirmDisable">{{ t('peers.btn_disable') }}</button>
+        </div>
+      </div>
+    </div>
 
     <!-- wg import modal -->
     <div v-if="importModal" class="modal-backdrop" @click.self="closeImport">

@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.external;
 import de.chriscohnen.islandr.acl.Site;
 import de.chriscohnen.islandr.acl.SiteDto;
 import de.chriscohnen.islandr.acl.SiteService;
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.auth.Auth;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -26,7 +27,7 @@ public class SiteExternalResource {
 
     @GET
     public List<SiteDto.Response> listAll(@Context ContainerRequestContext ctx) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.RESOURCES_READ);
         Map<String, Long> counts = sites.resourceCountBySite();
         return sites.listAll().stream()
                 .map((Site s) -> sites.toResponse(s, counts.getOrDefault(s.id, 0L).intValue()))

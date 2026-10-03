@@ -43,8 +43,26 @@ public class PortScanner {
      * One open TCP port. {@code service} is the name from the bundled table
      * ({@link PortServiceLookup}) or null — a port nobody has a name for stays a
      * number rather than acquiring a guess.
+     *
+     * <p>The remaining fields come from an active {@link ProtocolDetector}
+     * probe, run separately by the caller ({@link PortScanJobs}) once a port
+     * is known to be open — {@link #withDetection} attaches the result.
+     * {@link PortScanner} itself never sets them: naming a port from a static
+     * table and asking what actually answers on it are different questions,
+     * and this class only ever does the first.
      */
-    public record OpenPort(int port, String service) {}
+    public record OpenPort(int port, String service, String protocol, String title,
+                            String certCn, java.time.Instant certExpiry, Boolean nlaRequired) {
+
+        public OpenPort(int port, String service) {
+            this(port, service, null, null, null, null, null);
+        }
+
+        public OpenPort withDetection(ProtocolDetector.Detection d) {
+            if (d == null) return this;
+            return new OpenPort(port, service, d.protocol(), d.title(), d.certCn(), d.certExpiry(), d.nlaRequired());
+        }
+    }
 
     public List<OpenPort> scan(String ip, List<Integer> ports) {
         return scan(ip, ports, () -> {}, p -> {});

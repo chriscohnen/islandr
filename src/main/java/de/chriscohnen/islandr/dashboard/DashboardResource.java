@@ -53,9 +53,19 @@ public class DashboardResource {
     /** Live-peer window: a peer counts as "live" if it handshook this recently. */
     static final Duration TOPOLOGY_LIVE_WINDOW = Duration.ofMinutes(5);
 
+    /**
+     * topology-peer-detail-levels: raised from the old flat 12 to the point
+     * where tier 3's collapsed summary takes over anyway — beyond this,
+     * tier 1/2 never show individual peers, so shipping their full detail
+     * would be wasted payload. "ab etwa vierzig Peers" per the task brief,
+     * matching where an orbit of individual dots starts getting unreadable.
+     */
+    static final int TOPOLOGY_LIVE_PEER_CAP = 40;
+
     @PersistenceContext EntityManager em;
     @jakarta.inject.Inject HostHealthSampler hostHealth;
     @jakarta.inject.Inject de.chriscohnen.islandr.wg.WgAdapter wg;
+    @jakarta.inject.Inject de.chriscohnen.islandr.dns.DnsQueryHandler dns;
 
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
     String wgInterface;
@@ -229,22 +239,40 @@ public class DashboardResource {
                         portCounts.getOrDefault(r.id, 0)))
                 .toList();
 
-        // Live peers: only the ones that handshook within the last 5 minutes.
-        // Until the activity-poller is wired up this list stays empty by design
-        // — and that's the right signal: nothing is talking through the tunnel
-        // right now. Capped at 12; a busier hub gets a summary instead.
-        Instant liveThreshold = Instant.now().minus(TOPOLOGY_LIVE_WINDOW);
-        List<DashboardDto.TopologyLivePeer> livePeers = Peer.<Peer>find(
-                        "enabled = ?1 and lastSeenAt is not null and lastSeenAt >= ?2 "
+        // topology-peer-detail-levels (Variante B, entschieden 2026-10-03):
+        // connected-or-stale client peers, never a fully disconnected one —
+        // tier 1/2 only draw a line where a handshake exists at all ("wo
+        // kein Tunnel steht, ist auch keine Linie"). Capped at
+        // TOPOLOGY_LIVE_PEER_CAP; peerStatusCounts below carries the
+        // uncapped truth for tier 3's collapsed summary.
+        Instant now = Instant.now();
+        Instant staleThreshold = now.minus(de.chriscohnen.islandr.peer.PeerConnectionStatus.STALE_WINDOW);
+        Instant connectedThreshold = now.minus(de.chriscohnen.islandr.peer.PeerConnectionStatus.CONNECTED_WINDOW);
+        List<Peer> activePeers = Peer.<Peer>find(
+                        "enabled = ?1 and type = 'client' and lastSeenAt is not null and lastSeenAt >= ?2 "
                                 + "order by lastSeenAt desc",
-                        true, liveThreshold)
-                .page(0, 12).list().stream()
+                        true, staleThreshold)
+                .page(0, TOPOLOGY_LIVE_PEER_CAP).list();
+        Map<String, String> livePeerDnsFqdns = dns.peerDnsFqdns(activePeers);
+        List<DashboardDto.TopologyLivePeer> livePeers = activePeers.stream()
                 .map(p -> new DashboardDto.TopologyLivePeer(
-                        p.id, p.name, p.type, p.assignedIp, p.lastSeenAt))
+                        p.id, p.name, p.type, p.assignedIp, p.lastSeenAt, p.deviceType,
+                        livePeerDnsFqdns.get(p.id),
+                        de.chriscohnen.islandr.peer.PeerConnectionStatus.of(p.lastSeenAt, now).name()))
                 .toList();
 
+        long connectedCount = Peer.count(
+                "enabled = ?1 and type = 'client' and lastSeenAt is not null and lastSeenAt >= ?2",
+                true, connectedThreshold);
+        long staleCount = Peer.count(
+                "enabled = ?1 and type = 'client' and lastSeenAt is not null and lastSeenAt >= ?2 and lastSeenAt < ?3",
+                true, staleThreshold, connectedThreshold);
+        long enabledClientCount = Peer.count("enabled = ?1 and type = 'client'", true);
+        DashboardDto.PeerStatusCounts peerStatusCounts = new DashboardDto.PeerStatusCounts(
+                connectedCount, staleCount, enabledClientCount - connectedCount - staleCount);
+
         DashboardDto.Topology topology = new DashboardDto.Topology(
-                topoSites, topoResources, livePeers, resourceOverflow,
+                topoSites, topoResources, livePeers, peerStatusCounts, resourceOverflow,
                 s == null ? null : s.wgServerEndpoint,
                 s == null ? null : s.hubLocationLabel,
                 s == null ? null : s.hubLat,

@@ -22,7 +22,7 @@ class ResourceExternalResourceTest {
 
     @Test
     void bearerToken_canListResources() {
-        String rawKey = apiKeys.create("test-key", "admin").rawKey();
+        String rawKey = apiKeys.create("test-key", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
 
         given().header("Authorization", "Bearer " + rawKey)
                 .when().get("/api/external/v1/resources")

@@ -37,7 +37,7 @@ public class ConfigService {
                 s.wgSubnet, s.wgServerPublicKey, s.wgServerEndpoint,
                 s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                 s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
-                s.selfServicePeerCreation, s.wgMtu, s.wgIncludeMtuInConf,
+                s.selfServicePeerCreation, s.peerSelfShareEnabled, s.wgMtu, s.wgIncludeMtuInConf,
                 s.wgPersistentKeepalive,
                 s.tunnelMode, s.allowedIpsMode, s.splitSupernet,
                 s.wgSubnet6,
@@ -596,6 +596,7 @@ public class ConfigService {
             s.oidcAutoProvision = snap.oidcAutoProvision();
             s.firewallDryRun = snap.firewallDryRun();
             s.selfServicePeerCreation = snap.selfServicePeerCreation();
+            s.peerSelfShareEnabled = snap.peerSelfShareEnabled();
             s.wgMtu = snap.wgMtu();
             s.wgIncludeMtuInConf = snap.wgIncludeMtuInConf();
             // Pre-0.13.0 exports lack this field → keep the 25 default rather than 0.

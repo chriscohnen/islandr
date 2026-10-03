@@ -65,7 +65,12 @@ public final class DiscoveryDto {
 
     /** One TCP port a port-range scan found open on a resource. {@code service}
      *  is the bundled table's name for it, or null when nothing knows the port. */
-    public record OpenPortView(int port, String service) {}
+    /** {@code protocol}/{@code title}/{@code certCn}/{@code certExpiry}/
+     *  {@code nlaRequired} come from an active {@link ProtocolDetector} probe
+     *  and are null when nothing was detected — {@code service} alone (the
+     *  static-table name) is never absent for a port the table knows. */
+    public record OpenPortView(int port, String service, String protocol, String title,
+                               String certCn, java.time.Instant certExpiry, Boolean nlaRequired) {}
 
     public record PortScanStatus(String state, int total, int done, int found,
                                  List<OpenPortView> openPorts, String error) {}

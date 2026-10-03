@@ -68,6 +68,53 @@ class MyPeerResourceEditTest {
     }
 
     @Test
+    void marksAndUnmarksAnOwnPeerAsRoadwarrior() {
+        String cookie = orgUserSession();
+        String peerId = persistPeer(currentUserId, "traveling-laptop", "laptop");
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"traveling-laptop\",\"isRoadwarrior\":true}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200)
+                .body("isRoadwarrior", org.hamcrest.Matchers.is(true));
+        assertThat(reload(peerId).isRoadwarrior).isTrue();
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"traveling-laptop\",\"isRoadwarrior\":false}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200)
+                .body("isRoadwarrior", org.hamcrest.Matchers.is(false));
+        assertThat(reload(peerId).isRoadwarrior).isFalse();
+    }
+
+    /** See PeerTypeChangeTest#reload — the entity manager's first-level cache
+     *  otherwise hands back the pre-update instance within the same test. */
+    private Peer reload(String id) {
+        Peer.getEntityManager().clear();
+        return Peer.findById(id);
+    }
+
+    @Test
+    void omittingIsRoadwarrior_defaultsToFalse() {
+        // A field the frontend always sends explicitly, but the wire contract
+        // must not silently flip an existing true back to false just because
+        // a caller forgot the field — this pins the actual (permissive)
+        // behavior of a plain `boolean` in a Jackson request body, so a
+        // future tightening is a deliberate choice, not a surprise.
+        String cookie = orgUserSession();
+        String peerId = persistPeer(currentUserId, "quiet-desk", "desktop");
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"quiet-desk\"}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200)
+                .body("isRoadwarrior", org.hamcrest.Matchers.is(false));
+    }
+
+    @Test
     void blankDeviceTypeClearsTheCategory() {
         String cookie = orgUserSession();
         String peerId = persistPeer(currentUserId, "categorised", "server");

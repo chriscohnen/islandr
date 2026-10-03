@@ -123,11 +123,12 @@ class EncryptedRetentionWithoutKeyTest {
                 cur.wgSubnet, cur.wgSubnet6, cur.wgServerPublicKey, cur.wgServerEndpoint,
                 cur.wgClientAllowedIps, cur.wgClientDns, mode,
                 cur.gravatarEnabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
+                cur.peerSelfShareEnabled,
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
                 cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
-                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsHubAlias, cur.dnsResolverUpstream, cur.externalApiEnabled,
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsHubAlias, cur.dnsResolverUpstream, cur.dnsResolveAllResourcesAndPeers, cur.externalApiEnabled,
                 cur.trustedProxies, cur.clientIpHeader);
     }
 

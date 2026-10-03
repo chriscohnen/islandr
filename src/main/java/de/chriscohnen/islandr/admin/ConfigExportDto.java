@@ -95,6 +95,10 @@ public class ConfigExportDto {
         boolean oidcAutoProvision,
         boolean firewallDryRun,
         boolean selfServicePeerCreation,
+        // peer-self-share: added after this snapshot shape existed — a
+        // pre-existing export without this field imports as false, matching
+        // the feature's own default-off posture, not a special case.
+        boolean peerSelfShareEnabled,
         Integer wgMtu,
         boolean wgIncludeMtuInConf,
         // Integer (not int) so a pre-0.13.0 export without this field imports as

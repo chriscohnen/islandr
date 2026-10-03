@@ -89,6 +89,17 @@ public class RulesetService {
             return state;
         }
 
+        // audit-firewall-apply-only-on-change: every mutation that could
+        // reach here already writes its own audit row (peer.update,
+        // user.update, …) — an apply_ok next to it says nothing new unless
+        // the ruleset text itself actually changed, or the previous apply
+        // wasn't OK (a recovery belongs in the log even when the text is
+        // identical to the last-good one). Captured before the fields below
+        // overwrite them.
+        boolean rulesetUnchanged = state.lastStatus != null
+                && state.lastStatus.equals(FirewallState.OK)
+                && snap.rulesetText().equals(state.rulesetText);
+
         // Enforcement plane reachable and applied — clear any prior degraded state.
         enforcement.markActive();
         // The boot table goes away only now, after Islandr's own table is
@@ -106,9 +117,14 @@ public class RulesetService {
         state.stderrText = null;
         // Audit the successful apply too — operators need to know "what
         // changed and when". Don't dump the full ruleset into the audit
-        // JSON (could be MB at scale); just the rule count.
-        audit.logEvent(actor, "firewall.apply_ok", "Firewall:ruleset",
-                Map.of("ruleCount", snap.ruleCount(), "rulesetBytes", snap.rulesetText().length()));
+        // JSON (could be MB at scale); just the rule count. Skipped when
+        // nothing actually changed (see rulesetUnchanged above) — this was
+        // ~90% of the audit log in production, almost always duplicating
+        // information another row already carried.
+        if (!rulesetUnchanged) {
+            audit.logEvent(actor, "firewall.apply_ok", "Firewall:ruleset",
+                    Map.of("ruleCount", snap.ruleCount(), "rulesetBytes", snap.rulesetText().length()));
+        }
         return state;
     }
 

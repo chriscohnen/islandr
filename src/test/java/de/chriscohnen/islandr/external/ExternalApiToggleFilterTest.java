@@ -30,7 +30,7 @@ class ExternalApiToggleFilterTest {
 
     @Test
     void disabled_404sEvenWithAValidKey() {
-        String rawKey = apiKeys.create("toggle-test", "admin").rawKey();
+        String rawKey = apiKeys.create("toggle-test", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
         setExternalApiEnabled(false);
 
         given().header("Authorization", "Bearer " + rawKey)
@@ -45,7 +45,7 @@ class ExternalApiToggleFilterTest {
         // No credentials at all — still a normal 401, not swallowed by the toggle.
         given().when().get("/api/external/v1/peers").then().statusCode(401);
 
-        String rawKey = apiKeys.create("toggle-test-2", "admin").rawKey();
+        String rawKey = apiKeys.create("toggle-test-2", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
         given().header("Authorization", "Bearer " + rawKey)
                 .when().get("/api/external/v1/peers")
                 .then().statusCode(200);
@@ -58,11 +58,12 @@ class ExternalApiToggleFilterTest {
                 cur.wgSubnet, cur.wgSubnet6, cur.wgServerPublicKey, cur.wgServerEndpoint,
                 cur.wgClientAllowedIps, cur.wgClientDns, cur.privateKeyRetention,
                 cur.gravatarEnabled, cur.oidcAutoProvision, cur.firewallDryRun, cur.selfServicePeerCreation,
+                cur.peerSelfShareEnabled,
                 cur.wgMtu, cur.wgIncludeMtuInConf, cur.wgPersistentKeepalive, cur.nominatimUrl,
                 cur.hubLat, cur.hubLon, cur.hubLocationLabel,
                 cur.ironRdpEnabled, cur.activityRetentionDays,
                 cur.tunnelMode, cur.allowedIpsMode, cur.splitSupernet,
-                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsHubAlias, cur.dnsResolverUpstream, enabled,
+                cur.dnsResolverEnabled, cur.dnsResolverZone, cur.dnsHubAlias, cur.dnsResolverUpstream, cur.dnsResolveAllResourcesAndPeers, enabled,
                 cur.trustedProxies, cur.clientIpHeader
         ), "test");
     }
