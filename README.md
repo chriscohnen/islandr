@@ -23,7 +23,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **1.0.0 is out.** What the number promises is that upgrades are boring, not that the software is finished: `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not stay up — and CI walks that path, rollback included, on every tag. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> **1.1.0 is out.** The topology diagram now shows what is actually happening on the network — device detail, status and DNS name per peer, a traffic-ranking table on the dashboard — and API keys are scoped instead of admin-equivalent, so a key handed to a script or an agent carries only the access it needs. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
 > Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
@@ -191,32 +191,30 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**1.0.0 — upgrading stops asking for manual steps.**
-1.0 is not a claim that the software is finished. It is one specific promise: that
-upgrading stops asking for manual steps. Two of the last three releases needed one
-(`systemctl edit`, re-running `setup-hub.sh`), and that is the gap this release closes.
+**1.1.0 — see what's actually happening on the network, and hand out only the access a key needs.**
+Peer dots on the topology diagram used to be one shape regardless of count; now the
+diagram carries real detail — device, status, DNS name — for the peers that fit, and a
+dashboard table ranks traffic by peer. The same cycle closes a standing gap on the
+automation side: an API key was full-admin-equivalent with no way to narrow it, which
+the external facade's own growth (grants, audit, config) only made worse with every key
+issued.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 1.0.0
+### What's new in 1.1.0
 
-Every version: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
+Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Upgrades are boring — and now proven so.** `update.sh` backs up the binary and the database, verifies the checksum, watches the service come back and restores both if it does not. Every tagged build installs the previous release, upgrades to it and rolls back again, asserting after each step ([ADR-0033](docs/adr/0033-what-1-0-promises.md))
-- **Settings hands you the update instead of just announcing it** — the command with a copy button, the rollback beside it, and whether a rollback actually exists. `update.sh` and `backup.sh` ship as release assets
-- **On the Quarkus LTS line** (3.33.3.2). The previous pin claimed LTS and was not, which is how a critical Netty advisory became unfixable without anyone noticing ([ADR-0032](docs/adr/0032-quarkus-lts-line.md))
-- **External API: grants carry their ports as values** — transport included, so a port-limited grant can finally be turned into a rule
-- **Security keys have a console** — a "sign in with a security key" button next to the password, registered and managed from Settings; the password stays a complete path on its own. An offline escape hatch too: `ISLANDR_WEBAUTHN_RESET=true` clears every registered authenticator on the recovery admin, audit-logged, for the case where you cannot sign in to remove one ([#67](https://github.com/chriscohnen/islandr/issues/67))
-- **A user can rename their own device, change its category, and remove it themselves** in My access — no admin needed for either
-- **Every released binary carries build provenance** — `gh attestation verify <file> --repo chriscohnen/islandr` names the workflow, the commit and the run that built it, checked against GitHub rather than against us
-- **Destructive actions ask in the console's own voice**, not the browser's grey box — and revoking access in Roles & ACL now asks at all, naming what it takes away and from whom
-- **The heap is capped**, so the memory figure is a constant rather than a share of the host: measured at 236 MB resident on a 1 GB VPS during a discovery scan
-- **The updater reports a hub with no fail-closed boot ruleset** — it shipped in 0.22.0 and no update can add it, so installs older than that never had it and nothing said so
-- **A resource can be port-scanned on its own**, not only discovered as part of a whole-CIDR sweep — type a range, scan the resource's own IP, add a hit as a port with one click
-- **The console says it is open source** — EUPL-1.2 next to the version and in the login footer, with the trademark boundary named
-- Fixed: Settings and My access were unreachable on a phone; discovery showed port numbers where it can show names; the avatar's edit controls sat permanently in the topbar; a fresh install now probes its own WireGuard public key instead of showing a placeholder until someone notices
+- **Topology diagram gets three detail tiers for peers**, instead of one dot per device
+- **A peer-traffic ranking table on the dashboard** — current or last month, highest first
+- **API keys are scoped instead of admin-equivalent** ([ADR-0026](docs/adr/0026-external-api-facade.md))
+- **A device owner can share one of their own ports with a colleague**, time-limited and revocable, from the self-service portal
+- **A peer can be marked a roadwarrior**, traveling with its owner on untrusted networks
+- **Port scanning detects what's actually listening**, not just the port number
+- **Every DNS name is tagged hub/peer/resource**, and a peer resolves under its own name
+- Fixed: a hub could pin a CPU core at 100% for days with the DNS resolver on; a slow upstream reply could stall every other query; a user's other sessions weren't revoked on password change
 
 ### Roadmap
 

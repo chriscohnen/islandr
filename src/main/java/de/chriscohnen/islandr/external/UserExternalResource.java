@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.external;
 
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
@@ -36,7 +37,7 @@ public class UserExternalResource {
 
     @GET
     public List<UserDto.Response> listAll(@Context ContainerRequestContext ctx) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.USERS_READ);
         return User.<User>listAll(Sort.by("createdAt").descending())
                 .stream().map(UserDto.Response::from).toList();
     }
@@ -61,7 +62,7 @@ public class UserExternalResource {
     public UserDto.Response setEnabled(@Context ContainerRequestContext ctx,
                                        @PathParam("id") String id,
                                        UserDto.EnabledRequest body) {
-        AuthContext a = Auth.requireAdmin(ctx);
+        AuthContext a = Auth.requireScope(ctx, ApiKeyScope.USERS_WRITE);
         User u = User.findById(id);
         if (u == null) throw new NotFoundException("user not found: " + id);
         boolean wanted = body != null && body.enabled();

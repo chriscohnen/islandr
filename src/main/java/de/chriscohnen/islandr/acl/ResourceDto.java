@@ -162,13 +162,22 @@ public final class ResourceDto {
 
     /**
      * Portal view for one user: their granted resources plus the portal-level flags
-     * they need but cannot read from the admin-only settings endpoint. Currently just
-     * {@code ironRdpEnabled}, which gates the "open in browser" RDP button.
+     * they need but cannot read from the admin-only settings endpoint —
+     * {@code ironRdpEnabled} gates the "open in browser" RDP button,
+     * {@code peerSelfShareEnabled} gates the "share a port" action
+     * (peer-self-share) on the caller's own devices.
      */
     public record MyAccessResponse(
             boolean ironRdpEnabled,
+            boolean peerSelfShareEnabled,
             List<MyAccessResource> resources
     ) {}
+
+    /** On-demand reachability check (myaccess-reachability-indicator):
+     *  {@code reachable} is null when the resource has no granted TCP port to
+     *  probe at all — not a guess, an honest "cannot tell". {@code latencyMs}
+     *  is only ever set alongside {@code reachable: true}. */
+    public record ReachabilityView(Boolean reachable, Integer latencyMs) {}
 
     public record PortRequest(
             @Min(0) @Max(65535) int port,

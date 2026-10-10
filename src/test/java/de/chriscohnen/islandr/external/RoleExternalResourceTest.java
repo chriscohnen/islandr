@@ -22,7 +22,7 @@ class RoleExternalResourceTest {
 
     @Test
     void bearerToken_canListRoles() {
-        String rawKey = apiKeys.create("test-key", "admin").rawKey();
+        String rawKey = apiKeys.create("test-key", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
 
         given().header("Authorization", "Bearer " + rawKey)
                 .when().get("/api/external/v1/roles")

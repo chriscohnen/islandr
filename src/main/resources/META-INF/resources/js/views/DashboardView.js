@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import TopologyDiagram from "/js/TopologyDiagram.js";
 import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import ActivityHeatmap from "/js/ActivityHeatmap.js";
+import PeerTrafficRanking from "/js/PeerTrafficRanking.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
@@ -19,7 +20,7 @@ const HEAVY_TRAFFIC_BPS = 50 * 1024; // 50 KB/s
 // numbers. Most cards are clickable shortcuts to the underlying view.
 export default defineComponent({
   name: "DashboardView",
-  components: { TopologyDiagram, TopologyWorldMap, ActivityHeatmap, Icon },
+  components: { TopologyDiagram, TopologyWorldMap, ActivityHeatmap, PeerTrafficRanking, Icon },
   data() {
     return {
       data: null,
@@ -355,6 +356,21 @@ export default defineComponent({
             <span v-if="data.hostHealth.swapTotalBytes > 0" :class="['badge', hostHealthBadge(data.hostHealth.swapStatus)]">{{ hostHealthPrefix(data.hostHealth.swapStatus) }}{{ t('dashboard.hub_swap') }} {{ formatBytes(data.hostHealth.swapUsedBytes) }} / {{ formatBytes(data.hostHealth.swapTotalBytes) }}</span>
           </div>
         </div>
+
+        <!-- dns-query-stats: absent entirely unless the resolver is enabled
+             AND actually bound — same "don't show what isn't in use"
+             posture as every other optional tile here. -->
+        <router-link v-if="data.dns" to="/dns" class="card card-pad" style="text-decoration: none; color: inherit; display: block">
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="dns" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_dns') }}
+          </div>
+          <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ data.dns.local + data.dns.forwarded }}</div>
+          <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center">
+            <span class="badge badge-success">{{ t('dashboard.dns_local') }} {{ data.dns.local }}</span>
+            <span class="badge badge-neutral">{{ t('dashboard.dns_upstream') }} {{ data.dns.forwarded }}</span>
+            <span style="font-size: var(--text-xs)">{{ t('dashboard.dns_window', { min: data.dns.windowMinutes }) }}</span>
+          </div>
+        </router-link>
       </div>
 
       <!-- Network visualization: Topology (hub + sites + resources) and the
@@ -372,6 +388,9 @@ export default defineComponent({
             </button>
             <button class="btn btn-sm" :class="activeTab === 'heatmap' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'heatmap'">
               {{ t('dashboard.heatmap_title') }}
+            </button>
+            <button class="btn btn-sm" :class="activeTab === 'traffic' ? 'btn-secondary' : 'btn-ghost'" @click="activeTab = 'traffic'">
+              {{ t('dashboard.traffic_title') }}
             </button>
           </div>
 
@@ -395,6 +414,7 @@ export default defineComponent({
               :sites="data.topology.sites"
               :resources="data.topology.resources"
               :live-peers="liveMode ? livePeers : data.topology.livePeers"
+              :peer-status-counts="data.topology.peerStatusCounts"
               :resource-overflow="data.topology.resourceOverflow"
               :endpoint="data.topology.hubEndpoint"
               :hub-label="data.topology.hubLabel"
@@ -448,6 +468,12 @@ export default defineComponent({
         <!-- Connection activity heatmap: peers x days, who was connected when (#32) -->
         <div v-show="activeTab === 'heatmap'">
           <ActivityHeatmap :days="30" />
+        </div>
+
+        <!-- peer-traffic-ranking: who consumed the most tunnel traffic this/last
+             calendar month — the heatmap above answers "when", this answers "who". -->
+        <div v-show="activeTab === 'traffic'">
+          <PeerTrafficRanking />
         </div>
       </div>
 

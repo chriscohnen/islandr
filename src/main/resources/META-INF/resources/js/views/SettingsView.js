@@ -76,6 +76,7 @@ export default defineComponent({
         oidcAutoProvision: true,
         firewallDryRun: true,
         selfServicePeerCreation: true,
+        peerSelfShareEnabled: false,
         externalApiEnabled: true,
         // Issue #80: whose forwarded header may name the real client, and
         // which header that is. Empty = nobody may.
@@ -93,6 +94,7 @@ export default defineComponent({
         dnsResolverZone: "",
         dnsHubAlias: "",
         dnsResolverUpstream: "",
+        dnsResolveAllResourcesAndPeers: true,
       },
       meta: { updatedAt: null, updatedBy: null, setupComplete: false },
       lang: locale.current,
@@ -296,6 +298,7 @@ export default defineComponent({
           oidcAutoProvision: s.oidcAutoProvision !== false,
           firewallDryRun: !!s.firewallDryRun,
           selfServicePeerCreation: s.selfServicePeerCreation !== false,
+          peerSelfShareEnabled: !!s.peerSelfShareEnabled,
           externalApiEnabled: s.externalApiEnabled !== false,
           trustedProxies: s.trustedProxies || "",
           clientIpHeader: s.clientIpHeader || "",
@@ -311,6 +314,7 @@ export default defineComponent({
           dnsResolverZone: s.dnsResolverZone || "",
           dnsHubAlias: s.dnsHubAlias || "",
           dnsResolverUpstream: s.dnsResolverUpstream || "",
+          dnsResolveAllResourcesAndPeers: !!s.dnsResolveAllResourcesAndPeers,
         };
         this.computedAllowedIpsPreview = s.computedAllowedIpsPreview || "";
         this.meta = {
@@ -1248,6 +1252,14 @@ export default defineComponent({
             <div class="field-hint">{{ t('settings.dns_resolver_upstream_hint') }}</div>
           </div>
 
+          <div v-if="form.dnsResolverEnabled" class="field field-full">
+            <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+              <input id="dnsResolveAllResourcesAndPeers" type="checkbox" v-model="form.dnsResolveAllResourcesAndPeers" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+              <span>{{ t('settings.dns_resolve_all_label') }}</span>
+            </label>
+            <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.dns_resolve_all_hint') }}</div>
+          </div>
+
           <div class="field">
             <label>MTU</label>
             <div style="display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap">
@@ -1649,6 +1661,11 @@ export default defineComponent({
             <span>{{ t('settings.self_service_peer_creation_label') }}</span>
           </label>
           <div class="field-hint" style="margin-top: 0">{{ t('settings.self_service_peer_creation_hint') }}</div>
+          <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0; margin-top: var(--space-3)">
+            <input type="checkbox" v-model="form.peerSelfShareEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <span>{{ t('settings.peer_self_share_label') }}</span>
+          </label>
+          <div class="field-hint" style="margin-top: 0">{{ t('settings.peer_self_share_hint') }}</div>
           <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0; margin-top: var(--space-3)">
             <input type="checkbox" v-model="form.ironRdpEnabled" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
             <span>{{ t('settings.iron_rdp_label') }}</span>

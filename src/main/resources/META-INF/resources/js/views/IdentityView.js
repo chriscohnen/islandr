@@ -256,12 +256,13 @@ export default defineComponent({
     async saveDraft() {
       if (!this.editing) return;
       this.saving = true;
+      this.error = null;
       try {
         await this.putDraft(this.editing);
         await this.load();
         this.cancelEdit();
       } catch (e) {
-        alert(t("identity.error_save", { error: e.message }));
+        this.error = t("identity.error_save", { error: e.message });
       } finally {
         this.saving = false;
       }
@@ -269,6 +270,7 @@ export default defineComponent({
 
     // Toggle eines konfigurierten Providers (ohne Draft im Edit-Modus)
     async setEnabled(providerKey, enabled) {
+      this.error = null;
       try {
         const res = await fetch("/api/v1/identity/providers/" + providerKey, {
           method: "PUT",
@@ -281,7 +283,7 @@ export default defineComponent({
         }
         await this.load();
       } catch (e) {
-        alert(t("identity.error_toggle", { error: e.message }));
+        this.error = t("identity.error_toggle", { error: e.message });
       }
     },
     requestActivate(providerKey) {
@@ -434,6 +436,7 @@ export default defineComponent({
       }
     },
     async setCustomEnabled(id, enabled) {
+      this.error = null;
       try {
         const res = await fetch("/api/v1/identity/custom-providers/" + id, {
           method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled }),
@@ -444,11 +447,12 @@ export default defineComponent({
         }
         await Promise.all([this.load(), this.loadCustomProviders()]);
       } catch (e) {
-        alert(t("identity.error_toggle", { error: e.message }));
+        this.error = t("identity.error_toggle", { error: e.message });
       }
     },
     async deleteCustomProvider(id) {
       if (!await confirmDialog(t("identity.custom_delete_confirm"))) return;
+      this.error = null;
       try {
         const res = await fetch("/api/v1/identity/custom-providers/" + id, { method: "DELETE" });
         if (!res.ok) {
@@ -457,11 +461,12 @@ export default defineComponent({
         }
         await this.loadCustomProviders();
       } catch (e) {
-        alert(t("identity.error_toggle", { error: e.message }));
+        this.error = t("identity.error_toggle", { error: e.message });
       }
     },
     async rediscoverCustom(id) {
       this.customRediscovering = true;
+      this.error = null;
       try {
         const res = await fetch("/api/v1/identity/custom-providers/" + id + "/rediscover",
             { method: "POST", headers: { "content-type": "application/json" } });
@@ -471,7 +476,7 @@ export default defineComponent({
         }
         await this.loadCustomProviders();
       } catch (e) {
-        alert(t("identity.error_toggle", { error: e.message }));
+        this.error = t("identity.error_toggle", { error: e.message });
       } finally {
         this.customRediscovering = false;
       }

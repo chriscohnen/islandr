@@ -4,6 +4,7 @@ import de.chriscohnen.islandr.acl.Resource;
 import de.chriscohnen.islandr.acl.ResourceDto;
 import de.chriscohnen.islandr.acl.ResourcePort;
 import de.chriscohnen.islandr.acl.ResourceService;
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.auth.Auth;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -27,7 +28,7 @@ public class ResourceExternalResource {
 
     @GET
     public List<ResourceDto.Response> listAll(@Context ContainerRequestContext ctx) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.RESOURCES_READ);
         Map<String, List<ResourcePort>> ports = resources.portsByResource();
         return resources.listAll().stream()
                 .map((Resource r) -> ResourceDto.Response.from(r,

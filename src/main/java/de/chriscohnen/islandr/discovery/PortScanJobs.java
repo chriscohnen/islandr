@@ -53,6 +53,15 @@ public class PortScanJobs {
     Duration portTimeout;
     @ConfigProperty(name = "islandr.port-scan.concurrency", defaultValue = "64")
     int concurrency;
+    /**
+     * Budget for {@link ProtocolDetector}, run once per port actually found
+     * open — never against the whole range, so this cost is paid a handful of
+     * times per scan rather than 65535. Longer than {@link #portTimeout}
+     * because a detection probe does a real protocol exchange (a TLS
+     * handshake, an HTTP request) rather than a bare {@code connect()}.
+     */
+    @ConfigProperty(name = "islandr.port-scan.protocol-detect-timeout", defaultValue = "800ms")
+    Duration detectTimeout;
 
     private final ConcurrentMap<String, Job> jobs = new ConcurrentHashMap<>();
     private ExecutorService pool;
@@ -144,8 +153,9 @@ public class PortScanJobs {
     private void run(Job job, List<Integer> ports) {
         try {
             if (isRealScan()) {
-                new PortScanner(concurrency, portTimeout)
-                        .scan(job.ip, ports, job.doneCount::incrementAndGet, job::addPort);
+                new PortScanner(concurrency, portTimeout).scan(job.ip, ports, job.doneCount::incrementAndGet,
+                        p -> job.addPort(p.withDetection(
+                                ProtocolDetector.detect(job.ip, p.port(), detectTimeout).orElse(null))));
             } else {
                 mockScan(job, ports);
             }

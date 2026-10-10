@@ -175,6 +175,25 @@ public class PeerResource {
         return new PeerDto.ActivityHeatmapResponse(days, peerRows);
     }
 
+    /**
+     * Peers ranked by total tunnel traffic over a billing-sized window
+     * (peer-traffic-ranking) — the heatmap shows a day x peer grid, good for
+     * patterns, useless for "who filled this month's bandwidth cap" on a
+     * metered VPS. {@code window}: "this-month" (default, and the fallback
+     * for any unrecognized value — same lenient-clamp style as {@code days}
+     * on the heatmap endpoint above) or "last-month", both UTC-calendar
+     * months. Aggregated with a {@code GROUP BY} rather than loading every
+     * day row into Java, unlike the heatmap (which needs every individual
+     * day for the grid) — here only the per-peer sum matters.
+     */
+    @GET
+    @Path("/traffic-ranking")
+    public PeerDto.TrafficRankingResponse trafficRanking(@Context ContainerRequestContext ctx,
+                                                           @jakarta.ws.rs.QueryParam("window") String windowParam) {
+        Auth.requireAdmin(ctx);
+        return peers.trafficRanking(windowParam, null);
+    }
+
     @GET
     @Path("/wg-import-preview")
     public java.util.List<PeerDto.WgImportCandidate> wgImportPreview(@Context ContainerRequestContext ctx) {

@@ -11,6 +11,8 @@ import de.chriscohnen.islandr.wg.WgAdapter;
 import de.chriscohnen.islandr.wg.WgException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.NotFoundException;
@@ -23,6 +25,23 @@ import org.jboss.logging.Logger;
 public class PeerService {
 
     private static final Logger LOG = Logger.getLogger(PeerService.class);
+
+    @PersistenceContext EntityManager em;
+
+    // A device that roams across networks (cellular, hotel Wi-Fi, hotspot)
+    // needs the compatibility-floor MTU, not the hub/global default — either
+    // because the device type itself typically roams (phone, tablet) or
+    // because its owner flagged it as currently traveling (peer-roadwarrior-
+    // badge), independent of device type: a roadwarrior laptop needs the same
+    // floor a phone always does. Self-service peers never get a custom MTU
+    // (that is admin-only via PeerDto.CreateRequest/UpdateRequest.mtu()), so
+    // "auto or null" is the whole range for one of these.
+    static final java.util.Set<String> MOBILE_DEVICE_TYPES = java.util.Set.of("mobile", "tablet");
+    static final int MOBILE_DEFAULT_MTU = 1280;
+
+    static boolean needsCompatMtu(String deviceType, boolean isRoadwarrior) {
+        return isRoadwarrior || (deviceType != null && MOBILE_DEVICE_TYPES.contains(deviceType));
+    }
 
     @Inject WgAdapter wg;
     @Inject QrService qr;
@@ -393,6 +412,7 @@ public class PeerService {
         } else if (req.deviceType() != null) {
             peer.deviceType = null;
         }
+        peer.isRoadwarrior = req.isRoadwarrior();
         if (peer.isSite()) {
             peer.lat = req.lat();
             peer.lng = req.lng();
@@ -450,18 +470,27 @@ public class PeerService {
     }
 
     /**
-     * The narrow self-service edit (issue: peer-self-edit): a device's name
-     * and category, nothing else. Unlike {@link #update}, this never touches
-     * IP, CIDR, owner or PSK — those are admin concerns reachable only through
-     * that method, guarded by {@code Auth.requireAdmin}. Neither field affects
-     * the firewall ruleset, so there is no recompute here.
+     * The narrow self-service edit (issue: peer-self-edit; extended by
+     * peer-roadwarrior-badge): a device's name, category and roadwarrior
+     * flag, nothing else. Unlike {@link #update}, this never touches IP,
+     * CIDR, owner or PSK — those are admin concerns reachable only through
+     * that method, guarded by {@code Auth.requireAdmin}. None of these fields
+     * affect the firewall ruleset, so there is no recompute here.
      */
     @Transactional
-    public PeerDto.Response updateSelfDetails(String peerId, String name, String deviceType) {
+    public PeerDto.Response updateSelfDetails(String peerId, String name, String deviceType, boolean isRoadwarrior) {
         Peer peer = Peer.findById(peerId);
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
         peer.name = name;
         peer.deviceType = (deviceType == null || deviceType.isBlank()) ? null : deviceType;
+        peer.isRoadwarrior = isRoadwarrior;
+        // Self-service can never set a custom MTU (that path is admin-only,
+        // via PeerDto.UpdateRequest.mtu()), so any value already on the peer
+        // is either unset or this same auto compatibility floor — never a
+        // deliberately chosen figure (1392, 1420, ...) this must not clobber.
+        if (peer.mtu == null || peer.mtu == MOBILE_DEFAULT_MTU) {
+            peer.mtu = needsCompatMtu(peer.deviceType, isRoadwarrior) ? MOBILE_DEFAULT_MTU : null;
+        }
         peer.updatedAt = java.time.Instant.now();
         return PeerDto.Response.from(peer);
     }
@@ -1083,5 +1112,65 @@ public class PeerService {
 
     private static String emptyToNull(String s) {
         return (s == null || s.isBlank()) ? null : s.trim();
+    }
+
+    /**
+     * Per-peer traffic ranking for a UTC-calendar month (peer-traffic-ranking).
+     * Shared by the admin endpoint (every peer) and the self-service one
+     * (restricted to the caller's own) so a user sees exactly the same
+     * figures an admin would for their devices — same query, same rounding,
+     * just filtered. {@code restrictToPeerIds == null} means no restriction;
+     * an empty set short-circuits to an empty response rather than issuing
+     * an {@code in ()} that some JPA providers reject.
+     */
+    public PeerDto.TrafficRankingResponse trafficRanking(String windowParam, java.util.Set<String> restrictToPeerIds) {
+        boolean lastMonth = "last-month".equals(windowParam);
+        String window = lastMonth ? "last-month" : "this-month";
+
+        java.time.YearMonth month = lastMonth
+                ? java.time.YearMonth.now(java.time.ZoneOffset.UTC).minusMonths(1)
+                : java.time.YearMonth.now(java.time.ZoneOffset.UTC);
+        String fromDay = month.atDay(1).toString();
+        String toDay = month.atEndOfMonth().toString();
+
+        if (restrictToPeerIds != null && restrictToPeerIds.isEmpty()) {
+            return new PeerDto.TrafficRankingResponse(window, fromDay, toDay, java.util.List.of());
+        }
+
+        String jpql = "select pda.id.peerId, sum(pda.rxBytes), sum(pda.txBytes) "
+                + "from PeerDailyActivity pda "
+                + "where pda.id.day >= :from and pda.id.day <= :to "
+                + (restrictToPeerIds != null ? "and pda.id.peerId in :peerIds " : "")
+                + "group by pda.id.peerId";
+        var query = em.createQuery(jpql, Object[].class)
+                .setParameter("from", fromDay)
+                .setParameter("to", toDay);
+        if (restrictToPeerIds != null) query.setParameter("peerIds", restrictToPeerIds);
+
+        @SuppressWarnings("unchecked")
+        java.util.List<Object[]> sums = query.getResultList();
+
+        if (sums.isEmpty()) {
+            return new PeerDto.TrafficRankingResponse(window, fromDay, toDay, java.util.List.of());
+        }
+
+        java.util.Map<String, String> userNamesById = User.<User>listAll()
+                .stream().collect(java.util.stream.Collectors.toMap(u -> u.id, u -> u.name));
+
+        java.util.List<PeerDto.TrafficRankingRow> rows = new java.util.ArrayList<>();
+        for (Object[] row : sums) {
+            String peerId = (String) row[0];
+            long rx = (Long) row[1];
+            long tx = (Long) row[2];
+            long total = rx + tx;
+            if (total == 0) continue; // nothing consumed this window — not a ranking entry
+            Peer p = Peer.findById(peerId);
+            if (p == null) continue; // deleted since — its activity rows outlive it
+            String userName = p.userId != null ? userNamesById.get(p.userId) : null;
+            rows.add(new PeerDto.TrafficRankingRow(p.id, p.name, p.userId, userName, rx, tx, total));
+        }
+        rows.sort((a, b) -> Long.compare(b.totalBytes(), a.totalBytes()));
+
+        return new PeerDto.TrafficRankingResponse(window, fromDay, toDay, rows);
     }
 }

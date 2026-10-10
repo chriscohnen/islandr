@@ -39,9 +39,9 @@ public class ApiKeyResource {
     public ApiKeyDto.CreateResponse create(@Context ContainerRequestContext ctx,
                                            @Valid ApiKeyDto.CreateRequest body) {
         AuthContext a = Auth.requireAdmin(ctx);
-        ApiKeyService.CreateResult result = svc.create(body.label(), a.principal());
+        ApiKeyService.CreateResult result = svc.create(body.label(), body.scopes(), a.principal());
         audit.logCreate(a.principal(), "api_key.create", "ApiKey:" + result.apiKey().id,
-                Map.of("label", result.apiKey().label));
+                Map.of("label", result.apiKey().label, "scopes", body.scopes()));
         return new ApiKeyDto.CreateResponse(ApiKeyDto.Response.from(result.apiKey()), result.rawKey());
     }
 

@@ -67,6 +67,7 @@ public class SettingsService {
         s.oidcAutoProvision = req.oidcAutoProvision();
         s.firewallDryRun = req.firewallDryRun();
         s.selfServicePeerCreation = req.selfServicePeerCreation();
+        s.peerSelfShareEnabled = req.peerSelfShareEnabled();
         if (req.externalApiEnabled() != null) s.externalApiEnabled = req.externalApiEnabled();
         // Trusted proxies (issue #80). Null leaves it alone so an older client
         // cannot silently clear it; an empty string is the deliberate "nobody
@@ -104,6 +105,7 @@ public class SettingsService {
                 ? null : req.dnsHubAlias().strip().toLowerCase(java.util.Locale.ROOT);
         s.dnsResolverUpstream = (req.dnsResolverUpstream() == null || req.dnsResolverUpstream().isBlank())
                 ? null : req.dnsResolverUpstream().strip();
+        s.dnsResolveAllResourcesAndPeers = req.dnsResolveAllResourcesAndPeers();
         s.updatedAt = Instant.now();
         s.updatedBy = actor;
 

@@ -38,7 +38,7 @@ class UserExternalDisableTest {
 
     @Test
     void disablingAUserAlsoTakesTheirPeersDown() {
-        String key = apiKeys.create("deprovision", "admin").rawKey();
+        String key = apiKeys.create("deprovision", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
         String userId = createUser(true);
         String peerId = createPeer(userId, "10.9.1.10", true);
 
@@ -56,7 +56,7 @@ class UserExternalDisableTest {
 
     @Test
     void reEnablingAUserDoesNotBringTheirPeersBack() {
-        String key = apiKeys.create("deprovision", "admin").rawKey();
+        String key = apiKeys.create("deprovision", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
         String userId = createUser(true);
         String peerId = createPeer(userId, "10.9.1.11", true);
 
@@ -71,7 +71,7 @@ class UserExternalDisableTest {
 
     @Test
     void aSinglePeerCanBeDisabledWithoutTouchingItsOwner() {
-        String key = apiKeys.create("deprovision", "admin").rawKey();
+        String key = apiKeys.create("deprovision", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
         String userId = createUser(true);
         String lost = createPeer(userId, "10.9.1.12", true);
         String kept = createPeer(userId, "10.9.1.13", true);
@@ -97,7 +97,7 @@ class UserExternalDisableTest {
 
     @Test
     void unknownUser_notFound() {
-        String key = apiKeys.create("deprovision", "admin").rawKey();
+        String key = apiKeys.create("deprovision", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
         given().header("Authorization", "Bearer " + key)
                 .contentType("application/json").body("{\"enabled\": false}")
                 .when().put("/api/external/v1/users/" + UUID.randomUUID() + "/enabled")

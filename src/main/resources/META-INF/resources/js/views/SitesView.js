@@ -288,9 +288,10 @@ export default defineComponent({
     },
     async deleteSite(site) {
       if (site.resourceCount > 0) {
-        alert(t("sites.confirm_res", { n: site.resourceCount }));
+        this.error = t("sites.confirm_res", { n: site.resourceCount });
         return;
       }
+      this.error = null;
       if (!await confirmDialog(t("sites.confirm_del", { name: site.name }))) return;
       try {
         const res = await fetch("/api/v1/sites/" + site.id, { method: "DELETE" });

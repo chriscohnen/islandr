@@ -68,6 +68,101 @@ class MyPeerResourceEditTest {
     }
 
     @Test
+    void marksAndUnmarksAnOwnPeerAsRoadwarrior() {
+        String cookie = orgUserSession();
+        String peerId = persistPeer(currentUserId, "traveling-laptop", "laptop");
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"traveling-laptop\",\"isRoadwarrior\":true}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200)
+                .body("isRoadwarrior", org.hamcrest.Matchers.is(true));
+        assertThat(reload(peerId).isRoadwarrior).isTrue();
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"traveling-laptop\",\"isRoadwarrior\":false}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200)
+                .body("isRoadwarrior", org.hamcrest.Matchers.is(false));
+        assertThat(reload(peerId).isRoadwarrior).isFalse();
+    }
+
+    /** See PeerTypeChangeTest#reload — the entity manager's first-level cache
+     *  otherwise hands back the pre-update instance within the same test. */
+    private Peer reload(String id) {
+        Peer.getEntityManager().clear();
+        return Peer.findById(id);
+    }
+
+    // peer-roadwarrior-badge only ever toggles the flag — not the MTU
+    // compatibility floor a "mobile"/"tablet" deviceType already gets at
+    // creation (MyPeerResourceCreateMtuTest). A roaming laptop needs that
+    // same floor just as much, so self-edit must apply it too.
+    @Test
+    void markingRoadwarriorAppliesTheCompatibilityMtu() {
+        String cookie = orgUserSession();
+        String peerId = persistPeer(currentUserId, "traveling-laptop", "laptop");
+        assertThat(reload(peerId).mtu).isNull();
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"traveling-laptop\",\"deviceType\":\"laptop\",\"isRoadwarrior\":true}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200);
+        assertThat(reload(peerId).mtu).isEqualTo(1280);
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"traveling-laptop\",\"deviceType\":\"laptop\",\"isRoadwarrior\":false}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200);
+        assertThat(reload(peerId).mtu).isNull();
+    }
+
+    // Self-service can never set a custom MTU — only an admin can, via the
+    // console's own peer edit. A rename here must not clobber that deliberate
+    // figure back to null just because it doesn't match the 1280 auto floor.
+    @Test
+    void selfEditDoesNotClobberAnAdminSetCustomMtu() {
+        String cookie = orgUserSession();
+        String peerId = persistPeer(currentUserId, "custom-mtu-desk", "desktop");
+        setMtu(peerId, 1392);
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"custom-mtu-desk\",\"deviceType\":\"desktop\"}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200);
+        assertThat(reload(peerId).mtu).isEqualTo(1392);
+    }
+
+    @Transactional
+    void setMtu(String peerId, int mtu) {
+        Peer p = Peer.findById(peerId);
+        p.mtu = mtu;
+    }
+
+    @Test
+    void omittingIsRoadwarrior_defaultsToFalse() {
+        // A field the frontend always sends explicitly, but the wire contract
+        // must not silently flip an existing true back to false just because
+        // a caller forgot the field — this pins the actual (permissive)
+        // behavior of a plain `boolean` in a Jackson request body, so a
+        // future tightening is a deliberate choice, not a surprise.
+        String cookie = orgUserSession();
+        String peerId = persistPeer(currentUserId, "quiet-desk", "desktop");
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie)
+                .contentType("application/json")
+                .body("{\"name\":\"quiet-desk\"}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200)
+                .body("isRoadwarrior", org.hamcrest.Matchers.is(false));
+    }
+
+    @Test
     void blankDeviceTypeClearsTheCategory() {
         String cookie = orgUserSession();
         String peerId = persistPeer(currentUserId, "categorised", "server");

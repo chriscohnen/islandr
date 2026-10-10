@@ -252,6 +252,76 @@ class DashboardResourceTest {
         assertThat(liveNames).containsExactly("macbook-felix");
     }
 
+    // topology-peer-detail-levels: Variante B widened the window from
+    // "connected only" to "connected or stale" (never fully disconnected) —
+    // a peer last seen 2h ago is STALE (< 24h), not CONNECTED (< 5min), and
+    // must now appear, tagged correctly, where the old 5-minute-only window
+    // would have excluded it entirely.
+    @Test
+    void dashboard_topology_livePeers_includesStalePeers_taggedWithConnectionStatus() {
+        String staleId = persistClientPeer("stale-laptop-" + UUID.randomUUID(), "laptop",
+                java.time.Duration.ofHours(2));
+
+        JsonPath body = given().when().get("/api/v1/dashboard")
+                .then().statusCode(200).extract().jsonPath();
+
+        List<Map<String, Object>> peers = body.getList("topology.livePeers");
+        Map<String, Object> row = peers.stream()
+                .filter(p -> staleId.equals(p.get("id"))).findFirst().orElseThrow();
+        assertThat(row.get("connectionStatus")).isEqualTo("STALE");
+        assertThat(row.get("deviceType")).isEqualTo("laptop");
+    }
+
+    // A peer last seen 2 days ago is DISCONNECTED (beyond the 24h stale
+    // window) and must stay out of livePeers entirely — Variante B never
+    // ships a fully-disconnected peer's detail, only its count (see the
+    // peerStatusCounts test below).
+    @Test
+    void dashboard_topology_livePeers_excludesFullyDisconnectedPeers() {
+        String oldId = persistClientPeer("ancient-peer-" + UUID.randomUUID(), "desktop",
+                java.time.Duration.ofDays(2));
+
+        JsonPath body = given().when().get("/api/v1/dashboard")
+                .then().statusCode(200).extract().jsonPath();
+
+        List<String> liveIds = body.getList("topology.livePeers.id");
+        assertThat(liveIds).doesNotContain(oldId);
+    }
+
+    // peerStatusCounts carries the uncapped truth behind livePeers (tier 3's
+    // collapsed summary) — asserted as a delta since the shared test DB may
+    // already carry peers from other test classes.
+    @Test
+    void dashboard_topology_peerStatusCounts_reflectsEveryEnabledClientPeer() {
+        JsonPath before = given().when().get("/api/v1/dashboard")
+                .then().statusCode(200).extract().jsonPath();
+        long connectedBefore = before.getLong("topology.peerStatusCounts.connected");
+        long staleBefore = before.getLong("topology.peerStatusCounts.stale");
+        long disconnectedBefore = before.getLong("topology.peerStatusCounts.disconnected");
+
+        persistClientPeer("counts-stale-" + UUID.randomUUID(), "laptop", java.time.Duration.ofHours(1));
+        persistClientPeer("counts-disconnected-" + UUID.randomUUID(), "desktop", java.time.Duration.ofDays(3));
+
+        JsonPath after = given().when().get("/api/v1/dashboard")
+                .then().statusCode(200).extract().jsonPath();
+        assertThat(after.getLong("topology.peerStatusCounts.connected")).isEqualTo(connectedBefore);
+        assertThat(after.getLong("topology.peerStatusCounts.stale")).isEqualTo(staleBefore + 1);
+        assertThat(after.getLong("topology.peerStatusCounts.disconnected")).isEqualTo(disconnectedBefore + 1);
+    }
+
+    @Transactional
+    String persistClientPeer(String name, String deviceType, java.time.Duration lastSeenAgo) {
+        byte[] keyBytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(keyBytes);
+        String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
+        Peer p = Peer.createNew(null, name, publicKey,
+                "10.99.1." + (1 + (int) (Math.random() * 250)));
+        p.lastSeenAt = java.time.Instant.now().minus(lastSeenAgo);
+        p.deviceType = deviceType;
+        p.persist();
+        return p.id;
+    }
+
     @Test
     void dashboard_stripsCapAt8() {
         // Pump 12 audit events; strip should clip to STRIP_SIZE=8.

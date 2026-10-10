@@ -181,6 +181,15 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "deletion_requested_at")
     public Instant deletionRequestedAt;
 
+    /** A device currently traveling with its owner, often on untrusted
+     *  networks (peer-roadwarrior-badge). Orthogonal to {@link #deviceType} —
+     *  a traveling laptop is a roadwarrior case just as much as a phone — and
+     *  meant to be toggled on/off by the owner as their situation changes,
+     *  not derived from any fixed device property. Purely informational: no
+     *  automatic security or ruleset effect. */
+    @Column(name = "is_roadwarrior", nullable = false, columnDefinition = "INTEGER")
+    public boolean isRoadwarrior = false;
+
     public boolean isSite() {
         return "site".equals(type);
     }

@@ -43,7 +43,7 @@ public class SessionFilter implements ContainerRequestFilter {
     private AuthContext resolveAuth(Session s) {
         // Local ENV-bootstrap admin: no users row, always admin.
         if (s.isLocalAdmin()) {
-            return new AuthContext(s.principal, null, s.provider, true);
+            return new AuthContext(s.principal, null, s.provider, true, java.util.Set.of());
         }
         // Org user: re-read is_admin from the row each request, so promotion
         // takes effect immediately without forcing a re-login.
@@ -55,6 +55,6 @@ public class SessionFilter implements ContainerRequestFilter {
             if (u == null || !u.accessAllowedAt(java.time.Instant.now())) return null;
             admin = u.isAdmin;
         }
-        return new AuthContext(s.principal, s.userId, s.provider, admin);
+        return new AuthContext(s.principal, s.userId, s.provider, admin, java.util.Set.of());
     }
 }

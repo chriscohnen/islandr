@@ -608,6 +608,49 @@ class FirewallTest {
         assertThat(s.stderrText).isEqualTo("syntax error at line 7");
     }
 
+    // audit-firewall-apply-only-on-change: a second apply with no ACL
+    // change in between produced an identical ruleset text before this —
+    // it used to write a second, content-free firewall.apply_ok row every
+    // single time, ~90% of production's audit log.
+    @Test
+    void recomputeAndApply_doesNotDuplicateApplyOk_whenRulesetTextUnchanged() {
+        rulesets.recomputeAndApply("test:admin");
+        long applyOkCountAfterFirst = countAuditAction("firewall.apply_ok");
+        assertThat(applyOkCountAfterFirst).isEqualTo(1);
+
+        // Nothing changed in the DB — same fixture, same output text.
+        rulesets.recomputeAndApply("test:admin");
+        assertThat(countAuditAction("firewall.apply_ok")).isEqualTo(applyOkCountAfterFirst);
+    }
+
+    // A fresh apply after a failure is a real event — "it's working again"
+    // — even when the resulting text happens to match the last-good one.
+    @Test
+    void recomputeAndApply_writesApplyOk_whenRecoveringFromAFailure_evenWithUnchangedText() {
+        rulesets.recomputeAndApply("test:admin");
+        long applyOkAfterFirst = countAuditAction("firewall.apply_ok");
+        assertThat(applyOkAfterFirst).isEqualTo(1);
+
+        mock().forceFailure = "syntax error at line 7";
+        try {
+            rulesets.recomputeAndApply("test:admin");
+        } finally {
+            mock().forceFailure = null; // never leak into other tests
+        }
+        assertThat(readState().lastStatus).isEqualTo(FirewallState.FAILED);
+
+        // Nothing in the DB changed since the first apply — same text as
+        // the last *good* one — but the apply right before this failed.
+        rulesets.recomputeAndApply("test:admin");
+        assertThat(readState().lastStatus).isEqualTo(FirewallState.OK);
+        assertThat(countAuditAction("firewall.apply_ok")).isEqualTo(applyOkAfterFirst + 1);
+    }
+
+    @Transactional
+    long countAuditAction(String action) {
+        return AuditLog.count("action", action);
+    }
+
     // -- FirewallResource ----------------------------------------------------
 
     @Test
@@ -812,6 +855,73 @@ class FirewallTest {
 
         String text = builder.build().rulesetText();
         assertThat(text).doesNotContain("ip saddr 10.8.0.99");
+    }
+
+    // -- peer-self-share ------------------------------------------------------
+
+    @Test
+    @Transactional
+    void ruleBuilder_liveSelfShare_reachesTheTargetsPeerOnThatPortOnly() {
+        User owner = persistUser("owner@example.test", "Owner");
+        Peer ownerPeer = persistPeer(owner.id, "owner-laptop", "10.8.0.80");
+        User colleague = persistUser("colleague@example.test", "Colleague");
+        Peer colleaguePeer = persistPeer(colleague.id, "colleague-laptop", "10.8.0.81");
+        de.chriscohnen.islandr.peer.PeerSelfShare.createNew(
+                ownerPeer.id, colleague.id, 3000, Instant.now().plusSeconds(3600)).persist();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).contains(
+                "ip saddr 10.8.0.81 ip daddr 10.8.0.80 tcp dport 3000 accept");
+        // Never through the ACL model — no resource, no grant exists at all,
+        // so nothing else in the ruleset should even mention these IPs.
+        assertThat(text.lines().filter(l -> l.contains("10.8.0.80") || l.contains("10.8.0.81")).count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_expiredSelfShare_emitsNoRule() {
+        User owner = persistUser("owner2@example.test", "Owner2");
+        Peer ownerPeer = persistPeer(owner.id, "owner2-laptop", "10.8.0.82");
+        User colleague = persistUser("colleague2@example.test", "Colleague2");
+        persistPeer(colleague.id, "colleague2-laptop", "10.8.0.83");
+        de.chriscohnen.islandr.peer.PeerSelfShare.createNew(
+                ownerPeer.id, colleague.id, 3001, Instant.now().minusSeconds(60)).persist();
+
+        assertThat(builder.build().rulesetText()).doesNotContain("3001");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_revokedSelfShare_emitsNoRule() {
+        User owner = persistUser("owner3@example.test", "Owner3");
+        Peer ownerPeer = persistPeer(owner.id, "owner3-laptop", "10.8.0.84");
+        User colleague = persistUser("colleague3@example.test", "Colleague3");
+        persistPeer(colleague.id, "colleague3-laptop", "10.8.0.85");
+        de.chriscohnen.islandr.peer.PeerSelfShare share = de.chriscohnen.islandr.peer.PeerSelfShare.createNew(
+                ownerPeer.id, colleague.id, 3002, Instant.now().plusSeconds(3600));
+        share.revokedAt = Instant.now();
+        share.persist();
+
+        assertThat(builder.build().rulesetText()).doesNotContain("3002");
+    }
+
+    @Test
+    @Transactional
+    void ruleBuilder_selfShare_reachesEveryPeerOfTheTargetUser() {
+        User owner = persistUser("owner4@example.test", "Owner4");
+        Peer ownerPeer = persistPeer(owner.id, "owner4-laptop", "10.8.0.86");
+        User colleague = persistUser("colleague4@example.test", "Colleague4");
+        Peer colleagueLaptop = persistPeer(colleague.id, "colleague4-laptop", "10.8.0.87");
+        Peer colleaguePhone = persistPeer(colleague.id, "colleague4-phone", "10.8.0.88");
+        de.chriscohnen.islandr.peer.PeerSelfShare.createNew(
+                ownerPeer.id, colleague.id, 3003, Instant.now().plusSeconds(3600)).persist();
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).contains("ip saddr 10.8.0.87 ip daddr 10.8.0.86 tcp dport 3003 accept");
+        assertThat(text).contains("ip saddr 10.8.0.88 ip daddr 10.8.0.86 tcp dport 3003 accept");
     }
 
     // -- helpers --------------------------------------------------------------

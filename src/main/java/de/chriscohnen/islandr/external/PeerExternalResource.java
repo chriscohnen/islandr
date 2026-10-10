@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.external;
 
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
@@ -51,7 +52,7 @@ public class PeerExternalResource {
 
     @GET
     public List<PeerDto.Response> listAll(@Context ContainerRequestContext ctx) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.PEERS_READ);
         return Peer.<Peer>listAll(Sort.by("createdAt").descending())
                 .stream().map(PeerDto.Response::from).toList();
     }
@@ -66,7 +67,7 @@ public class PeerExternalResource {
     public Response create(@Context ContainerRequestContext ctx,
                            @QueryParam("userId") String userId,
                            @Valid PeerDto.CreateRequest body) {
-        AuthContext a = Auth.requireAdmin(ctx);
+        AuthContext a = Auth.requireScope(ctx, ApiKeyScope.PEERS_WRITE);
         boolean isSite = "site".equals(body.resolvedType());
         if (userId == null && !isSite) {
             throw new jakarta.ws.rs.BadRequestException(
@@ -105,7 +106,7 @@ public class PeerExternalResource {
     public PeerDto.Response setEnabled(@Context ContainerRequestContext ctx,
                                        @PathParam("id") String id,
                                        PeerDto.EnabledRequest body) {
-        AuthContext a = Auth.requireAdmin(ctx);
+        AuthContext a = Auth.requireScope(ctx, ApiKeyScope.PEERS_WRITE);
         PeerDto.Response p = peers.setEnabled(id, body != null && body.enabled());
         String action = (body != null && body.enabled()) ? "peer.enable" : "peer.disable";
         Map<String, Object> detail = new LinkedHashMap<>();

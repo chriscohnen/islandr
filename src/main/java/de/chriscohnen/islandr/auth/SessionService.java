@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 
 @ApplicationScoped
 public class SessionService {
@@ -55,6 +56,28 @@ public class SessionService {
         if (s != null && s.revokedAt == null) {
             s.revokedAt = Instant.now();
         }
+    }
+
+    /** Revokes every currently-active session belonging to {@code userId},
+     *  except {@code keepSessionId} if given (session-revoke-on-password-change
+     *  — the caller's own session when they changed their own password).
+     *  Returns how many were actually revoked, for the audit entry and the
+     *  admin-facing "N sessions ended" response. {@code userId == null} is
+     *  the local ENV-bootstrap admin, which has no sessions row to match —
+     *  not an error, just nothing to do. */
+    @Transactional
+    public int revokeAllForUser(String userId, String keepSessionId) {
+        if (userId == null) return 0;
+        Instant now = Instant.now();
+        List<Session> active = Session.<Session>list(
+                "userId = ?1 and revokedAt is null and expiresAt > ?2", userId, now);
+        int revoked = 0;
+        for (Session s : active) {
+            if (s.id.equals(keepSessionId)) continue;
+            s.revokedAt = now;
+            revoked++;
+        }
+        return revoked;
     }
 
     /** 32 random bytes → 43-char URL-safe base64 (no padding). */

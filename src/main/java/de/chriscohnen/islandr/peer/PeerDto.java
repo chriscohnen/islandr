@@ -45,9 +45,36 @@ public final class PeerDto {
             // device — null = no such request. The row still exists; an
             // admin's real DELETE is what actually removes it. Lets the admin
             // peer list flag which peers are waiting on that.
-            Instant deletionRequestedAt
+            Instant deletionRequestedAt,
+            // peer-roadwarrior-badge: currently traveling with its owner,
+            // often on untrusted networks — owner-set, purely informational,
+            // orthogonal to deviceType.
+            boolean isRoadwarrior,
+            // myaccess-peer-dns-name-display: this peer's full, already-
+            // slugified DNS name (DnsQueryHandler#peerDnsFqdns) — null when
+            // the resolver is disabled, never the raw peer.name (which may
+            // carry spaces/special characters the DNS label strips). Callers
+            // that don't need it (most of them — only "Mein Zugang" shows
+            // it) go through from(Peer) and get null, same as before this
+            // field existed.
+            String dnsFqdn,
+            // myaccess-share-status-indicator: number of this peer's own
+            // currently-live PeerSelfShare rows — lets "Mein Zugang" show a
+            // "N freigegeben" pill per device without opening the share
+            // dialog. 0 for every caller but listMine(), via from(Peer) or
+            // from(Peer, dnsFqdn), same no-behaviour-change-by-default shape
+            // as dnsFqdn above.
+            long activeShareCount
     ) {
         public static Response from(Peer p) {
+            return from(p, null, 0);
+        }
+
+        public static Response from(Peer p, String dnsFqdn) {
+            return from(p, dnsFqdn, 0);
+        }
+
+        public static Response from(Peer p, String dnsFqdn, long activeShareCount) {
             return new Response(
                     p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.assignedIpv6,
                     p.enabled, p.lastSeenAt, p.lastSeenEndpoint,
@@ -58,7 +85,8 @@ public final class PeerDto {
                     p.keyRotatedAt, p.pskRotatedAt,
                     p.mtu, p.persistentKeepalive, p.includeDns,
                     p.lat, p.lng, p.locationLabel,
-                    p.validUntil, p.enabledSource, p.deletionRequestedAt);
+                    p.validUntil, p.enabledSource, p.deletionRequestedAt,
+                    p.isRoadwarrior, dnsFqdn, activeShareCount);
         }
     }
 
@@ -171,6 +199,11 @@ public final class PeerDto {
             @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
                     message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
             String deviceType,
+
+            // peer-roadwarrior-badge: same field the owner sets via
+            // self-service, editable here too so an admin can set or clear it
+            // on behalf of a user.
+            boolean isRoadwarrior,
 
             // PSK rotation action. null = leave unchanged; "rotate" = generate new PSK;
             // "remove" = clear the PSK (both sides must update their configs).
@@ -318,6 +351,35 @@ public final class PeerDto {
     public record ActivityHeatmapResponse(
             java.util.List<String> days,
             java.util.List<ActivityHeatmapRow> peers
+    ) {}
+
+    /** One peer's total traffic within a {@link TrafficRankingResponse}
+     *  window (peer-traffic-ranking) — "who filled the VPS's bandwidth cap".
+     *  {@code userId}/{@code userName} null for a site/gateway peer, same
+     *  convention as {@link ActivityHeatmapRow}. */
+    public record TrafficRankingRow(
+            String peerId,
+            String peerName,
+            String userId,
+            String userName,
+            long rxBytes,
+            long txBytes,
+            long totalBytes
+    ) {}
+
+    /** {@code window}: "this-month" | "last-month" — always one of these two
+     *  even if an invalid value was requested (falls back to "this-month").
+     *  {@code fromDay}/{@code toDay} are the inclusive UTC-day bounds actually
+     *  queried, ISO-8601, so the frontend can show the exact range without
+     *  recomputing month boundaries itself. {@code peers} is sorted by
+     *  {@code totalBytes} descending and omits any peer with zero traffic in
+     *  the window — "who consumed bandwidth" has nothing to say about a peer
+     *  that didn't. */
+    public record TrafficRankingResponse(
+            String window,
+            String fromDay,
+            String toDay,
+            java.util.List<TrafficRankingRow> peers
     ) {}
 
     private PeerDto() {}

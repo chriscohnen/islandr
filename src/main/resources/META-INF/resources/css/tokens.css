@@ -186,6 +186,13 @@
   --topo-line:    var(--accent-500);
   --topo-line-stale: var(--neutral-300);
 
+  /* Roadwarrior corner flag (peer table) — deliberately monochrome, not a
+     status hue: it's a category, not a connection/health state, and must
+     read as distinct from both the green status dot and the row hover's
+     teal left-edge accent. */
+  --rw-bg: var(--neutral-700);
+  --rw-fg: var(--neutral-0);
+
   color-scheme: light;
 }
 
@@ -217,6 +224,9 @@
 
   --topo-line:    var(--accent-400);
   --topo-line-stale: #3A414F;
+
+  --rw-bg: var(--neutral-300);
+  --rw-fg: var(--neutral-950);
 
   /* status — slightly lifted for dark surfaces */
   --success-fg: #3CD9A0; --success-bg: rgba(18,160,116,0.14); --success-border: rgba(60,217,160,0.30);

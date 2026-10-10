@@ -118,6 +118,15 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "self_service_peer_creation", columnDefinition = "INTEGER")
     public boolean selfServicePeerCreation = true;
 
+    // peer-self-share: opt-in (default off), unlike selfServicePeerCreation —
+    // this hands a non-admin user a way to open a firewall hole, even a
+    // narrowly-scoped one (own tunnel address, one named colleague, port
+    // >1024, always expires). An operator whose network mixes personal
+    // devices and company data should not get that capability without
+    // deciding to turn it on.
+    @Column(name = "peer_self_share_enabled", nullable = false, columnDefinition = "INTEGER")
+    public boolean peerSelfShareEnabled = false;
+
     // Opt-out for the external automation API (issue #15, ADR-0026). Default
     // true — the facade is already API-key-gated, so this is a further,
     // explicit hardening switch for operators who never intend to use it,
@@ -312,6 +321,28 @@ public class Settings extends PanacheEntityBase {
      */
     @Column(name = "dns_hub_alias", length = 253)
     public String dnsHubAlias;
+
+    // dns-resolve-all-resources-option: waives the per-peer grant check
+    // (AclService#canReachNow) that normally gates whether a resource's name
+    // resolves at all. A DNS answer only hands out an address, it grants
+    // nothing by itself — reaching it still needs an actual forward rule,
+    // same reasoning DnsQueryHandler#resolveHub already applies
+    // unconditionally; this setting extends that same leniency to every
+    // named resource at once, instead of one name at a time.
+    //
+    // Opt-out (default true), not opt-in: the admin already has to
+    // explicitly turn the resolver itself on (dnsResolverEnabled) before any
+    // of this applies, and the grant-gated alternative is more surprising
+    // for a non-technical user to hit ("why can't I even look this name up")
+    // than the privacy cost of a resolvable name is to most deployments.
+    //
+    // Named "...AndPeers": peer-dns-name-gated-by-self-share (pending, see
+    // loop/TASK.md) will make peer-name resolution grant-gated the same way
+    // resource names already are here, and this setting is meant to waive
+    // that check too once it exists — named for its intended final scope up
+    // front rather than renaming it again later.
+    @Column(name = "dns_resolve_all_resources_and_peers", nullable = false, columnDefinition = "INTEGER")
+    public boolean dnsResolveAllResourcesAndPeers = true;
 
     public boolean isPlaintextRetention() {
         return "plaintext".equalsIgnoreCase(privateKeyRetention);

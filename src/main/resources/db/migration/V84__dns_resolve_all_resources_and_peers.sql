@@ -1,0 +1,14 @@
+-- Global opt-out (dns-resolve-all-resources-option): when true (the
+-- default), the resource name resolver answers for every named resource --
+-- and, once peer-dns-name-gated-by-self-share lands, every peer name too --
+-- regardless of whether the querying peer actually has a grant for it.
+-- Resolving a name only hands out an address -- it does not reach anything
+-- by itself, the firewall rules decide that -- so this only affects what a
+-- name reveals, never what a peer can actually connect to.
+--
+-- Default true, not false: the admin already has to explicitly turn the
+-- resolver itself on (dns_resolver_enabled) before this matters at all, and
+-- a non-technical user hitting "why won't this name even resolve" is a more
+-- surprising failure mode than the privacy cost of a resolvable name is to
+-- most deployments.
+ALTER TABLE settings ADD COLUMN dns_resolve_all_resources_and_peers INTEGER NOT NULL DEFAULT 1;

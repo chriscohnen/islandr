@@ -1,5 +1,6 @@
 import { defineComponent } from "vue";
 import { t, locale } from "/js/i18n.js";
+import { Icon } from "/js/Icons.js";
 
 // /dns — showcase + live status for the built-in resource-name DNS resolver
 // (ADR-0023). Read-only by design, same split as Firewall: the actual
@@ -7,6 +8,7 @@ import { t, locale } from "/js/i18n.js";
 // "is it on, and what can it currently resolve" plus a quick manual lookup.
 export default defineComponent({
   name: "DnsView",
+  components: { Icon },
   data() {
     return {
       lang: locale.current,
@@ -81,7 +83,8 @@ export default defineComponent({
     statusLabel() {
       if (!this.status) return "";
       if (!this.status.enabled) return t("dns.status_off");
-      return this.status.running ? t("dns.status_active") : t("dns.status_blocked");
+      if (!this.status.running) return t("dns.status_blocked");
+      return this.status.tcpRunning ? t("dns.status_active") : t("dns.status_active_udp_only");
     },
   },
   template: `
@@ -104,6 +107,9 @@ export default defineComponent({
       </div>
       <div v-else-if="!status.running" class="callout callout-warn" style="margin-bottom: var(--space-4)">
         <div>{{ t('dns.blocked_hint') }} <router-link :to="{ path: '/settings', query: { tab: 'network' } }" style="color:inherit;text-decoration:underline">{{ t('dns.disabled_link') }}</router-link></div>
+      </div>
+      <div v-else-if="!status.tcpRunning" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+        <div>{{ t('dns.tcp_blocked_hint', { port: status.port }) }}</div>
       </div>
 
       <div v-if="status.enabled" class="callout callout-warn" style="margin-bottom: var(--space-4)">
@@ -145,10 +151,15 @@ export default defineComponent({
           {{ t('dns.resolvable_names_empty') }}
         </div>
         <div v-else style="display: flex; flex-direction: column; gap: var(--space-1); max-height: 240px; overflow-y: auto">
-          <button v-for="name in status.resolvableNames" :key="name" type="button"
-                  class="mono" style="text-align: left; background: none; border: none; padding: 2px 0; cursor: pointer; color: var(--fg1); font-size: var(--text-sm)"
+          <button v-for="entry in status.resolvableNames" :key="entry.fqdn" type="button"
+                  class="mono" style="display: flex; align-items: center; gap: var(--space-2); text-align: left; background: none; border: none; padding: 2px 0; cursor: pointer; color: var(--fg1); font-size: var(--text-sm)"
                   :title="t('dns.resolvable_names_use_hint')"
-                  @click="lookupName = name">{{ name }}</button>
+                  @click="lookupName = entry.fqdn">
+            <Icon :name="{ HUB: 'server', PEER: 'peers', RESOURCE: 'resources' }[entry.kind]"
+                  :size="13" style="flex: none; opacity: 0.7"
+                  :title="{ HUB: t('dns.resolvable_kind_hub'), PEER: t('dns.resolvable_kind_peer'), RESOURCE: t('dns.resolvable_kind_resource') }[entry.kind]" />
+            {{ entry.fqdn }}
+          </button>
         </div>
       </div>
 
@@ -190,7 +201,11 @@ export default defineComponent({
                 {{ t('dns.lookup_result_as_peer_answered', { peer: lookupResultAsPeer.name }) }}
               </div>
               <div v-else style="font-size: var(--text-xs); margin-top: var(--space-2); opacity: 0.85">
-                <span v-if="lookupResult.grantedUsers && lookupResult.grantedUsers.length > 0">
+                <span v-if="lookupResult.nameKind === 'hub'">{{ t('dns.lookup_result_hub_note') }}</span>
+                <span v-else-if="lookupResult.nameKind === 'peer'">
+                  {{ status.dnsResolveAllResourcesAndPeers ? t('dns.lookup_result_peer_note_bypass') : t('dns.lookup_result_peer_note_restricted') }}
+                </span>
+                <span v-else-if="lookupResult.grantedUsers && lookupResult.grantedUsers.length > 0">
                   {{ t('dns.lookup_result_granted_users', { users: lookupResult.grantedUsers.join(', ') }) }}
                 </span>
                 <span v-else>{{ t('dns.lookup_result_no_grants') }}</span>

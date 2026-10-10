@@ -28,16 +28,23 @@ export default defineComponent({
   computed: {
     // One combined series across all of the user's own peers — see the
     // file-level comment for why this sums instead of keeping per-device rows.
+    // myaccess-activity-device-hours: deviceCount (peers with any hits that
+    // day) rides along so the tooltip can say *how many* devices a summed
+    // number covers — two always-on devices legitimately sum to "~48h" on a
+    // 24h day, which reads as a bug unless the tooltip says it's two
+    // devices' worth, not one impossible duration.
     series() {
       if (!this.result) return [];
       return this.result.days.map((iso, i) => {
-        let hits = 0, rx = 0, tx = 0;
+        let hits = 0, rx = 0, tx = 0, deviceCount = 0;
         for (const p of this.result.peers) {
-          hits += p.sampleHits[i] || 0;
+          const h = p.sampleHits[i] || 0;
+          if (h > 0) deviceCount++;
+          hits += h;
           rx += p.rxBytes[i] || 0;
           tx += p.txBytes[i] || 0;
         }
-        return { iso, hits, rx, tx };
+        return { iso, hits, rx, tx, deviceCount };
       });
     },
     maxValue() {
@@ -120,12 +127,24 @@ export default defineComponent({
     },
     // sample_hits is a poll-tick count (ActivityPoller ticks every 30s), not
     // a measured session duration — same estimate/caveat as the admin heatmap.
-    formatEstimatedDuration(hits) {
+    // myaccess-activity-device-hours: deviceCount > 1 switches to a wording
+    // that names the device count instead of a bare duration — dedicated i18n
+    // keys rather than string concatenation, since "über {n} Geräte verbunden"
+    // and "connected across {n} devices" put the device clause in different
+    // positions per language.
+    formatEstimatedDuration(hits, deviceCount) {
       const totalMinutes = Math.round((hits * 30) / 60);
-      if (totalMinutes < 60) return t("myaccess.activity_duration_min", { n: totalMinutes });
+      const multi = deviceCount > 1;
+      if (totalMinutes < 60) {
+        return multi
+          ? t("myaccess.activity_duration_min_devices", { n: totalMinutes, devices: deviceCount })
+          : t("myaccess.activity_duration_min", { n: totalMinutes });
+      }
       const hours = Math.floor(totalMinutes / 60);
       const minutes = totalMinutes % 60;
-      return t("myaccess.activity_duration_hm", { h: hours, m: minutes });
+      return multi
+        ? t("myaccess.activity_duration_hm_devices", { h: hours, m: minutes, devices: deviceCount })
+        : t("myaccess.activity_duration_hm", { h: hours, m: minutes });
     },
     cellTitle(cell) {
       if (!cell) return "";
@@ -134,7 +153,7 @@ export default defineComponent({
         detail = `↓ ${this.formatMb(cell.rx)} · ↑ ${this.formatMb(cell.tx)}`;
       } else {
         detail = cell.hits > 0
-          ? t("myaccess.activity_connected_approx", { duration: this.formatEstimatedDuration(cell.hits) })
+          ? t("myaccess.activity_connected_approx", { duration: this.formatEstimatedDuration(cell.hits, cell.deviceCount) })
           : t("myaccess.activity_none");
       }
       return `${formatDate(cell.iso + "T00:00:00Z")} · ${detail}`;

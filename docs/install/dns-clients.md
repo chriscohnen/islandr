@@ -52,7 +52,11 @@ one below it.
 1. **Is the resolver running?** The DNS page reports `Active`, the address it
    listens on, and how many names it can answer. A hub that reports
    *Enabled, not running* usually failed to bind port 53 — the service needs
-   `CAP_NET_BIND_SERVICE`, which [`setup-hub.sh`](setup-hub.sh) grants.
+   `CAP_NET_BIND_SERVICE`, which [`setup-hub.sh`](setup-hub.sh) grants. If it
+   instead reports *Active (UDP only)*, another process (commonly Pi-hole or
+   systemd-resolved) already holds TCP port 53 on that address — ordinary
+   lookups are unaffected, since this resolver's own answers never need
+   TCP's truncated-response fallback.
 2. **Does the name exist?** The same page lists every resolvable name, spelled
    as a peer would have to query it. A resource without a DNS name set under
    *Resources* is not in that list.

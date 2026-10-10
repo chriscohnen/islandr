@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.external;
 
 import de.chriscohnen.islandr.audit.AuditDto;
 import de.chriscohnen.islandr.audit.AuditService;
+import de.chriscohnen.islandr.apikey.ApiKeyScope;
 import de.chriscohnen.islandr.auth.Auth;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.BadRequestException;
@@ -44,7 +45,7 @@ public class AuditExternalResource {
                                         @QueryParam("actor") String actor,
                                         @QueryParam("action") String action,
                                         @QueryParam("limit") Integer limit) {
-        Auth.requireAdmin(ctx);
+        Auth.requireScope(ctx, ApiKeyScope.AUDIT_READ);
         Instant before = null;
         if (beforeIso != null && !beforeIso.isBlank()) {
             try {

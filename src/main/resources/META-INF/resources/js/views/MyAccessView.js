@@ -5,6 +5,7 @@ import { onEscape } from "/js/keyboard.js";
 import TopologyDiagram from "/js/TopologyDiagram.js";
 import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import PortalActivityHeatmap from "/js/PortalActivityHeatmap.js";
+import PortalTrafficRanking from "/js/PortalTrafficRanking.js";
 import { confirmDialog } from "/js/confirmDialog.js";
 
 // Self-service view: an org user manages their own devices. No site peers,
@@ -17,7 +18,7 @@ import { confirmDialog } from "/js/confirmDialog.js";
 //   PUT    /api/v1/peers/mine/{id}/public-key — rotate the public key
 export default defineComponent({
   name: "MyAccessView",
-  components: { Icon, TopologyDiagram, TopologyWorldMap, PortalActivityHeatmap },
+  components: { Icon, TopologyDiagram, TopologyWorldMap, PortalActivityHeatmap, PortalTrafficRanking },
   props: {
     retention: { type: String, default: "never" },
     selfServicePeerCreation: { type: Boolean, default: true },
@@ -34,6 +35,11 @@ export default defineComponent({
       rsvMinutes: {},
       rsvBusy: null,
       rsvError: {},
+      // On-demand reachability check (myaccess-reachability-indicator), keyed
+      // by resource id — no background poll, only ever set by an explicit
+      // click, so a stale value here just means "not checked since this page
+      // loaded", never a wrong live claim.
+      reachability: {},
       loading: true,
       error: null,
       // Grants section tabs: "list" (default), "topology", "map", "activity" —
@@ -44,15 +50,16 @@ export default defineComponent({
       topologyLoading: false,
       topologyError: null,
       activityLoaded: false, // PortalActivityHeatmap fetches its own data; just gate first mount
+      trafficLoaded: false,  // PortalTrafficRanking fetches its own data; just gate first mount
       // userId the view is scoped to (null = own, set = admin impersonation)
       viewAsUserId: null,
       viewAsUserName: null,
       modalMode: null, // null | "create" | "secret" | "rotate" | "edit"
       // create form
-      newDevice: { name: "", publicKey: "", category: "stationary" },
+      newDevice: { name: "", publicKey: "", deviceType: "desktop" },
       // edit form (peer-self-edit): rename and re-categorise an existing device
       editPeer: null,
-      editForm: { name: "", category: "stationary" },
+      editForm: { name: "", deviceType: "desktop" },
       importPublicKey: false,
       submitting: false,
       detectedPlatform: (() => {
@@ -75,6 +82,13 @@ export default defineComponent({
       formError: null,
       // IronRDP browser client
       ironRdpEnabled: false,   // gates the "open in browser" button; comes from /my-resources
+      // peer-self-share: gates the "Freigeben" action, also from /my-resources.
+      peerSelfShareEnabled: false,
+      sharePeer: null,
+      shareForm: { targetEmail: "", port: "", durationMinutes: 60 },
+      shareList: [],
+      shareError: null,
+      shareSubmitting: false,
       rdpDialog: null,
       rdpCreds: { username: "", password: "", domain: "" },
       rdpShowPassword: false,
@@ -264,6 +278,21 @@ export default defineComponent({
         this.rsvBusy = null;
       }
     },
+    /** On-demand only (myaccess-reachability-indicator) — no auto-poll, so
+     *  this always runs a real probe rather than reading a cached value. */
+    async checkReachability(r) {
+      this.reachability = { ...this.reachability, [r.id]: { loading: true } };
+      try {
+        const url = "/api/v1/acl/my-resources/" + r.id + "/reachable"
+            + (this.viewAsUserId ? "?userId=" + encodeURIComponent(this.viewAsUserId) : "");
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        this.reachability = { ...this.reachability, [r.id]: { ...data, loading: false } };
+      } catch (e) {
+        this.reachability = { ...this.reachability, [r.id]: { reachable: null, loading: false, failed: true } };
+      }
+    },
     async loadGrants() {
       this.grantsLoading = true;
       try {
@@ -275,6 +304,7 @@ export default defineComponent({
         const data = await res.json();
         this.grants = data.resources;
         this.ironRdpEnabled = !!data.ironRdpEnabled;
+        this.peerSelfShareEnabled = !!data.peerSelfShareEnabled;
         // Seed the duration picker per reservable resource. Without this the
         // v-model is undefined, matches no <option>, and the select renders
         // blank — the user would have to open it before the button works.
@@ -302,6 +332,7 @@ export default defineComponent({
         await this.loadTopology();
       }
       if (tab === "activity") this.activityLoaded = true;
+      if (tab === "traffic") this.trafficLoaded = true;
     },
     async loadTopology() {
       this.topologyLoading = true;
@@ -464,7 +495,7 @@ export default defineComponent({
 
     openCreate() {
       this.modalMode = "create";
-      this.newDevice = { name: "", publicKey: "", category: "stationary" };
+      this.newDevice = { name: "", publicKey: "", deviceType: "desktop" };
       this.importPublicKey = false;
       this.formError = null;
       this.secret = null;
@@ -477,7 +508,7 @@ export default defineComponent({
       }
       const payload = {
         name: this.newDevice.name.trim(),
-        deviceType: this.newDevice.category === "mobile" ? "mobile" : "desktop",
+        deviceType: this.newDevice.deviceType,
       };
       if (this.importPublicKey) {
         if (!this.newDevice.publicKey.trim()) {
@@ -510,10 +541,13 @@ export default defineComponent({
     },
 
     async openReshow(peerId) {
+      this.error = null;
       try {
-        const res = await fetch("/api/v1/peers/mine/" + peerId + "/conf");
+        const url = "/api/v1/peers/mine/" + peerId + "/conf"
+            + (this.viewAsUserId ? "?userId=" + encodeURIComponent(this.viewAsUserId) : "");
+        const res = await fetch(url);
         if (res.status === 404) {
-          alert(t("myaccess.err_no_conf"));
+          this.error = t("myaccess.err_no_conf");
           return;
         }
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -521,7 +555,7 @@ export default defineComponent({
         this.secretIsReshow = true;
         this.modalMode = "secret";
       } catch (e) {
-        alert(t("myaccess.error_conf", { error: e.message }));
+        this.error = t("myaccess.error_conf", { error: e.message });
       }
     },
 
@@ -532,15 +566,13 @@ export default defineComponent({
       this.modalMode = "rotate";
     },
 
-    // Rename a device and/or change its category (issue: peer-self-edit).
-    // Same two-way stationary/mobile choice as creation, not the fuller
-    // admin enum — this is the portal, which never exposes more than the
-    // decision an end user can actually make sense of.
+    // Rename a device and/or change its device type (issue: peer-self-edit).
     openEdit(peer) {
       this.editPeer = peer;
       this.editForm = {
         name: peer.name,
-        category: (peer.deviceType === "mobile" || peer.deviceType === "tablet") ? "mobile" : "stationary",
+        deviceType: peer.deviceType || "desktop",
+        isRoadwarrior: !!peer.isRoadwarrior,
       };
       this.formError = null;
       this.modalMode = "edit";
@@ -559,7 +591,8 @@ export default defineComponent({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             name: this.editForm.name.trim(),
-            deviceType: this.editForm.category === "mobile" ? "mobile" : "desktop",
+            deviceType: this.editForm.deviceType,
+            isRoadwarrior: !!this.editForm.isRoadwarrior,
           }),
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -621,6 +654,92 @@ export default defineComponent({
       this.editPeer = null;
       this.formError = null;
       this.copyState = "idle";
+      this.sharePeer = null;
+      this.shareError = null;
+    },
+
+    // peer-self-share -------------------------------------------------------
+
+    async openShare(peer) {
+      this.sharePeer = peer;
+      this.shareForm = { targetEmail: "", port: "", durationMinutes: 60 };
+      this.shareError = null;
+      this.modalMode = "share";
+      await this.loadShares();
+    },
+
+    async loadShares() {
+      if (!this.sharePeer) return;
+      try {
+        const res = await fetch("/api/v1/peers/mine/" + this.sharePeer.id + "/shares");
+        this.shareList = res.ok ? await res.json() : [];
+      } catch (e) {
+        this.shareList = [];
+      }
+    },
+
+    // The share dialog's own list (shareList) isn't what the outer table's
+    // "Freigegeben" badge reads — that's peers[].activeShareCount, from a
+    // separate fetch. A silent re-fetch here (no `loading` toggle, which
+    // would blank the table behind the still-open dialog) keeps the badge
+    // in sync the moment a share is granted or revoked, not on next reload.
+    async refreshPeerShareCount() {
+      if (!this.sharePeer) return;
+      try {
+        const url = this.viewAsUserId
+            ? "/api/v1/users/" + encodeURIComponent(this.viewAsUserId) + "/peers"
+            : "/api/v1/peers/mine";
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const fresh = await res.json();
+        this.peers = fresh;
+      } catch (e) {
+        // best-effort — the next full load() will catch up regardless
+      }
+    },
+
+    async submitShare() {
+      if (!this.sharePeer) return;
+      this.shareError = null;
+      const port = Number(this.shareForm.port);
+      if (!this.shareForm.targetEmail.trim()) {
+        this.shareError = t("myaccess.share_err_email");
+        return;
+      }
+      if (!Number.isInteger(port) || port <= 1024 || port > 65535) {
+        this.shareError = t("myaccess.share_err_port");
+        return;
+      }
+      this.shareSubmitting = true;
+      try {
+        const res = await fetch("/api/v1/peers/mine/" + this.sharePeer.id + "/shares", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            targetEmail: this.shareForm.targetEmail.trim(),
+            port,
+            durationMinutes: Number(this.shareForm.durationMinutes),
+          }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        this.shareForm = { targetEmail: "", port: "", durationMinutes: 60 };
+        await this.loadShares();
+        await this.refreshPeerShareCount();
+      } catch (e) {
+        this.shareError = t("myaccess.share_err_generic", { error: e.message });
+      } finally {
+        this.shareSubmitting = false;
+      }
+    },
+
+    async revokeShare(shareId) {
+      try {
+        await fetch("/api/v1/peers/mine/shares/" + shareId, { method: "DELETE" });
+        await this.loadShares();
+        await this.refreshPeerShareCount();
+      } catch (e) {
+        this.shareError = t("myaccess.share_err_generic", { error: e.message });
+      }
     },
 
     async copyConf() {
@@ -1040,8 +1159,19 @@ export default defineComponent({
       </thead>
       <tbody>
         <tr v-for="p in peers" :key="p.id">
-          <td>{{ p.name }}</td>
-          <td class="mono">{{ p.assignedIp }}</td>
+          <td class="peer-name-cell">
+            <span v-if="p.isRoadwarrior" class="rw-flag" tabindex="0" role="note" :aria-label="t('peers.roadwarrior_badge')">
+              <span class="rw-band" aria-hidden="true">{{ t('peers.roadwarrior_badge') }}</span>
+            </span>
+            <span style="display: inline-flex; align-items: center; gap: var(--space-2)">
+              <Icon :name="p.deviceType && p.deviceType !== 'other' ? p.deviceType : 'peers'" :size="15" :title="{ laptop: t('peers.dev_laptop'), desktop: t('peers.dev_desktop'), mobile: t('peers.dev_mobile'), tablet: t('peers.dev_tablet'), server: t('peers.dev_server'), other: t('peers.dev_other') }[p.deviceType] || t('peers.dev_other')" />
+              {{ p.name }}
+            </span>
+          </td>
+          <td class="mono">
+            {{ p.assignedIp }}
+            <div v-if="p.dnsFqdn" class="muted" style="font-size: var(--text-xs)">{{ p.dnsFqdn }}</div>
+          </td>
           <td>
             <span :class="['badge', p.enabled ? 'badge-success' : 'badge-neutral']">
               {{ p.enabled ? t('myaccess.status_active') : t('myaccess.status_disabled') }}
@@ -1052,9 +1182,13 @@ export default defineComponent({
           <td style="text-align: right">
             <!-- Every device: without a stored private key the .conf comes
                  back without its PrivateKey line and without a QR. -->
+            <span v-if="p.activeShareCount > 0" class="badge badge-info" style="margin-right: var(--space-2)">
+              <Icon name="link" :size="12" />{{ t('myaccess.share_count', { n: p.activeShareCount }) }}
+            </span>
             <button class="btn btn-ghost btn-sm" @click="openReshow(p.id)"><Icon name="qr-code" :size="13" />{{ t('myaccess.btn_qr') }}</button>
             <button v-if="!viewAsUserId" class="btn btn-ghost btn-sm" @click="openEdit(p)"><Icon name="edit" :size="13" />{{ t('myaccess.btn_edit') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="openRotate(p)"><Icon name="rotate" :size="13" />{{ t('myaccess.btn_rotate') }}</button>
+            <button v-if="!viewAsUserId" class="btn btn-ghost btn-sm" @click="openRotate(p)"><Icon name="rotate" :size="13" />{{ t('myaccess.btn_rotate') }}</button>
+            <button v-if="peerSelfShareEnabled && !viewAsUserId" class="btn btn-ghost btn-sm" @click="openShare(p)"><Icon name="link" :size="13" />{{ t('myaccess.btn_share') }}</button>
             <button v-if="!viewAsUserId" class="btn btn-ghost btn-sm" @click="removePeer(p)"><Icon name="trash" :size="13" />{{ t('myaccess.btn_remove_peer') }}</button>
           </td>
         </tr>
@@ -1077,6 +1211,8 @@ export default defineComponent({
                   @click="selectGrantsTab('map')">{{ t('myaccess.tab_map') }}</button>
           <button type="button" class="btn btn-sm" :class="grantsTab === 'activity' ? 'btn-secondary' : 'btn-ghost'"
                   @click="selectGrantsTab('activity')">{{ t('myaccess.tab_activity') }}</button>
+          <button type="button" class="btn btn-sm" :class="grantsTab === 'traffic' ? 'btn-secondary' : 'btn-ghost'"
+                  @click="selectGrantsTab('traffic')">{{ t('myaccess.tab_traffic') }}</button>
         </div>
 
       <template v-if="grantsTab === 'list'">
@@ -1098,6 +1234,22 @@ export default defineComponent({
               <div style="flex:1; min-width:0">
                 <div style="font-weight:600; font-size: var(--text-sm)">{{ r.name }}</div>
                 <div class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
+              </div>
+              <div style="display:flex; align-items:center; gap: var(--space-2)">
+                <template v-if="reachability[r.id] && !reachability[r.id].loading">
+                  <span v-if="reachability[r.id].reachable === true" class="badge badge-success"
+                        :title="reachability[r.id].latencyMs != null ? reachability[r.id].latencyMs + ' ms' : null">
+                    <Icon name="check" :size="12" />{{ t('myaccess.reachable_yes') }}
+                  </span>
+                  <span v-else-if="reachability[r.id].reachable === false" class="badge badge-danger">
+                    ✕ {{ t('myaccess.reachable_no') }}
+                  </span>
+                  <span v-else class="badge badge-neutral">{{ t('myaccess.reachable_unknown') }}</span>
+                </template>
+                <button type="button" class="btn btn-ghost btn-sm" :disabled="reachability[r.id]?.loading"
+                        @click="checkReachability(r)">
+                  {{ reachability[r.id]?.loading ? t('myaccess.reachable_checking') : t('myaccess.reachable_check') }}
+                </button>
               </div>
             </div>
             <!-- Exclusive-capacity ports (#72): a grant puts the port in this
@@ -1349,6 +1501,12 @@ export default defineComponent({
       <template v-if="grantsTab === 'activity'">
         <PortalActivityHeatmap v-if="activityLoaded" :user-id="viewAsUserId" />
       </template>
+
+      <!-- Own-traffic ranking: same bytes an admin would see for this user's
+           peers, peer-traffic-ranking's self-service half. -->
+      <template v-if="grantsTab === 'traffic'">
+        <PortalTrafficRanking v-if="trafficLoaded" :user-id="viewAsUserId" />
+      </template>
       </section>
 
       <!-- Everyone in the company lands here, and nowhere on this page did it
@@ -1367,7 +1525,7 @@ export default defineComponent({
       </p>
     </div>
 
-    <div v-if="!viewAsUserId && modalMode" class="modal-backdrop" @click.self="closeModal">
+    <div v-if="(!viewAsUserId || modalMode === 'secret') && modalMode" class="modal-backdrop" @click.self="closeModal">
 
       <div v-if="modalMode === 'create'" class="modal">
         <div class="modal-header">
@@ -1384,23 +1542,26 @@ export default defineComponent({
               <div class="field-hint">{{ t('myaccess.hint_device_name') }}</div>
             </div>
 
-            <fieldset class="key-mode" style="margin-bottom: var(--space-4)">
-              <legend>{{ t('myaccess.category_section') }}</legend>
-              <label class="key-mode-option">
-                <input type="radio" :checked="newDevice.category === 'stationary'" @change="newDevice.category = 'stationary'" />
-                <div>
-                  <div class="key-mode-title">{{ t('myaccess.category_stationary') }}</div>
-                  <div class="key-mode-hint">{{ t('myaccess.category_stationary_hint') }}</div>
-                </div>
-              </label>
-              <label class="key-mode-option">
-                <input type="radio" :checked="newDevice.category === 'mobile'" @change="newDevice.category = 'mobile'" />
-                <div>
-                  <div class="key-mode-title">{{ t('myaccess.category_mobile') }}</div>
-                  <div class="key-mode-hint">{{ t('myaccess.category_mobile_hint') }}</div>
-                </div>
-              </label>
-            </fieldset>
+            <div class="field" style="margin-bottom: var(--space-4)">
+              <label>{{ t('myaccess.category_section') }}</label>
+              <div class="peer-device-type-grid">
+                <label v-for="opt in [
+                  {v:'laptop',  l:t('peers.dev_laptop')},
+                  {v:'desktop', l:t('peers.dev_desktop')},
+                  {v:'mobile',  l:t('peers.dev_mobile')},
+                  {v:'tablet',  l:t('peers.dev_tablet')},
+                  {v:'server',  l:t('peers.dev_server')},
+                  {v:'other',   l:t('peer.device_other')},
+                ]" :key="opt.v" class="peer-device-type-option" :class="{ active: newDevice.deviceType === opt.v }">
+                  <input type="radio" :value="opt.v" v-model="newDevice.deviceType" style="position:absolute;opacity:0;pointer-events:none" />
+                  <Icon :name="opt.v === 'other' ? 'peers' : opt.v" :size="18" />
+                  <span>{{ opt.l }}</span>
+                </label>
+              </div>
+              <div v-if="newDevice.deviceType === 'mobile' || newDevice.deviceType === 'tablet'" class="field-hint">
+                {{ t('myaccess.device_type_mobile_hint') }}
+              </div>
+            </div>
 
             <fieldset class="key-mode">
               <legend>{{ t('peer.key_section') }}</legend>
@@ -1473,23 +1634,32 @@ export default defineComponent({
               <input id="editDevName" class="input" v-model="editForm.name" required :placeholder="t('myaccess.ph_device_name')" />
             </div>
 
-            <fieldset class="key-mode">
-              <legend>{{ t('myaccess.category_section') }}</legend>
-              <label class="key-mode-option">
-                <input type="radio" :checked="editForm.category === 'stationary'" @change="editForm.category = 'stationary'" />
-                <div>
-                  <div class="key-mode-title">{{ t('myaccess.category_stationary') }}</div>
-                  <div class="key-mode-hint">{{ t('myaccess.category_stationary_hint') }}</div>
-                </div>
-              </label>
-              <label class="key-mode-option">
-                <input type="radio" :checked="editForm.category === 'mobile'" @change="editForm.category = 'mobile'" />
-                <div>
-                  <div class="key-mode-title">{{ t('myaccess.category_mobile') }}</div>
-                  <div class="key-mode-hint">{{ t('myaccess.category_mobile_hint') }}</div>
-                </div>
-              </label>
-            </fieldset>
+            <div class="field">
+              <label>{{ t('myaccess.category_section') }}</label>
+              <div class="peer-device-type-grid">
+                <label v-for="opt in [
+                  {v:'laptop',  l:t('peers.dev_laptop')},
+                  {v:'desktop', l:t('peers.dev_desktop')},
+                  {v:'mobile',  l:t('peers.dev_mobile')},
+                  {v:'tablet',  l:t('peers.dev_tablet')},
+                  {v:'server',  l:t('peers.dev_server')},
+                  {v:'other',   l:t('peer.device_other')},
+                ]" :key="opt.v" class="peer-device-type-option" :class="{ active: editForm.deviceType === opt.v }">
+                  <input type="radio" :value="opt.v" v-model="editForm.deviceType" style="position:absolute;opacity:0;pointer-events:none" />
+                  <Icon :name="opt.v === 'other' ? 'peers' : opt.v" :size="18" />
+                  <span>{{ opt.l }}</span>
+                </label>
+              </div>
+              <div v-if="editForm.deviceType === 'mobile' || editForm.deviceType === 'tablet'" class="field-hint">
+                {{ t('myaccess.device_type_mobile_hint') }}
+              </div>
+            </div>
+
+            <label style="display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); font-size: var(--text-sm)">
+              <input type="checkbox" v-model="editForm.isRoadwarrior" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+              {{ t('myaccess.roadwarrior_label') }}
+            </label>
+            <p class="muted" style="font-size: var(--text-xs); margin-top: var(--space-1)">{{ t('myaccess.roadwarrior_hint') }}</p>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('peer.btn_cancel') }}</button>
@@ -1498,6 +1668,59 @@ export default defineComponent({
             </button>
           </div>
         </form>
+      </div>
+
+      <div v-else-if="modalMode === 'share'" class="modal">
+        <div class="modal-header">
+          <h2>{{ t('myaccess.share_title') }} — {{ sharePeer?.name }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="closeModal">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" style="font-size: var(--text-sm); margin-top: 0">{{ t('myaccess.share_intro') }}</p>
+          <div v-if="shareError" class="error-banner">{{ shareError }}</div>
+
+          <form @submit.prevent="submitShare" style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4)">
+            <div class="field" style="margin-bottom: 0">
+              <label for="shareEmail">{{ t('myaccess.share_target_label') }}</label>
+              <input id="shareEmail" class="input" type="email" v-model="shareForm.targetEmail"
+                     :placeholder="t('myaccess.share_target_placeholder')" required />
+            </div>
+            <div style="display: flex; gap: var(--space-3)">
+              <div class="field" style="margin-bottom: 0; flex: 1">
+                <label for="sharePort">{{ t('myaccess.share_port_label') }}</label>
+                <input id="sharePort" class="input mono" type="number" min="1025" max="65535"
+                       v-model="shareForm.port" placeholder="3000" required />
+              </div>
+              <div class="field" style="margin-bottom: 0; flex: 1">
+                <label for="shareDuration">{{ t('myaccess.share_duration_label') }}</label>
+                <select id="shareDuration" class="select" v-model.number="shareForm.durationMinutes">
+                  <option :value="60">{{ t('myaccess.share_duration_1h') }}</option>
+                  <option :value="240">{{ t('myaccess.share_duration_4h') }}</option>
+                  <option :value="1440">{{ t('myaccess.share_duration_24h') }}</option>
+                  <option :value="10080">{{ t('myaccess.share_duration_7d') }}</option>
+                </select>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary" :disabled="shareSubmitting" style="align-self: flex-start">
+              {{ shareSubmitting ? t('peer.btn_saving') : t('myaccess.share_submit') }}
+            </button>
+          </form>
+
+          <h3 style="font-size: var(--text-sm); font-weight: 600; margin: 0 0 var(--space-2)">{{ t('myaccess.share_list_title') }}</h3>
+          <p v-if="shareList.length === 0" class="muted" style="font-size: var(--text-sm)">{{ t('myaccess.share_none') }}</p>
+          <div v-for="s in shareList" :key="s.id" style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--border)">
+            <span :class="['badge', s.live ? 'badge-success' : 'badge-neutral']">
+              {{ s.live ? t('myaccess.share_status_live') : (s.revokedAt ? t('myaccess.share_status_revoked') : t('myaccess.share_status_expired')) }}
+            </span>
+            <span style="font-size: var(--text-sm)">{{ s.targetUserEmail || s.targetUserId }}</span>
+            <span class="mono muted" style="font-size: var(--text-xs)">:{{ s.port }}/tcp</span>
+            <span class="muted" style="font-size: var(--text-xs); flex: 1; text-align: right">{{ formatDate(s.validUntil) }}</span>
+            <button v-if="s.live" class="btn btn-ghost btn-sm" @click="revokeShare(s.id)">{{ t('myaccess.share_revoke') }}</button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('peer.btn_cancel') }}</button>
+        </div>
       </div>
 
       <div v-else-if="modalMode === 'secret' && secret" class="modal modal-xl">

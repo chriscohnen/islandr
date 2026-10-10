@@ -36,7 +36,7 @@ class PeerExternalResourceTest {
 
     @Test
     void bearerToken_withoutAnySession_canListAndCreatePeers() {
-        String rawKey = apiKeys.create("test-key", "admin").rawKey();
+        String rawKey = apiKeys.create("test-key", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin").rawKey();
 
         given().header("Authorization", "Bearer " + rawKey)
                 .when().get("/api/external/v1/peers")
@@ -56,7 +56,7 @@ class PeerExternalResourceTest {
 
     @Test
     void bearerToken_revokedKey_rejected() {
-        ApiKeyService.CreateResult r = apiKeys.create("test-key", "admin");
+        ApiKeyService.CreateResult r = apiKeys.create("test-key", java.util.Set.of(de.chriscohnen.islandr.apikey.ApiKeyScope.FULL), "admin");
         apiKeys.revoke(r.apiKey().id, "admin");
 
         given().header("Authorization", "Bearer " + r.rawKey())

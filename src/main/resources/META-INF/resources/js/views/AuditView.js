@@ -13,6 +13,7 @@ export default defineComponent({
       rows: [],
       loading: true,
       error: null,
+      info: null,
       // Filter inputs
       actor: "",
       action: "",
@@ -124,9 +125,8 @@ export default defineComponent({
         // Reload to reflect the deletion; reset to first page.
         this.cursorStack = [null];
         await this.load();
-        // Brief confirmation via error-free banner reuse — show deleted count.
         this.error = null;
-        alert(t("audit.purge_success", { count: result.deleted, date: this.purgeBefore }));
+        this.info = t("audit.purge_success", { count: result.deleted, date: this.purgeBefore });
       } catch (e) {
         this.purgeError = t("audit.error_purge", { error: e.message });
       } finally {
@@ -239,6 +239,7 @@ export default defineComponent({
       </div>
     </div>
 
+    <div v-if="info" class="callout callout-info">{{ info }}</div>
     <div v-if="error" class="error-banner">{{ error }}</div>
     <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
 

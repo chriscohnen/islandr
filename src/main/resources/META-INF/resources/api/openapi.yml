@@ -322,9 +322,11 @@ components:
       scheme: bearer
       description: >
         An API key created in the Admin Console (API Keys page). Sent as
-        `Authorization: Bearer islandr_<...>`. Acts with full admin
-        privileges in this API version — there is no per-key scoping yet
-        (ADR-0026, R-184).
+        `Authorization: Bearer islandr_<...>`. Reaches only the operations
+        its granted scopes cover (apikey-scopes) — a key with no special
+        scope reaches this facade and nothing else; see /llms.txt for the
+        scope each endpoint below requires. `full` reproduces the old,
+        unscoped admin-equivalent behavior (ADR-0026, R-184).
 
   responses:
     Unauthorized:
