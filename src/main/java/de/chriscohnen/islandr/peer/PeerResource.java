@@ -1,5 +1,7 @@
 package de.chriscohnen.islandr.peer;
 
+import de.chriscohnen.islandr.acl.AclResolutionService;
+import de.chriscohnen.islandr.acl.EdgeHub;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
@@ -41,6 +43,7 @@ public class PeerResource {
     @Inject RulesetService rulesets;
     @Inject WgAdapter wg;
     @Inject NetworkDiagnosticsService diag;
+    @Inject AclResolutionService acl;
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
     @GET
@@ -245,6 +248,20 @@ public class PeerResource {
         Peer p = Peer.findById(id);
         if (p == null) throw new NotFoundException("peer not found: " + id);
         return PeerDto.Response.from(p);
+    }
+
+    @GET
+    @Path("/{id}/reachable-edges")
+    public PeerDto.ReachableEdges reachableEdges(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        Auth.requireAdmin(ctx);
+        Peer p = Peer.findById(id);
+        if (p == null) throw new NotFoundException("peer not found: " + id);
+        List<String> ids = acl.reachableEdgeHubIdsForPeer(p).stream().sorted().toList();
+        if (ids.isEmpty()) return new PeerDto.ReachableEdges(List.of(), List.of());
+        Map<String, String> namesById = new LinkedHashMap<>();
+        for (EdgeHub e : EdgeHub.<EdgeHub>list("id in ?1", ids)) namesById.put(e.id, e.name);
+        List<String> names = ids.stream().map(namesById::get).toList();
+        return new PeerDto.ReachableEdges(ids, names);
     }
 
     @GET

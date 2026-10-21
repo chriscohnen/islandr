@@ -106,9 +106,13 @@ export default defineComponent({
     // second site purely to clear an arbitrary count.
     worldMapAvailable() {
       if (!this.data) return false;
-      const hasHub = this.data.topology.hubLat != null && this.data.topology.hubLon != null;
+      // edge-hub-entity (1.2.0): a hub with coordinates to draw doesn't have
+      // to be the central one — an install that only geocoded an edge hub
+      // (unusual, but not wrong) should still get the map tab.
+      const hasCentralHub = this.data.topology.hubLat != null && this.data.topology.hubLon != null;
+      const hasEdgeHub = (this.data.topology.edgeHubs || []).some((h) => h.lat != null && h.lng != null);
       const geocodedSites = this.data.topology.sites.filter((s) => s.gatewayLat != null && s.gatewayLng != null).length;
-      return hasHub && geocodedSites >= 1;
+      return (hasCentralHub || hasEdgeHub) && geocodedSites >= 1;
     },
   },
   methods: {
@@ -418,6 +422,7 @@ export default defineComponent({
               :resource-overflow="data.topology.resourceOverflow"
               :endpoint="data.topology.hubEndpoint"
               :hub-label="data.topology.hubLabel"
+              :edge-hubs="data.topology.edgeHubs"
               @site="onTopologySite"
               @resource="onTopologyResource" />
 
@@ -462,6 +467,7 @@ export default defineComponent({
               :hub-lat="data.topology.hubLat"
               :hub-lon="data.topology.hubLon"
               :hub-label="data.topology.hubLabel"
+              :edge-hubs="data.topology.edgeHubs"
               @site="onTopologySite" />
         </div>
 

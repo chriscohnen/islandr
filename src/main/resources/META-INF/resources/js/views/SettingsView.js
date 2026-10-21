@@ -39,6 +39,10 @@ export default defineComponent({
       wgSetupCopyFailed: null,
       loading: true,
       saving: false,
+      // settings-edge-hubs-toggle: saved on its own endpoint, so it has its
+      // own in-flight and error state rather than riding the big form's.
+      edgeHubsSaving: false,
+      edgeHubsError: null,
       probing: false,
       probeResult: null,
       probedIfMtu: null,
@@ -77,6 +81,7 @@ export default defineComponent({
         firewallDryRun: true,
         selfServicePeerCreation: true,
         peerSelfShareEnabled: false,
+        edgeHubsEnabled: false,
         externalApiEnabled: true,
         // Issue #80: whose forwarded header may name the real client, and
         // which header that is. Empty = nobody may.
@@ -252,6 +257,35 @@ export default defineComponent({
     },
   },
   methods: {
+    /**
+     * Saves immediately rather than on the form's Save button: this is a
+     * feature switch, and the refusal that matters ("edge hubs are still
+     * configured") has to arrive while the operator is still looking at the
+     * checkbox, not after they filled in a WireGuard form.
+     */
+    async toggleEdgeHubs(on) {
+      this.edgeHubsSaving = true;
+      this.edgeHubsError = null;
+      try {
+        const res = await fetch("/api/v1/settings/edge-hubs", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ edgeHubsEnabled: on }),
+        });
+        if (!res.ok) {
+          this.edgeHubsError = (await res.text()) || t("settings.edge_hubs_failed");
+          return;  // leave form.edgeHubsEnabled alone — the checkbox snaps back on re-render
+        }
+        const s = await res.json();
+        this.form.edgeHubsEnabled = !!s.edgeHubsEnabled;
+        this.$emit("settings-changed", s);
+      } catch (e) {
+        this.edgeHubsError = String(e);
+      } finally {
+        this.edgeHubsSaving = false;
+      }
+    },
+
     t(key, vars) { return t(key, vars); },
     // Same "paste a 'lat, lng' pair, split into both fields" convenience the
     // site-peer form already has (peerModal.js#pasteSiteCoordinates) — the
@@ -299,6 +333,7 @@ export default defineComponent({
           firewallDryRun: !!s.firewallDryRun,
           selfServicePeerCreation: s.selfServicePeerCreation !== false,
           peerSelfShareEnabled: !!s.peerSelfShareEnabled,
+          edgeHubsEnabled: !!s.edgeHubsEnabled,
           externalApiEnabled: s.externalApiEnabled !== false,
           trustedProxies: s.trustedProxies || "",
           clientIpHeader: s.clientIpHeader || "",
@@ -1323,6 +1358,21 @@ export default defineComponent({
         </div>
       </div>
       </template>
+
+      <!-- Edge hubs (settings-edge-hubs-toggle, ADR-I-0003) -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_edge_hubs') }}</h2>
+        <div style="display: flex; flex-direction: column; gap: var(--space-2)">
+          <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+            <input type="checkbox" :checked="form.edgeHubsEnabled" :disabled="edgeHubsSaving"
+                   @change="toggleEdgeHubs($event.target.checked)"
+                   style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <span>{{ t('settings.edge_hubs_label') }}</span>
+          </label>
+          <div class="field-hint" style="margin-top: 0">{{ t('settings.edge_hubs_hint') }}</div>
+          <div v-if="edgeHubsError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ edgeHubsError }}</div>
+        </div>
+      </div>
 
       <template v-if="settingsTab === 'advanced'">
       <!-- Private Keys -->

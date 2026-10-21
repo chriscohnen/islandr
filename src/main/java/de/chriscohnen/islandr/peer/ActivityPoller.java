@@ -121,43 +121,68 @@ public class ActivityPoller {
         for (Peer p : peers) {
             WgAdapter.PeerStatus s = byPubkey.get(p.publicKey);
             if (s == null) continue;
-            // Only count a peer as "seen" if wg reports a non-null handshake.
-            // A peer that's configured but never connected has handshake=null
-            // and must stay null in the DB.
-            if (s.lastHandshake() == null) continue;
-
-            // The handshake wg reported, not the moment we asked. Storing `now`
-            // here made every peer that had ever connected look CONNECTED
-            // forever: PeerConnectionStatus derives the badge from this field,
-            // and its age was reset to zero on every tick.
-            p.lastSeenAt = s.lastHandshake();
-            p.lastSeenEndpoint = s.endpoint();
-
-            // Delta-accumulation: wg counters reset to 0 on interface restart.
-            // A positive delta means bytes flowed; a negative delta means the
-            // counter was reset — treat as 0 so totals are monotonically increasing.
-            long rxDelta = s.rxBytes() - p.lastSampledRxBytes;
-            long txDelta = s.txBytes() - p.lastSampledTxBytes;
-            if (rxDelta > 0) p.totalRxBytes += rxDelta;
-            if (txDelta > 0) p.totalTxBytes += txDelta;
-            p.lastSampledRxBytes = s.rxBytes();
-            p.lastSampledTxBytes = s.txBytes();
-
-            // A gone peer keeps its last handshake on the interface forever, so
-            // "wg reports a handshake" is not "the peer is here". Only a
-            // handshake young enough to mean presence counts as a sample —
-            // otherwise a gateway that has been down for a week keeps filling
-            // its heatmap row, and the outage marker (sampleHits == 0 on a site
-            // peer, issue #77) never fires for the one case it exists for.
-            if (Duration.between(s.lastHandshake(), now).compareTo(PeerConnectionStatus.CONNECTED_WINDOW) < 0) {
-                bumpDailyActivity(p.id, now, Math.max(0, rxDelta), Math.max(0, txDelta));
-            }
-
-            updated++;
+            if (applySample(p, s.lastHandshake(), s.endpoint(), s.rxBytes(), s.txBytes(), now)) updated++;
         }
         if (updated > 0) LOG.debugf("activity poll: updated %d peer(s)", updated);
         detectConnectionTransitions(now);
         return byPubkey.keySet();
+    }
+
+    /**
+     * Applies one peer's observed activity sample — the central hub's own
+     * {@code wg show dump} via {@link #poll()}, or an edge hub's own report
+     * of its locally-connected peers (edge-status-report,
+     * {@code EdgeExternalResource#status}). Same update, same rules,
+     * regardless of source — "An der Statuslogik ist nichts zu ändern"
+     * (loop/TASK.md): a caller reporting on behalf of an edge is not a
+     * different kind of sample, just a different origin for one.
+     *
+     * @return false (no-op) when {@code lastHandshake} is null — a peer
+     *         that's configured but never connected has a null handshake
+     *         and must stay null in the DB, not get stamped with "now".
+     */
+    @Transactional
+    public boolean applySample(Peer p, Instant lastHandshake, String endpoint, long rxBytes, long txBytes, Instant now) {
+        if (lastHandshake == null) return false;
+
+        // The handshake the source reported, not the moment we asked. Storing
+        // `now` here made every peer that had ever connected look CONNECTED
+        // forever: PeerConnectionStatus derives the badge from this field,
+        // and its age was reset to zero on every tick.
+        p.lastSeenAt = lastHandshake;
+        p.lastSeenEndpoint = endpoint;
+
+        // Delta-accumulation: wg counters reset to 0 on interface restart.
+        // A positive delta means bytes flowed; a negative delta means the
+        // counter was reset — treat as 0 so totals are monotonically increasing.
+        long rxDelta = rxBytes - p.lastSampledRxBytes;
+        long txDelta = txBytes - p.lastSampledTxBytes;
+        if (rxDelta > 0) p.totalRxBytes += rxDelta;
+        if (txDelta > 0) p.totalTxBytes += txDelta;
+        p.lastSampledRxBytes = rxBytes;
+        p.lastSampledTxBytes = txBytes;
+
+        // A gone peer keeps its last handshake on the interface forever, so
+        // "a handshake was reported" is not "the peer is here right now".
+        // Only a handshake young enough to mean presence counts as a sample —
+        // otherwise a gateway that has been down for a week keeps filling
+        // its heatmap row, and the outage marker (sampleHits == 0 on a site
+        // peer, issue #77) never fires for the one case it exists for.
+        if (Duration.between(lastHandshake, now).compareTo(PeerConnectionStatus.CONNECTED_WINDOW) < 0) {
+            bumpDailyActivity(p.id, now, Math.max(0, rxDelta), Math.max(0, txDelta));
+        }
+        return true;
+    }
+
+    /** Re-runs the connect/disconnect webhook comparison ({@link #detectConnectionTransitions})
+     *  after one or more {@link #applySample} calls outside a {@link #poll()}
+     *  tick — an edge's own status report is exactly such a case. Public (not
+     *  {@code private} like the rest of this class's internals) specifically
+     *  for {@code EdgeExternalResource#status} to call once per batch, not
+     *  once per reported peer. */
+    @Transactional
+    public void detectConnectionTransitionsNow() {
+        detectConnectionTransitions(Instant.now());
     }
 
     /**

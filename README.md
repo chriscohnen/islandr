@@ -23,7 +23,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **1.1.0 is out.** The topology diagram now shows what is actually happening on the network — device detail, status and DNS name per peer, a traffic-ranking table on the dashboard — and API keys are scoped instead of admin-equivalent, so a key handed to a script or an agent carries only the access it needs. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> **1.2.0 is out.** A site far from the hub can now terminate its own WireGuard tunnels: edge hubs are a second hub at a remote location, with their own peers, their own endpoint and their own resolver. A peer belongs to exactly one hub, so someone working at two locations gets one device entry per location rather than one address on two hubs. The concept stays invisible until you switch it on. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
 > Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
@@ -191,30 +191,32 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**1.1.0 — see what's actually happening on the network, and hand out only the access a key needs.**
-Peer dots on the topology diagram used to be one shape regardless of count; now the
-diagram carries real detail — device, status, DNS name — for the peers that fit, and a
-dashboard table ranks traffic by peer. The same cycle closes a standing gap on the
-automation side: an API key was full-admin-equivalent with no way to narrow it, which
-the external facade's own growth (grants, audit, config) only made worse with every key
-issued.
+**1.2.0 — a site far from the hub can terminate its own tunnels.**
+Until now every packet between two machines in the same remote office travelled to the
+central hub and back, however far away that was. An edge hub is a second WireGuard hub
+at that location, with its own peers, endpoint and resolver, while access rules, users
+and audit stay in one place. The cycle's hard question was what a peer is: the answer is
+one peer, one hub, named at creation — someone who works in two places gets two device
+entries, each with its own key and address, which keeps a compromised location from
+being a key to anywhere else.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 1.1.0
+### What's new in 1.2.0
 
 Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Topology diagram gets three detail tiers for peers**, instead of one dot per device
-- **A peer-traffic ranking table on the dashboard** — current or last month, highest first
-- **API keys are scoped instead of admin-equivalent** ([ADR-0026](docs/adr/0026-external-api-facade.md))
-- **A device owner can share one of their own ports with a colleague**, time-limited and revocable, from the self-service portal
-- **A peer can be marked a roadwarrior**, traveling with its owner on untrusted networks
-- **Port scanning detects what's actually listening**, not just the port number
-- **Every DNS name is tagged hub/peer/resource**, and a peer resolves under its own name
-- Fixed: a hub could pin a CPU core at 100% for days with the DNS resolver on; a slow upstream reply could stall every other query; a user's other sessions weren't revoked on password change
+- **Edge hubs** — a second WireGuard hub at a remote site, terminating its own tunnels
+- **A peer belongs to exactly one hub**, named at creation and immutable afterwards
+- **An edge peer's configuration points at its edge** — endpoint, server key, and routes for only the networks that edge serves
+- **An edge hub names the resolver its peers should use**, or none
+- **Edge hubs stay invisible until switched on** in the network settings
+- **The self-service portal asks which location a device is for**, and shows it afterwards
+- **The topology diagram and the geo map draw each edge hub** with its own sites and peers
+- **An edge can report its peers' connectivity** and read their preshared keys, scoped to that one edge
+- Fixed: the central hub pushed an edge's peers back onto its own interface every 30 seconds, with the same key and address they use at their edge
 
 ### Roadmap
 

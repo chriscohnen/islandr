@@ -222,4 +222,103 @@ class SettingsResourceTest {
                 .then().statusCode(200)
                 .body("preview", equalTo("192.168.99.0/24"));
     }
+
+    // settings-reject-unusable-wg-subnet (loop/TASK.md): a /31 or /32 is a
+    // syntactically valid CIDR (passes @ValidCidr) but IpSubnet.assignableHostIps()
+    // is empty for it — PeerService.suggestNextIp() would only discover that
+    // at the first peer, days later, with a misleading "no free IP" message.
+    // Reject it at save time instead, where the admin can still fix it.
+
+    @Test
+    @Order(13)
+    void put_rejectsASlash31WgSubnet_tooNarrowForAnyHost() {
+        given().contentType("application/json").body("""
+                {
+                  "wgSubnet": "10.8.0.0/31",
+                  "wgServerPublicKey": "key",
+                  "wgServerEndpoint": "vpn.example.com:51820",
+                  "wgClientAllowedIps": "10.8.0.0/31",
+                  "wgClientDns": null,
+                  "privateKeyRetention": "never"
+                }
+                """)
+                .when().put("/api/v1/settings")
+                .then().statusCode(400);
+    }
+
+    @Test
+    @Order(14)
+    void put_rejectsASlash32WgSubnet_tooNarrowForAnyHost() {
+        given().contentType("application/json").body("""
+                {
+                  "wgSubnet": "10.8.0.0/32",
+                  "wgServerPublicKey": "key",
+                  "wgServerEndpoint": "vpn.example.com:51820",
+                  "wgClientAllowedIps": "10.8.0.0/32",
+                  "wgClientDns": null,
+                  "privateKeyRetention": "never"
+                }
+                """)
+                .when().put("/api/v1/settings")
+                .then().statusCode(400);
+    }
+
+    @Test
+    @Order(15)
+    void put_rejectsASlash127WgSubnet6_tooNarrowForAnyHost() {
+        given().contentType("application/json").body("""
+                {
+                  "wgSubnet": "10.9.0.0/24",
+                  "wgSubnet6": "fd11::/127",
+                  "wgServerPublicKey": "key",
+                  "wgServerEndpoint": "vpn.example.com:51820",
+                  "wgClientAllowedIps": "10.9.0.0/24",
+                  "wgClientDns": null,
+                  "privateKeyRetention": "never"
+                }
+                """)
+                .when().put("/api/v1/settings")
+                .then().statusCode(400);
+    }
+
+    @Test
+    @Order(16)
+    void put_acceptsASlash30WgSubnet_narrowestStillUsable() {
+        // /30 IPv4 still has exactly one assignable host slot (network,
+        // server and broadcast all reserved out of its four addresses —
+        // see IpSubnetTest#assignableHostIps_slash30_hasExactlyOneSlot) —
+        // the actual boundary, not an arbitrary round number, worth
+        // pinning down so the constraint can't silently drift to
+        // rejecting a subnet that still works.
+        given().contentType("application/json").body("""
+                {
+                  "wgSubnet": "10.9.1.0/30",
+                  "wgServerPublicKey": "key",
+                  "wgServerEndpoint": "vpn.example.com:51820",
+                  "wgClientAllowedIps": "10.9.1.0/30",
+                  "wgClientDns": null,
+                  "privateKeyRetention": "never"
+                }
+                """)
+                .when().put("/api/v1/settings")
+                .then().statusCode(200)
+                .body("wgSubnet", equalTo("10.9.1.0/30"));
+
+        // The settings row is a suite-wide singleton (see the class javadoc) —
+        // leaving a one-address subnet in place would starve every other test
+        // class's IP allocation that runs after this one. Restore a roomy
+        // subnet before handing the row back.
+        given().contentType("application/json").body("""
+                {
+                  "wgSubnet": "10.9.0.0/24",
+                  "wgServerPublicKey": "key",
+                  "wgServerEndpoint": "vpn.example.com:51820",
+                  "wgClientAllowedIps": "10.9.0.0/24",
+                  "wgClientDns": null,
+                  "privateKeyRetention": "never"
+                }
+                """)
+                .when().put("/api/v1/settings")
+                .then().statusCode(200);
+    }
 }

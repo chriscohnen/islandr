@@ -62,6 +62,14 @@ export const peerModalMixin = {
       // downstream network — see PRD §7).
       peerType: "client",
       deviceType: "laptop",
+      // peer-hub-assignment (ADR-I-0003): which hub this peer will dial in at.
+      // "" = the central hub, which has no row in edge_hubs and is therefore
+      // the empty option rather than an id. Only ever sent for client peers.
+      edgeHubId: "",
+      // Loaded here rather than taken from the host view: every other list the
+      // modal needs (users) the host already had: this one it did not, and a
+      // new prop would make every embedder pass it through.
+      edgeHubs: [],
       isRoadwarrior: false,
       siteAllowedCidrs: "",
       // Deployment's WireGuard interface — the key-import copy names it, and a
@@ -70,6 +78,10 @@ export const peerModalMixin = {
       // Type the edit modal opened with, so a switch can be called out before saving.
       editOriginalType: "client",
       editOriginalUserId: null,
+      // Name des Hubs, an dem dieser Peer hängt — nur zur Anzeige. Die
+      // Zuordnung ist nach dem Anlegen unveränderlich (ADR-I-0003), deshalb
+      // ein Text und kein Feld.
+      editHubLabel: "",
       // Geocoding — meaningful for type='site' only (physical gateway device location).
       siteLat: "",
       siteLng: "",
@@ -124,12 +136,36 @@ export const peerModalMixin = {
     },
   },
   methods: {
+    /** Best-effort: with no edge hubs configured — the normal case — the
+     *  selector does not appear and every peer is a central-hub peer, exactly
+     *  as before this field existed. Needed by the edit modal too, which has
+     *  to turn a stored id back into a name. */
+    async loadEdgeHubs() {
+      try {
+        const res = await fetch("/api/v1/edge-hubs");
+        const list = res.ok ? await res.json() : [];
+        this.edgeHubs = Array.isArray(list) ? list.filter((e) => e.enabled !== false) : [];
+      } catch {
+        this.edgeHubs = [];
+      }
+    },
+
+    /** Falls back to the raw id rather than a dash: an id is ugly but it is
+     *  the truth, and an edge that was deleted cannot leave a peer behind
+     *  anyway (EdgeHubService refuses while peers still point at it). */
+    edgeHubName(id) {
+      if (!id) return "";
+      const hit = this.edgeHubs.find((e) => e.id === id);
+      return hit ? hit.name : id;
+    },
+
     async openCreatePeer(userId) {
       this.modalMode = "create";
       this.modalUserId = userId;
       this.newPeer = { name: "", assignedIp: "", assignedIpv6: "" };
       this.peerType = "client";
       this.deviceType = "laptop";
+      this.edgeHubId = "";
       this.isRoadwarrior = false;
       this.siteAllowedCidrs = "";
       this.siteLat = "";
@@ -142,6 +178,11 @@ export const peerModalMixin = {
       this.peerError = null;
       this.secret = null;
       this.secretIsReshow = false;
+      // Which hubs this peer could dial in at. Best-effort like the address
+      // pre-fill below: with no edge hubs configured — the normal case — the
+      // selector simply does not appear and every peer is a central-hub peer,
+      // exactly as before this field existed.
+      await this.loadEdgeHubs();
       // Pre-fill assignedIp with the next free address in the configured
       // subnet. Best-effort: on error (e.g. subnet exhausted, settings broken)
       // leave the field empty so the admin can still type one in.
@@ -183,6 +224,9 @@ export const peerModalMixin = {
         assignedIpv6: this.newPeer.assignedIpv6 && this.newPeer.assignedIpv6.trim() ? this.newPeer.assignedIpv6.trim() : null,
         type: this.peerType,
         deviceType: this.peerType === "client" ? this.deviceType : null,
+        // Site peers are refused server-side; send null rather than relying on
+        // the selector being hidden.
+        edgeHubId: this.peerType === "client" ? (this.edgeHubId || null) : null,
         generatePresharedKey: this.generatePresharedKey,
       };
       if (this.peerType === "site") {
@@ -243,6 +287,7 @@ export const peerModalMixin = {
 
     async openEditPeer(peer) {
       this.modalMode = "edit";
+      if (peer.edgeHubId && this.edgeHubs.length === 0) await this.loadEdgeHubs();
       // `?? null` so the select's "no user" option matches: an unassigned peer
       // comes back from the API with userId absent, not empty-string.
       this.modalUserId = peer.userId ?? null;
@@ -251,6 +296,9 @@ export const peerModalMixin = {
       this.editOriginalIp = peer.assignedIp;
       this.editOriginalCidrs = peer.siteAllowedCidrs || null;
       this.editOriginalType = peer.type || "client";
+      // Leer für einen Peer am Zentral-Hub: dann ist nichts zu erklären, und
+      // das Feld bleibt weg statt „Zentral-Hub (nicht änderbar)" zu zeigen.
+      this.editHubLabel = this.edgeHubName(peer.edgeHubId);
       this.editPeerPublicKey = peer.publicKey;
       this.editPeerKeyRotatedAt = peer.keyRotatedAt || null;
       this.editPeerPskRotatedAt = peer.pskRotatedAt || null;
@@ -655,6 +703,15 @@ export const peerModalTemplate = `
             </div>
           </div>
 
+          <div v-if="peerType === 'client' && edgeHubs.length > 0" class="field" style="margin-bottom: var(--space-4)">
+            <label for="peerEdgeHub">{{ t('peer.field_hub') }}</label>
+            <select id="peerEdgeHub" class="input" v-model="edgeHubId">
+              <option value="">{{ t('peer.hub_central') }}</option>
+              <option v-for="e in edgeHubs" :key="e.id" :value="e.id">{{ e.name }}</option>
+            </select>
+            <div class="field-hint">{{ t('peer.field_hub_hint') }}</div>
+          </div>
+
           <div class="field" style="margin-bottom: var(--space-4)">
             <label for="peerName">{{ peerType === 'site' ? t('peer.field_name_site') : t('peer.field_name') }}</label>
             <input id="peerName" class="input" v-model="newPeer.name" required :placeholder="peerType === 'site' ? t('peer.field_name_ph_site') : t('peer.field_name_ph')" />
@@ -786,6 +843,12 @@ export const peerModalTemplate = `
               <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name }} ({{ u.email }})</option>
             </select>
             <div class="field-hint">{{ t('peer.owner_hint') }}</div>
+          </div>
+
+          <div v-if="peerType === 'client' && editHubLabel" class="field" style="margin-bottom: var(--space-4)">
+            <label>{{ t('peer.field_hub') }}</label>
+            <input class="input" :value="editHubLabel" readonly />
+            <div class="field-hint">{{ t('peer.field_hub_fixed_hint') }}</div>
           </div>
 
           <div v-if="peerType === 'client' && modalUserId !== editOriginalUserId"

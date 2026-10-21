@@ -48,6 +48,7 @@ public class MyPeerResource {
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
     @Inject de.chriscohnen.islandr.settings.SettingsService settings;
+    @Inject de.chriscohnen.islandr.acl.AclResolutionService acl;
     @Inject PeerSelfShareService shares;
     @Inject de.chriscohnen.islandr.dns.DnsQueryHandler dns;
 
@@ -67,8 +68,16 @@ public class MyPeerResource {
             // device is this?" step. Same enum as the admin peer modal.
             @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
                     message = "deviceType must be one of: laptop, desktop, mobile, tablet, server, other")
-            String deviceType
+            String deviceType,
+
+            // Which hub this device will dial (ADR-I-0003). Empty = the
+            // central hub. Only an edge the user can actually reach something
+            // at is accepted — see edgeOptions() for why that is the gate.
+            String edgeHubId
     ) {}
+
+    /** One hub the signed-in user may put a device on. */
+    public record EdgeOption(String id, String name, String locationLabel) {}
 
     @RegisterForReflection
     public record UpdateMineRequest(
@@ -110,8 +119,19 @@ public class MyPeerResource {
         // live share counts.
         List<String> peerIds = mine.stream().map(p -> p.id).toList();
         Map<String, Long> shareCounts = PeerSelfShare.liveCountsByOwnerPeerIds(peerIds, java.time.Instant.now());
+        // portal-shows-device-hub: the name of each peer's own edge, resolved
+        // here rather than in the browser — /edge-options only lists edges the
+        // user can still reach, and an admin may have assigned a peer to one
+        // they cannot. Empty while the feature is off, so a portal that was
+        // once an edge install says nothing about a concept the operator has
+        // switched off.
+        Map<String, String> hubNames = edgeHubNamesFor(mine);
         return mine.stream()
-                .map(p -> PeerDto.Response.from(p, fqdns.get(p.id), shareCounts.getOrDefault(p.id, 0L)))
+                .map(p -> PeerDto.Response.from(p, fqdns.get(p.id), shareCounts.getOrDefault(p.id, 0L),
+                        // Not hubNames.get(p.edgeHubId): the map is a Map.of()
+                        // when there is nothing to resolve, and that throws on
+                        // a null key — which is every peer at the central hub.
+                        p.edgeHubId == null ? null : hubNames.get(p.edgeHubId)))
                 .toList();
     }
 
@@ -210,6 +230,82 @@ public class MyPeerResource {
         return peers.trafficRanking(windowParam, myPeerIds);
     }
 
+    /**
+     * The edge hubs this user could put a device on — the central hub is not
+     * in the list, it is the empty default.
+     *
+     * <p>Gated by reach, not by existence: a device at an edge where its owner
+     * may not touch anything would be a tunnel to nowhere. That rule predates
+     * this endpoint (the decision of 2026-10-02) and is already computed by
+     * {@code reachableEdgeHubIdsForUser}; here it simply decides what the portal
+     * offers.
+     *
+     * <p>Empty whenever edge hubs are switched off for the installation, so
+     * the portal needs no second call to find that out.
+     */
+    @GET
+    @Path("/edge-options")
+    public java.util.List<EdgeOption> edgeOptions(@Context ContainerRequestContext ctx,
+                                                  @jakarta.ws.rs.QueryParam("userId") String userIdParam) {
+        // Same "view as" shape as the activity heatmap below. Barely
+        // reachable today: the "add device" button is hidden while an admin
+        // previews someone else's portal — except in the empty state, where
+        // it is not (MyAccessView, two buttons, only one guarded). Kept
+        // because it costs nothing and the alternative is an endpoint that
+        // silently answers for the wrong person if that second button is ever
+        // used; the guard belongs on the button, not here.
+        String userId;
+        if (userIdParam != null && !userIdParam.isBlank()) {
+            Auth.requireAdmin(ctx);
+            userId = userIdParam;
+        } else {
+            userId = requireOrgUserId(Auth.require(ctx));
+        }
+        return edgeOptionsFor(userId);
+    }
+
+    /** id → label of every edge hub the given peers dial in at, or empty while
+     *  edge hubs are switched off. One query for the whole list, not one per
+     *  row — same shape as the DNS names and share counts above. */
+    private Map<String, String> edgeHubNamesFor(List<Peer> peers) {
+        if (!settings.get().edgeHubsEnabled) return Map.of();
+        java.util.Set<String> ids = peers.stream()
+                .map(p -> p.edgeHubId).filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        if (ids.isEmpty()) return Map.of();
+        return de.chriscohnen.islandr.acl.EdgeHub.<de.chriscohnen.islandr.acl.EdgeHub>list("id in ?1", ids)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        e -> e.id,
+                        e -> e.locationLabel != null && !e.locationLabel.isBlank() ? e.locationLabel : e.name));
+    }
+
+    private java.util.List<EdgeOption> edgeOptionsFor(String userId) {
+        if (!settings.get().edgeHubsEnabled) return java.util.List.of();
+        java.util.Set<String> reachable = acl.reachableEdgeHubIdsForUser(userId);
+        if (reachable.isEmpty()) return java.util.List.of();
+        return de.chriscohnen.islandr.acl.EdgeHub.<de.chriscohnen.islandr.acl.EdgeHub>listAll().stream()
+                .filter(e -> e.enabled && e.canServePeers() && reachable.contains(e.id))
+                .map(e -> new EdgeOption(e.id, e.name, e.locationLabel))
+                .toList();
+    }
+
+    /**
+     * A self-service user may only put a device on an edge the list above
+     * offers. Checked server-side as well as hidden in the portal, because
+     * the portal's list is a convenience and this is the rule.
+     */
+    private String validateSelfServiceEdge(String userId, String edgeHubId) {
+        if (edgeHubId == null || edgeHubId.isBlank()) return null;
+        boolean offered = edgeOptionsFor(userId).stream().anyMatch(o -> o.id().equals(edgeHubId));
+        if (!offered) {
+            throw new jakarta.ws.rs.BadRequestException(
+                    "that edge hub is not available to you — you can only add a device at a location "
+                    + "where you have access to something.");
+        }
+        return edgeHubId;
+    }
+
     @POST
     public Response createMine(@Context ContainerRequestContext ctx,
                                @Valid CreateMineRequest body) {
@@ -241,7 +337,8 @@ public class MyPeerResource {
                 body.deviceType(),
                 autoMtu,
                 false,  // generatePresharedKey — PSK is an admin-only option
-                null, null, null); // lat/lng/locationLabel — site-only, n/a for self-service client peers
+                null, null, null, // lat/lng/locationLabel — site-only, n/a for self-service client peers
+                validateSelfServiceEdge(userId, body.edgeHubId()));
         PeerDto.CreateResponse out = peers.createForUser(userId, req);
         // nftables recompute happens inside createForUser (saga step 2).
         audit.logCreate(a.principal(), "peer.create", "Peer:" + out.peer().name() + " (" + out.peer().id() + ")",

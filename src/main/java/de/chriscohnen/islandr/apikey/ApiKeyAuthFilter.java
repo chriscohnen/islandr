@@ -52,6 +52,7 @@ public class ApiKeyAuthFilter implements ContainerRequestFilter {
 
         List<String> scopeList = apiKeys.scopesOf(key.id);
         Set<String> scopes = Set.copyOf(scopeList);
+        Set<String> edgeHubIds = apiKeys.edgeHubIdsOf(key.id);
         boolean full = scopes.contains(ApiKeyScope.FULL);
 
         if (!full && !reachesConsoleUnderItsOwnScope(ctx, scopes) && !isWithinFacade(ctx)) {
@@ -66,7 +67,7 @@ public class ApiKeyAuthFilter implements ContainerRequestFilter {
         // establishes "this is a privileged caller", same as it always has;
         // requireScope is what actually narrows what it may do.
         ctx.setProperty(SessionFilter.CTX_AUTH,
-                new AuthContext("apikey:" + key.label, null, "apikey", true, scopes));
+                new AuthContext("apikey:" + key.label, null, "apikey", true, scopes, edgeHubIds));
     }
 
     // Same leading-slash defense ExternalApiToggleFilter already applies to

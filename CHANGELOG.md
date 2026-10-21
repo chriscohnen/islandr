@@ -8,6 +8,21 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.2.0
+
+- **Edge hubs** — a second WireGuard hub at a remote site, terminating its own tunnels. A site far from the central hub stops routing its local traffic across the world and back
+- **A peer belongs to exactly one hub**, named when it is created and not changed afterwards. Someone who works at two locations gets one device entry per location, each with its own key, address and configuration
+- **An edge peer's `.conf` points at its edge** — its endpoint, its server key, and routes for only the networks that edge serves
+- **An edge hub names the resolver its peers should use**, or none. The central hub's resolver is not reachable from an edge unless an operator built that path themselves
+- **Edge hubs are off until switched on** in the network settings — an installation with one hub never sees the concept
+- **The self-service portal asks which location a new device is for**, and says where each existing device dials in
+- **The topology diagram draws each edge hub with its own sites and peers around it**, and the geo map draws the hub-to-edge relationship
+- **An edge can report connectivity for the peers connected to it**, so they leave "Disconnected" on the dashboard
+- **An edge can read the preshared keys of the peers it may serve**, scoped to that one edge
+- **The update check notices when a locally-kept `update.sh` is behind the release**
+- Fixed: the central hub pushed peers belonging to an edge back onto its own interface every 30 seconds, with the same key and the same `AllowedIPs` they have at their edge
+- Fixed: a WireGuard subnet too narrow to ever assign a host was accepted
+
 ## 1.1.0
 
 - **Topology diagram gets three detail tiers for peers** instead of one dot each, plus a wider live-peer window

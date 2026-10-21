@@ -107,7 +107,8 @@ public class MyAccessResource {
                     null, // gatewayIp — Admin-technical detail, not "is it reachable"
                     null, // gatewayLastSeenAt — ditto; portal shows connected/disconnected only
                     gw == null ? null : gw.lat,
-                    gw == null ? null : gw.lng);
+                    gw == null ? null : gw.lng,
+                    site.edgeHubId);
         }).toList();
 
         List<DashboardDto.TopologyResource> topoResources = granted.stream()
@@ -117,12 +118,17 @@ public class MyAccessResource {
                         r.grantedPorts().size()))
                 .toList();
 
+        List<DashboardDto.TopologyHub> topoEdgeHubs = EdgeHub.<EdgeHub>listAll().stream()
+                .map(e -> new DashboardDto.TopologyHub(e.id, e.name, e.enabled, e.lat, e.lng))
+                .toList();
+
         return new DashboardDto.Topology(
                 topoSites, topoResources, List.of(), new DashboardDto.PeerStatusCounts(0, 0, 0), 0,
                 null, // hubEndpoint — Admin-technical, and the portal hub node is decorative only
                 settings.get().hubLocationLabel,
                 settings.get().hubLat,
-                settings.get().hubLon);
+                settings.get().hubLon,
+                topoEdgeHubs);
     }
 
     /** No automatic background poll (deliberate, see TASK.md) — a probe

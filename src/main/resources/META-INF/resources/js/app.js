@@ -12,6 +12,7 @@ import MyAccessView from "/js/views/MyAccessView.js";
 import AuditView from "/js/views/AuditView.js";
 import DashboardView from "/js/views/DashboardView.js";
 import SitesView from "/js/views/SitesView.js";
+import EdgeHubsView from "/js/views/EdgeHubsView.js";
 import ResourcesView from "/js/views/ResourcesView.js";
 import AllResourcesView from "/js/views/AllResourcesView.js";
 import PortGroupsView from "/js/views/PortGroupsView.js";
@@ -93,6 +94,7 @@ const router = createRouter({
     { path: "/atlas", name: "atlas", component: AtlasView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/roles-list", name: "roles-list", component: RolesView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/networks", name: "sites", component: SitesView, meta: { requiresAuth: true, requiresAdmin: true } },
+    { path: "/edge-hubs", name: "edge-hubs", component: EdgeHubsView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/networks/:siteId/resources", name: "resources", component: ResourcesView, props: true, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/resources", name: "all-resources", component: AllResourcesView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/port-groups", name: "port-groups", component: PortGroupsView, meta: { requiresAuth: true, requiresAdmin: true } },
@@ -140,6 +142,12 @@ const App = defineComponent({
   data() {
     return {
       setupComplete: true,
+      // settings-edge-hubs-toggle: hides the whole concept for the common
+      // one-hub install. Starts false, like setupComplete starts in the state
+      // that shows nothing: for the majority of installs the first settings
+      // response confirms it, and nobody sees a menu entry appear and vanish
+      // again.
+      edgeHubsEnabled: false,
       retention: "never",
       selfServicePeerCreation: true,
       ironRdpEnabled: false,
@@ -193,6 +201,7 @@ const App = defineComponent({
         if (!res.ok) return;
         const s = await res.json();
         this.setupComplete = !!s.setupComplete;
+        this.edgeHubsEnabled = !!s.edgeHubsEnabled;
         this.retention = s.privateKeyRetention || "never";
         this.selfServicePeerCreation = s.selfServicePeerCreation !== false;
         this.ironRdpEnabled = !!s.ironRdpEnabled;
@@ -269,6 +278,7 @@ const App = defineComponent({
     },
     onSettingsChanged(s) {
       this.setupComplete = !!s.setupComplete;
+      this.edgeHubsEnabled = !!s.edgeHubsEnabled;
       this.retention = s.privateKeyRetention || "never";
       this.selfServicePeerCreation = s.selfServicePeerCreation !== false;
       this.ironRdpEnabled = !!s.ironRdpEnabled;
@@ -326,6 +336,7 @@ const App = defineComponent({
           <div class="section-label">{{ t('nav.admin') }}</div>
           <router-link to="/peers" class="nav-item"><Icon name="peers" />{{ t('nav.peers') }}</router-link>
           <router-link to="/networks" class="nav-item"><Icon name="networks" />{{ t('nav.networks') }}</router-link>
+          <router-link v-if="edgeHubsEnabled" to="/edge-hubs" class="nav-item"><Icon name="edgeHub" />{{ t('nav.edge_hubs') }}</router-link>
           <router-link to="/resources" class="nav-item"><Icon name="resources" />{{ t('nav.resources') }}</router-link>
           <router-link to="/port-groups" class="nav-item"><Icon name="portGroups" />{{ t('nav.port_groups') }}</router-link>
           <router-link to="/roles-list" class="nav-item"><Icon name="roles" />{{ t('nav.roles') }}</router-link>
@@ -456,7 +467,7 @@ const App = defineComponent({
             </div>
           </div>
         </div>
-        <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" :iron-rdp-enabled="ironRdpEnabled" :google-ws-available="googleWsAvailable" @settings-changed="onSettingsChanged" />
+        <router-view :retention="retention" :self-service-peer-creation="selfServicePeerCreation" :edge-hubs-enabled="edgeHubsEnabled" :iron-rdp-enabled="ironRdpEnabled" :google-ws-available="googleWsAvailable" @settings-changed="onSettingsChanged" />
       </main>
     </div>
     <!-- One instance for the whole console, outside the shell so it also

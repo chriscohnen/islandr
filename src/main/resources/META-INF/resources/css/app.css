@@ -1569,6 +1569,18 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .topo .hub-pulse { animation: none; opacity: 0.3; }
 }
+/* edge-hub-entity (1.2.0): a disabled edge hub still shows on the world
+   map (it still physically exists) but reads as inactive — same dimmed
+   treatment a disabled peer gets elsewhere, never color-only (the label
+   text itself already says "Disabled" wherever status is listed; here the
+   hub has no status line of its own, so dimming is the only signal — kept
+   deliberately strong (0.35) rather than subtle so it reads at a glance). */
+.worldmap-hub-disabled {
+  opacity: 0.35;
+}
+.worldmap-hub-disabled .hub-pulse {
+  animation: none;
+}
 .topo .hub-mark {
   fill: var(--fg-on-accent);
   stroke: var(--fg-on-accent);
@@ -1730,6 +1742,19 @@ body {
    brighter, not just thicker. */
 .worldmap-link-flowing       { opacity: 0.8; }
 .worldmap-link-flowing-heavy { opacity: 1; }
+/* edge-hub-entity: the central-hub↔edge-hub relationship itself, not a
+   site's reachability — stroke-width/dasharray fixed (not scaled by
+   1/zoom like -live/-down) since this line is informational structure,
+   not a signal whose exact thickness carries meaning. Deliberately
+   neither -live's green nor -down's "known offline" grey: there's no
+   handshake data behind it yet (see TopologyWorldMap.js's backboneLinks
+   comment), so it can't honestly claim either state. */
+.worldmap-link-backbone {
+  stroke: var(--fg3);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.45;
+}
 /* One square per network under a multi-network gateway's pin (see GRID_*
    in TopologyWorldMap.js) — same accent as the topology diagram's network
    count text, not a new color. Filled (not just outlined) so it reads as a

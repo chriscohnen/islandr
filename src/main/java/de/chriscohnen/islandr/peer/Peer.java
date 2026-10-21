@@ -98,6 +98,29 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "site_allowed_cidrs")
     public String siteAllowedCidrs;
 
+    /**
+     * Which hub this peer dials in at (ADR-I-0003). {@code null} = the central
+     * hub; a value names an {@link de.chriscohnen.islandr.acl.EdgeHub}.
+     *
+     * <p>Set when the peer is created and <b>not changed afterwards</b>: the
+     * assignment decides which routing domain this peer's address lives in,
+     * and moving it would leave both hubs holding state about the same
+     * address. Someone who needs to dial in at a second hub gets a second
+     * peer — own keypair, own address, own configuration.
+     *
+     * <p>Only ever set for client peers. A site gateway peer is the far end of
+     * a site-to-site link to the hub it dials; assigning one to an edge would
+     * claim the edge renders site-to-site rules, which it does not.
+     *
+     * <p>Not to be confused with
+     * {@code AclResolutionService.reachableEdgeHubIdsForPeer}, which answers a
+     * different question — <i>which edges serve resources this peer may
+     * reach</i>. That is access reach, this is physical attachment; treating
+     * the former as the latter is the error ADR-I-0003 corrects.
+     */
+    @Column(name = "edge_hub_id", length = 36)
+    public String edgeHubId;
+
     /** Cosmetic device category for client peers: laptop, desktop, mobile, tablet, server, other.
      *  NULL for site peers and legacy rows. */
     @Column(name = "device_type", length = 16)
@@ -198,6 +221,20 @@ public class Peer extends PanacheEntityBase {
     public PeerConnectionStatus connectionStatus(Instant now) {
         return PeerConnectionStatus.of(lastSeenAt, now);
     }
+
+    /**
+     * edge-drift-exclusion (ADR-I-0002, ADR-I-0003): the enabled peers that
+     * belong on <em>this</em> hub's interface. A peer with an edge hub dials
+     * that edge, so pushing it here would put the same public key and the same
+     * {@code AllowedIPs} on two hubs — and {@code AllowedIPs} is also the
+     * inbound filter, so it looks correct until traffic arrives at the wrong
+     * one.
+     *
+     * <p>The condition is the field, not {@code AclResolutionService.reachableEdgeHubIdsForPeer}. That derivation says where a peer may <em>reach</em>
+     * resources, and filtering on it would take working central-hub access
+     * away from every peer that merely holds a grant behind an edge.
+     */
+    public static final String ON_THIS_HUB = "enabled = ?1 and edgeHubId is null";
 
     public static Peer createNew(String userId, String name, String publicKey, String assignedIp) {
         Peer p = new Peer();

@@ -15,9 +15,15 @@ public final class ApiKeyDto {
     /** @param scopes must be a non-empty subset of {@link ApiKeyScope#CATALOG}
      *         (apikey-scopes) — validated in {@link ApiKeyService#create},
      *         not here, since a fixed-catalog membership check isn't a bean
-     *         validation annotation this codebase otherwise uses. */
+     *         validation annotation this codebase otherwise uses.
+     *  @param edgeHubId required exactly when {@code scopes} intersects
+     *         {@link ApiKeyScope#EDGE_BOUND_SCOPES} (edge-psk-exposure);
+     *         null/ignored otherwise. No admin-console picker for this yet —
+     *         an edge-bound key is created via this API directly, same as
+     *         every other provisioning step an edge itself needs that
+     *         doesn't have UI yet (edge-hub-entity, edge-peer-home). */
     @RegisterForReflection
-    public record CreateRequest(@NotBlank String label, @NotEmpty Set<String> scopes) {}
+    public record CreateRequest(@NotBlank String label, @NotEmpty Set<String> scopes, String edgeHubId) {}
 
     /** Never carries {@link #keyHash} equivalents — only what's safe to list
      *  after creation. */

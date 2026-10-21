@@ -1,0 +1,17 @@
+-- V91: edge-peer-dns — which resolver a peer at this edge should use.
+--
+-- The central hub's resolver listens on the hub's own tunnel address, and
+-- PeerService.renderConf writes that address into every peer's DNS line. For a
+-- peer that dials an edge, that address is routed into a tunnel ending at the
+-- edge, which has no resolver and no route to the hub: name resolution runs
+-- into a black hole while the routing itself is fine, which reads to the user
+-- as "everything is broken".
+--
+-- Nullable, and null means no DNS line at all for peers at this edge — their
+-- client keeps its own resolver, resources stay reachable by address. That is
+-- the safe default, because the alternatives both depend on something Islandr
+-- cannot see: a resolver running at the edge, or a hand-built tunnel between
+-- the hubs with a route for the hub's resolver address (ADR-I-0003 leaves that
+-- tunnel outside Islandr's knowledge on purpose). The operator states the
+-- answer here instead of the software guessing it.
+ALTER TABLE edge_hubs ADD COLUMN dns_server_ip VARCHAR(45);

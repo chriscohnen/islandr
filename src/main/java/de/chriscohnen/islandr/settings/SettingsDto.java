@@ -1,5 +1,6 @@
 package de.chriscohnen.islandr.settings;
 
+import de.chriscohnen.islandr.validation.ValidAssignableSubnet;
 import de.chriscohnen.islandr.validation.ValidCidr;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -24,6 +25,10 @@ public final class SettingsDto {
             boolean selfServicePeerCreation,
             // peer-self-share: opt-in (default off) — see Settings.java for why.
             boolean peerSelfShareEnabled,
+            // settings-edge-hubs-toggle: hides the whole edge-hub concept when
+            // off, which is the default — see Settings.java for why it is a
+            // stored flag and not a row count.
+            boolean edgeHubsEnabled,
             Integer wgMtu,
             boolean wgIncludeMtuInConf,
             int wgPersistentKeepalive,
@@ -116,7 +121,8 @@ public final class SettingsDto {
                     s.wgServerPublicKey, s.wgServerEndpoint,
                     s.wgClientAllowedIps, s.wgClientDns, s.privateKeyRetention,
                     s.gravatarEnabled, s.oidcAutoProvision, s.firewallDryRun,
-                    s.selfServicePeerCreation, s.peerSelfShareEnabled, s.wgMtu, s.wgIncludeMtuInConf,
+                    s.selfServicePeerCreation, s.peerSelfShareEnabled, s.edgeHubsEnabled,
+                    s.wgMtu, s.wgIncludeMtuInConf,
                     s.wgPersistentKeepalive,
                     s.nominatimUrl,
                     s.hubLat, s.hubLon, s.hubLocationLabel,
@@ -202,11 +208,11 @@ public final class SettingsDto {
     ) {}
 
     public record UpdateRequest(
-            @NotBlank @ValidCidr
+            @NotBlank @ValidCidr @ValidAssignableSubnet
             String wgSubnet,
 
             // optional — null/blank = IPv4-only deployment
-            @ValidCidr
+            @ValidCidr @ValidAssignableSubnet
             String wgSubnet6,
 
             @NotBlank String wgServerPublicKey,
@@ -335,6 +341,12 @@ public final class SettingsDto {
                     message = "clientIpHeader must be a header name (letters, digits, hyphens)")
             String clientIpHeader
     ) {}
+
+    /** Body of {@code PUT /api/v1/settings/edge-hubs} — its own endpoint for
+     *  the same reason {@code /tls} and {@code /acme} have theirs: a feature
+     *  switch should not require sending the whole WireGuard configuration
+     *  back. */
+    public record EdgeHubsToggleRequest(boolean edgeHubsEnabled) {}
 
     private SettingsDto() {}
 }

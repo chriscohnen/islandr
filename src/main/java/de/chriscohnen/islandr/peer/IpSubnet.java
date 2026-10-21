@@ -101,6 +101,23 @@ public final class IpSubnet {
         return v6;
     }
 
+    /** Narrowest prefix that still leaves at least one assignable host —
+     *  30 for IPv4 (network + server + broadcast otherwise exhaust it),
+     *  126 for IPv6 (no broadcast address to reserve). Single source of
+     *  truth for {@link #assignableHostIps()} and
+     *  {@link #hasAssignableHosts()} so the two can't drift apart. */
+    private int maxUsablePrefix() {
+        return v6 ? 126 : 30;
+    }
+
+    /** False for a subnet too narrow to ever hand out a host address
+     *  (IPv4 /31, /32; IPv6 /127, /128) — settings-reject-unusable-wg-subnet.
+     *  Equivalent to {@code assignableHostIps()} being empty, cheaper than
+     *  actually iterating it. */
+    public boolean hasAssignableHosts() {
+        return prefix <= maxUsablePrefix();
+    }
+
     /**
      * Iterate assignable host IPs in ascending order.
      * <p>Skips: network address (::0) and server address (::1).
@@ -109,7 +126,7 @@ public final class IpSubnet {
      */
     public Iterable<String> assignableHostIps() {
         int bitLen = v6 ? 128 : 32;
-        int maxUsablePrefix = v6 ? 126 : 30;
+        int maxUsablePrefix = maxUsablePrefix();
         return () -> new Iterator<>() {
             final BigInteger limit = networkInt.add(BigInteger.ONE.shiftLeft(bitLen - prefix));
             // IPv4 broadcast: one before limit; null for IPv6 (no broadcast)

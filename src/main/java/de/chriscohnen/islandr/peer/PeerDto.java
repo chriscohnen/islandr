@@ -64,17 +64,33 @@ public final class PeerDto {
             // dialog. 0 for every caller but listMine(), via from(Peer) or
             // from(Peer, dnsFqdn), same no-behaviour-change-by-default shape
             // as dnsFqdn above.
-            long activeShareCount
+            long activeShareCount,
+            // peer-hub-assignment (ADR-I-0003): which hub this peer dials in
+            // at — null = the central hub. Immutable after creation; see
+            // Peer.edgeHubId for why.
+            String edgeHubId,
+            // portal-shows-device-hub: display name of that edge hub, so the
+            // portal can say where a device dials in without resolving the id
+            // itself — it cannot, because GET /peers/mine/edge-options only
+            // lists edges the user can still reach, and an admin may well
+            // have assigned a peer to one they cannot. null for a peer at the
+            // central hub, and null for every caller that doesn't need it
+            // (only "Mein Zugang" shows it), same shape as dnsFqdn above.
+            String edgeHubName
     ) {
         public static Response from(Peer p) {
-            return from(p, null, 0);
+            return from(p, null, 0, null);
         }
 
         public static Response from(Peer p, String dnsFqdn) {
-            return from(p, dnsFqdn, 0);
+            return from(p, dnsFqdn, 0, null);
         }
 
         public static Response from(Peer p, String dnsFqdn, long activeShareCount) {
+            return from(p, dnsFqdn, activeShareCount, null);
+        }
+
+        public static Response from(Peer p, String dnsFqdn, long activeShareCount, String edgeHubName) {
             return new Response(
                     p.id, p.userId, p.name, p.publicKey, p.assignedIp, p.assignedIpv6,
                     p.enabled, p.lastSeenAt, p.lastSeenEndpoint,
@@ -86,7 +102,7 @@ public final class PeerDto {
                     p.mtu, p.persistentKeepalive, p.includeDns,
                     p.lat, p.lng, p.locationLabel,
                     p.validUntil, p.enabledSource, p.deletionRequestedAt,
-                    p.isRoadwarrior, dnsFqdn, activeShareCount);
+                    p.isRoadwarrior, dnsFqdn, activeShareCount, p.edgeHubId, edgeHubName);
         }
     }
 
@@ -146,7 +162,12 @@ public final class PeerDto {
             // device location); ignored/cleared for client peers.
             Double lat,
             Double lng,
-            String locationLabel
+            String locationLabel,
+
+            // peer-hub-assignment (ADR-I-0003): the hub this peer will dial in
+            // at. Omitted/blank = the central hub. Client peers only — a site
+            // gateway peer is refused, see Peer.edgeHubId.
+            String edgeHubId
     ) {
         public boolean hasPublicKey()  { return publicKey  != null && !publicKey.isBlank(); }
         public boolean hasPrivateKey() { return privateKey != null && !privateKey.isBlank(); }
@@ -250,7 +271,17 @@ public final class PeerDto {
             // request that merely forgot the field must not strip a client of
             // all its access. Rejected for type='site' — a site gateway is
             // owned by the network, not by a person.
-            String userId
+            String userId,
+
+            // peer-hub-assignment (ADR-I-0003). Present only so the frontend
+            // can send the peer back unchanged; a value that differs from the
+            // stored one is refused with 409, it is not applied. Omitted
+            // (null) leaves the assignment alone — deliberately NOT the
+            // omitted-means-cleared rule most nullable fields here use, for
+            // the same class of reason as userId above: clearing it would mean
+            // "this peer now dials the central hub", which is precisely the
+            // move the decision forbids, performed by forgetting a field.
+            String edgeHubId
     ) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */
@@ -380,6 +411,21 @@ public final class PeerDto {
             String fromDay,
             String toDay,
             java.util.List<TrafficRankingRow> peers
+    ) {}
+
+    /** edge-home-semantics (ADR-I-0003) — every {@code EdgeHub} that holds
+     *  resources this peer may reach, derived from its (owner's) effective
+     *  grants. More than one entry is a real, accepted state (grants spread
+     *  across sites), not an error — a consuming UI must say so rather than
+     *  just picking one.
+     *
+     *  <p>Empty does <b>not</b> mean "dials the central hub". Where a peer
+     *  dials is {@code Peer.edgeHubId}, and a peer may perfectly well dial an
+     *  edge while reaching nothing there — it is then a tunnel to nowhere,
+     *  which the portal refuses to create but an admin may still produce. */
+    public record ReachableEdges(
+            java.util.List<String> edgeHubIds,
+            java.util.List<String> edgeHubNames
     ) {}
 
     private PeerDto() {}

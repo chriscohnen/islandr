@@ -119,6 +119,9 @@ export default defineComponent({
   },
   async mounted() {
     loadHub();
+    // Needed for the hub badge on each row, so it must be there before the
+    // first render — not only once a peer modal opens.
+    this.loadEdgeHubs();
     await this.load();
     this._offEscape = onEscape(() => {
       if (this.importModal) this.closeImport();
@@ -419,6 +422,12 @@ export default defineComponent({
               <Icon :name="p.deviceType && p.deviceType !== 'other' ? p.deviceType : 'peers'" :size="15" />
               {{ { laptop: t('peers.dev_laptop'), desktop: t('peers.dev_desktop'), mobile: t('peers.dev_mobile'), tablet: t('peers.dev_tablet'), server: t('peers.dev_server'), other: t('peers.dev_other') }[p.deviceType] || t('peers.dev_other') }}
               <span v-if="p.isRoadwarrior" class="badge badge-neutral" :title="t('peers.roadwarrior_hint')">{{ t('peers.roadwarrior_badge') }}</span>
+              <!-- peer-hub-assignment: shown only for an edge peer. Without it
+                   the refusal to delete an edge ("N peers still dial in here")
+                   names a number the admin cannot resolve to rows. A central-hub
+                   peer stays unmarked — that is the default, and marking it
+                   would put a pill on nearly every row. -->
+              <span v-if="p.edgeHubId" class="badge badge-info" :title="t('peers.hub_badge_hint')">{{ edgeHubName(p.edgeHubId) }}</span>
             </span>
           </td>
           <td>

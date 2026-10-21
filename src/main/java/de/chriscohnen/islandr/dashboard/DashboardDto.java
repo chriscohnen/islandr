@@ -85,9 +85,26 @@ public final class DashboardDto {
             // null unless the operator has set them. Backs the world-map
             // topology view (ADR-0021); unrelated to the radial diagram above.
             // "hubLon" (not "hubLng") to match the naming already established
-            // by Settings/SettingsDto for the hub specifically.
+            // by Settings/SettingsDto for the hub specifically. This is always
+            // the CENTRAL hub — edge hubs are listed separately in edgeHubs.
             Double hubLat,
-            Double hubLon
+            Double hubLon,
+            // edge-hub-entity (1.2.0) — every EdgeHub, central hub excluded
+            // (it has no row of its own, see EdgeHub's class javadoc). Backs
+            // the world-map topology view alongside hubLat/hubLon/hubLabel.
+            List<TopologyHub> edgeHubs
+    ) {}
+
+    /** One edge hub for the world-map view (edge-hub-entity, 1.2.0). "lng"
+     *  here, not "lon" — matches EdgeHub/Peer's own naming, not Settings'
+     *  (see EdgeHub's class javadoc for why three differently-named
+     *  lat/lng-ish fields exist in this codebase). */
+    public record TopologyHub(
+            String id,
+            String name,
+            boolean enabled,
+            double lat,
+            double lng
     ) {}
 
     public record TopologySite(
@@ -104,7 +121,10 @@ public final class DashboardDto {
             // ever set for type=site peers) — null if never geocoded. Backs
             // the world-map topology view (ADR-0021).
             Double gatewayLat,
-            Double gatewayLng
+            Double gatewayLng,
+            // edge-hub-entity (1.2.0) — id of the EdgeHub this site is
+            // assigned to; null = served by the central hub (the default).
+            String edgeHubId
     ) {}
 
     public record TopologyResource(
@@ -142,7 +162,15 @@ public final class DashboardDto {
             String connectionStatus,
             // peer-roadwarrior-badge: surfaced in the peer hover tooltip,
             // same as the admin peers list and My access.
-            boolean isRoadwarrior
+            boolean isRoadwarrior,
+            // edge-hub-radial-topology (1.2.0): the hub this peer dials,
+            // straight from peers.edge_hub_id. Null = the central hub.
+            //
+            // It was derived from reach here until 2026-10-21, which drew a
+            // peer at an edge it merely held a grant behind, and let the id
+            // sort decide between several candidates. One peer, one hub, one
+            // node — the question has an answer now, so nothing is picked.
+            String edgeHubId
     ) {}
 
     /** Full connected/stale/disconnected split across every enabled client

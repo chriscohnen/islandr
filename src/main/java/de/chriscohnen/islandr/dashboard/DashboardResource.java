@@ -229,7 +229,8 @@ public class DashboardResource {
                             gw == null ? null : gw.assignedIp,
                             gw == null ? null : gw.lastSeenAt,
                             gw == null ? null : gw.lat,
-                            gw == null ? null : gw.lng);
+                            gw == null ? null : gw.lng,
+                            site.edgeHubId);
                 })
                 .toList();
         int resourceOverflow = Math.max(0, allResources.size() - TOPOLOGY_RESOURCE_CAP);
@@ -257,11 +258,22 @@ public class DashboardResource {
                 .page(0, TOPOLOGY_LIVE_PEER_CAP).list();
         Map<String, String> livePeerDnsFqdns = dns.peerDnsFqdns(activePeers);
         List<DashboardDto.TopologyLivePeer> livePeers = activePeers.stream()
-                .map(p -> new DashboardDto.TopologyLivePeer(
-                        p.id, p.name, p.type, p.assignedIp, p.lastSeenAt, p.deviceType,
-                        livePeerDnsFqdns.get(p.id),
-                        de.chriscohnen.islandr.peer.PeerConnectionStatus.of(p.lastSeenAt, now).name(),
-                        p.isRoadwarrior))
+                .map(p -> {
+                    // Where this peer actually dials in (ADR-I-0003), not
+                    // which edges it may reach something at. The diagram drew
+                    // the latter until 2026-10-20, so every device with a
+                    // single grant to a resource behind an edge appeared as a
+                    // dot around that edge while it was in fact connected to
+                    // the central hub — and when several edges qualified, one
+                    // was picked by sorting the ids, which is no answer at all.
+                    // A peer has one hub, and it is written on the peer.
+                    String edgeHubId = p.edgeHubId;
+                    return new DashboardDto.TopologyLivePeer(
+                            p.id, p.name, p.type, p.assignedIp, p.lastSeenAt, p.deviceType,
+                            livePeerDnsFqdns.get(p.id),
+                            de.chriscohnen.islandr.peer.PeerConnectionStatus.of(p.lastSeenAt, now).name(),
+                            p.isRoadwarrior, edgeHubId);
+                })
                 .toList();
 
         long connectedCount = Peer.count(
@@ -274,12 +286,18 @@ public class DashboardResource {
         DashboardDto.PeerStatusCounts peerStatusCounts = new DashboardDto.PeerStatusCounts(
                 connectedCount, staleCount, enabledClientCount - connectedCount - staleCount);
 
+        List<DashboardDto.TopologyHub> topoEdgeHubs = de.chriscohnen.islandr.acl.EdgeHub.<de.chriscohnen.islandr.acl.EdgeHub>listAll()
+                .stream()
+                .map(e -> new DashboardDto.TopologyHub(e.id, e.name, e.enabled, e.lat, e.lng))
+                .toList();
+
         DashboardDto.Topology topology = new DashboardDto.Topology(
                 topoSites, topoResources, livePeers, peerStatusCounts, resourceOverflow,
                 s == null ? null : s.wgServerEndpoint,
                 s == null ? null : s.hubLocationLabel,
                 s == null ? null : s.hubLat,
-                s == null ? null : s.hubLon);
+                s == null ? null : s.hubLon,
+                topoEdgeHubs);
 
         FirewallState fs = FirewallState.get();
         DashboardDto.FirewallStatus firewallStatus = new DashboardDto.FirewallStatus(

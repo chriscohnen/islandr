@@ -81,6 +81,77 @@ public class AclResolutionService {
                 "))", List.of(userId), resourceId, portId);
     }
 
+    /**
+     * Every {@link EdgeHub} that holds resources a user may reach: the user
+     * has an effective grant (role, type, network or direct) on a resource in
+     * one of the sites that hub serves. No field and no assignment UI — this
+     * walks the same four grant tables {@link #hasPortAccess} does, resolved
+     * to {@code site_id} instead of to one resource/port.
+     *
+     * <p>Named for what it answers. The decision of 2026-10-02 called this a
+     * peer's "home" and derived attachment from it; ADR-I-0003 separated the
+     * two, and attachment now lives in {@code Peer.edgeHubId}. What remains
+     * here is the right question for the edge's rendered plan and for PSK
+     * exposure: which edges may legitimately serve this user at all.
+     *
+     * <p>Empty means the user may reach nothing behind any edge. That is an
+     * answer, not a gap — and it says nothing about where their peers dial.
+     */
+    @SuppressWarnings("unchecked")
+    public Set<String> reachableEdgeHubIdsForUser(String userId) {
+        if (userId == null) return Set.of();
+        Set<String> siteIds = new HashSet<>();
+        List<String> roleIds = resolveRoleIds(userId);
+        if (!roleIds.isEmpty()) {
+            siteIds.addAll(em.createNativeQuery(
+                            "SELECT DISTINCT r.site_id FROM role_resource_grants g "
+                                    + "JOIN resources r ON r.id = g.resource_id WHERE g.role_id IN ?1")
+                    .setParameter(1, roleIds).getResultList());
+            siteIds.addAll(em.createNativeQuery(
+                            "SELECT DISTINCT site_id FROM role_resource_type_grants WHERE role_id IN ?1")
+                    .setParameter(1, roleIds).getResultList());
+            siteIds.addAll(em.createNativeQuery(
+                            "SELECT DISTINCT site_id FROM role_network_grants WHERE role_id IN ?1")
+                    .setParameter(1, roleIds).getResultList());
+        }
+        // Direct user grants (ADR-0024) bypass roles, same as hasPortAccess.
+        siteIds.addAll(em.createNativeQuery(
+                        "SELECT DISTINCT r.site_id FROM user_resource_grants g "
+                                + "JOIN resources r ON r.id = g.resource_id WHERE g.user_id = ?1")
+                .setParameter(1, userId).getResultList());
+        if (siteIds.isEmpty()) return Set.of();
+        List<String> edgeHubIds = em.createNativeQuery(
+                        "SELECT DISTINCT edge_hub_id FROM sites WHERE id IN ?1 AND edge_hub_id IS NOT NULL")
+                .setParameter(1, siteIds).getResultList();
+        return new HashSet<>(edgeHubIds);
+    }
+
+    /**
+     * Every {@link EdgeHub} that holds resources a given peer may reach —
+     * {@link #reachableEdgeHubIdsForUser} for a client peer owned by a user;
+     * for a site-type peer, every edge hub whose {@code sites.gateway_peer_id}
+     * points at it directly (no grant derivation needed, it <em>is</em> the
+     * site's router). A peer with neither (unowned client, e.g. a
+     * not-yet-claimed import) reaches no edge.
+     *
+     * <p><b>This does not say where the peer dials in.</b> That is
+     * {@code Peer.edgeHubId}, a stored field set once at creation
+     * (ADR-I-0003). Reach and attachment were one thing in the model this
+     * method was written for, and conflating them drew live peers at the
+     * wrong node on the topology and would have cut working central-hub
+     * access in the drift reconciler.
+     */
+    public Set<String> reachableEdgeHubIdsForPeer(de.chriscohnen.islandr.peer.Peer peer) {
+        if (peer.isSite()) {
+            Set<String> ids = new HashSet<>();
+            for (Site s : Site.<Site>list("gatewayPeerId", peer.id)) {
+                if (s.edgeHubId != null) ids.add(s.edgeHubId);
+            }
+            return ids;
+        }
+        return reachableEdgeHubIdsForUser(peer.userId);
+    }
+
     private boolean count(String sql, Object first, String resourceId, String portId) {
         var q = em.createNativeQuery(sql).setParameter(1, first).setParameter(2, resourceId);
         if (portId != null) q.setParameter(3, portId);

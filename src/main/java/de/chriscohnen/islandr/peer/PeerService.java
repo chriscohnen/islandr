@@ -119,7 +119,10 @@ public class PeerService {
         // whatever userId came in on the query string — force it to null
         // here too so a site peer can never end up carrying a stray owner
         // no matter which caller skipped that rule upstream.
+        String edgeHubId = validateEdgeHubAssignment(emptyToNull(req.edgeHubId()), req.isSite());
+
         Peer peer = Peer.createNew(req.isSite() ? null : userId, req.name(), publicKeyToStore, req.assignedIp());
+        peer.edgeHubId = edgeHubId;
         peer.assignedIpv6 = emptyToNull(req.assignedIpv6());
         peer.type = req.resolvedType();
         peer.siteAllowedCidrs = normalisedSiteCidrs;
@@ -148,7 +151,7 @@ public class PeerService {
         peer.persist();
 
         try {
-            wg.setPeer(wgInterface, publicKeyToStore, hubAllowedIpsFor(peer), presharedKey);
+            setOnHub(peer, publicKeyToStore, presharedKey);
         } catch (ProxyUnavailableException e) {
             // Enforcement plane unreachable: keep the peer persisted, mark the gap
             // honestly, and let the reconciler push it once the proxy is back (design §5).
@@ -171,7 +174,7 @@ public class PeerService {
             throw new WebApplicationException("peer registered with wg but nftables recompute failed: " + e.getMessage(), 500);
         }
 
-        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, peer.mtu, null, peer.includeDns);
+        String conf = renderConf(privateKeyForResponse, peer.assignedIp, peer.assignedIpv6, presharedKey, settings, peer.mtu, null, peer.includeDns, peer.edgeHubId);
         String qrPng = privateKeyForResponse != null ? qr.toDataUrl(conf) : null;
 
         return new PeerDto.CreateResponse(
@@ -205,7 +208,7 @@ public class PeerService {
             String rawKey = encSvc.isEncrypted(peer.privateKeyPem)
                     ? encSvc.decrypt(peer.privateKeyPem)
                     : peer.privateKeyPem;
-            String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
+            String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns, peer.edgeHubId);
             String qrPng = qr.toDataUrl(conf);
             return new PeerDto.CreateResponse(
                     PeerDto.Response.from(peer),
@@ -214,7 +217,7 @@ public class PeerService {
                     qrPng,
                     peer.presharedKey);
         }
-        String confNoKey = renderConf(null, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
+        String confNoKey = renderConf(null, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns, peer.edgeHubId);
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
                 null,
@@ -332,6 +335,24 @@ public class PeerService {
         Peer peer = Peer.findById(peerId);
         if (peer == null) throw new NotFoundException("peer not found: " + peerId);
 
+        // The hub assignment is decided once, at creation (ADR-I-0003). A
+        // request that names a different one is refused with the way out
+        // spelled out, because the reason it is refused is not a validation
+        // rule but a routing fact: the peer's address lives in one hub's
+        // domain, and two hubs holding state about it is the failure this
+        // decision exists to prevent. Omitting the field keeps the current
+        // value; repeating it unchanged is fine, so the frontend can send the
+        // whole peer back.
+        String requestedEdge = emptyToNull(req.edgeHubId());
+        if (requestedEdge != null && !requestedEdge.equals(peer.edgeHubId)) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("a peer's hub cannot be changed after it is created — its address "
+                                    + "belongs to that hub's routing domain. Create a new peer at the "
+                                    + "target hub and delete this one.")
+                            .build());
+        }
+
         boolean ipChanged = !peer.assignedIp.equals(req.assignedIp());
         if (ipChanged) {
             validateAssignedIp(req.assignedIp(), settings.wgSubnet, peer.id);
@@ -435,8 +456,7 @@ public class PeerService {
 
         if ((ipChanged || ip6Changed || cidrsChanged || pskChanged || typeChanged) && peer.enabled) {
             try {
-                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer),
-                        pskChanged ? pskForWg : null);
+                setOnHub(peer, peer.publicKey, pskChanged ? pskForWg : null);
             } catch (ProxyUnavailableException e) {
                 LOG.warnf("enforcement unavailable during update setPeer for peer %s — persisted, not enforced: %s", peer.id, e.getMessage());
                 enforcement.markUnavailable(e.getMessage());
@@ -459,7 +479,7 @@ public class PeerService {
         String rawKey = (peer.privateKeyPem != null && encSvc.isEncrypted(peer.privateKeyPem))
                 ? encSvc.decrypt(peer.privateKeyPem)
                 : peer.privateKeyPem;
-        String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
+        String conf = renderConf(rawKey, peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns, peer.edgeHubId);
         String qrPng = rawKey != null ? qr.toDataUrl(conf) : null;
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
@@ -521,7 +541,7 @@ public class PeerService {
         try {
             wg.removePeer(wgInterface, oldKey);
             if (peer.enabled) {
-                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), null);
+                setOnHub(peer, peer.publicKey, null);
             }
         } catch (RuntimeException e) {
             LOG.errorf(e, "wg key rotation failed for peer %s", peer.id);
@@ -564,7 +584,7 @@ public class PeerService {
             if (peer.enabled) {
                 // Unlike rotatePublicKey, pass the peer's existing PSK through —
                 // removing+re-adding the wg entry must not silently drop it.
-                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+                setOnHub(peer, peer.publicKey, peer.presharedKey);
             }
         } catch (ProxyUnavailableException e) {
             // Same graceful-degradation contract as createForUser/update/delete
@@ -580,7 +600,7 @@ public class PeerService {
             throw new WebApplicationException("could not rotate key on wg: " + e.getMessage(), 500);
         }
 
-        String conf = renderConf(kp.privateKey(), peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns);
+        String conf = renderConf(kp.privateKey(), peer.assignedIp, peer.assignedIpv6, peer.presharedKey, settings, peer.mtu, peer.persistentKeepalive, peer.includeDns, peer.edgeHubId);
         String qrPng = qr.toDataUrl(conf);
         return new PeerDto.CreateResponse(
                 PeerDto.Response.from(peer),
@@ -659,11 +679,29 @@ public class PeerService {
         peer.enabledSource = source;
         peer.updatedAt = java.time.Instant.now();
         if (enabled) {
-            wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+            setOnHub(peer, peer.publicKey, peer.presharedKey);
         } else {
             wg.removePeer(wgInterface, peer.publicKey);
         }
         return PeerDto.Response.from(peer);
+    }
+
+    /**
+     * {@code wg set} on this hub's interface — and nothing at all for a peer
+     * that dials an edge hub (edge-drift-exclusion, see {@link Peer#ON_THIS_HUB}).
+     *
+     * <p>Every write to the interface goes through here rather than being
+     * guarded at each caller, because the ways a peer reaches the interface
+     * are many (create, update, both key rotations, enable) and missing one of
+     * them puts a duplicate key on the hub that nothing afterwards removes.
+     *
+     * <p>Removals are deliberately not guarded: {@code wg set … remove} for a
+     * key that is not there is a no-op, and an installation that ran before
+     * this exclusion existed may well still carry edge peers on its interface.
+     */
+    private void setOnHub(Peer peer, String publicKey, String presharedKey) {
+        if (peer.edgeHubId != null) return;
+        wg.setPeer(wgInterface, publicKey, hubAllowedIpsFor(peer), presharedKey);
     }
 
     /**
@@ -699,10 +737,10 @@ public class PeerService {
     @Transactional
     public int repushMissingPeers(java.util.Set<String> livePublicKeys) {
         int pushed = 0;
-        for (Peer peer : Peer.<Peer>list("enabled", true)) {
+        for (Peer peer : Peer.<Peer>list(Peer.ON_THIS_HUB, true)) {
             if (livePublicKeys.contains(peer.publicKey)) continue;
             try {
-                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+                setOnHub(peer, peer.publicKey, peer.presharedKey);
                 pushed++;
             } catch (ProxyUnavailableException e) {
                 throw e;
@@ -716,9 +754,9 @@ public class PeerService {
     @Transactional
     public int repushEnabledPeers() {
         int pushed = 0;
-        for (Peer peer : Peer.<Peer>list("enabled", true)) {
+        for (Peer peer : Peer.<Peer>list(Peer.ON_THIS_HUB, true)) {
             try {
-                wg.setPeer(wgInterface, peer.publicKey, hubAllowedIpsFor(peer), peer.presharedKey);
+                setOnHub(peer, peer.publicKey, peer.presharedKey);
                 pushed++;
             } catch (ProxyUnavailableException e) {
                 throw e;
@@ -785,6 +823,40 @@ public class PeerService {
             sb.append(",").append(peer.siteAllowedCidrs.replace(" ", ""));
         }
         return sb.toString();
+    }
+
+/**
+     * The hub a new peer will dial in at (ADR-I-0003), or null for the central
+     * hub. Refuses an unknown edge and refuses any assignment on a site peer.
+     *
+     * <p>Both refusals are 400 rather than silent corrections on purpose: an
+     * admin who names an edge means it, and storing something else — or
+     * nothing — would leave a peer whose configuration points at one hub and
+     * whose row says another.
+     */
+    private String validateEdgeHubAssignment(String edgeHubId, boolean isSite) {
+        if (edgeHubId == null) return null;
+        if (isSite) {
+            throw new BadRequestException(
+                    "edgeHubId is only meaningful for client peers — a site gateway peer is the far "
+                    + "end of a site-to-site link to the hub it dials, and an edge does not render "
+                    + "site-to-site rules. Leave it empty.");
+        }
+        de.chriscohnen.islandr.acl.EdgeHub edge = de.chriscohnen.islandr.acl.EdgeHub.findById(edgeHubId);
+        if (edge == null) {
+            throw new BadRequestException("edge hub not found: " + edgeHubId);
+        }
+        // An edge without an endpoint and a server key cannot serve anyone:
+        // the peer's configuration has nowhere to dial and no key to trust.
+        // Refused here rather than when the .conf is rendered, so the error
+        // lands on the decision that caused it (edge-endpoint-fields).
+        if (!edge.canServePeers()) {
+            throw new BadRequestException(
+                    "edge hub '" + edge.name + "' has no endpoint and server public key yet — set "
+                    + "those on the edge hub first, otherwise this peer's configuration cannot be "
+                    + "rendered.");
+        }
+        return edgeHubId;
     }
 
     private static String validateSiteCidrs(String raw, String wgSubnet, String excludePeerId) {
@@ -928,9 +1000,43 @@ public class PeerService {
         }
     }
 
+    /**
+     * peer-edge-config-variant (ADR-I-0003): the {@code [Peer]} block names the
+     * hub this peer dials, which is its own edge when {@code edgeHubId} is set
+     * and the central hub when it is not. Four values differ: the server key,
+     * the endpoint, the routed networks, and — the one in {@code [Interface]} —
+     * the resolver, which an edge names itself or not at all (edge-peer-dns).
+     * The address and MTU are the same wherever a peer dials, because the
+     * address pool is shared.
+     *
+     * @param edgeHubId {@code Peer.edgeHubId} — null for the central hub
+     */
     private String renderConf(String privateKey, String assignedIp, String assignedIpv6,
                                String presharedKey, Settings settings, Integer peerMtu,
-                               Integer peerKeepalive, boolean peerIncludeDns) {
+                               Integer peerKeepalive, boolean peerIncludeDns,
+                               String edgeHubId) {
+        de.chriscohnen.islandr.acl.EdgeHub edge = null;
+        if (edgeHubId != null) {
+            edge = de.chriscohnen.islandr.acl.EdgeHub.findById(edgeHubId);
+            if (edge == null) {
+                // The foreign key and the refusal to delete an edge that still
+                // has peers make this unreachable. Said out loud anyway: the
+                // silent fallback would hand out a config dialling the central
+                // hub with the central hub's key, and it would look correct.
+                throw new WebApplicationException(
+                        "peer is assigned to edge hub " + edgeHubId + ", which no longer exists"
+                        + " — refusing to render a config for the wrong hub", 500);
+            }
+        }
+        String serverPublicKey = edge != null ? edge.serverPublicKey : settings.wgServerPublicKey;
+        String serverEndpoint = edge != null ? edge.endpoint : settings.wgServerEndpoint;
+        // edge-peer-dns: the central hub's resolver address is routed into a
+        // tunnel that ends at the edge, which has neither that resolver nor a
+        // route to it — names would fail to resolve while the routing is fine,
+        // which reads as "everything is broken". An edge therefore names its
+        // own resolver, or none, and never inherits the hub's.
+        String effectiveDns = edge != null ? edge.dnsServerIp : settings.effectiveClientDns();
+
         StringBuilder sb = new StringBuilder();
         sb.append("[Interface]\n");
         if (privateKey != null) {
@@ -941,7 +1047,6 @@ public class PeerService {
         } else {
             sb.append("Address = ").append(assignedIp).append("/32\n");
         }
-        String effectiveDns = settings.effectiveClientDns();
         if (peerIncludeDns && effectiveDns != null && !effectiveDns.isBlank()) {
             sb.append("DNS = ").append(effectiveDns).append("\n");
         }
@@ -953,19 +1058,28 @@ public class PeerService {
             sb.append("MTU = ").append(effectiveMtu).append("\n");
         }
 
+        // The split-tunnel supernet is dropped for an edge peer and its sites
+        // listed individually instead. The supernet is one CIDR declared to
+        // cover every site network, so at an edge it would route the other
+        // hubs' sites into a tunnel that cannot deliver them — a black hole
+        // that looks like a route. Listing this edge's sites is exact.
+        String splitSupernet = edge != null ? null : settings.splitSupernet;
+        java.util.List<String> siteCidrs = edge != null
+                ? de.chriscohnen.islandr.acl.Site.enabledGatewayCidrsServedBy(edge.id)
+                : de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs();
         String allowedIps = AllowedIpsCalculator.compute(
                 settings.tunnelMode, settings.allowedIpsMode, settings.wgClientAllowedIps,
-                settings.wgSubnet, settings.wgSubnet6, settings.splitSupernet,
-                de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
+                settings.wgSubnet, settings.wgSubnet6, splitSupernet,
+                siteCidrs,
                 effectiveDns, peerIncludeDns);
 
         sb.append("\n[Peer]\n");
-        sb.append("PublicKey = ").append(settings.wgServerPublicKey).append("\n");
+        sb.append("PublicKey = ").append(serverPublicKey).append("\n");
         if (presharedKey != null && !presharedKey.isBlank()) {
             sb.append("PresharedKey = ").append(presharedKey).append("\n");
         }
         sb.append("AllowedIPs = ").append(allowedIps).append("\n");
-        sb.append("Endpoint = ").append(settings.wgServerEndpoint).append("\n");
+        sb.append("Endpoint = ").append(serverEndpoint).append("\n");
         // Effective keepalive: per-peer override wins, else the global default.
         // The value is the switch — omit the line entirely when it resolves to 0.
         int effectiveKeepalive = peerKeepalive != null ? peerKeepalive : settings.wgPersistentKeepalive;

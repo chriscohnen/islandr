@@ -68,6 +68,41 @@ check_boot_firewall() {
   printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#adopting-the-fail-closed-boot-ruleset\n'
 }
 
+# update.sh updates the binary, never itself — a copy kept in a home
+# directory (the documented way to run it) drifts from the one each new
+# release ships, silently missing whatever checks a newer copy learned.
+# The fail-closed boot ruleset notice above has exactly this weakness: it
+# only reaches whoever already fetches the current script, the group least
+# likely to need telling (update-self-check, loop/TASK.md).
+#
+# Melden, nicht ersetzen — same line as the boot ruleset and the unit file.
+# A script that overwrites itself mid-run is the opposite of predictable,
+# and `set -euo pipefail` partway through a self-replace is a failure mode
+# nobody wants to debug on a remote box.
+#
+# Silent on any network/compare failure, not just non-fatal: an update must
+# never be held up — or even look held up — by this check succeeding or
+# failing, the same rule check_boot_firewall already follows for its own
+# systemctl probe.
+check_self_update() {
+  local remote_tmp
+  remote_tmp=$(mktemp) || return 0
+  # Fetched from the same DL_BASE as the binary itself — no separate
+  # checksum asset to keep in sync, just hash what gets downloaded.
+  curl -fsSL "${DL_BASE}/${TARGET}/update.sh" -o "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; return 0; }
+  local remote_hash local_hash
+  remote_hash=$(sha256sum "$remote_tmp" 2>/dev/null | awk '{print $1}')
+  local_hash=$(sha256sum "$0" 2>/dev/null | awk '{print $1}')
+  rm -f "$remote_tmp"
+  [[ -n "$remote_hash" && -n "$local_hash" ]] || return 0
+  if [[ "$remote_hash" != "$local_hash" ]]; then
+    printf '\nNOTE: this update.sh differs from the %s release'"'"'s copy.\n' "$TARGET"
+    printf '  You are running a local copy, which never updates itself. Fetch the\n'
+    printf '  current one before your next update:\n'
+    printf '  curl -fsSL -o update.sh %s/update.sh\n' "${DL_BASE}/${TARGET}"
+  fi
+}
+
 # "Was it supposed to be running?" — is-active alone answers no for a service
 # stuck in activating (auto-restart), i.e. exactly the crash loop an update is
 # most often meant to fix. Such a service must be started again afterwards.
@@ -218,6 +253,8 @@ info "Architecture   : ${ARCH}"
 info "Binary         : ${INSTALL_BIN}"
 info "Service        : ${SERVICE}"
 printf '\n'
+
+check_self_update
 
 # ── download ──────────────────────────────────────────────────────────────────
 DL_URL="${DL_BASE}/${TARGET}/${ASSET}"

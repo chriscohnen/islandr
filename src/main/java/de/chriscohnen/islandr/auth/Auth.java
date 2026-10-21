@@ -40,6 +40,21 @@ public final class Auth {
         return a;
     }
 
+    /** {@link #requireScope}, additionally bound to one object — today only
+     *  an edge hub (edge-psk-exposure). A key holding {@code scope} bound to
+     *  a *different* edge than {@code edgeHubId} fails this the same way one
+     *  that never held the scope at all does: both read as "API key lacks
+     *  required scope" from the caller's side, on purpose — which edges a
+     *  key *could* speak for if it asked for a different one is not
+     *  information this error should leak. */
+    public static AuthContext requireEdgeScope(ContainerRequestContext ctx, String scope, String edgeHubId) {
+        AuthContext a = requireAdmin(ctx);
+        if (!a.hasScopeForEdge(scope, edgeHubId)) {
+            throw new ForbiddenException("API key lacks required scope: " + scope);
+        }
+        return a;
+    }
+
     /** Returns the active {@link AuthContext} or {@code null} if no session. */
     public static AuthContext current(ContainerRequestContext ctx) {
         return (AuthContext) ctx.getProperty(SessionFilter.CTX_AUTH);
