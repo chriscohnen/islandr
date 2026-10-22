@@ -68,6 +68,7 @@ public class DashboardResource {
     @jakarta.inject.Inject de.chriscohnen.islandr.dns.DnsQueryHandler dns;
     @jakarta.inject.Inject de.chriscohnen.islandr.dns.DnsResolverService dnsResolver;
     @jakarta.inject.Inject de.chriscohnen.islandr.dns.DnsQueryStats dnsStats;
+    @jakarta.inject.Inject de.chriscohnen.islandr.peer.TrafficWindowStats trafficWindow;
 
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
     String wgInterface;
@@ -311,7 +312,16 @@ public class DashboardResource {
                 new DashboardDto.UserStats(userTotal, userAdmins),
                 new DashboardDto.RoleStats(roleTotal, rolesWithGrants),
                 new DashboardDto.ResourceStats(siteTotal, resTotal, portTotal),
-                setup, firewallStatus, audit, peers, topology, hostHealth.latest(), dnsStatsOut);
+                setup, firewallStatus, audit, peers, topology, hostHealth.latest(), dnsStatsOut,
+                trafficStatsOut());
+    }
+
+    /** traffic-window-tile: unlike the DNS tile this is always present —
+     *  every installation moves bytes, and an honest zero is an answer
+     *  ("nothing in the last hour"), not a missing feature. */
+    private DashboardDto.TrafficStats trafficStatsOut() {
+        var snap = trafficWindow.snapshot();
+        return new DashboardDto.TrafficStats(snap.rxBytes(), snap.txBytes(), snap.windowMinutes());
     }
 
     /**

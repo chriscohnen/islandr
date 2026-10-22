@@ -1,0 +1,11 @@
+-- V92: peers-list-at-a-glance — when this peer's current connected stretch
+-- began, so the list can say "2h 45m" instead of only a last-handshake
+-- timestamp. Set by ActivityPoller when a peer transitions into CONNECTED and
+-- cleared when it leaves.
+--
+-- Nullable, and null is a real answer rather than a gap: the poller's
+-- previous-status baseline lives in memory, so after a restart a peer that was
+-- already connected has no known start. Guessing one (the restart time) would
+-- read as fact and be wrong; the list falls back to the last handshake until
+-- the peer next reconnects.
+ALTER TABLE peers ADD COLUMN connected_since TIMESTAMP;

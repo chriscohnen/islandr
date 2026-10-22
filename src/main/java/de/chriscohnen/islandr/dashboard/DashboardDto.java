@@ -25,13 +25,25 @@ public final class DashboardDto {
             // actually bound — an enabled-but-failed-to-bind resolver is a
             // distinct, already-surfaced-elsewhere problem, not a reason to
             // show a permanent all-zero traffic card here.
-            DnsStats dns
+            DnsStats dns,
+            // traffic-window-tile: bytes that actually moved in the last hour,
+            // from TrafficWindowStats. In-memory like hostHealth and dns above,
+            // so a restart zeroes it — the tile names its own window, which is
+            // what keeps that honest rather than puzzling.
+            TrafficStats traffic
     ) {}
 
     /** DNS resolver query split over a rolling window (dns-query-stats) —
      *  in-memory only (DnsQueryStats), reset by a restart, same as
      *  hostHealth above. Presence of this field (non-null) already means
      *  "enabled and running" — see the {@code dns} field's own comment. */
+    /** traffic-window-tile — see the {@code traffic} field. */
+    public record TrafficStats(
+            long rxBytes,
+            long txBytes,
+            long windowMinutes
+    ) {}
+
     public record DnsStats(
             long local,
             long forwarded,

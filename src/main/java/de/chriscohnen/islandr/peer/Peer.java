@@ -56,6 +56,14 @@ public class Peer extends PanacheEntityBase {
     @Column(name = "last_seen_at")
     public Instant lastSeenAt;
 
+    /** peers-list-at-a-glance: start of the current connected stretch, set by
+     *  {@code ActivityPoller} on the transition into CONNECTED and cleared on
+     *  the way out. null when unknown — notably after a restart, whose
+     *  in-memory baseline is gone; see V92 for why that is left as null rather
+     *  than guessed. */
+    @Column(name = "connected_since")
+    public Instant connectedSince;
+
     @Column(name = "last_seen_endpoint")
     public String lastSeenEndpoint;
 

@@ -23,7 +23,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **1.2.0 is out.** A site far from the hub can now terminate its own WireGuard tunnels: edge hubs are a second hub at a remote location, with their own peers, their own endpoint and their own resolver. A peer belongs to exactly one hub, so someone working at two locations gets one device entry per location rather than one address on two hubs. The concept stays invisible until you switch it on. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> **1.2.0 is out — mostly maintenance.** What is new is small and makes what you already have easier to read, plus a handful of long-standing rough edges gone: the peers list says at a glance whether a device is alive and how long it has been connected, its rows are a third of the height they were, the dashboard counts the bytes of the last hour, and the topology diagram stays legible when you drill into a crowded network. **Edge hubs** — a second hub at a remote site — are groundwork in this release and **not usable yet**: they need software at the edge that fetches its configuration from the hub and enforces the firewall there, and that does not exist. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
 > Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
@@ -47,7 +47,7 @@ Small teams, homelabs, and remote-first setups that want **sovereign WireGuard a
 - You want employees to self-service their own device configs, not email you for a `.conf` file
 - Data sovereignty matters — no connection metadata leaving your network
 
-Islandr configures the **native WireGuard client** on every device — no proprietary client app to install, trust, or audit. And it's **hub-and-spoke by design**: every peer connects through one central gateway, so access control is enforced in one place instead of punching holes between every pair of sites and hoping the firewall rules stay in sync.
+Islandr configures the **native WireGuard client** on every device — no proprietary client app to install, trust, or audit. And it's **hub-and-spoke by design**: a device connects to one gateway and reaches everything through it, so access control is enforced where the traffic passes instead of punching holes between every pair of sites and hoping the firewall rules stay in sync. A distant site that should keep its traffic local is what edge hubs are being built for; 1.2.0 carries the model, not yet the edge software (see below).
 
 Islandr is **not** Zero Trust Network Access. It is managed VPN access with network segmentation — simpler, cheaper, fully under your control. If you need ZTNA, look at Teleport. If two devices and manual key files are enough, `wg-easy` is simpler. If a SaaS control plane is fine, Tailscale is excellent.
 
@@ -68,10 +68,19 @@ Islandr unifies four things that today require CLI work, manual tutorials, and e
 
 A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Site gateways (UniFi UCG and friends) are static peers configured on their own side. Road warrior clients are the primary target for dynamic management.
 
+A site that is far away — another continent, a bad route — should not send its local
+traffic to the hub and back. **Edge hubs** are being built for that: a second hub at the
+site, with devices dialling it instead of crossing the world to reach a printer in the
+next room, while policy, users and the audit log stay on the central hub. The model is
+in 1.2.0 and the edge software is not, so this is not something to deploy yet.
+
 ```
 [Road Warrior]──┐
 [Home Office]───┼──wg peer──► [Hub VM / Islandr] ◄──wg peer──[UCG site]
-[Mobile]────────┘
+[Mobile]────────┘                      │
+                                  HTTPS│  rules, keys, status
+                                       ▼
+[Devices on site]──wg peer──► [Edge hub, remote site]
 ```
 
 ![QR code & config download](https://islandr-gateway.net/screenshots/light/qr-conf.png)
@@ -191,14 +200,30 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**1.2.0 — a site far from the hub can terminate its own tunnels.**
-Until now every packet between two machines in the same remote office travelled to the
-central hub and back, however far away that was. An edge hub is a second WireGuard hub
-at that location, with its own peers, endpoint and resolver, while access rules, users
-and audit stay in one place. The cycle's hard question was what a peer is: the answer is
-one peer, one hub, named at creation — someone who works in two places gets two device
-entries, each with its own key and address, which keeps a compromised location from
-being a key to anywhere else.
+**1.2.0 — mostly maintenance: less friction in the console.**
+Most of this release is the admin console getting out of the way, and what is new is
+small — figures and history the hub was already collecting, now shown where the question
+gets asked. The peers list used to show a timestamp where the actual question is "is
+this device alive, and how steadily": it now carries 14 days of activity per row, says
+how long a connected device has been connected, and sorts by last handshake. Its rows are a third of the height they were,
+because four labelled buttons used to wrap into three lines at anything under a wide
+screen. The dashboard counts the bytes of the last hour, the topology diagram stays
+legible when you drill into a crowded network, and the update check notices when the
+`update.sh` kept on the hub is older than the release it would install.
+
+Also fixed: an admin viewing someone else's access could add a device there and get it
+themselves, a WireGuard subnet with no room for a single host was accepted at the
+settings page and failed later at the first peer, and every warning banner in seven
+screens named a stylesheet class that does not exist, so none of them had ever been
+amber.
+
+**Edge hubs are groundwork, not a feature you can use.** A second hub at a remote site
+is modelled, configurable and drawn — a device belongs to exactly one hub, its
+configuration points at that hub, and the central hub leaves an edge's devices alone.
+What does not exist is the edge itself: software that fetches its peers and rules from
+the hub over the API and enforces them locally. Until that lands, an edge is a row in a
+database and a WireGuard interface you maintain by hand. Switch it on to model your
+sites; do not plan an office around it.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
@@ -208,15 +233,15 @@ lives in [docs/features.md](docs/features.md).
 Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Edge hubs** — a second WireGuard hub at a remote site, terminating its own tunnels
-- **A peer belongs to exactly one hub**, named at creation and immutable afterwards
-- **An edge peer's configuration points at its edge** — endpoint, server key, and routes for only the networks that edge serves
-- **An edge hub names the resolver its peers should use**, or none
-- **Edge hubs stay invisible until switched on** in the network settings
-- **The self-service portal asks which location a device is for**, and shows it afterwards
-- **The topology diagram and the geo map draw each edge hub** with its own sites and peers
-- **An edge can report its peers' connectivity** and read their preshared keys, scoped to that one edge
-- Fixed: the central hub pushed an edge's peers back onto its own interface every 30 seconds, with the same key and address they use at their edge
+- **The peers list answers its own question** — 14 days of activity per row, how long a connected device has been connected, and sorting by last handshake
+- **Its rows are a third as tall** — four labelled buttons wrapped into three lines below a wide screen; disable and delete moved into the edit dialog and the device type is now its icon
+- **A traffic tile on the dashboard** — bytes in and out over the last hour
+- **The topology diagram survives a crowded network** — the expanded resource list draws on its own panel instead of letting nodes show through, and the view moves to what you just opened
+- **The update check notices a stale `update.sh`** — the copy kept on the hub can be older than the release it is meant to install
+- Fixed: an admin viewing another person's access could add a device there and receive it themselves
+- Fixed: a WireGuard subnet too narrow to ever assign a host was accepted
+- Fixed: warning banners across seven screens named a stylesheet class that does not exist, so none of them were ever amber
+- **Groundwork for edge hubs** — modelled, configurable and drawn, but not usable until there is software at the edge that fetches its configuration and enforces the firewall there. [docs/features.md](docs/features.md) says exactly where the line is
 
 ### Roadmap
 

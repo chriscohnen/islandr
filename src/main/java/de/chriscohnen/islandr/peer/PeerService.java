@@ -345,12 +345,9 @@ public class PeerService {
         // whole peer back.
         String requestedEdge = emptyToNull(req.edgeHubId());
         if (requestedEdge != null && !requestedEdge.equals(peer.edgeHubId)) {
-            throw new WebApplicationException(
-                    Response.status(Response.Status.CONFLICT)
-                            .entity("a peer's hub cannot be changed after it is created — its address "
-                                    + "belongs to that hub's routing domain. Create a new peer at the "
-                                    + "target hub and delete this one.")
-                            .build());
+            // peer-hub-move-to-edge: central -> edge is allowed and handled
+            // here; applyHubMove refuses every other direction with the reason.
+            applyHubMove(peer, requestedEdge);
         }
 
         boolean ipChanged = !peer.assignedIp.equals(req.assignedIp());
@@ -834,6 +831,76 @@ public class PeerService {
      * nothing — would leave a peer whose configuration points at one hub and
      * whose row says another.
      */
+    /**
+     * peer-hub-move-to-edge: move a peer from the central hub to an edge.
+     *
+     * <p>ADR-I-0003 made the assignment immutable because a move shifts an
+     * address between two routing domains while both sides still hold state
+     * about it. That holds in general and not in this one direction: the side
+     * being left is the hub's own interface, so the hub can take the key off
+     * it. Afterwards no key works at two hubs, which is the invariant the
+     * decision is actually protecting.
+     *
+     * <p>Every other direction stays refused, and not because of routing:
+     * until an edge fetches its configuration from the hub
+     * ({@code edge-plan-peers}), the hub cannot revoke anything there. A move
+     * away from an edge would leave a working tunnel behind while the UI
+     * reported success.
+     *
+     * <p>The key pair is not rotated. There is no stale trust to cut, the peer
+     * may have imported its own key, and what actually changes — the entire
+     * {@code [Peer]} block — comes out of the next config download.
+     */
+    @Transactional
+    public PeerDto.Response moveToHub(String peerId, String targetEdgeHubId) {
+        Peer peer = Peer.findById(peerId);
+        if (peer == null) throw new NotFoundException("peer not found: " + peerId);
+        String target = emptyToNull(targetEdgeHubId);
+
+        // Order matters for the message: a peer at an edge gets the reason it
+        // cannot move at all, whatever the target. "Already central" is only
+        // the right answer for a peer that is in fact already central.
+        if (peer.edgeHubId == null && target == null) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("this peer already dials the central hub")
+                            .build());
+        }
+        applyHubMove(peer, target);
+        peer.updatedAt = java.time.Instant.now();
+        peer.persist();
+        return PeerDto.Response.from(peer);
+    }
+
+    /** The guarded half of {@link #moveToHub}, so the edit form can perform the
+     *  same move without a second endpoint and a second set of rules. */
+    private void applyHubMove(Peer peer, String targetEdgeHubId) {
+        if (peer.edgeHubId != null) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.CONFLICT)
+                            .entity("this peer dials edge hub " + peer.edgeHubId + ", and the hub "
+                                    + "cannot revoke a peer at an edge yet — moving it would leave a "
+                                    + "working tunnel there while this console reported success. "
+                                    + "Delete the peer, remove it at the edge, and create a new one.")
+                            .build());
+        }
+        String validated = validateEdgeHubAssignment(targetEdgeHubId, peer.isSite());
+
+        // The order matters: take the key off this hub's interface first, so a
+        // failure here leaves the peer where it was rather than belonging to an
+        // edge while still being trusted centrally.
+        try {
+            wg.removePeer(wgInterface, peer.publicKey);
+        } catch (ProxyUnavailableException e) {
+            LOG.warnf("enforcement unavailable during hub move for peer %s — refusing the move: %s",
+                    peer.id, e.getMessage());
+            throw new WebApplicationException(
+                    "the enforcement plane is unreachable, so this peer cannot be taken off the "
+                    + "hub's interface — try again once it is back", 503);
+        }
+        peer.edgeHubId = validated;
+    }
+
     private String validateEdgeHubAssignment(String edgeHubId, boolean isSite) {
         if (edgeHubId == null) return null;
         if (isSite) {

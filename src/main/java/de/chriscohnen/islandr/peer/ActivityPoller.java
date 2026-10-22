@@ -48,6 +48,7 @@ public class ActivityPoller {
     @ConfigProperty(name = "islandr.wg.drift-repush-enabled", defaultValue = "true")
     boolean driftRepushEnabled;
 
+    @Inject TrafficWindowStats trafficWindow;
     @Inject WgAdapter wg;
     @Inject PeerService peerService;
     @Inject SettingsService settingsSvc;
@@ -170,6 +171,10 @@ public class ActivityPoller {
         // peer, issue #77) never fires for the one case it exists for.
         if (Duration.between(lastHandshake, now).compareTo(PeerConnectionStatus.CONNECTED_WINDOW) < 0) {
             bumpDailyActivity(p.id, now, Math.max(0, rxDelta), Math.max(0, txDelta));
+            // Same deltas, same gate: the rolling hour on the dashboard counts
+            // what the daily row counts, so the two can never tell different
+            // stories about the same traffic.
+            trafficWindow.record(Math.max(0, rxDelta), Math.max(0, txDelta));
         }
         return true;
     }
@@ -224,6 +229,14 @@ public class ActivityPoller {
             if (previous == null || previous == current) continue;
             boolean wasConnected = previous == PeerConnectionStatus.CONNECTED;
             boolean isConnected = current == PeerConnectionStatus.CONNECTED;
+            // peers-list-at-a-glance: the same transition the webhooks fire on
+            // also marks where the current connected stretch began. Only on a
+            // real transition — previous == null (first tick after a restart)
+            // is skipped above, which leaves connectedSince null rather than
+            // claiming the peer connected when the hub booted.
+            if (isConnected != wasConnected) {
+                p.connectedSince = isConnected ? now : null;
+            }
             if (isConnected && !wasConnected) {
                 webhooks.publish(de.chriscohnen.islandr.webhook.WebhookEventType.PEER_CONNECTED,
                         "system:activity-poller", "Peer:" + p.id, Map.of("peerId", p.id, "name", p.name));

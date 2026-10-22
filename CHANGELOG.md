@@ -10,18 +10,31 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ## 1.2.0
 
-- **Edge hubs** — a second WireGuard hub at a remote site, terminating its own tunnels. A site far from the central hub stops routing its local traffic across the world and back
-- **A peer belongs to exactly one hub**, named when it is created and not changed afterwards. Someone who works at two locations gets one device entry per location, each with its own key, address and configuration
-- **An edge peer's `.conf` points at its edge** — its endpoint, its server key, and routes for only the networks that edge serves
-- **An edge hub names the resolver its peers should use**, or none. The central hub's resolver is not reachable from an edge unless an operator built that path themselves
-- **Edge hubs are off until switched on** in the network settings — an installation with one hub never sees the concept
-- **The self-service portal asks which location a new device is for**, and says where each existing device dials in
-- **The topology diagram draws each edge hub with its own sites and peers around it**, and the geo map draws the hub-to-edge relationship
-- **An edge can report connectivity for the peers connected to it**, so they leave "Disconnected" on the dashboard
-- **An edge can read the preshared keys of the peers it may serve**, scoped to that one edge
-- **The update check notices when a locally-kept `update.sh` is behind the release**
-- Fixed: the central hub pushed peers belonging to an edge back onto its own interface every 30 seconds, with the same key and the same `AllowedIPs` they have at their edge
-- Fixed: a WireGuard subnet too narrow to ever assign a host was accepted
+Mostly maintenance: a console that is faster to read, a handful of long-standing
+rough edges gone, and what is new kept small — figures and history already being
+collected, now shown where the question gets asked.
+
+- **The peers list answers its own question** — 14 days of activity as a sparkline per row, how long a connected device has been connected, and sorting by last handshake
+- **Its rows are a third as tall** — four labelled action buttons wrapped into three lines below a wide screen. Disable and delete moved into the edit dialog, the device type is now its icon with the word as a tooltip, and the roadwarrior and edge markers became corner flags instead of pills
+- **A traffic tile on the dashboard** — bytes in and out over the last hour
+- **The topology diagram survives a crowded network** — an expanded resource list draws on its own panel instead of letting the nodes behind it show through, that panel now starts beside the network box rather than on it, and the view moves to whatever you just opened
+- **The update check notices a stale `update.sh`** — the copy kept on the hub can be older than the release it is meant to install
+- Fixed: an admin viewing another person's access could add a device from there and receive it themselves
+- Fixed: a WireGuard subnet too narrow to ever assign a host was accepted at the settings page, instead of failing later at the first peer
+- Fixed: warning banners across seven screens named a stylesheet class that does not exist, so none of them had ever carried their amber styling
+
+**Groundwork: edge hubs.** A second WireGuard hub at a remote site is modelled,
+configurable and drawn, but **not usable yet** — it needs software at the edge that
+fetches its peers and rules from the hub over the API and enforces the firewall there,
+and that does not exist. Until it does, an edge is a database row and a WireGuard
+interface maintained by hand. Off until switched on in the network settings; an
+installation with one hub sees nothing of it.
+
+- A peer belongs to exactly one hub, named when it is created and not changed afterwards, and its configuration points at that hub — endpoint, server key, routed networks and resolver
+- A peer at the central hub can be moved to an edge; the other directions are refused, because the hub cannot revoke a peer at an edge yet
+- The central hub leaves an edge's peers alone — not pushed onto its interface by the drift reconciler, not rendered into its ruleset
+- The portal asks which location a new device is for, and says where each existing device dials in
+- An edge can report connectivity for the peers connected to it and read the preshared keys of the peers it may serve, both scoped to that one edge
 
 ## 1.1.0
 

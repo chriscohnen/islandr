@@ -234,13 +234,20 @@ class MyPeerResourceEditTest {
         return u.id;
     }
 
+    /** Counted, not random. This drew from a 90-address range with
+     *  {@code Math.random()}, and with nine inserts a run the birthday
+     *  collision against {@code peers.assigned_ip} came up often enough to
+     *  redden a whole suite run for no reason (seen 2026-10-22). */
+    private static final java.util.concurrent.atomic.AtomicInteger HOST =
+            new java.util.concurrent.atomic.AtomicInteger(150);
+
     @Transactional
     String persistPeer(String userId, String name, String deviceType) {
         byte[] keyBytes = new byte[32];
         new java.security.SecureRandom().nextBytes(keyBytes);
         String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
         Peer p = Peer.createNew(userId, name, publicKey,
-                "10.9.0." + (150 + (int) (Math.random() * 90)));
+                "10.9.0." + HOST.getAndIncrement());
         p.deviceType = deviceType;
         p.persist();
         return p.id;

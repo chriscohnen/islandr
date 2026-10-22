@@ -38,6 +38,13 @@ const RESOURCE_ICON_R = 10;      // small icon circle at the start of each row
 const RESOURCE_LIST_GAP = 50;    // network box edge → row icons, horizontal
 const RESOURCE_SPINE_GAP = 22;   // network box edge → the vertical tree spine
 const RESOURCE_LABEL_W = 130;    // approx label width, for viewBox sizing only
+// Advance per glyph of .node-label (var(--font-mono) at 11px). Used where the
+// drawn width has to match what is actually there — the backdrop panel —
+// rather than reserve a safe maximum.
+const LABEL_CHAR_W = 6.6;
+// Clear space between the expanded network's box and the resource panel, so
+// the box and its branch line stay legible instead of butting against it.
+const NODE_GAP = 14;
 const RESOURCE_TREE_CORNER_R = 8; // corner radius where a branch leaves the spine
 // topology-expanded-site-columns: pitch between columns once a site's
 // resources wrap past one column — icon width plus the label's own
@@ -446,8 +453,15 @@ export default defineComponent({
       const pts = [];
       for (const item of this.resourceLayout) {
         const iconEdge = item.dir > 0 ? item.x - RESOURCE_ICON_R : item.x + RESOURCE_ICON_R;
-        const labelEdge = item.dir > 0 ? item.x + RESOURCE_ICON_R + RESOURCE_LABEL_W
-                                        : item.x - RESOURCE_ICON_R - RESOURCE_LABEL_W;
+        // The label's real width, not RESOURCE_LABEL_W. That constant is a
+        // deliberate over-estimate for column pitch and viewBox padding, where
+        // reserving too much is harmless — behind a drawn panel it is not:
+        // measured 2026-10-22, it left 35px of dead backdrop past the longest
+        // label. Names are truncated to 14 characters plus an ellipsis and set
+        // in the mono face at 11px, so the glyph count is the width.
+        const labelW = RESOURCE_ICON_R + 6
+            + this.truncateResourceName(item.resource.name).length * LABEL_CHAR_W;
+        const labelEdge = item.x + item.dir * labelW;
         pts.push({ x: Math.min(iconEdge, labelEdge), y: item.y - RESOURCE_ICON_R });
         pts.push({ x: Math.max(iconEdge, labelEdge), y: item.y + RESOURCE_ICON_R });
       }
@@ -463,17 +477,26 @@ export default defineComponent({
       const net = this.visibleNetworks.find((n) => n.site.id === this.expandedSiteId);
       const dir = this.resourceLayout[0].dir;
       const edgeX = net ? net.x + dir * NODE_HALF_W : null;
+      // Only the y of these two: their x is the node's edge, and the panel
+      // must start beside the node, not on it (see NODE_GAP below).
       if (edgeX !== null) {
-        pts.push({ x: edgeX, y: net.y });
+        pts.push({ x: edgeX + dir * NODE_GAP, y: net.y });
         if (this.resourceColumnBypassY !== null && this.resourceLayout.some((r) => r.col > 0)) {
-          pts.push({ x: edgeX, y: this.resourceColumnBypassY });
+          pts.push({ x: edgeX + dir * NODE_GAP, y: this.resourceColumnBypassY });
         }
       }
       const PAD = 8;
-      const minX = Math.min(...pts.map((p) => p.x)) - PAD;
-      const maxX = Math.max(...pts.map((p) => p.x)) + PAD;
+      let minX = Math.min(...pts.map((p) => p.x)) - PAD;
+      let maxX = Math.max(...pts.map((p) => p.x)) + PAD;
       const minY = Math.min(...pts.map((p) => p.y)) - PAD;
       const maxY = Math.max(...pts.map((p) => p.y)) + PAD;
+      // The near edge is a hard bound, not a padded one: PAD pulled it back
+      // across the node box's edge, so the panel started 5px *inside* the node
+      // (measured 2026-10-22) instead of leaving a gap beside it.
+      if (edgeX !== null) {
+        if (dir > 0) minX = edgeX + NODE_GAP;
+        else maxX = edgeX - NODE_GAP;
+      }
       return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     },
     // Site-type peers are already represented by their gateway node (ring color
@@ -892,6 +915,40 @@ export default defineComponent({
       this.resetPan();
       this.expandedGatewayId = this.expandedGatewayId === gatewayPeerId ? null : gatewayPeerId;
     },
+    /**
+     * topology-center-on-expand: put the window over what was just opened.
+     *
+     * The viewBox is capped (MAX_VIEW_W/H) and centred on the whole content
+     * bbox. Expanding a network grows that bbox on one side, so the thing the
+     * operator just clicked slides toward the edge and off it — the diagram
+     * looked cut off exactly when it had the most to show. Panning is possible
+     * but nothing says so, and nobody drags a diagram they believe is broken.
+     *
+     * Runs after the layout recomputes, because the rows it measures do not
+     * exist until expandedSiteId is set. The clamp in viewBoxRect still
+     * applies, so this can never pan into empty space.
+     */
+    centerOnExpandedNetwork() {
+      this.$nextTick(() => {
+        const net = this.visibleNetworks.find((n) => n.expanded);
+        if (!net || !this.needsPan) return;
+        const pts = [
+          { x: net.x - NODE_HALF_W, y: net.y - NODE_HALF_H },
+          { x: net.x + NODE_HALF_W, y: net.y + NODE_HALF_H },
+        ];
+        for (const r of this.resourceLayout) {
+          const labelEdge = r.dir > 0 ? r.x + RESOURCE_ICON_R + RESOURCE_LABEL_W
+                                       : r.x - RESOURCE_ICON_R - RESOURCE_LABEL_W;
+          pts.push({ x: Math.min(r.x, labelEdge), y: r.y - RESOURCE_ICON_R });
+          pts.push({ x: Math.max(r.x, labelEdge), y: r.y + RESOURCE_ICON_R });
+        }
+        const cx = (Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2;
+        const cy = (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2;
+        const b = this.contentBBox;
+        this.panX = cx - (b.x + b.w / 2);
+        this.panY = cy - (b.y + b.h / 2);
+      });
+    },
     onNetworkClick(site) {
       this.resetPan();
       if (this.expandedSiteId === site.id) {
@@ -910,6 +967,7 @@ export default defineComponent({
       }
       this.expandedSiteId = site.id;
       this.maybeLoadSiteResources(site);
+      this.centerOnExpandedNetwork();
     },
     // The diagram-wide payload caps resources at TOPOLOGY_RESOURCE_CAP; a
     // network whose resources didn't make that cap would otherwise fan out
@@ -924,6 +982,10 @@ export default defineComponent({
         if (res.ok) {
           const data = await res.json();
           this.siteResourceCache = { ...this.siteResourceCache, [site.id]: data };
+          // The rows this site actually has arrive here, not at click time —
+          // centring on the partial layout would leave the full one off to
+          // one side again, which is the bug this is part of fixing.
+          this.centerOnExpandedNetwork();
         }
       } catch (e) {
         // Silent — the "hidden due to display limit" fallback in the template

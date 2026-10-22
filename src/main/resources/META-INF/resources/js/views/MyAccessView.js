@@ -1163,7 +1163,10 @@ export default defineComponent({
         <div v-else-if="peers.length === 0" class="empty-state">
           <h2>{{ t('myaccess.empty_title') }}</h2>
           <p>{{ t(selfServicePeerCreation ? 'myaccess.setup_s2_self' : 'myaccess.setup_s2_admin') }}</p>
-          <button v-if="selfServicePeerCreation" class="btn btn-primary btn-sm" @click="openCreate" style="margin-top: var(--space-3)">{{ t('myaccess.add_btn') }}</button>
+          <!-- !viewAsUserId like the other one: without it an admin looking at
+               someone else's access could add a device here, and it would be
+               created for the admin, not for the person on screen. -->
+          <button v-if="selfServicePeerCreation && !viewAsUserId" class="btn btn-primary btn-sm" @click="openCreate" style="margin-top: var(--space-3)">{{ t('myaccess.add_btn') }}</button>
         </div>
 
     <table v-else class="table">

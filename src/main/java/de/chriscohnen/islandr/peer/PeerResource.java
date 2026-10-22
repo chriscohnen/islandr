@@ -321,6 +321,33 @@ public class PeerResource {
      * Returns 404 if the peer is not found in the DB, 409 if the peer already
      * has a PSK stored (use the edit form to rotate/remove it explicitly).
      */
+    /**
+     * peer-hub-move-to-edge: move a central-hub peer to an edge hub. The only
+     * direction that exists — see {@code PeerService.moveToHub} for why the
+     * others are refused rather than merely unimplemented.
+     *
+     * <p>The device needs its configuration again afterwards: endpoint, server
+     * key, routed networks and resolver all change. The key pair does not, so
+     * the existing one keeps working once the new {@code [Peer]} block is in
+     * place.
+     */
+    @POST
+    @Path("/{id}/hub")
+    public PeerDto.Response moveHub(@Context ContainerRequestContext ctx, @PathParam("id") String id,
+                                     PeerDto.MoveHubRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Peer before = Peer.findById(id);
+        String from = before == null ? null : before.edgeHubId;
+        PeerDto.Response out = peers.moveToHub(id, body == null ? null : body.edgeHubId());
+        audit.logUpdate(a.principal(), "peer.hub_move",
+                "Peer:" + out.name() + " (" + id + ")",
+                Map.of("edgeHubId", from == null ? "" : from),
+                Map.of("edgeHubId", out.edgeHubId() == null ? "" : out.edgeHubId()));
+        // The peer leaves the hub's ruleset with the move (edge-drift-exclusion).
+        rulesets.recomputeFromHook();
+        return out;
+    }
+
     @POST
     @Path("/{id}/psk/sync-from-wg")
     @jakarta.transaction.Transactional

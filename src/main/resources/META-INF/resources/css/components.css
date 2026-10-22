@@ -162,8 +162,30 @@
   clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
   color: var(--rw-fg);
 }
+/* peers-row-flags: the same corner treatment for "this peer dials an edge
+   hub". Bottom-left rather than top-left, so a peer that is both a roadwarrior
+   and an edge peer shows two distinct marks instead of one covering the other.
+   Both are informational, both are focusable, and neither hides an action. */
+.edge-flag { position: absolute; bottom: 0; left: 0; width: 28px; height: 28px; outline: none; cursor: default; }
+.edge-band {
+  position: absolute; bottom: 0; left: 0;
+  height: 16px; line-height: 16px;
+  padding: 0 22px 0 8px;
+  font-size: var(--text-2xs); white-space: nowrap;
+  background: var(--info-solid);
+  color: transparent;
+  clip-path: polygon(0 100%, 14px 100%, 0 calc(100% - 14px), 0 calc(100% - 14px));
+  transition: clip-path var(--dur) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+.edge-flag:hover .edge-band,
+.edge-flag:focus-visible .edge-band {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
+  color: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .rw-band { transition: none; }
+  .rw-band,
+  .edge-band { transition: none; }
 }
 
 .tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; font-size: var(--text-xs); font-weight: var(--weight-medium); border-radius: var(--radius-sm); background: var(--surface-3); color: var(--fg2); border: 1px solid var(--border); }
@@ -190,6 +212,12 @@
 .table td.table-actions {
   width: 1%;
   text-align: right;
+  /* One line, always. Four labelled buttons wrapped into three lines at 1280px
+     and tripled the height of every row in the table — the row became a block
+     and the list stopped being scannable. Keeping them on one line pushes the
+     squeeze onto the text columns beside it, which can wrap without costing
+     anything. */
+  white-space: nowrap;
 }
 
 /* A table inside its own scroll box (see .table-scroll) keeps its header in
@@ -220,3 +248,37 @@
    hasn't loaded yet). Width is driven by real progress, not looped. */
 .progress { height: 6px; border-radius: var(--radius-full); background: var(--surface-3); overflow: hidden; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: inherit; transition: width var(--dur) var(--ease-standard); }
+
+/* peers-list-at-a-glance: a 14-day activity sparkline inside a table row.
+   Bars, not a line: the series is one measurement per day, and a line would
+   draw slopes between days that were never measured. Sized in em so it
+   follows the row's type scale rather than fighting it. */
+.peer-spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 1.6em;
+  width: 6em;
+}
+.peer-spark i {
+  flex: 1 1 0;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+/* A day with no connection is drawn as a short neutral stub, not a faded
+   accent bar: at low opacity the whole row read as a dotted rule rather than
+   as a series. The stub says "measured, nothing there" and keeps the active
+   days the only thing coloured. */
+.peer-spark i.is-quiet {
+  background: var(--border);
+  opacity: 1;
+}
+
+/* peers-table-density: a horizontal escape hatch for a wide table. Used where
+   the action cell must not wrap (see .table-actions) — the row then has a
+   minimum width, and below it the table scrolls sideways rather than folding
+   its buttons into a block three lines tall. */
+.table-xscroll {
+  overflow-x: auto;
+}

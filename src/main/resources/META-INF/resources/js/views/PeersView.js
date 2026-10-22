@@ -20,6 +20,9 @@ export default defineComponent({
   data() {
     return {
       peers: [],
+      // peers-list-at-a-glance: peerId -> array of daily sample counts, oldest
+      // first. Best-effort — an empty map just means no sparklines.
+      activityByPeer: {},
       users: [],
       usersById: {},
       // peerId -> true for every peer with a recurring schedule (#47) — one
@@ -138,10 +141,17 @@ export default defineComponent({
       this.loading = true;
       this.error = null;
       try {
-        const [peersRes, usersRes, schedulesRes] = await Promise.all([
+        const [peersRes, usersRes, schedulesRes, activityRes, edgeHubsRes] = await Promise.all([
           fetch("/api/v1/peers"),
           fetch("/api/v1/users"),
           fetch("/api/v1/peers/schedules"),
+          // One call for the whole table, not one per row — the same endpoint
+          // the dashboard heatmap uses, asked for a shorter span.
+          fetch("/api/v1/peers/activity-heatmap?days=14"),
+          // The list's hub badge needs names, and the mixin only fetched them
+          // when a dialog opened — so until an admin opened one, every edge
+          // peer wore its raw id. Best-effort: no hubs, no badges.
+          fetch("/api/v1/edge-hubs"),
         ]);
         if (!peersRes.ok) throw new Error("Peers HTTP " + peersRes.status);
         if (!usersRes.ok) throw new Error("Users HTTP " + usersRes.status);
@@ -154,6 +164,18 @@ export default defineComponent({
         if (schedulesRes.ok) {
           const schedules = await schedulesRes.json();
           this.scheduledPeerIds = Object.fromEntries(schedules.map((s) => [s.peerId, true]));
+        }
+        // Best-effort, same posture as the schedules above.
+        this.activityByPeer = {};
+        if (activityRes.ok) {
+          const heatmap = await activityRes.json();
+          for (const row of heatmap.peers || []) {
+            this.activityByPeer[row.peerId] = row.sampleHits || [];
+          }
+        }
+        if (edgeHubsRes.ok) {
+          const hubs = await edgeHubsRes.json();
+          this.edgeHubs = Array.isArray(hubs) ? hubs : [];
         }
         if (!this.createUserId && this.users.length > 0) {
           this.createUserId = this.users[0].id;
@@ -348,8 +370,46 @@ export default defineComponent({
       if (this.sortKey !== key) return "↕";
       return this.sortDir === 1 ? "↑" : "↓";
     },
+    // peers-actions-in-dialog: the hooks the shared peer dialog looks for.
+    // Named rather than inlined so the dialog stays unaware of this view.
+    onPeerToggleEnabled(peer) { this.toggleEnabled(peer); },
+    onPeerDelete(peer) { this.deletePeer(peer.id); },
+    deviceTypeLabel(p) {
+      return { laptop: t('peers.dev_laptop'), desktop: t('peers.dev_desktop'),
+               mobile: t('peers.dev_mobile'), tablet: t('peers.dev_tablet'),
+               server: t('peers.dev_server'), other: t('peers.dev_other') }[p.deviceType]
+             || t('peers.dev_other');
+    },
     formatDate(iso) { return formatDate(iso); },
     formatDay(iso) { return formatDay(iso); },
+    /** peers-list-at-a-glance: the 14-day activity of one peer as bar heights
+     *  in percent. Scaled against that peer's own busiest day, not a global
+     *  maximum — the question this answers is "is this peer alive and how
+     *  steadily", not "which peer is busiest", and a global scale would flatten
+     *  every quiet peer into one indistinguishable line. */
+    sparkline(peerId) {
+      const hits = this.activityByPeer[peerId];
+      if (!hits || hits.length === 0) return [];
+      const max = Math.max(...hits);
+      if (max <= 0) return hits.map(() => 0);
+      return hits.map((h) => Math.round((h / max) * 100));
+    },
+    /** "2h 45m" / "3d 4h" — the current connected stretch, or null when the
+     *  poller has no baseline for it (after a restart, see Peer.connectedSince).
+     *  The caller falls back to the last handshake then. */
+    connectedFor(p) {
+      if (!p.connectedSince) return null;
+      const ms = Date.now() - new Date(p.connectedSince).getTime();
+      if (ms < 0) return null;
+      const mins = Math.floor(ms / 60000);
+      if (mins < 1) return t('peers.connected_just_now');
+      const days = Math.floor(mins / 1440);
+      const hours = Math.floor((mins % 1440) / 60);
+      if (days > 0) return days + "d " + hours + "h";
+      const rem = mins % 60;
+      if (hours > 0) return hours + "h " + rem + "m";
+      return rem + "m";
+    },
     connectionBadgeClass(p) { return connectionBadgeClass(p); },
     connectionLabelKey(p) { return connectionLabelKey(p); },
   },
@@ -388,7 +448,12 @@ export default defineComponent({
       <p>{{ t('peers.empty_desc') }}</p>
     </div>
 
-    <table v-else class="table">
+    <!-- peers-table-density: the action cell no longer wraps, which keeps
+         rows one line tall and pushes the table past narrow viewports
+         instead. This is the way out: columns stay readable and the buttons
+         stay reachable. -->
+    <div v-else class="table-xscroll">
+    <table class="table">
       <thead>
         <tr>
           <th @click="sortBy('name')" style="cursor: pointer; user-select: none; white-space: nowrap; width: 22%">
@@ -403,31 +468,49 @@ export default defineComponent({
           <th @click="sortBy('assignedIp')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_ip') }} <span class="muted" style="font-size: 10px">{{ sortIcon('assignedIp') }}</span>
           </th>
-          <th @click="sortBy('enabled')" style="cursor: pointer; user-select: none; white-space: nowrap">
-            {{ t('peers.th_status') }} <span class="muted" style="font-size: 10px">{{ sortIcon('enabled') }}</span>
-          </th>
-          <th>{{ t('peers.th_handshake') }}</th>
           <th @click="sortBy('updatedAt')" style="cursor: pointer; user-select: none; white-space: nowrap">
             {{ t('peers.th_updated') }} <span class="muted" style="font-size: 10px">{{ sortIcon('updatedAt') }}</span>
           </th>
+          <th @click="sortBy('enabled')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_status') }} <span class="muted" style="font-size: 10px">{{ sortIcon('enabled') }}</span>
+          </th>
+          <!-- Sortable, like every other column that answers a question about
+               the peer itself. The comparator below already handles ISO dates
+               and puts "never connected" last in both directions; only the
+               handle was missing, which made this the one column you could
+               read but not order by. -->
+          <th @click="sortBy('lastSeenAt')" style="cursor: pointer; user-select: none; white-space: nowrap">
+            {{ t('peers.th_handshake') }} <span class="muted" style="font-size: 10px">{{ sortIcon('lastSeenAt') }}</span>
+          </th>
+          <th>{{ t('peers.th_activity') }}</th>
           <th class="table-actions"></th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="p in visiblePeers" :key="p.id">
-          <td>{{ p.name }}</td>
+          <!-- peers-row-flags: roadwarrior top-left, edge hub bottom-left. They
+               were pills inside the type cell, which widened a column that is
+               mostly one short word and made the row read as a list of tags
+               rather than a device. -->
+          <td class="peer-name-cell">
+            <span v-if="p.isRoadwarrior" class="rw-flag" tabindex="0" role="note" :aria-label="t('peers.roadwarrior_badge')">
+              <span class="rw-band" aria-hidden="true">{{ t('peers.roadwarrior_badge') }}</span>
+            </span>
+            <span v-if="p.edgeHubId" class="edge-flag" tabindex="0" role="note"
+                  :aria-label="t('peers.hub_badge', { name: edgeHubName(p.edgeHubId) })">
+              <span class="edge-band" aria-hidden="true">{{ t('peers.hub_badge', { name: edgeHubName(p.edgeHubId) }) }}</span>
+            </span>
+            {{ p.name }}
+          </td>
           <td>
+            <!-- The icon carries it and the word is the tooltip: this column
+                 held one short, highly repetitive word per row and cost more
+                 width than it earned. The label stays reachable by pointer and
+                 by screen reader, so nothing is hidden, only quieter. -->
             <span v-if="p.type === 'site'" class="badge badge-info">{{ t('peers.type_site') }}</span>
-            <span v-else style="display: inline-flex; align-items: center; gap: var(--space-2); color: var(--fg2); font-size: var(--text-sm)">
-              <Icon :name="p.deviceType && p.deviceType !== 'other' ? p.deviceType : 'peers'" :size="15" />
-              {{ { laptop: t('peers.dev_laptop'), desktop: t('peers.dev_desktop'), mobile: t('peers.dev_mobile'), tablet: t('peers.dev_tablet'), server: t('peers.dev_server'), other: t('peers.dev_other') }[p.deviceType] || t('peers.dev_other') }}
-              <span v-if="p.isRoadwarrior" class="badge badge-neutral" :title="t('peers.roadwarrior_hint')">{{ t('peers.roadwarrior_badge') }}</span>
-              <!-- peer-hub-assignment: shown only for an edge peer. Without it
-                   the refusal to delete an edge ("N peers still dial in here")
-                   names a number the admin cannot resolve to rows. A central-hub
-                   peer stays unmarked — that is the default, and marking it
-                   would put a pill on nearly every row. -->
-              <span v-if="p.edgeHubId" class="badge badge-info" :title="t('peers.hub_badge_hint')">{{ edgeHubName(p.edgeHubId) }}</span>
+            <span v-else style="display: inline-flex; align-items: center; color: var(--fg2)"
+                  :title="deviceTypeLabel(p)" :aria-label="deviceTypeLabel(p)" role="img">
+              <Icon :name="p.deviceType && p.deviceType !== 'other' ? p.deviceType : 'peers'" :size="17" />
             </span>
           </td>
           <td>
@@ -440,6 +523,7 @@ export default defineComponent({
               → {{ p.siteAllowedCidrs }}
             </div>
           </td>
+          <td class="muted">{{ formatDate(p.updatedAt) }}</td>
           <td>
             <span v-if="!p.enabled" class="badge badge-neutral">
               <span class="dot"></span>{{ t('peers.status_disabled') }}
@@ -447,6 +531,13 @@ export default defineComponent({
             <span v-else :class="['badge', connectionBadgeClass(p)]">
               <span class="dot"></span>{{ t(connectionLabelKey(p)) }}
             </span>
+            <!-- The duration qualifies the status, so it sits under the badge
+                 rather than under the handshake timestamp. As a third line in
+                 that cell it wrapped the date with it, which is what made
+                 every row in this table three lines tall. -->
+            <div v-if="connectedFor(p)" class="muted" style="font-size: var(--text-xs); margin-top: 3px">
+              {{ t('peers.connected_since_short', { d: connectedFor(p) }) }}
+            </div>
             <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 2px">
               <span v-if="p.validUntil" class="muted" style="font-size: var(--text-xs)">
                 {{ t('peers.expires_label', { date: formatDay(p.validUntil) }) }}
@@ -464,19 +555,23 @@ export default defineComponent({
             </div>
           </td>
           <td class="muted">{{ p.lastSeenAt ? formatDate(p.lastSeenAt) : "—" }}</td>
-          <td class="muted">{{ formatDate(p.updatedAt) }}</td>
+          <td>
+            <!-- peers-list-at-a-glance: 14 days of activity, scaled per peer.
+                 A bar of zero height still draws its baseline, so a quiet day
+                 reads as "measured, nothing there" rather than as a gap. -->
+            <span v-if="sparkline(p.id).length" class="peer-spark" :title="t('peers.activity_hint')">
+              <i v-for="(h, i) in sparkline(p.id)" :key="i" :class="{ 'is-quiet': h === 0 }" :style="{ height: Math.max(h, 12) + '%' }"></i>
+            </span>
+            <span v-else class="muted">—</span>
+          </td>
           <td class="table-actions">
             <button class="btn btn-ghost btn-sm" @click="openEditPeer(p)"><Icon name="edit" :size="13" />{{ t('peers.btn_edit') }}</button>
             <button class="btn btn-ghost btn-sm" @click="openReshow(p.userId, p.id)"><Icon name="qr-code" :size="13" />{{ t('peers.btn_qr') }}</button>
-            <button class="btn btn-ghost btn-sm" @click="toggleEnabled(p)">
-              <Icon :name="p.enabled ? 'pause-circle' : 'play-circle'" :size="13" />
-              {{ p.enabled ? t('peers.btn_disable') : t('peers.btn_enable') }}
-            </button>
-            <button class="btn btn-ghost btn-sm" @click="deletePeer(p.id)"><Icon name="trash" :size="13" />{{ t('peers.btn_delete') }}</button>
           </td>
         </tr>
       </tbody>
     </table>
+    </div>
 
     ${peerModalTemplate}
 

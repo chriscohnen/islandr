@@ -165,8 +165,17 @@ class PeerHubAssignmentTest {
 
     // ── 2. Not changeable ─────────────────────────────────────────────────
 
+    /**
+     * Narrowed on 2026-10-22 by peer-hub-move-to-edge: the one direction that
+     * <i>is</i> possible — central to edge — is now performed rather than
+     * refused, because the hub owns the interface being left and can take the
+     * key off it. Everything this test was written to protect still holds: a
+     * peer that already dials an edge cannot be moved by an update, since the
+     * hub has no way to revoke it there (see PeerHubMoveTest for the whole
+     * rule set).
+     */
     @Test
-    void theAssignmentCannotBeChangedByAnUpdate() {
+    void anEdgePeersAssignmentStillCannotBeChangedByAnUpdate() {
         String ip = nextIp();
         String userId = createUser();
         String edgeId = createEdge();
@@ -179,7 +188,26 @@ class PeerHubAssignmentTest {
                 .body("{\"name\":\"" + MARK + "-moved\",\"assignedIp\":\"" + ip + "\",\"edgeHubId\":\"" + otherEdge + "\"}")
                 .when().put("/api/v1/peers/" + id)
                 .then().statusCode(409)
-                .body(containsString("cannot be changed after it is created"));
+                .body(containsString("cannot revoke"));
+
+        assertThat(findEdgeHubId(id)).isEqualTo(edgeId);
+    }
+
+    /** The counterpart: a peer at the central hub may be sent to an edge from
+     *  the same form, which is what an admin reaches for first. */
+    @Test
+    void aCentralPeersAssignmentCanBeSetByAnUpdate() {
+        String ip = nextIp();
+        String userId = createUser();
+        String edgeId = createEdge();
+        String id = given().contentType("application/json").body(createBody(ip, null, null))
+                .when().post("/api/v1/users/" + userId + "/peers")
+                .then().statusCode(201).extract().path("peer.id");
+
+        given().contentType("application/json")
+                .body("{\"name\":\"" + MARK + "-moved\",\"assignedIp\":\"" + ip + "\",\"edgeHubId\":\"" + edgeId + "\"}")
+                .when().put("/api/v1/peers/" + id)
+                .then().statusCode(200);
 
         assertThat(findEdgeHubId(id)).isEqualTo(edgeId);
     }

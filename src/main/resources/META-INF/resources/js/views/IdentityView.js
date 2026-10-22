@@ -714,7 +714,7 @@ export default defineComponent({
         </div>
 
         <div v-if="anyProviderActive && !(activeProvider && activeProvider.providerKey === editing)"
-             class="callout callout-warn" style="margin-bottom: var(--space-4)">
+             class="callout callout-warning" style="margin-bottom: var(--space-4)">
           {{ t('identity.edit_replaces', { current: pendingSwitchLabel('current') }) }}
         </div>
 
@@ -785,7 +785,7 @@ export default defineComponent({
         <div v-if="customError" class="error-banner" style="margin-bottom: var(--space-4)">{{ customError }}</div>
 
         <div v-if="anyProviderActive && !(editingCustomProvider && editingCustomProvider.enabled)"
-             class="callout callout-warn" style="margin-bottom: var(--space-4)">
+             class="callout callout-warning" style="margin-bottom: var(--space-4)">
           {{ t('identity.edit_replaces', { current: pendingSwitchLabel('current') }) }}
         </div>
 

@@ -154,6 +154,12 @@ export default defineComponent({
                  refusal in the peer dialog names a condition the admin would
                  have to go looking for. -->
             <span v-if="!h.canServePeers" class="badge badge-warning" style="margin-top:4px" :title="t('edge_hubs.incomplete_hint')">{{ t('edge_hubs.incomplete') }}</span>
+            <!-- An edge that can take peers but serves no network is a tunnel
+                 to nowhere: the portal offers a location only to someone who
+                 can reach something there, so it offers this one to nobody.
+                 Shown after the readiness badge, never beside it — one missing
+                 thing at a time, in the order they have to be done. -->
+            <span v-else-if="h.siteCount === 0" class="badge badge-warning" style="margin-top:4px" :title="t('edge_hubs.no_sites_hint')">{{ t('edge_hubs.no_sites') }}</span>
           </td>
           <td>
             <span style="display:inline-flex;align-items:center;gap:var(--space-2)">

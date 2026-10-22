@@ -76,7 +76,11 @@ public final class PeerDto {
             // have assigned a peer to one they cannot. null for a peer at the
             // central hub, and null for every caller that doesn't need it
             // (only "Mein Zugang" shows it), same shape as dnsFqdn above.
-            String edgeHubName
+            String edgeHubName,
+            // peers-list-at-a-glance: start of the current connected stretch,
+            // so a list can show a duration instead of a bare timestamp. null
+            // when unknown — see Peer.connectedSince.
+            java.time.Instant connectedSince
     ) {
         public static Response from(Peer p) {
             return from(p, null, 0, null);
@@ -102,7 +106,8 @@ public final class PeerDto {
                     p.mtu, p.persistentKeepalive, p.includeDns,
                     p.lat, p.lng, p.locationLabel,
                     p.validUntil, p.enabledSource, p.deletionRequestedAt,
-                    p.isRoadwarrior, dnsFqdn, activeShareCount, p.edgeHubId, edgeHubName);
+                    p.isRoadwarrior, dnsFqdn, activeShareCount, p.edgeHubId, edgeHubName,
+                    p.connectedSince);
         }
     }
 
@@ -283,6 +288,12 @@ public final class PeerDto {
             // move the decision forbids, performed by forgetting a field.
             String edgeHubId
     ) {}
+
+    /** peer-hub-move-to-edge: the target of {@code POST /peers/{id}/hub}.
+     *  Only a move from the central hub to an edge exists, so this never
+     *  carries null meaningfully — it is a record rather than a bare string so
+     *  the request stays a JSON object like every other body here. */
+    public record MoveHubRequest(String edgeHubId) {}
 
     /** Response shape for {@code GET /api/v1/peers/next-ip}. */
     public record NextIpResponse(String assignedIp) {}

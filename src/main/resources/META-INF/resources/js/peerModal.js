@@ -82,6 +82,10 @@ export const peerModalMixin = {
       // Zuordnung ist nach dem Anlegen unveränderlich (ADR-I-0003), deshalb
       // ein Text und kein Feld.
       editHubLabel: "",
+      // peer-hub-move-to-edge: the edge an already-central peer should be sent
+      // to on save. "" = leave it at the central hub.
+      editMoveToHub: "",
+      editPeerRef: null,
       // Geocoding — meaningful for type='site' only (physical gateway device location).
       siteLat: "",
       siteLng: "",
@@ -285,6 +289,26 @@ export const peerModalMixin = {
       }
     },
 
+    /** True only where the host view wired the two hooks up. UsersView edits
+     *  peers through the same dialog but has no list to disable or delete
+     *  from, so it simply does not show them. */
+    peerActionsAvailable() {
+      return typeof this.onPeerToggleEnabled === "function"
+          && typeof this.onPeerDelete === "function";
+    },
+    modalToggleEnabled() {
+      const peer = this.editPeerRef;
+      this.closeModal();
+      // Through the host's own method, not a fetch of our own: disabling asks
+      // for an optional reason that lands in the audit log, and reimplementing
+      // that here would quietly drop it.
+      this.onPeerToggleEnabled(peer);
+    },
+    modalDeletePeer() {
+      const peer = this.editPeerRef;
+      this.closeModal();
+      this.onPeerDelete(peer);
+    },
     async openEditPeer(peer) {
       this.modalMode = "edit";
       if (peer.edgeHubId && this.edgeHubs.length === 0) await this.loadEdgeHubs();
@@ -299,6 +323,10 @@ export const peerModalMixin = {
       // Leer für einen Peer am Zentral-Hub: dann ist nichts zu erklären, und
       // das Feld bleibt weg statt „Zentral-Hub (nicht änderbar)" zu zeigen.
       this.editHubLabel = this.edgeHubName(peer.edgeHubId);
+      this.editMoveToHub = "";
+      // peers-actions-in-dialog: the row only carries "edit" and "QR/.conf"
+      // now; disabling and deleting live in here and need the peer itself.
+      this.editPeerRef = peer;
       this.editPeerPublicKey = peer.publicKey;
       this.editPeerKeyRotatedAt = peer.keyRotatedAt || null;
       this.editPeerPskRotatedAt = peer.pskRotatedAt || null;
@@ -387,6 +415,12 @@ export const peerModalMixin = {
         // converts to the UTC instant the backend expects.
         validUntil: this.editValidUntil ? new Date(this.editValidUntil + "T23:59:59").toISOString() : null,
       };
+      // peer-hub-move-to-edge: only sent when an edge was actually picked. A
+      // peer that already dials an edge never reaches this field, and the
+      // server refuses that direction regardless.
+      if (this.peerType === "client" && this.editMoveToHub) {
+        payload.edgeHubId = this.editMoveToHub;
+      }
       if (this.peerType === "site") {
         if (!this.siteAllowedCidrs.trim()) {
           this.peerError = t("peer.err_site_cidr");
@@ -406,7 +440,11 @@ export const peerModalMixin = {
           : null;
       const cidrsChanged = (this.editOriginalCidrs || null) !== (normalisedCidrs || null);
       const pskChanged = this.pskAction === "rotate" || this.pskAction === "remove";
-      const shouldReshow = ipChanged || cidrsChanged || pskChanged;
+      // A move changes the whole [Peer] block — endpoint, server key, routed
+      // networks, resolver — so the device needs its configuration again, the
+      // same reason an address change reshows it.
+      const hubChanged = this.peerType === "client" && !!this.editMoveToHub;
+      const shouldReshow = ipChanged || cidrsChanged || pskChanged || hubChanged;
 
       this.creatingPeer = true;
       this.peerError = null;
@@ -832,7 +870,7 @@ export const peerModalTemplate = `
             </label>
           </fieldset>
 
-          <div v-if="peerType !== editOriginalType" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+          <div v-if="peerType !== editOriginalType" class="callout callout-warning" style="margin-bottom: var(--space-4)">
             {{ peerType === 'site' ? t('peer.type_switch_to_site') : t('peer.type_switch_to_client') }}
           </div>
 
@@ -845,14 +883,29 @@ export const peerModalTemplate = `
             <div class="field-hint">{{ t('peer.owner_hint') }}</div>
           </div>
 
+          <!-- peer-hub-move-to-edge: a peer already at an edge stays fixed —
+               the hub cannot revoke it there, so offering the move would
+               promise something it cannot keep. A central peer may be sent to
+               an edge, which is the direction an admin reaches for first. -->
           <div v-if="peerType === 'client' && editHubLabel" class="field" style="margin-bottom: var(--space-4)">
             <label>{{ t('peer.field_hub') }}</label>
             <input class="input" :value="editHubLabel" readonly />
             <div class="field-hint">{{ t('peer.field_hub_fixed_hint') }}</div>
           </div>
+          <div v-else-if="peerType === 'client' && edgeHubs.length > 0" class="field" style="margin-bottom: var(--space-4)">
+            <label for="peerEditHub">{{ t('peer.field_hub') }}</label>
+            <select id="peerEditHub" class="select" v-model="editMoveToHub">
+              <option value="">{{ t('peer.hub_central') }}</option>
+              <option v-for="e in edgeHubs" :key="e.id" :value="e.id">{{ e.name }}</option>
+            </select>
+            <div class="field-hint">{{ t('peer.field_hub_move_hint') }}</div>
+          </div>
+          <div v-if="peerType === 'client' && editMoveToHub" class="callout callout-warning" style="margin-bottom: var(--space-4)">
+            {{ t('peer.hub_move_warning', { name: edgeHubName(editMoveToHub) }) }}
+          </div>
 
           <div v-if="peerType === 'client' && modalUserId !== editOriginalUserId"
-               class="callout callout-warn" style="margin-bottom: var(--space-4)">
+               class="callout callout-warning" style="margin-bottom: var(--space-4)">
             {{ modalUserId ? t('peer.owner_changed') : t('peer.owner_cleared') }}
           </div>
 
@@ -1056,6 +1109,19 @@ export const peerModalTemplate = `
           </div>
         </div>
         <div class="modal-footer">
+          <!-- peers-actions-in-dialog: moved out of the table row, which could
+               not hold four labelled buttons without wrapping. They sit left,
+               away from the primary action, and each still goes through the
+               host's own flow — the disable prompt for a reason included. -->
+          <div v-if="peerActionsAvailable()" style="margin-right: auto; display: flex; gap: var(--space-2)">
+            <button type="button" class="btn btn-ghost btn-sm" @click="modalToggleEnabled">
+              <Icon :name="editPeerRef && editPeerRef.enabled ? 'pause-circle' : 'play-circle'" :size="13" />
+              {{ editPeerRef && editPeerRef.enabled ? t('peers.btn_disable') : t('peers.btn_enable') }}
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="modalDeletePeer">
+              <Icon name="trash" :size="13" />{{ t('peers.btn_delete') }}
+            </button>
+          </div>
           <button type="button" class="btn btn-ghost" @click="closeModal">{{ t('peer.btn_cancel') }}</button>
           <button type="submit" class="btn btn-primary" :disabled="creatingPeer">
             {{ creatingPeer ? t('peer.btn_saving') : t('peer.btn_save') }}
