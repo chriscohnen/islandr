@@ -543,10 +543,15 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
+          # Not /tmp: the key is written as the runner user with umask 077,
+          # and root then opens it. fs.protected_regular refuses exactly that
+          # — root opening another user's file in a sticky, world-writable
+          # directory — which surfaces as the unhelpful "fopen: Permission
+          # denied" from wg. RUNNER_TEMP is neither sticky nor world-writable.
           umask 077
-          wg genkey > /tmp/wg0.key
-          sudo wg set wg0 private-key /tmp/wg0.key listen-port 51820
-          rm -f /tmp/wg0.key
+          wg genkey > "$RUNNER_TEMP/wg0.key"
+          sudo wg set wg0 private-key "$RUNNER_TEMP/wg0.key" listen-port 51820
+          rm -f "$RUNNER_TEMP/wg0.key"
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
           ip link show wg0
@@ -741,10 +746,15 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
+          # Not /tmp: the key is written as the runner user with umask 077,
+          # and root then opens it. fs.protected_regular refuses exactly that
+          # — root opening another user's file in a sticky, world-writable
+          # directory — which surfaces as the unhelpful "fopen: Permission
+          # denied" from wg. RUNNER_TEMP is neither sticky nor world-writable.
           umask 077
-          wg genkey > /tmp/wg0.key
-          sudo wg set wg0 private-key /tmp/wg0.key listen-port 51820
-          rm -f /tmp/wg0.key
+          wg genkey > "$RUNNER_TEMP/wg0.key"
+          sudo wg set wg0 private-key "$RUNNER_TEMP/wg0.key" listen-port 51820
+          rm -f "$RUNNER_TEMP/wg0.key"
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
 
