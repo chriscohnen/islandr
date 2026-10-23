@@ -22,6 +22,7 @@ collected, now shown where the question gets asked.
 - Fixed: an admin viewing another person's access could add a device from there and receive it themselves
 - Fixed: a WireGuard subnet too narrow to ever assign a host was accepted at the settings page, instead of failing later at the first peer
 - Fixed: warning banners across seven screens named a stylesheet class that does not exist, so none of them had ever carried their amber styling
+- Fixed: on Ubuntu 26.04 the native installer stopped at the sudoers step, because the new default sudo (sudo-rs) refuses the pattern the `nft` lines used. Islandr now stages its ruleset at one fixed path that the installer can name exactly; hubs updated in place keep their sudoers and keep working. A hub upgraded to 26.04 in place stops applying firewall changes until two lines are replaced — `update.sh` warns about it ([install guide](docs/install.md#sudo-rs-on-ubuntu-2604))
 - Fixed: on Ubuntu 26.04, creating a peer with a preshared key failed with `fopen: Permission denied`. The key file now lives in `/etc/wireguard/islandr`, the one place `wg` may read it from there. New installs set this up; a hub installed earlier needs two manual steps, which `update.sh` points to ([install guide](docs/install.md#preshared-keys-on-ubuntu-2604), [ADR-0034](docs/adr/0034-preshared-key-files-under-etc-wireguard.md))
 
 **Groundwork: edge hubs.** A second WireGuard hub at a remote site is modelled,

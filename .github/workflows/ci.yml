@@ -820,8 +820,14 @@ jobs:
         if: steps.prev.outputs.skip == 'false'
         run: |
           set -euo pipefail
-          sudo -E ISLANDR_VERSION="${{ steps.prev.outputs.tag }}" \
+          # Every variable on the command line, as docs/install.md shows it.
+          # Not sudo -E: sudo-rs (ubuntu-26.04) ignores it, and setup-hub.sh
+          # silently fell back to ports 80/443 while BASE points at 8080.
+          sudo ISLANDR_VERSION="${{ steps.prev.outputs.tag }}" \
                ISLANDR_SKIP_MEM_CHECK=1 \
+               ISLANDR_HTTP_HOST="$ISLANDR_HTTP_HOST" \
+               ISLANDR_HTTP_PORT="$ISLANDR_HTTP_PORT" \
+               ISLANDR_HTTPS_PORT="$ISLANDR_HTTPS_PORT" \
                bash docs/install/setup-hub.sh
 
       # Everything below reads the version through the console API, because
@@ -857,9 +863,9 @@ jobs:
         if: steps.prev.outputs.skip == 'false'
         run: |
           set -euo pipefail
-          sudo -E bash scripts/update.sh "${{ github.ref_name }}" | tee /tmp/update.out
-          if grep -q "preshared key cannot be applied" /tmp/update.out; then
-            echo "::error::update.sh reports a missing preshared-key setup on a hub setup-hub.sh just installed"; exit 1
+          sudo bash scripts/update.sh "${{ github.ref_name }}" | tee /tmp/update.out
+          if grep -qE "preshared key cannot be applied|cannot apply firewall changes" /tmp/update.out; then
+            echo "::error::update.sh raises a false alarm on a hub setup-hub.sh just installed"; exit 1
           fi
 
       - name: Assert the new version is live and the configuration untouched
@@ -895,10 +901,30 @@ jobs:
       # except for what ReadWritePaths opens. Runs on the upgraded binary, so it
       # also proves that a hub set up by this release's script and then updated
       # can create such a peer on ubuntu-26.04.
-      - name: Assert a peer with a preshared key reaches the interface (native)
+      - name: Assert nftables and a preshared-key peer reach the kernel (native)
         if: steps.prev.outputs.skip == 'false'
         run: |
           set -euo pipefail
+          # setup-hub.sh starts Islandr in dry-run, where it applies nothing to
+          # wg or nft — the checks below would fail for the wrong reason.
+          # Switching it off and restarting also makes Islandr apply its
+          # nftables table through sudo at startup, which is the check that
+          # the sudoers nft lines work on this host's sudo (sudo-rs on 26.04).
+          sudo sqlite3 /var/lib/islandr/data/islandr.db "UPDATE settings SET firewall_dry_run = 0;"
+          sudo systemctl restart islandr
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/version/check" || true)
+            [ "$code" != "000" ] && break
+            sleep 2
+          done
+          systemctl is-active --quiet islandr || { sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
+          echo "→ nftables applied through sudo"
+          for i in $(seq 1 30); do
+            sudo nft list table inet islandr >/dev/null 2>&1 && break
+            sleep 2
+          done
+          sudo nft list table inet islandr >/dev/null 2>&1 \
+            || { echo "::error::Islandr did not apply its nftables table — check the nft lines in /etc/sudoers.d/islandr"; sudo cat /etc/sudoers.d/islandr; sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
           echo "→ /etc/wireguard: islandr may pass through to its own directory, not list"
           GOT=$(sudo stat -c '%a %U %G' /etc/wireguard/islandr)
           [ "$GOT" = "2750 islandr root" ] \
@@ -937,7 +963,7 @@ jobs:
         if: steps.prev.outputs.skip == 'false'
         run: |
           set -euo pipefail
-          sudo -E bash scripts/update.sh --rollback
+          sudo bash scripts/update.sh --rollback
           systemctl is-active --quiet islandr || { sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
           USER=$(sudo sed -n 's/^ISLANDR_ADMIN_USER=//p' /etc/default/islandr)
           PW=$(sudo sed -n 's/^ISLANDR_ADMIN_PASSWORD=//p' /etc/default/islandr)

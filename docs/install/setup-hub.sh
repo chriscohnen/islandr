@@ -279,12 +279,40 @@ install -o islandr -g islandr -m 0755 "$STAGED" /opt/islandr/islandr
 # ---------------------------------------------------------------------------
 echo ">>> 4/8 sudoers entry (interface: $WG_INTERFACE)"
 
+# The file nft may read. Islandr stages its ruleset at one fixed path,
+# /var/lib/islandr/islandr-nft-current.nft. Releases before 1.2.0 used a fresh
+# islandr-nft-<random>.nft per call, so the grant has always been a pattern —
+# and that pattern still matches the fixed name, which keeps a pinned older
+# ISLANDR_VERSION working with this script. sudo-rs (Ubuntu 26.04 and later)
+# refuses a pattern in a command argument, so where visudo rejects it the grant
+# names the exact path instead. Releases before 1.2.0 cannot apply rules there.
+NFT_STAGED_PATTERN="/var/lib/islandr/islandr-nft-*.nft"
+NFT_STAGED_EXACT="/var/lib/islandr/islandr-nft-current.nft"
+NFT_STAGED="$NFT_STAGED_PATTERN"
+# Checked in a temp file, mode 0440 like the real one, so neither sudo reads it
+# nor visudo rejects it for its permissions instead of its syntax.
+SUDOERS_PROBE=$(mktemp)
+printf 'islandr ALL=(root) NOPASSWD: %s -f %s\n' "$NFT_BIN" "$NFT_STAGED_PATTERN" > "$SUDOERS_PROBE"
+chmod 0440 "$SUDOERS_PROBE"
+if ! visudo -c -f "$SUDOERS_PROBE" >/dev/null 2>&1; then
+    NFT_STAGED="$NFT_STAGED_EXACT"
+    echo "  This host's sudo does not accept a pattern in a command argument (sudo-rs);"
+    echo "  granting the exact staging path instead."
+    PINNED="${ISLANDR_VERSION#v}"
+    if [[ "$ISLANDR_VERSION" != "latest" && -z "$ISLANDR_BINARY" ]] \
+       && [[ "$(printf '%s\n' "$PINNED" 1.2.0 | sort -V | head -1)" == "$PINNED" && "$PINNED" != 1.2.0 ]]; then
+        echo "  NOTE: $ISLANDR_VERSION stages its ruleset under another name and cannot"
+        echo "        apply firewall rules on this host. Use 1.2.0 or later here."
+    fi
+fi
+rm -f "$SUDOERS_PROBE"
+
 cat > /etc/sudoers.d/islandr <<SUDOERS
 # Islandr service user: scoped sudo for nft and wg only (ADR-0011).
-# See docs/install/hardening.md before editing — the wildcard, the absolute
+# See docs/install/hardening.md before editing — the staging path, the absolute
 # paths and the interface name are all load-bearing.
-islandr ALL=(root) NOPASSWD: $NFT_BIN -c -f /var/lib/islandr/islandr-nft-*.nft
-islandr ALL=(root) NOPASSWD: $NFT_BIN -f /var/lib/islandr/islandr-nft-*.nft
+islandr ALL=(root) NOPASSWD: $NFT_BIN -c -f $NFT_STAGED
+islandr ALL=(root) NOPASSWD: $NFT_BIN -f $NFT_STAGED
 islandr ALL=(root) NOPASSWD: $NFT_BIN delete table inet islandr
 # Hands over from the fail-closed boot ruleset to islandr's own (ADR-0031).
 # islandr never creates this table, it only removes it once its own is live.

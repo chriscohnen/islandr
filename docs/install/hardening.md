@@ -29,10 +29,32 @@ distributions disagree about where these live.
 the sudoers file does not name fails with permission errors in the journal, not
 with a startup error. Set `ISLANDR_WG_INTERFACE` to the same name.
 
-**The wildcard on the nft path is required.** `RealNftablesAdapter` stages a
-freshly named temp file per apply (`islandr-nft-<random>.nft`) under
-`/var/lib/islandr`, not a fixed filename. The grant is scoped to that directory,
-which is why the adapter does not stage into `/tmp`.
+**The nft path names the staging file.** Since 1.2.0 `RealNftablesAdapter`
+stages every ruleset at one fixed path, `/var/lib/islandr/islandr-nft-current.nft`,
+and serializes its calls so two never share it. Releases before that used a
+fresh `islandr-nft-<random>.nft` per call, which is why the grant above is a
+pattern — and the pattern still matches the fixed name, so a hub updated in
+place needs no change here. The grant is scoped to that directory, which is why
+the adapter does not stage into `/tmp`.
+
+**On sudo-rs the nft lines name the exact path.** Ubuntu 26.04 replaces sudo
+with sudo-rs, which refuses a pattern in a command argument: `visudo` rejects
+the file, and at runtime sudo-rs skips those two lines while honouring the rest.
+`setup-hub.sh` checks which form the host's `visudo` accepts and writes the
+pattern where it can, the exact path where it cannot:
+
+```
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -c -f /var/lib/islandr/islandr-nft-current.nft
+islandr ALL=(root) NOPASSWD: /usr/sbin/nft -f /var/lib/islandr/islandr-nft-current.nft
+```
+
+The exact path is the narrower grant and works on classic sudo as well; the
+pattern is kept only so that pinning a release before 1.2.0 still works. A hub
+upgraded to 26.04 in place keeps its pattern lines and stops applying firewall
+changes — see [sudo-rs on Ubuntu 26.04](../install.md#sudo-rs-on-ubuntu-2604).
+
+The `wg set wg0 *` line is fine on both: a bare `*` as the last argument is
+accepted by sudo-rs and still matches any number of arguments (measured).
 
 **Network diagnostics have no entry here on purpose.** Neither `ping` nor
 `tracepath` ([ADR-0025](../adr/0025-network-diagnostic-helpers.md)) runs through sudo.

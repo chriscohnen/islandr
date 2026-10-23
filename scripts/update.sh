@@ -68,6 +68,24 @@ check_boot_firewall() {
   printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#adopting-the-fail-closed-boot-ruleset\n'
 }
 
+# sudo-rs (the sudo of Ubuntu 26.04 and later) refuses a pattern in a command
+# argument and skips such a line — measured: the rest of the file still works,
+# sudo itself still works, only that line is gone. Every hub set up before
+# 1.2.0 grants nft its staging file by a pattern, so on a host upgraded to 26.04
+# Islandr can no longer apply a single firewall change: the last ruleset stays
+# in the kernel and every later grant or revocation fails. An update touches
+# nothing under /etc, so it says so, loudly, wherever both are true.
+check_sudo_rs() {
+  sudo --version 2>/dev/null | head -1 | grep -q 'sudo-rs' || return 0
+  grep -qF 'islandr-nft-*.nft' /etc/sudoers.d/islandr 2>/dev/null || return 0
+  printf '\nWARNING: Islandr cannot apply firewall changes on this host.\n'
+  printf '  Its sudo is sudo-rs, which ignores the two nft lines in /etc/sudoers.d/islandr\n'
+  printf '  because they contain a pattern. The ruleset already in the kernel stays, but\n'
+  printf '  no grant or revocation made from now on reaches it. Replacing the two lines\n'
+  printf '  takes a minute:\n'
+  printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#sudo-rs-on-ubuntu-2604\n'
+}
+
 # Preshared keys reach wg only as a file, and Ubuntu 26.04 ships an enforcing
 # AppArmor profile that lets wg read files only under /etc/wireguard — root
 # included. Since 1.2.0 Islandr writes them to /etc/wireguard/islandr, which
@@ -352,6 +370,7 @@ if ! $SHOULD_RUN; then
   printf 'started: systemctl start %s\n' "$SERVICE"
   check_boot_firewall
   check_psk_dir
+  check_sudo_rs
   exit 0
 fi
 
@@ -361,6 +380,7 @@ if start_and_settle; then
   printf 'Previous version kept at %s — undo with: sudo bash %s --rollback\n' "$PREV_BIN" "$0"
   check_boot_firewall
   check_psk_dir
+  check_sudo_rs
   exit 0
 fi
 

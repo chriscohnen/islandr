@@ -149,3 +149,42 @@ Notes:
 - [docs/install/setup-hub.sh](../install/setup-hub.sh) — deployment script (sudoers block to be added)
 - OWASP A05:2021 — Security Misconfiguration (running privileged services as root)
 - `sudoers(5)` — man page for the sudoers file format and wildcard semantics
+
+## Amendment (1.2.0, 2026-10-23): one fixed staging path
+
+Ubuntu 26.04 replaces sudo with **sudo-rs**, whose `visudo` refuses a pattern in
+a command argument. `setup-hub.sh` validates the file it writes, so on 26.04 it
+aborted at the sudoers step: the native install did not work there at all.
+Measured on the runner images (sudo 1.9.15 on 24.04, sudo-rs 0.2.13 on 26.04):
+
+| | sudo 1.9.15 | sudo-rs 0.2.13 |
+|---|---|---|
+| `nft -f /var/lib/islandr/islandr-nft-*.nft` accepted by `visudo` | yes | **no** |
+| that line at runtime, file written straight to disk | matches | **skipped**; the file's other lines and sudo itself keep working |
+| exact path `nft -f /var/lib/islandr/islandr-nft-current.nft` | yes | yes |
+| `wg set wg0 *` (bare trailing `*`) | yes | yes, matches any number of arguments |
+| another file, `nft flush ruleset`, `nft list ruleset` | refused | refused |
+
+The constraint above changes in one respect: `RealNftablesAdapter` now stages
+every ruleset at **one fixed path**, `/var/lib/islandr/islandr-nft-current.nft`,
+and serializes `validate` and `apply` so two calls never share it. Staging
+deletes whatever is at the path first and then creates the file exclusively, so
+a symlink there is replaced rather than written through — the per-call temp
+file had that from its exclusive create.
+
+The fixed name still matches the old pattern. That is deliberate:
+
+- **Hubs updated in place** keep their sudoers untouched and keep working.
+  `update.sh` never edits sudoers, and does not have to.
+- **`setup-hub.sh`** checks which form the host's `visudo` accepts. It keeps the
+  pattern where it can, so pinning a release before 1.2.0 still works, and writes
+  the exact path where it cannot (sudo-rs).
+- **A hub upgraded to 26.04 in place** keeps lines sudo-rs skips. Its last
+  ruleset stays in the kernel, but no later change reaches it (R-199).
+  `update.sh` warns where both conditions hold, the console error names the
+  cause, and `docs/install.md` has the two-line fix.
+
+The exact path is also the narrower grant: the `fnmatch(3)` traversal noted
+above does not exist without a `*`. It is where the grant should end up on every
+host; the pattern survives only for releases that predate the fixed name.
+

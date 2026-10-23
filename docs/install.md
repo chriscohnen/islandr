@@ -385,6 +385,35 @@ add that and the restart limits from the current template — the unit written b
 
 ---
 
+## sudo-rs on Ubuntu 26.04
+
+**Do this before anything else if `update.sh` printed a warning about it**: until
+then, no grant or revocation you make reaches the firewall.
+
+Ubuntu 26.04 replaces `sudo` with sudo-rs, which ignores a sudoers line that has
+a pattern in a command argument. Every hub set up before 1.2.0 grants `nft` its
+staging file that way — `islandr-nft-*.nft` — so on a hub upgraded to 26.04 in
+place, Islandr can no longer apply a firewall change. The ruleset already in the
+kernel stays; nothing after it arrives. sudo itself, and Islandr's `wg` lines,
+keep working, which is why this is easy to miss. The console reports it as an
+nftables error that names the sudoers file.
+
+Since 1.2.0 Islandr stages its ruleset at one fixed path, so the grant can name
+it exactly. Update to 1.2.0 or later first, then:
+
+```bash
+sudo cp /etc/sudoers.d/islandr /root/sudoers.islandr.bak
+sudo sed -i 's#islandr-nft-\*\.nft#islandr-nft-current.nft#' /etc/sudoers.d/islandr
+sudo visudo -c -f /etc/sudoers.d/islandr     # must say: parsed OK
+sudo systemctl restart islandr
+```
+
+The two `nft -c -f` / `nft -f` lines now end in
+`/var/lib/islandr/islandr-nft-current.nft`. Nothing else in the file changes.
+This exact form also works on hosts with classic `sudo`, and it is the narrower
+grant, so there is no reason to keep the pattern on any host running 1.2.0 or
+later ([ADR-0011](adr/0011-process-privilege-model.md), amendment for 1.2.0).
+
 ## Preshared keys on Ubuntu 26.04
 
 Skip this if your hub was set up with 1.2.0 or later, or if `update.sh` did not
