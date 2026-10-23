@@ -543,15 +543,19 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
-          # Not /tmp: the key is written as the runner user with umask 077,
-          # and root then opens it. fs.protected_regular refuses exactly that
-          # — root opening another user's file in a sticky, world-writable
-          # directory — which surfaces as the unhelpful "fopen: Permission
-          # denied" from wg. RUNNER_TEMP is neither sticky nor world-writable.
-          umask 077
-          wg genkey > "$RUNNER_TEMP/wg0.key"
-          sudo wg set wg0 private-key "$RUNNER_TEMP/wg0.key" listen-port 51820
-          rm -f "$RUNNER_TEMP/wg0.key"
+          # Generated and consumed in one root shell, in root's own directory.
+          # The key used to be written by the runner user and then opened by
+          # root under sudo, which worked on ubuntu-24.04 and stopped working
+          # when ubuntu-latest moved to ubuntu-26.04 (image 20261012): wg
+          # reports only "fopen: Permission denied", and moving the file out
+          # of /tmp did not help, so the cross-user handoff is what goes.
+          # One user for both halves leaves nothing to deny. If this ever
+          # fails again, the diagnostics below say who could not read what.
+          sudo sh -c 'umask 077; wg genkey > /root/wg0.key' \
+            || { id; sudo id; ls -ld /root; exit 1; }
+          sudo wg set wg0 private-key /root/wg0.key listen-port 51820 \
+            || { sudo stat /root/wg0.key; sudo id; exit 1; }
+          sudo rm -f /root/wg0.key
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
           ip link show wg0
@@ -746,15 +750,19 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
-          # Not /tmp: the key is written as the runner user with umask 077,
-          # and root then opens it. fs.protected_regular refuses exactly that
-          # — root opening another user's file in a sticky, world-writable
-          # directory — which surfaces as the unhelpful "fopen: Permission
-          # denied" from wg. RUNNER_TEMP is neither sticky nor world-writable.
-          umask 077
-          wg genkey > "$RUNNER_TEMP/wg0.key"
-          sudo wg set wg0 private-key "$RUNNER_TEMP/wg0.key" listen-port 51820
-          rm -f "$RUNNER_TEMP/wg0.key"
+          # Generated and consumed in one root shell, in root's own directory.
+          # The key used to be written by the runner user and then opened by
+          # root under sudo, which worked on ubuntu-24.04 and stopped working
+          # when ubuntu-latest moved to ubuntu-26.04 (image 20261012): wg
+          # reports only "fopen: Permission denied", and moving the file out
+          # of /tmp did not help, so the cross-user handoff is what goes.
+          # One user for both halves leaves nothing to deny. If this ever
+          # fails again, the diagnostics below say who could not read what.
+          sudo sh -c 'umask 077; wg genkey > /root/wg0.key' \
+            || { id; sudo id; ls -ld /root; exit 1; }
+          sudo wg set wg0 private-key /root/wg0.key listen-port 51820 \
+            || { sudo stat /root/wg0.key; sudo id; exit 1; }
+          sudo rm -f /root/wg0.key
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
 

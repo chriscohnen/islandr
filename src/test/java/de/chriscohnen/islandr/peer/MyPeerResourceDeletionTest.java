@@ -163,7 +163,7 @@ class MyPeerResourceDeletionTest {
         new java.security.SecureRandom().nextBytes(keyBytes);
         String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
         Peer p = Peer.createNew(userId, name, publicKey,
-                "10.9.0." + (150 + (int) (Math.random() * 90)));
+                TestPeerIps.next());
         p.persist();
         return p.id;
     }
