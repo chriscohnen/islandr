@@ -33,8 +33,23 @@ public class RealWgAdapter implements WgAdapter {
 
     private final boolean useSudo;
 
+    /** Directory the short-lived preshared-key file is created in; empty means
+     *  the JVM's temp directory. See {@link #createPskFile(String)}. */
+    private final String pskDir;
+
+    /** The fallback is harmless below Ubuntu 26.04 and happens for every
+     *  preshared-key peer on every boot repush — once per process is news,
+     *  every time is noise. */
+    private final java.util.concurrent.atomic.AtomicBoolean pskFallbackLogged =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     public RealWgAdapter(boolean useSudo) {
+        this(useSudo, "");
+    }
+
+    public RealWgAdapter(boolean useSudo, String pskDir) {
         this.useSudo = useSudo;
+        this.pskDir = pskDir == null ? "" : pskDir;
     }
 
     @Override
@@ -65,23 +80,129 @@ public class RealWgAdapter implements WgAdapter {
             }, null, useSudo);
             return;
         }
-        // wg set ... preshared-key takes a file path — write to a temp file and clean up.
+        // wg set ... preshared-key takes a file path — write one, use it, delete it.
         java.nio.file.Path tmp = null;
         try {
-            tmp = java.nio.file.Files.createTempFile("wg-psk-", ".key");
-            java.nio.file.Files.writeString(tmp, presharedKey);
-            runCapture(new String[]{
-                    "wg", "set", iface,
-                    "peer", publicKey,
-                    "preshared-key", tmp.toString(),
-                    "allowed-ips", allowedIps
-            }, null, useSudo);
+            tmp = createPskFile(presharedKey);
+            try {
+                runCapture(new String[]{
+                        "wg", "set", iface,
+                        "peer", publicKey,
+                        "preshared-key", tmp.toString(),
+                        "allowed-ips", allowedIps
+                }, null, useSudo);
+            } catch (WgException e) {
+                // wg's whole diagnosis is "fopen: Permission denied". Say what
+                // it means here, because this message reaches the admin's
+                // screen and the reason does not appear anywhere else.
+                if (e.getMessage() != null && e.getMessage().contains("fopen")) {
+                    throw new WgException(e.getMessage() + " — wg could not read the preshared-key file "
+                            + tmp + ". Where an AppArmor profile for wg exists (Ubuntu 26.04) it may "
+                            + "only read under /etc/wireguard; see docs/install.md, \"Preshared keys "
+                            + "on Ubuntu 26.04\".", e);
+                }
+                throw e;
+            }
         } catch (java.io.IOException e) {
             throw new WgException("could not write preshared-key temp file: " + e.getMessage(), e);
         } finally {
             if (tmp != null) {
                 try { java.nio.file.Files.deleteIfExists(tmp); } catch (java.io.IOException ignored) {}
             }
+        }
+    }
+
+    /**
+     * Creates the file {@code wg set ... preshared-key} will read and returns
+     * its path. The caller deletes it.
+     *
+     * <p>Not simply {@code Files.createTempFile}: Ubuntu 26.04 ships an
+     * enforcing AppArmor profile for {@code /usr/bin/wg} whose only file rule
+     * is {@code file rw @{etc_rw}/wireguard/{,**}}, and which denies the binary
+     * {@code dac_override} and {@code dac_read_search}. A key anywhere else is
+     * refused even when {@code wg} runs as root, and {@code wg} says nothing
+     * but "fopen: Permission denied". Hence {@code islandr.wg.psk-dir}, which
+     * the installer creates under {@code /etc/wireguard}.
+     *
+     * <p>A missing or unwritable directory falls back to the JVM's temp
+     * directory rather than failing the call. Every host installed before this
+     * change has no such directory and cannot create one itself (its service
+     * user may not write under {@code /etc}), and on anything below 26.04 the
+     * old location still works — so the fallback keeps those hosts running
+     * instead of breaking them on upgrade.
+     */
+    java.nio.file.Path createPskFile(String presharedKey) throws IOException {
+        java.nio.file.Path file = null;
+        if (!pskDir.isEmpty()) {
+            try {
+                file = java.nio.file.Files.createTempFile(
+                        java.nio.file.Path.of(pskDir), "psk-", ".key");
+            } catch (IOException | RuntimeException e) {
+                if (pskFallbackLogged.compareAndSet(false, true)) {
+                    LOG.warnf("preshared-key directory %s unusable (%s) — falling back to the "
+                            + "JVM temp directory, which wg cannot read where an AppArmor profile "
+                            + "for wg exists (Ubuntu 26.04). See docs/install.md, \"Preshared keys "
+                            + "on Ubuntu 26.04\". Logged once.", pskDir, e.getMessage());
+                }
+            }
+        }
+        boolean inPskDir = file != null;
+        if (file == null) {
+            file = java.nio.file.Files.createTempFile("wg-psk-", ".key");
+        }
+        // In the psk directory: 0640. The AppArmor profile denies wg
+        // dac_override, so root reads by the ordinary bits like anyone else,
+        // and a 0600 file owned by the service user is closed to it (measured:
+        // refused). The installer makes the directory setgid root, the file is
+        // born in group root, and group read lets root's wg in. Nobody outside
+        // group root gets anything. In the fallback location: 0600, exactly as
+        // before — there root still has dac_override.
+        var perms = java.util.EnumSet.of(
+                java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                java.nio.file.attribute.PosixFilePermission.OWNER_WRITE);
+        if (inPskDir) perms.add(java.nio.file.attribute.PosixFilePermission.GROUP_READ);
+        try {
+            java.nio.file.Files.setPosixFilePermissions(file, perms);
+        } catch (UnsupportedOperationException ignored) {
+            // Non-POSIX filesystem — nothing to set.
+        }
+        java.nio.file.Files.writeString(file, presharedKey);
+        return file;
+    }
+
+    /** A key file lives for one wg call, bounded by {@link #CALL_TIMEOUT_SECONDS};
+     *  anything this old is a leftover, never one in use. */
+    private static final java.time.Duration STALE_PSK_AGE = java.time.Duration.ofMinutes(1);
+
+    /**
+     * Deletes preshared-key files a killed process left behind in
+     * {@code islandr.wg.psk-dir}. Called once at startup.
+     *
+     * <p>Needed because of where the directory is. The old location was the
+     * service's private {@code /tmp} ({@code PrivateTmp=true}), gone with the
+     * service; this one is on disk under {@code /etc}, which config backups and
+     * etckeeper capture. A process killed between writing a key and deleting
+     * it would otherwise leave that key there for good. Only files named the
+     * way {@link #createPskFile} names them are touched.
+     */
+    public void sweepStalePskFiles() {
+        if (pskDir.isEmpty()) return;
+        java.nio.file.Path dir = java.nio.file.Path.of(pskDir);
+        if (!java.nio.file.Files.isDirectory(dir)) return;
+        java.time.Instant cutoff = Instant.now().minus(STALE_PSK_AGE);
+        try (var files = java.nio.file.Files.newDirectoryStream(dir, "psk-*.key")) {
+            for (java.nio.file.Path f : files) {
+                try {
+                    if (java.nio.file.Files.getLastModifiedTime(f).toInstant().isBefore(cutoff)) {
+                        java.nio.file.Files.deleteIfExists(f);
+                        LOG.warnf("removed a leftover preshared-key file %s", f);
+                    }
+                } catch (IOException e) {
+                    LOG.warnf("could not remove leftover preshared-key file %s: %s", f, e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            LOG.debugf("preshared-key sweep of %s skipped: %s", pskDir, e.getMessage());
         }
     }
 

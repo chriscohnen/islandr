@@ -23,9 +23,14 @@ NoNewPrivileges=false
 ProtectHome=read-only
 ProtectSystem=full
 PrivateTmp=true
-# /run/islandr already exists (tmpfiles, islandr:islandr 0700); short-lived
-# preshared-key files are written there. runtimeDir() falls back to it when
-# RUNTIME_DIRECTORY is unset, so no RuntimeDirectory= is declared here.
+# Short-lived preshared-key files go to /etc/wireguard/islandr — on Ubuntu 26.04
+# the only place wg may read a key from (AppArmor). ProtectSystem=full makes
+# /etc read-only, so it is opened up here; the leading '-' keeps the unit
+# starting where the directory does not exist, and the proxy then falls back
+# to /run/islandr (tmpfiles, islandr:islandr 0700), which earlier releases
+# used. runtimeDir() falls back to /run/islandr when RUNTIME_DIRECTORY is
+# unset, so no RuntimeDirectory= is declared here.
+ReadWritePaths=-/etc/wireguard/islandr
 
 [Install]
 WantedBy=multi-user.target

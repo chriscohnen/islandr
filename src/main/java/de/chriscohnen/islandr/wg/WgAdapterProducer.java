@@ -41,6 +41,12 @@ public class WgAdapterProducer {
     @ConfigProperty(name = "islandr.use-sudo", defaultValue = "false")
     boolean useSudo;
 
+    /** Where the short-lived preshared-key file is created. Must be a place
+     *  the AppArmor profile for {@code wg} permits — see
+     *  {@link RealWgAdapter#createPskFile(String)}. */
+    @ConfigProperty(name = "islandr.wg.psk-dir", defaultValue = "/etc/wireguard/islandr")
+    String pskDir;
+
     @ConfigProperty(name = "islandr.proxy.socket", defaultValue = "/run/islandr/proxy.sock")
     String proxySocket;
 
@@ -57,8 +63,10 @@ public class WgAdapterProducer {
         String resolved = AdapterMode.resolve(mode, containerDetector.inContainer());
         switch (resolved) {
             case "real":
-                LOG.infof("WgAdapter mode=real, useSudo=%s — wrapped with DryRunWgAdapter (checks settings at runtime)", useSudo);
-                return new DryRunWgAdapter(new RealWgAdapter(useSudo), settings);
+                LOG.infof("WgAdapter mode=real, useSudo=%s, pskDir=%s — wrapped with DryRunWgAdapter (checks settings at runtime)", useSudo, pskDir);
+                RealWgAdapter real = new RealWgAdapter(useSudo, pskDir);
+                real.sweepStalePskFiles();
+                return new DryRunWgAdapter(real, settings);
             case "socket":
                 LOG.infof("WgAdapter mode=socket — talking to host proxy at %s (timeout %s)", proxySocket, proxyTimeout);
                 return new SocketWgAdapter(new ProxyClient(Path.of(proxySocket), proxyTimeout));

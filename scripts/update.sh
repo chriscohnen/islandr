@@ -68,6 +68,35 @@ check_boot_firewall() {
   printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#adopting-the-fail-closed-boot-ruleset\n'
 }
 
+# Preshared keys reach wg only as a file, and Ubuntu 26.04 ships an enforcing
+# AppArmor profile that lets wg read files only under /etc/wireguard — root
+# included. Since 1.2.0 Islandr writes them to /etc/wireguard/islandr, which
+# setup-hub.sh creates and opens in the unit (ProtectSystem=strict keeps /etc
+# read-only otherwise). A hub set up before that has neither, and an update
+# touches nothing under /etc, so it says so — but only where the profile
+# exists. Everywhere else the old location still works and there is nothing to
+# report. Melden, nicht ersetzen, like the boot ruleset above.
+check_psk_dir() {
+  [[ -f /etc/apparmor.d/wg ]] || return 0
+  local missing=()
+  if [[ ! -d /etc/wireguard/islandr ]]; then
+    missing+=("the directory /etc/wireguard/islandr")
+  elif [[ "$(stat -c '%a %U %G' /etc/wireguard/islandr 2>/dev/null)" != "2750 islandr root" ]]; then
+    # Group root and setgid are what let root's wg read the key at all — the
+    # profile takes away its dac_override. Present but wrong is just as broken.
+    missing+=("mode 2750, owner islandr, group root on /etc/wireguard/islandr (it is $(stat -c '%a %U %G' /etc/wireguard/islandr))")
+  fi
+  systemctl cat "$SERVICE" 2>/dev/null | grep -q '^ReadWritePaths=.*/etc/wireguard/islandr' \
+    || missing+=("ReadWritePaths=-/etc/wireguard/islandr in ${SERVICE}")
+  [[ ${#missing[@]} -eq 0 ]] && return 0
+  printf '\nNOTE: peers with a preshared key cannot be applied on this host.\n'
+  printf '  An AppArmor profile lets wg read keys only under /etc/wireguard, and this\n'
+  printf '  hub is missing:\n'
+  printf '    - %s\n' "${missing[@]}"
+  printf '  Peers without a preshared key are not affected. Setting it up takes a minute:\n'
+  printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#preshared-keys-on-ubuntu-2604\n'
+}
+
 # update.sh updates the binary, never itself — a copy kept in a home
 # directory (the documented way to run it) drifts from the one each new
 # release ships, silently missing whatever checks a newer copy learned.
@@ -322,6 +351,7 @@ if ! $SHOULD_RUN; then
   printf '\nDone. Islandr %s installed. The service was not running, so it was not\n' "$TARGET"
   printf 'started: systemctl start %s\n' "$SERVICE"
   check_boot_firewall
+  check_psk_dir
   exit 0
 fi
 
@@ -330,6 +360,7 @@ if start_and_settle; then
   printf '\nDone. Islandr %s is running.\n' "$TARGET"
   printf 'Previous version kept at %s — undo with: sudo bash %s --rollback\n' "$PREV_BIN" "$0"
   check_boot_firewall
+  check_psk_dir
   exit 0
 fi
 

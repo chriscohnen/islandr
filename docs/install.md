@@ -67,8 +67,17 @@ Islandr never writes `/etc/wireguard/<iface>.conf`. It configures peers at
 runtime with `wg set`, and the service is not privileged to touch that file
 anyway — its sudo covers `nft` and `wg` ([ADR-0011](adr/0011-process-privilege-model.md),
 [ADR-0030](adr/0030-wireguard-config-file-ownership.md)). Installing it on a
-working hub therefore changes nothing about that hub, and the order below keeps
-it that way:
+working hub therefore changes nothing about how that hub runs, and the order
+below keeps it that way.
+
+One thing the installer does add under `/etc/wireguard`: its own directory
+`/etc/wireguard/islandr` (owned by `islandr`, group `root`, mode 2750), and
+execute-only access on `/etc/wireguard` for the group `islandr` so the service
+can reach it. That group may pass through, not list; your config and keys keep
+their own modes.
+The directory holds a preshared key for the moment one `wg` call needs it,
+because on Ubuntu 26.04 that is the only place `wg` may read one from
+([ADR-0034](adr/0034-preshared-key-files-under-etc-wireguard.md)).
 
 1. **Install.** Firewall writes are paused on a fresh database, so no nftables
    table is applied and no peer is touched. Existing peers keep working.
@@ -375,6 +384,55 @@ add that and the restart limits from the current template — the unit written b
 [`setup-hub.sh`](install/setup-hub.sh) is the reference.
 
 ---
+
+## Preshared keys on Ubuntu 26.04
+
+Skip this if your hub was set up with 1.2.0 or later, or if `update.sh` did not
+mention it. Peers without a preshared key are not affected either way.
+
+`wg` never takes a preshared key as an argument — the process list is readable
+by every account on the host — so it reads it from a file. Ubuntu 26.04 ships
+an AppArmor profile for `wg` that allows reading files only under
+`/etc/wireguard`, and that denies `wg` the right to override file permissions,
+so running it as root does not help. The only symptom is `fopen: Permission
+denied` when a peer with a preshared key is created
+([ADR-0034](adr/0034-preshared-key-files-under-etc-wireguard.md)).
+
+Since 1.2.0 Islandr writes that file to `/etc/wireguard/islandr`. A hub set up
+earlier lacks the directory and, for the native install, the line in the unit
+that lets the service write there. `update.sh` touches nothing under `/etc`, so
+add both by hand:
+
+```bash
+# The directory, and passage through /etc/wireguard for the islandr group only.
+sudo install -d -m 0700 -o root -g root /etc/wireguard   # no-op if it exists
+sudo chgrp islandr /etc/wireguard
+sudo chmod g+x,g-rw /etc/wireguard
+sudo install -d -m 2750 -o islandr -g root /etc/wireguard/islandr   # setgid root, see below
+
+# Let the service write there (ProtectSystem keeps /etc read-only otherwise).
+UNIT=islandr          # Docker with the socket proxy: UNIT=islandr-proxy
+sudo mkdir -p "/etc/systemd/system/$UNIT.service.d"
+printf '[Service]\nReadWritePaths=-/etc/wireguard/islandr\n' \
+  | sudo tee "/etc/systemd/system/$UNIT.service.d/preshared-keys.conf"
+sudo systemctl daemon-reload
+sudo systemctl restart "$UNIT"
+```
+
+The directory is setgid `root` on purpose. The AppArmor profile also takes away
+`wg`'s right to override file permissions, so root's `wg` reads a key file only
+if the ordinary bits let it. Islandr writes each file 0640; the setgid bit puts
+it in group `root`, and that group read is the way in. A plain 0700 directory
+owned by `islandr` would be closed to root's `wg` — measured, not assumed.
+
+If `/etc/wireguard` belongs to a group other than `root` on your host, leave
+the `chgrp` out and grant the `islandr` user passage another way, for example
+`sudo setfacl -m u:islandr:x /etc/wireguard`.
+
+The drop-in adds to your unit instead of editing it, and the `-` in front of the
+path keeps the service starting even if the directory is removed later.
+Islandr then falls back to its old location, which works on every host without
+that AppArmor profile.
 
 ## Upgrading
 

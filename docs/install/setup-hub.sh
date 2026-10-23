@@ -248,6 +248,30 @@ fi
 install -d -o islandr -g islandr /opt/islandr
 install -d -o islandr -g islandr /var/lib/islandr/data
 
+# Preshared keys. wg reads a PSK only from a file (argv is world readable), and
+# on Ubuntu 26.04 an enforcing AppArmor profile lets wg read files only under
+# /etc/wireguard — root included. Islandr gets its own subdirectory there;
+# <iface>.conf and the server key are not touched. The profile also denies wg
+# dac_override, so root reads by the ordinary permission bits like anyone
+# else: the directory is owned by the service user (it writes there) and
+# setgid root, so each key file is born in group root, and the service makes
+# it 0640 — readable by its owner and by group root, by nobody else. To reach it the service user must pass through /etc/wireguard:
+# group islandr, execute only. Without read nobody can list the directory, and
+# its files keep their own modes. Same block in islandr-proxy/install.sh and
+# islandr-proxy/install-proxy.sh.
+[[ -d /etc/wireguard ]] || install -d -m 0700 -o root -g root /etc/wireguard
+case "$(stat -c %G /etc/wireguard)" in
+    root|islandr)
+        chgrp islandr /etc/wireguard
+        chmod g+x,g-rw /etc/wireguard
+        ;;
+    *)
+        echo "  NOTE: /etc/wireguard belongs to group '$(stat -c %G /etc/wireguard)' — left as it is."
+        echo "        Preshared keys on Ubuntu 26.04 need the islandr user to pass through it."
+        ;;
+esac
+install -d -m 2750 -o islandr -g root /etc/wireguard/islandr
+
 install -o islandr -g islandr -m 0755 "$STAGED" /opt/islandr/islandr
 
 # ---------------------------------------------------------------------------
@@ -387,6 +411,11 @@ NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/islandr
+# Short-lived preshared-key files — the one place wg may read a key from on
+# Ubuntu 26.04 (AppArmor). The leading '-' keeps the unit starting on a host
+# where the directory does not exist; Islandr then falls back to its old
+# location, which works everywhere that profile does not exist.
+ReadWritePaths=-/etc/wireguard/islandr
 PrivateTmp=true
 
 # Lets the unprivileged user bind 80/443 (TLS) and 53 (resource DNS). Grants

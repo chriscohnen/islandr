@@ -45,6 +45,31 @@ if ! id -u islandr >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/islandr --shell /usr/sbin/nologin islandr
 fi
 
+echo "→ Preparing /etc/wireguard/islandr for short-lived preshared-key files"
+# wg reads a PSK only from a file (argv is world readable), and on Ubuntu 26.04
+# an enforcing AppArmor profile lets wg read files only under /etc/wireguard —
+# root included. Islandr gets its own subdirectory there; <iface>.conf and the
+# server key are not touched. The profile also denies wg dac_override, so root
+# reads by the ordinary permission bits like anyone else: the directory is
+# owned by the service user (it writes there) and setgid root, so each key file
+# is born in group root, and the service makes it 0640 — readable by its owner
+# and by group root, by nobody else. To reach it
+# the service user must pass through /etc/wireguard: group islandr, execute
+# only. Without read nobody can list the directory, and its files keep their
+# own modes. Same block in install-proxy.sh and docs/install/setup-hub.sh.
+[ -d /etc/wireguard ] || install -d -m 0700 -o root -g root /etc/wireguard
+case "$(stat -c %G /etc/wireguard)" in
+  root|islandr)
+    chgrp islandr /etc/wireguard
+    chmod g+x,g-rw /etc/wireguard
+    ;;
+  *)
+    echo "  note: /etc/wireguard belongs to group '$(stat -c %G /etc/wireguard)' — left as it is."
+    echo "        Preshared keys on Ubuntu 26.04 need the islandr user to pass through it."
+    ;;
+esac
+install -d -m 2750 -o islandr -g root /etc/wireguard/islandr
+
 echo "→ Installing binary → /usr/local/bin/islandr-proxy (root:root 0755)"
 install -o root -g root -m 0755 "$BIN_SRC" /usr/local/bin/islandr-proxy
 

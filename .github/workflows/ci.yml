@@ -543,19 +543,19 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
-          # Generated and consumed in one root shell, in root's own directory.
-          # The key used to be written by the runner user and then opened by
-          # root under sudo, which worked on ubuntu-24.04 and stopped working
-          # when ubuntu-latest moved to ubuntu-26.04 (image 20261012): wg
-          # reports only "fopen: Permission denied", and moving the file out
-          # of /tmp did not help, so the cross-user handoff is what goes.
-          # One user for both halves leaves nothing to deny. If this ever
-          # fails again, the diagnostics below say who could not read what.
-          sudo sh -c 'umask 077; wg genkey > /root/wg0.key' \
-            || { id; sudo id; ls -ld /root; exit 1; }
-          sudo wg set wg0 private-key /root/wg0.key listen-port 51820 \
-            || { sudo stat /root/wg0.key; sudo id; exit 1; }
-          sudo rm -f /root/wg0.key
+          # /etc/wireguard is the only directory wg may read a key from.
+          # ubuntu-26.04 ships an enforcing AppArmor profile for /usr/bin/wg
+          # whose single file rule is "file rw @{etc_rw}/wireguard/{,**}", and
+          # it denies the binary dac_override and dac_read_search — so running
+          # as root does not help, which is why /tmp, /var/tmp, RUNNER_TEMP and
+          # /root were all refused with nothing but "fopen: Permission denied".
+          # Measured on the image, not guessed. This is also the path the
+          # Settings page tells operators to use, so CI now does what we
+          # document.
+          sudo install -d -m 0700 -o root -g root /etc/wireguard
+          sudo sh -c 'umask 077; wg genkey > /etc/wireguard/wg0.key'
+          sudo wg set wg0 private-key /etc/wireguard/wg0.key listen-port 51820
+          sudo rm -f /etc/wireguard/wg0.key
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
           ip link show wg0
@@ -710,6 +710,37 @@ jobs:
           echo "$NFT_OUT" | grep -F "ip saddr $PEER_IP" | grep -F "ip daddr 10.20.0.50" | grep -F "tcp dport 3389" | grep -q accept \
             || { echo "::error::expected accept rule not found in nftables ruleset"; echo "$NFT_OUT"; cat /tmp/islandr-e2e.log; exit 1; }
 
+          echo "→ /etc/wireguard: islandr may pass through to its own directory, not list"
+          GOT=$(sudo stat -c '%a %U %G' /etc/wireguard/islandr)
+          [ "$GOT" = "2750 islandr root" ] \
+            || { echo "::error::/etc/wireguard/islandr is '$GOT', want '2750 islandr root'"; exit 1; }
+          sudo -u islandr test -w /etc/wireguard/islandr \
+            || { echo "::error::islandr cannot write its own preshared-key directory"; sudo ls -ld /etc/wireguard /etc/wireguard/islandr; exit 1; }
+          if sudo -u islandr ls /etc/wireguard >/dev/null 2>&1; then
+            echo "::error::islandr can list /etc/wireguard — it should only pass through"; sudo ls -ld /etc/wireguard; exit 1
+          fi
+          # The point of setgid root: wg loses dac_override under AppArmor, so
+          # root reads a key file only through group root.
+          BORN=$(sudo -u islandr sh -c 'f=/etc/wireguard/islandr/psk-ci-probe; : > "$f"; stat -c %G "$f"; rm -f "$f"')
+          [ "$BORN" = "root" ] \
+            || { echo "::error::a file islandr creates there is in group '$BORN', want root — root's wg could not read it"; exit 1; }
+
+          # A preshared key reaches wg only as a file, and on ubuntu-26.04 an
+          # AppArmor profile lets wg read files only under /etc/wireguard. So
+          # this is the check that the proxy writes it there — the plain peer
+          # above never touches that path at all.
+          echo "→ Asserting a peer with a preshared key reaches the interface (App → proxy → wg, AppArmor)"
+          PSK_IP=$(curl -s $CJ "$BASE/api/v1/peers/next-ip" | jq -r .assignedIp)
+          PSK_PEER=$(curl -s $CJ -X POST "$BASE/api/v1/users/$USER_ID/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"e2e-psk-peer\",\"assignedIp\":\"$PSK_IP\",\"assignedIpv6\":\"\",\"publicKey\":\"\",\"privateKey\":\"\",\"type\":\"client\",\"generatePresharedKey\":true}")
+          PSK_PUBKEY=$(echo "$PSK_PEER" | jq -r .peer.publicKey)
+          [ -n "$PSK_PUBKEY" ] && [ "$PSK_PUBKEY" != "null" ] \
+            || { echo "::error::a peer with a preshared key was refused"; echo "$PSK_PEER"; sudo journalctl -u islandr-proxy -n 40 --no-pager; cat /tmp/islandr-e2e.log; exit 1; }
+          GOT_PSK=$(sudo wg show wg0 preshared-keys | awk -v k="$PSK_PUBKEY" '$1 == k { print $2 }')
+          [ -n "$GOT_PSK" ] && [ "$GOT_PSK" != "(none)" ] \
+            || { echo "::error::the interface carries no preshared key for that peer"; sudo wg show wg0 preshared-keys; exit 1; }
+
           echo "✓ install-proxy.sh + real App→islandr-proxy→wg/nft enforcement verified end-to-end"
 
   # ── Stage 6: E2E upgrade path (tags only, after release exists) ───────────
@@ -750,19 +781,19 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
-          # Generated and consumed in one root shell, in root's own directory.
-          # The key used to be written by the runner user and then opened by
-          # root under sudo, which worked on ubuntu-24.04 and stopped working
-          # when ubuntu-latest moved to ubuntu-26.04 (image 20261012): wg
-          # reports only "fopen: Permission denied", and moving the file out
-          # of /tmp did not help, so the cross-user handoff is what goes.
-          # One user for both halves leaves nothing to deny. If this ever
-          # fails again, the diagnostics below say who could not read what.
-          sudo sh -c 'umask 077; wg genkey > /root/wg0.key' \
-            || { id; sudo id; ls -ld /root; exit 1; }
-          sudo wg set wg0 private-key /root/wg0.key listen-port 51820 \
-            || { sudo stat /root/wg0.key; sudo id; exit 1; }
-          sudo rm -f /root/wg0.key
+          # /etc/wireguard is the only directory wg may read a key from.
+          # ubuntu-26.04 ships an enforcing AppArmor profile for /usr/bin/wg
+          # whose single file rule is "file rw @{etc_rw}/wireguard/{,**}", and
+          # it denies the binary dac_override and dac_read_search — so running
+          # as root does not help, which is why /tmp, /var/tmp, RUNNER_TEMP and
+          # /root were all refused with nothing but "fopen: Permission denied".
+          # Measured on the image, not guessed. This is also the path the
+          # Settings page tells operators to use, so CI now does what we
+          # document.
+          sudo install -d -m 0700 -o root -g root /etc/wireguard
+          sudo sh -c 'umask 077; wg genkey > /etc/wireguard/wg0.key'
+          sudo wg set wg0 private-key /etc/wireguard/wg0.key listen-port 51820
+          sudo rm -f /etc/wireguard/wg0.key
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
 
@@ -818,9 +849,18 @@ jobs:
           sudo sqlite3 /var/lib/islandr/data/islandr.db \
             "CREATE TABLE e2e_marker (v TEXT); INSERT INTO e2e_marker VALUES ('before-upgrade');"
 
+      # The runner image carries the AppArmor profile for wg, so update.sh's
+      # preshared-key check really runs here — and on a hub this release's
+      # setup-hub.sh installed it must find nothing to report. A note here
+      # would mean every operator gets a false alarm on every update.
       - name: Upgrade to this tag
         if: steps.prev.outputs.skip == 'false'
-        run: sudo -E bash scripts/update.sh "${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+          sudo -E bash scripts/update.sh "${{ github.ref_name }}" | tee /tmp/update.out
+          if grep -q "preshared key cannot be applied" /tmp/update.out; then
+            echo "::error::update.sh reports a missing preshared-key setup on a hub setup-hub.sh just installed"; exit 1
+          fi
 
       - name: Assert the new version is live and the configuration untouched
         if: steps.prev.outputs.skip == 'false'
@@ -849,6 +889,49 @@ jobs:
           # below would pass whether or not the database was actually restored.
           sudo sqlite3 /var/lib/islandr/data/islandr.db \
             "UPDATE e2e_marker SET v = 'after-upgrade';"
+
+      # The native half of the preshared-key check: RealWgAdapter under the
+      # unit setup-hub.sh wrote, with ProtectSystem=strict making /etc read-only
+      # except for what ReadWritePaths opens. Runs on the upgraded binary, so it
+      # also proves that a hub set up by this release's script and then updated
+      # can create such a peer on ubuntu-26.04.
+      - name: Assert a peer with a preshared key reaches the interface (native)
+        if: steps.prev.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          echo "→ /etc/wireguard: islandr may pass through to its own directory, not list"
+          GOT=$(sudo stat -c '%a %U %G' /etc/wireguard/islandr)
+          [ "$GOT" = "2750 islandr root" ] \
+            || { echo "::error::/etc/wireguard/islandr is '$GOT', want '2750 islandr root'"; exit 1; }
+          sudo -u islandr test -w /etc/wireguard/islandr \
+            || { echo "::error::islandr cannot write its own preshared-key directory"; sudo ls -ld /etc/wireguard /etc/wireguard/islandr; exit 1; }
+          if sudo -u islandr ls /etc/wireguard >/dev/null 2>&1; then
+            echo "::error::islandr can list /etc/wireguard — it should only pass through"; sudo ls -ld /etc/wireguard; exit 1
+          fi
+          # The point of setgid root: wg loses dac_override under AppArmor, so
+          # root reads a key file only through group root.
+          BORN=$(sudo -u islandr sh -c 'f=/etc/wireguard/islandr/psk-ci-probe; : > "$f"; stat -c %G "$f"; rm -f "$f"')
+          [ "$BORN" = "root" ] \
+            || { echo "::error::a file islandr creates there is in group '$BORN', want root — root's wg could not read it"; exit 1; }
+          ADMIN=$(sudo sed -n 's/^ISLANDR_ADMIN_USER=//p' /etc/default/islandr)
+          PW=$(sudo sed -n 's/^ISLANDR_ADMIN_PASSWORD=//p' /etc/default/islandr)
+          curl -sf -c /tmp/cj.txt -o /dev/null -X POST "$BASE/api/v1/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg u "$ADMIN" --arg p "$PW" '{username:$u,password:$p}')"
+          OWNER=$(curl -sf -b /tmp/cj.txt -X POST "$BASE/api/v1/users" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-psk-owner","email":"e2e-psk@example.com"}' | jq -r .id)
+          PSK_IP=$(curl -sf -b /tmp/cj.txt "$BASE/api/v1/peers/next-ip" | jq -r .assignedIp)
+          PSK_PEER=$(curl -s -b /tmp/cj.txt -X POST "$BASE/api/v1/users/$OWNER/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"e2e-psk-peer\",\"assignedIp\":\"$PSK_IP\",\"assignedIpv6\":\"\",\"publicKey\":\"\",\"privateKey\":\"\",\"type\":\"client\",\"generatePresharedKey\":true}")
+          PSK_PUBKEY=$(echo "$PSK_PEER" | jq -r .peer.publicKey)
+          [ -n "$PSK_PUBKEY" ] && [ "$PSK_PUBKEY" != "null" ] \
+            || { echo "::error::a peer with a preshared key was refused"; echo "$PSK_PEER"; sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
+          GOT_PSK=$(sudo wg show wg0 preshared-keys | awk -v k="$PSK_PUBKEY" '$1 == k { print $2 }')
+          [ -n "$GOT_PSK" ] && [ "$GOT_PSK" != "(none)" ] \
+            || { echo "::error::the interface carries no preshared key for that peer"; sudo wg show wg0 preshared-keys; exit 1; }
+          echo "✓ preshared key applied on the native path"
 
       - name: Roll back, and assert both the binary and the database came back
         if: steps.prev.outputs.skip == 'false'

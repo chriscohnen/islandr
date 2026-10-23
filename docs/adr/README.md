@@ -38,7 +38,10 @@ When an ADR's status is "Accepted (inferred)", the rationale was reconstructed a
 | [0028](0028-webauthn-library-and-integration.md) | WebAuthn for the recovery admin: Vert.x auth as an engine, Islandr keeps the login flow | Proposed | 2026-09-05 |
 | [0029](0029-whole-network-role-grants.md) | Whole-network role grants: one nftables rule per site CIDR, not per resource | Accepted | 2026-09-05 |
 | [0030](0030-wireguard-config-file-ownership.md) | Islandr configures peers with `wg set` and never writes `/etc/wireguard/<iface>.conf` | Accepted (retroactive) | 2026-09-11 |
-| [0031](0031-fail-closed-boot-ruleset.md) | A boot-time nftables table keeps the hub closed until Islandr is enforcing | Proposed | 2026-09-11 |
+| [0031](0031-fail-closed-boot-ruleset.md) | A boot-time nftables table keeps the hub closed until Islandr is enforcing | Accepted | 2026-09-11 |
+| [0032](0032-quarkus-lts-line.md) | Islandr sits on the Quarkus LTS line, identified by its four-segment backports | Accepted | 2026-09-19 |
+| [0033](0033-what-1-0-promises.md) | What the 1 before the dot covers, and what it does not | Accepted | 2026-09-19 |
+| [0034](0034-preshared-key-files-under-etc-wireguard.md) | Preshared-key files are written under /etc/wireguard | Accepted | 2026-10-23 |
 
 ## Status legend
 

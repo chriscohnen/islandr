@@ -6,6 +6,7 @@ package main
 
 import (
 	"log"
+	"time"
 )
 
 // The ruleset lives at a known path in the shared data volume; never from a request.
@@ -25,9 +26,13 @@ func main() {
 	cfg := Config{
 		Iface:       iface,
 		RulesetPath: rulesetPath,
-		// short-lived preshared-key files are written here, not in a world dir.
-		RuntimeDir: runtimeDir(),
+		RuntimeDir:  runtimeDir(),
+		// short-lived preshared-key files: the one place wg is allowed to read
+		// a key from on Ubuntu 26.04 (see pskDir).
+		PskDir: pskDir(),
 	}
+	// Leftovers from a proxy killed mid-call; see sweepStalePsk.
+	sweepStalePsk(cfg.PskDir, time.Minute)
 
 	l, err := listenFromSystemd()
 	if err != nil {
