@@ -103,6 +103,32 @@ class OidcLoginServiceTest {
         assertThat(u.avatarBytes).isNull();
     }
 
+    /** A PNG signature plus four bytes. Since oidc-avatar-ssrf-xss a fetched
+     *  avatar is kept only if its bytes are an image, so stubs carry a real
+     *  header rather than arbitrary bytes. */
+    private static final byte[] PICTURE_PNG =
+            { (byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 1, 2, 3, 4 };
+
+    /** oidc-avatar-ssrf-xss, end to end: a picture claim pointing inside the
+     *  hub's reach still logs the user in — the avatar is best-effort — but
+     *  the hub never requests that address. */
+    @Test
+    void callback_pictureClaimPointingInside_isNotFetched_userStillLogsIn() {
+        enable("google");
+        String pictureUrl = "https://10.8.0.1:8443/api/v1/settings";
+        String idToken = googleJwt.signIdToken(TestJwt.googleClaims(
+                GOOGLE_CLIENT, "google-sub-ssrf", "mallory@firma.de", "Mallory", pictureUrl));
+        stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
+        http.stub(pictureUrl, 200, PICTURE_PNG, Map.of("content-type", "image/png"));
+
+        Session s = oidc.handleCallback("google", "code-ssrf", "st", "st",
+                "http://localhost:8080/api/v1/auth/oidc/google/callback");
+
+        assertThat(s.id).isNotBlank();
+        assertThat(readUser(s.userId).avatarBytes).isNull();
+        assertThat(FakeHttpFetcher.calls).noneMatch(c -> c.url().startsWith("https://10.8.0.1"));
+    }
+
     @Test
     void callback_google_happyPath_fetchesPictureFromUrl() {
         enable("google");
@@ -110,7 +136,7 @@ class OidcLoginServiceTest {
         String idToken = googleJwt.signIdToken(TestJwt.googleClaims(
                 GOOGLE_CLIENT, "google-sub-1", "carol@firma.de", "Carol", pictureUrl));
         stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
-        http.stub(pictureUrl, 200, new byte[] { 1, 2, 3, 4 }, Map.of("content-type", "image/png"));
+        http.stub(pictureUrl, 200, PICTURE_PNG, Map.of("content-type", "image/png"));
 
         Session s = oidc.handleCallback("google", "code-g1", "st", "st",
                 "http://localhost:8080/api/v1/auth/oidc/google/callback");
@@ -118,7 +144,7 @@ class OidcLoginServiceTest {
         User u = readUser(s.userId);
         assertThat(u.oidcProvider).isEqualTo("google");
         assertThat(u.avatarContentType).isEqualTo("image/png");
-        assertThat(u.avatarBytes).hasSize(4);
+        assertThat(u.avatarBytes).hasSize(PICTURE_PNG.length);
     }
 
     @Test
@@ -132,13 +158,13 @@ class OidcLoginServiceTest {
         String idToken = googleJwt.signIdToken(TestJwt.googleClaims(
                 GOOGLE_CLIENT, "google-sub-grav", "dave@firma.de", "Dave", pictureUrl));
         stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
-        // Google's picture would be 4 bytes; Gravatar's is 9 bytes. We
+        // Google's picture is PICTURE_PNG; Gravatar's is 9 bytes. We
         // assert on the size so we know which source wrote the cache.
-        http.stub(pictureUrl, 200, new byte[] { 1, 2, 3, 4 }, Map.of("content-type", "image/png"));
+        http.stub(pictureUrl, 200, PICTURE_PNG, Map.of("content-type", "image/png"));
         // md5("dave@firma.de") — Gravatar URL the AvatarFetcher will call.
         String gravatarUrl = "https://www.gravatar.com/avatar/"
                 + de.chriscohnen.islandr.identity.AvatarFetcher.md5Hex("dave@firma.de") + "?s=200&d=404";
-        http.stub(gravatarUrl, 200, new byte[] { 9, 9, 9, 9, 9, 9, 9, 9, 9 },
+        http.stub(gravatarUrl, 200, new byte[] { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 9, 9, 9, 9, 9, 9 },
                 Map.of("content-type", "image/jpeg"));
 
         Session s = oidc.handleCallback("google", "code-grav", "st", "st",
@@ -158,7 +184,7 @@ class OidcLoginServiceTest {
         String idToken = googleJwt.signIdToken(TestJwt.googleClaims(
                 GOOGLE_CLIENT, "google-sub-fb", "erin@firma.de", "Erin", pictureUrl));
         stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
-        http.stub(pictureUrl, 200, new byte[] { 1, 2, 3, 4 }, Map.of("content-type", "image/png"));
+        http.stub(pictureUrl, 200, PICTURE_PNG, Map.of("content-type", "image/png"));
         String gravatarUrl = "https://www.gravatar.com/avatar/"
                 + de.chriscohnen.islandr.identity.AvatarFetcher.md5Hex("erin@firma.de") + "?s=200&d=404";
         http.stub(gravatarUrl, 404, new byte[0], null);
@@ -167,7 +193,7 @@ class OidcLoginServiceTest {
                 "http://localhost:8080/api/v1/auth/oidc/google/callback");
 
         User u = readUser(s.userId);
-        assertThat(u.avatarBytes).hasSize(4);
+        assertThat(u.avatarBytes).hasSize(PICTURE_PNG.length);
         assertThat(u.avatarSource).isEqualTo("oidc");
     }
 
@@ -246,6 +272,135 @@ class OidcLoginServiceTest {
         assertThat(u.name).isEqualTo("Dan Microsoft");  // refreshed from token
     }
 
+    // -- oidc-email-link-verified ---------------------------------------------
+    // An identity provider says which e-mail address a login has. Unless it
+    // also says the address is confirmed, anyone who can register with it at
+    // that provider (self-run Keycloak, Auth0 without verification) could
+    // take over the Islandr account that has it — an admin's included.
+
+    private String googleToken(String sub, String email, Object emailVerified) {
+        java.util.Map<String, Object> c = TestJwt.googleClaims(GOOGLE_CLIENT, sub, email, "Someone", null);
+        if (emailVerified == null) c.remove("email_verified"); else c.put("email_verified", emailVerified);
+        return googleJwt.signIdToken(c);
+    }
+
+    private Session googleLogin(String idToken) {
+        stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
+        return oidc.handleCallback("google", "code", "st", "st",
+                "http://localhost:8080/api/v1/auth/oidc/google/callback");
+    }
+
+    @Test
+    void anUnconfirmedEmail_doesNotLinkAnExistingAccount() {
+        enable("google");
+        createLocalUser("Admin Local", "admin-unverified@firma.de");
+
+        assertThatThrownBy(() -> googleLogin(googleToken("attacker-sub-1", "admin-unverified@firma.de", null)))
+                .isInstanceOf(jakarta.ws.rs.BadRequestException.class)
+                .hasMessageContaining("not confirmed");
+
+        assertThat(findUserByEmail("admin-unverified@firma.de").oidcSubject).isNull();
+    }
+
+    @Test
+    void anEmailMarkedUnverified_doesNotLinkEither() {
+        enable("google");
+        createLocalUser("Admin Local", "admin-false@firma.de");
+
+        assertThatThrownBy(() -> googleLogin(googleToken("attacker-sub-2", "admin-false@firma.de", false)))
+                .isInstanceOf(jakarta.ws.rs.BadRequestException.class);
+
+        assertThat(findUserByEmail("admin-false@firma.de").oidcSubject).isNull();
+    }
+
+    /** Some providers send the claim as a string. "true" counts; nothing else does. */
+    @Test
+    void aConfirmedEmailAsString_links() {
+        enable("google");
+        createLocalUser("Fay Local", "fay@firma.de");
+
+        Session s = googleLogin(googleToken("google-sub-fay", "fay@firma.de", "true"));
+
+        assertThat(readUser(s.userId).oidcSubject).isEqualTo("google-sub-fay");
+    }
+
+    @Test
+    void aConfirmedEmail_ofAnAccountLinkedToSomeoneElse_isRefused_andTheLinkStays() {
+        enable("google");
+        createLinkedUser("Gus", "gus@firma.de", "google", "google-sub-gus-original");
+
+        assertThatThrownBy(() -> googleLogin(googleToken("google-sub-gus-other", "gus@firma.de", true)))
+                .isInstanceOf(jakarta.ws.rs.BadRequestException.class)
+                .hasMessageContaining("already linked");
+
+        assertThat(findUserByEmail("gus@firma.de").oidcSubject).isEqualTo("google-sub-gus-original");
+    }
+
+    /** Microsoft sends no email_verified. The tenant binding carries it: the
+     *  issuer is checked against the configured tenant, so the address comes
+     *  from a directory this hub's admin chose to trust. */
+    @Test
+    void microsoftWithoutTheClaim_stillLinksAnUnlinkedAccount() {
+        enable("microsoft");
+        createLocalUser("Hal Local", "hal@firma.de");
+        String idToken = msJwt.signIdToken(TestJwt.microsoftClaims(
+                TENANT, MS_CLIENT, "ms-sub-hal", "hal@firma.de", "Hal"));
+        stubTokenExchange("https://login.microsoftonline.com/" + TENANT + "/oauth2/v2.0/token",
+                idToken, "ms-access-token");
+        http.stub("https://graph.microsoft.com/v1.0/me/photo/$value", 404, new byte[0], null);
+
+        Session s = oidc.handleCallback("microsoft", "c", "s", "s", REDIRECT_URI);
+
+        assertThat(readUser(s.userId).oidcSubject).isEqualTo("ms-sub-hal");
+    }
+
+    @Test
+    void anUnconfirmedEmail_doesNotProvisionAnAccount() {
+        enable("google");
+        ensureAutoProvisionEnabled();
+
+        assertThatThrownBy(() -> googleLogin(googleToken("google-sub-new", "nobody-yet@firma.de", null)))
+                .isInstanceOf(jakarta.ws.rs.BadRequestException.class);
+
+        assertThat(findUserByEmail("nobody-yet@firma.de")).isNull();
+    }
+
+    /** A linked user whose provider now reports another user's address keeps
+     *  their own — two accounts never end up sharing one e-mail. */
+    @Test
+    void aLinkedUser_doesNotTakeOverAnotherUsersEmail() {
+        enable("google");
+        createLocalUser("Ida", "ida@firma.de");
+        createLinkedUser("Jon", "jon@firma.de", "google", "google-sub-jon");
+
+        Session s = googleLogin(googleToken("google-sub-jon", "ida@firma.de", true));
+
+        assertThat(readUser(s.userId).email).isEqualTo("jon@firma.de");
+        assertThat(findUserByEmail("ida@firma.de").name).isEqualTo("Ida");
+    }
+
+    /** The provider switch, done the intended way: an admin releases the old
+     *  link (DELETE /users/{id}/oidc-link, here as its effect), and the next
+     *  login on a confirmed address takes the account over legitimately. */
+    @Test
+    void afterTheLinkIsReleased_aConfirmedLoginLinksTheAccountAgain() {
+        enable("google");
+        createLinkedUser("Kim", "kim@firma.de", "google", "google-sub-kim-old");
+        releaseLink("kim@firma.de");
+
+        Session s = googleLogin(googleToken("google-sub-kim-new", "kim@firma.de", true));
+
+        assertThat(readUser(s.userId).oidcSubject).isEqualTo("google-sub-kim-new");
+    }
+
+    @Transactional
+    void releaseLink(String email) {
+        User u = User.find("email", email).firstResult();
+        u.oidcProvider = null;
+        u.oidcSubject = null;
+        u.oidcCustomProviderId = null;
+    }
+
     // -- helpers --------------------------------------------------------------
 
     // Provider-Credentials werden im BeforeEach gesetzt, aber NICHT aktiviert.
@@ -306,6 +461,19 @@ class OidcLoginServiceTest {
     void createLocalUser(String name, String email) {
         User u = User.createNew(name, email);
         u.persist();
+    }
+
+    @Transactional
+    void createLinkedUser(String name, String email, String provider, String subject) {
+        User u = User.createNew(name, email);
+        u.oidcProvider = provider;
+        u.oidcSubject = subject;
+        u.persist();
+    }
+
+    @Transactional
+    User findUserByEmail(String email) {
+        return User.find("email", email).firstResult();
     }
 
     @Transactional

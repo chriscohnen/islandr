@@ -194,6 +194,22 @@ export default defineComponent({
       }
     },
 
+    // oidc-unlink: since a login never re-points an account that is already
+    // linked, this is how an admin lets one be linked afresh — after a switch
+    // of identity provider, or when the provider re-created the user.
+    async unlinkOidc(user) {
+      const ok = await confirmDialog(t("users.confirm_unlink_oidc",
+        { name: user.displayName, provider: user.oidcProviderLabel || user.oidcProvider }));
+      if (!ok) return;
+      try {
+        const res = await fetch("/api/v1/users/" + user.id + "/oidc-link", { method: "DELETE" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await this.load();
+      } catch (e) {
+        this.error = t("users.error_unlink_oidc", { error: e.message });
+      }
+    },
+
     startNicknameEdit(u) {
       this.editingNicknameId = u.id;
       this.nicknameInput = u.nickname || "";
@@ -652,6 +668,13 @@ export default defineComponent({
                       style="width: 12px; height: 12px; font-size: 9px" aria-hidden="true">G</span>
                 <Icon v-else name="identity" :size="12" />
                 {{ u.oidcProviderLabel }}
+                <!-- On the pill that shows the link, so releasing it sits where
+                     the link is read. A real button, reachable by touch. -->
+                <button type="button" class="btn btn-ghost btn-sm" @click="unlinkOidc(u)"
+                        style="padding: 0 2px; height: auto; min-height: 0; margin-left: 2px"
+                        :title="t('users.btn_unlink_oidc')" :aria-label="t('users.btn_unlink_oidc')">
+                  <Icon name="unlink" :size="11" />
+                </button>
               </span>
               <span v-if="!u.hasLocalPassword && !u.oidcProvider" class="muted" style="font-size: var(--text-xs)">—</span>
             </span>

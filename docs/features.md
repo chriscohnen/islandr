@@ -7,7 +7,7 @@ specific need. The short version of what the product *is* lives in the
 
 **Authentication & identity**
 - Local admin (ENV-bootstrapped) *and* per-user local passwords (PBKDF2) — no external IdP required
-- OIDC: Microsoft 365 / Entra ID and Google, fully GUI-configurable at runtime without a restart; one provider active at a time
+- OIDC: Microsoft 365 / Entra ID and Google, fully GUI-configurable at runtime without a restart; one provider active at a time; an existing account links on first sign-on only by a verified e-mail address, and an admin can release a link, e.g. after switching provider
 - Avatars: MS Graph photo → Google picture → Gravatar (opt-in) → deterministic initials
 - **Security keys for the local recovery admin** — a "sign in with a security key" button next to the password on the login screen, registered and managed from Settings; issues the same session a password does, offered alongside it and never instead of it, several authenticators can be registered. A credential binds to a name, so a hub reached by IP cannot use them. If every authenticator is lost, `ISLANDR_WEBAUTHN_RESET=true` plus a restart clears them, audit-logged ([ADR-0028](adr/0028-webauthn-library-and-integration.md), [#67](https://github.com/chriscohnen/islandr/issues/67))
 

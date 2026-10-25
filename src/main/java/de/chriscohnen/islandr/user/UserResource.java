@@ -284,6 +284,38 @@ public class UserResource {
         return UserDto.Response.from(u);
     }
 
+    /**
+     * Releases the account's single sign-on link (oidc-unlink). The next
+     * login on a confirmed address links it afresh, as it would a local
+     * account.
+     *
+     * <p>Needed since oidc-email-link-verified: a login never re-points an
+     * account that is already linked, because that re-pointing was how an
+     * unconfirmed address could take one over. It was also how switching the
+     * identity provider used to carry every account across by itself. Now an
+     * admin decides, per account, that it may be linked again. Sessions are
+     * left alone — they belong to the person, and the next login decides.
+     */
+    @DELETE
+    @Path("/{id}/oidc-link")
+    @Transactional
+    public UserDto.Response unlinkOidc(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        User u = User.findById(id);
+        if (u == null) throw new NotFoundException("user not found: " + id);
+        if (u.oidcProvider == null && u.oidcSubject == null) return UserDto.Response.from(u);
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("oidcProvider", u.oidcProvider);
+        before.put("oidcCustomProviderId", u.oidcCustomProviderId);
+        u.oidcProvider = null;
+        u.oidcSubject = null;
+        u.oidcCustomProviderId = null;
+        audit.logUpdate(a.principal(), "user.oidc_unlink", "User:" + u.name + " (" + u.id + ")",
+                before, Map.of("oidcProvider", "none"));
+        return UserDto.Response.from(u);
+    }
+
     @DELETE
     @Path("/{id}")
     @Transactional

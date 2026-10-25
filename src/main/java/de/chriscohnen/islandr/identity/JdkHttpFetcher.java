@@ -20,6 +20,7 @@ import java.util.Map;
 public class JdkHttpFetcher implements HttpFetcher {
 
     private HttpClient client;
+    private HttpClient noRedirectClient;
 
     @PostConstruct
     void init() {
@@ -27,6 +28,21 @@ public class JdkHttpFetcher implements HttpFetcher {
                 .connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+        noRedirectClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+    }
+
+    @Override
+    public Response getWithoutRedirects(String url, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(10))
+                .GET();
+        if (headers != null) headers.forEach(b::header);
+        HttpResponse<byte[]> resp = noRedirectClient.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+        return new Response(resp.statusCode(), resp.body(), flattenHeaders(resp));
     }
 
     @Override

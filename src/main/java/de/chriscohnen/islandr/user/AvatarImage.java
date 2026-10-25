@@ -16,7 +16,7 @@ import jakarta.ws.rs.BadRequestException;
  * Formats whose dimensions cannot be read this way are not accepted — an
  * avatar is not worth a parser.
  */
-final class AvatarImage {
+public final class AvatarImage {
 
     /** A 256×256 avatar, with room for a 2× display, and a generous byte ceiling. */
     static final int MAX_EDGE = 512;
@@ -48,6 +48,36 @@ final class AvatarImage {
         }
         if (m.width() < 1 || m.height() < 1) throw new BadRequestException("image has no dimensions");
         return m;
+    }
+
+    /**
+     * The image type the bytes actually are, or {@code null} when they are not
+     * one of the four a browser renders as a plain image (oidc-avatar-ssrf-xss).
+     *
+     * <p>For avatars fetched from elsewhere — the OIDC {@code picture} URL, MS
+     * Graph, Gravatar. Their {@code Content-Type} was the remote server's
+     * claim and used to be stored and served as is, so an HTML answer went out
+     * as {@code text/html} on Islandr's origin. Only the type is checked, not
+     * {@link #MAX_EDGE}: a Microsoft photo is often 648 px, and refusing it
+     * would cost every such user their picture for no security gain. The
+     * byte ceiling still applies at the fetcher.
+     */
+    public static String sniffType(byte[] b) {
+        if (b == null || b.length < 4) return null;
+        if (readPngSignature(b)) return "image/png";
+        if ((b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8 && (b[2] & 0xFF) == 0xFF) return "image/jpeg";
+        if (b.length >= 6 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F' && b[3] == '8'
+                && (b[4] == '7' || b[4] == '9') && b[5] == 'a') return "image/gif";
+        if (b.length >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
+                && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') return "image/webp";
+        return null;
+    }
+
+    private static boolean readPngSignature(byte[] b) {
+        byte[] sig = { (byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+        if (b.length < sig.length) return false;
+        for (int i = 0; i < sig.length; i++) if (b[i] != sig[i]) return false;
+        return true;
     }
 
     /** PNG: 8-byte signature, then an IHDR chunk whose first 8 bytes are w/h. */

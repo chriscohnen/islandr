@@ -37,6 +37,33 @@ class UserAvatarResourceTest {
                 .header("ETag", org.hamcrest.Matchers.notNullValue());
     }
 
+    // oidc-avatar-ssrf-xss: until 1.2.0 a fetched avatar was stored with
+    // whatever Content-Type the remote server sent, and served back with it.
+    // Rows written that way may still exist (the V93 migration clears them,
+    // this is the second line): the endpoint serves nothing but an image.
+
+    @Test
+    void aStoredNonImageTypeIsNotServed() {
+        String userId = createUserWithCachedAvatar("avatar-html@firma.de",
+                "<script>alert(1)</script>".getBytes(java.nio.charset.StandardCharsets.UTF_8), "text/html");
+
+        given().when().get("/api/v1/users/" + userId + "/avatar")
+                .then().statusCode(404);
+    }
+
+    /** Even an image is served so that no browser second-guesses its type or
+     *  runs anything in its context. */
+    @Test
+    void anImageIsServedWithNosniffAndASandbox() {
+        String userId = createUserWithCachedAvatar("avatar-headers@firma.de",
+                new byte[] { 1, 2, 3, 4, 5 }, "image/png");
+
+        given().when().get("/api/v1/users/" + userId + "/avatar")
+                .then().statusCode(200)
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", org.hamcrest.Matchers.containsString("sandbox"));
+    }
+
     @Test
     void noCachedBytes_gravatarDisabled_returns404() {
         setGravatarEnabled(false);
@@ -53,7 +80,7 @@ class UserAvatarResourceTest {
         setGravatarEnabled(true);
         String userId = createUser("gravatar-user@firma.de");
         http.stub("https://www.gravatar.com/avatar/" + md5("gravatar-user@firma.de") + "?s=200&d=404",
-                200, new byte[] { 9, 9, 9 }, Map.of("content-type", "image/jpeg"));
+                200, new byte[] { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 9, 9, 9 }, Map.of("content-type", "image/jpeg"));
 
         given().when().get("/api/v1/users/" + userId + "/avatar")
                 .then().statusCode(200)
