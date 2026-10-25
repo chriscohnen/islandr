@@ -217,6 +217,14 @@ settings page and failed later at the first peer, and every warning banner in se
 screens named a stylesheet class that does not exist, so none of them had ever been
 amber.
 
+**Ubuntu 26.04 works.** Its new default `sudo` and an AppArmor profile for `wg` broke
+the native installer and peers with a preshared key there; both are fixed, and CI now
+installs, upgrades and rolls back on 26.04. A hub that is moved to 26.04 in place
+needs two small changes, which `update.sh` points out. Single sign-on got stricter
+too: it fetches profile pictures more carefully, and links or creates an account only
+for an e-mail address the identity provider has verified — after switching provider,
+an admin releases each account's old link from the user list.
+
 **Edge hubs are groundwork, not a feature you can use.** A second hub at a remote site
 is modelled, configurable and drawn — a device belongs to exactly one hub, its
 configuration points at that hub, and the central hub leaves an edge's devices alone.
@@ -241,6 +249,9 @@ Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 - Fixed: an admin viewing another person's access could add a device there and receive it themselves
 - Fixed: a WireGuard subnet too narrow to ever assign a host was accepted
 - Fixed: warning banners across seven screens named a stylesheet class that does not exist, so none of them were ever amber
+- **Ubuntu 26.04** — the native installer and preshared keys work there; a hub moved to 26.04 in place needs two small changes, which `update.sh` points out ([install guide](docs/install.md#sudo-rs-on-ubuntu-2604))
+- Security: profile pictures at single sign-on are fetched and served more carefully, and sign-on links or creates an account only for a verified e-mail address; an admin can release an account's link, e.g. after switching identity provider
+- Security: the JSON and telemetry libraries are updated past their published advisories
 - **Groundwork for edge hubs** — modelled, configurable and drawn, but not usable until there is software at the edge that fetches its configuration and enforces the firewall there. [docs/features.md](docs/features.md) says exactly where the line is
 
 ### Roadmap
