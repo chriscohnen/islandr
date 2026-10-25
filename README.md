@@ -200,7 +200,7 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**1.2.0 — mostly maintenance: less friction in the console.**
+**1.2.0 — mostly maintenance: less friction in the console.** *1.2.1 fixes overlapping device labels in the dashboard topology.*
 Most of this release is the admin console getting out of the way, and what is new is
 small — figures and history the hub was already collecting, now shown where the question
 gets asked. The peers list used to show a timestamp where the actual question is "is
