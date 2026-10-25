@@ -19,6 +19,19 @@ public interface HttpFetcher {
     /** GET, returns body and status. Follows redirects. */
     Response get(String url, Map<String, String> headers) throws IOException, InterruptedException;
 
+    /**
+     * GET without following redirects: a 3xx comes back as it is, Location
+     * header included. For URLs that came from outside (the OIDC picture
+     * claim), whose every hop has to pass {@link UrlFetchPolicy} again — a
+     * client that follows on its own would let the first, harmless-looking
+     * URL point anywhere. Defaults to {@link #get} for fakes, which do not
+     * redirect anyway.
+     */
+    default Response getWithoutRedirects(String url, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        return get(url, headers);
+    }
+
     /** POST form-urlencoded body. */
     Response postForm(String url, Map<String, String> formFields, Map<String, String> headers)
             throws IOException, InterruptedException;

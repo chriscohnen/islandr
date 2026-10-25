@@ -8,6 +8,39 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.2.0
+
+Mostly maintenance: a console that is faster to read, a handful of long-standing
+rough edges gone, and what is new kept small — figures and history already being
+collected, now shown where the question gets asked.
+
+- **The peers list answers its own question** — 14 days of activity as a sparkline per row, how long a connected device has been connected, and sorting by last handshake
+- **Its rows are a third as tall** — four labelled action buttons wrapped into three lines below a wide screen. Disable and delete moved into the edit dialog, the device type is now its icon with the word as a tooltip, and the roadwarrior and edge markers became corner flags instead of pills
+- **A traffic tile on the dashboard** — bytes in and out over the last hour
+- **The topology diagram survives a crowded network** — an expanded resource list draws on its own panel instead of letting the nodes behind it show through, that panel now starts beside the network box rather than on it, and the view moves to whatever you just opened
+- **The update check notices a stale `update.sh`** — the copy kept on the hub can be older than the release it is meant to install
+- Fixed: an admin viewing another person's access could add a device from there and receive it themselves
+- Fixed: a WireGuard subnet too narrow to ever assign a host was accepted at the settings page, instead of failing later at the first peer
+- Fixed: warning banners across seven screens named a stylesheet class that does not exist, so none of them had ever carried their amber styling
+- Security: hardened how the profile picture is fetched and served at single sign-on
+- Security: updated the JSON (Jackson 2.21.7) and telemetry (OpenTelemetry 1.62.0) libraries past their published advisories
+- Security: single sign-on links an existing account, or creates one, only for an e-mail address the identity provider marks as verified, and no longer moves an account that is already linked to another sign-in. Microsoft Entra ID is unaffected; a self-run provider has to verify addresses. After switching identity provider, an admin releases each account's old link from the user list, and the next sign-on links it again — see the FAQ ([Single sign-on refuses an unconfirmed e-mail address](docs/faq.md#single-sign-on-refuses-an-unconfirmed-e-mail-address))
+- Fixed: on Ubuntu 26.04 the native installer stopped at the sudoers step, because the new default sudo (sudo-rs) refuses the pattern the `nft` lines used. Islandr now stages its ruleset at one fixed path that the installer can name exactly; hubs updated in place keep their sudoers and keep working. A hub upgraded to 26.04 in place stops applying firewall changes until two lines are replaced — `update.sh` warns about it ([install guide](docs/install.md#sudo-rs-on-ubuntu-2604))
+- Fixed: on Ubuntu 26.04, creating a peer with a preshared key failed with `fopen: Permission denied`. The key file now lives in `/etc/wireguard/islandr`, the one place `wg` may read it from there. New installs set this up; a hub installed earlier needs two manual steps, which `update.sh` points to ([install guide](docs/install.md#preshared-keys-on-ubuntu-2604), [ADR-0034](docs/adr/0034-preshared-key-files-under-etc-wireguard.md))
+
+**Groundwork: edge hubs.** A second WireGuard hub at a remote site is modelled,
+configurable and drawn, but **not usable yet** — it needs software at the edge that
+fetches its peers and rules from the hub over the API and enforces the firewall there,
+and that does not exist. Until it does, an edge is a database row and a WireGuard
+interface maintained by hand. Off until switched on in the network settings; an
+installation with one hub sees nothing of it.
+
+- A peer belongs to exactly one hub, named when it is created and not changed afterwards, and its configuration points at that hub — endpoint, server key, routed networks and resolver
+- A peer at the central hub can be moved to an edge; the other directions are refused, because the hub cannot revoke a peer at an edge yet
+- The central hub leaves an edge's peers alone — not pushed onto its interface by the drift reconciler, not rendered into its ruleset
+- The portal asks which location a new device is for, and says where each existing device dials in
+- An edge can report connectivity for the peers connected to it and read the preshared keys of the peers it may serve, both scoped to that one edge
+
 ## 1.1.0
 
 - **Topology diagram gets three detail tiers for peers** instead of one dot each, plus a wider live-peer window

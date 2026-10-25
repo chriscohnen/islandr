@@ -248,6 +248,30 @@ fi
 install -d -o islandr -g islandr /opt/islandr
 install -d -o islandr -g islandr /var/lib/islandr/data
 
+# Preshared keys. wg reads a PSK only from a file (argv is world readable), and
+# on Ubuntu 26.04 an enforcing AppArmor profile lets wg read files only under
+# /etc/wireguard — root included. Islandr gets its own subdirectory there;
+# <iface>.conf and the server key are not touched. The profile also denies wg
+# dac_override, so root reads by the ordinary permission bits like anyone
+# else: the directory is owned by the service user (it writes there) and
+# setgid root, so each key file is born in group root, and the service makes
+# it 0640 — readable by its owner and by group root, by nobody else. To reach it the service user must pass through /etc/wireguard:
+# group islandr, execute only. Without read nobody can list the directory, and
+# its files keep their own modes. Same block in islandr-proxy/install.sh and
+# islandr-proxy/install-proxy.sh.
+[[ -d /etc/wireguard ]] || install -d -m 0700 -o root -g root /etc/wireguard
+case "$(stat -c %G /etc/wireguard)" in
+    root|islandr)
+        chgrp islandr /etc/wireguard
+        chmod g+x,g-rw /etc/wireguard
+        ;;
+    *)
+        echo "  NOTE: /etc/wireguard belongs to group '$(stat -c %G /etc/wireguard)' — left as it is."
+        echo "        Preshared keys on Ubuntu 26.04 need the islandr user to pass through it."
+        ;;
+esac
+install -d -m 2750 -o islandr -g root /etc/wireguard/islandr
+
 install -o islandr -g islandr -m 0755 "$STAGED" /opt/islandr/islandr
 
 # ---------------------------------------------------------------------------
@@ -255,12 +279,40 @@ install -o islandr -g islandr -m 0755 "$STAGED" /opt/islandr/islandr
 # ---------------------------------------------------------------------------
 echo ">>> 4/8 sudoers entry (interface: $WG_INTERFACE)"
 
+# The file nft may read. Islandr stages its ruleset at one fixed path,
+# /var/lib/islandr/islandr-nft-current.nft. Releases before 1.2.0 used a fresh
+# islandr-nft-<random>.nft per call, so the grant has always been a pattern —
+# and that pattern still matches the fixed name, which keeps a pinned older
+# ISLANDR_VERSION working with this script. sudo-rs (Ubuntu 26.04 and later)
+# refuses a pattern in a command argument, so where visudo rejects it the grant
+# names the exact path instead. Releases before 1.2.0 cannot apply rules there.
+NFT_STAGED_PATTERN="/var/lib/islandr/islandr-nft-*.nft"
+NFT_STAGED_EXACT="/var/lib/islandr/islandr-nft-current.nft"
+NFT_STAGED="$NFT_STAGED_PATTERN"
+# Checked in a temp file, mode 0440 like the real one, so neither sudo reads it
+# nor visudo rejects it for its permissions instead of its syntax.
+SUDOERS_PROBE=$(mktemp)
+printf 'islandr ALL=(root) NOPASSWD: %s -f %s\n' "$NFT_BIN" "$NFT_STAGED_PATTERN" > "$SUDOERS_PROBE"
+chmod 0440 "$SUDOERS_PROBE"
+if ! visudo -c -f "$SUDOERS_PROBE" >/dev/null 2>&1; then
+    NFT_STAGED="$NFT_STAGED_EXACT"
+    echo "  This host's sudo does not accept a pattern in a command argument (sudo-rs);"
+    echo "  granting the exact staging path instead."
+    PINNED="${ISLANDR_VERSION#v}"
+    if [[ "$ISLANDR_VERSION" != "latest" && -z "$ISLANDR_BINARY" ]] \
+       && [[ "$(printf '%s\n' "$PINNED" 1.2.0 | sort -V | head -1)" == "$PINNED" && "$PINNED" != 1.2.0 ]]; then
+        echo "  NOTE: $ISLANDR_VERSION stages its ruleset under another name and cannot"
+        echo "        apply firewall rules on this host. Use 1.2.0 or later here."
+    fi
+fi
+rm -f "$SUDOERS_PROBE"
+
 cat > /etc/sudoers.d/islandr <<SUDOERS
 # Islandr service user: scoped sudo for nft and wg only (ADR-0011).
-# See docs/install/hardening.md before editing — the wildcard, the absolute
+# See docs/install/hardening.md before editing — the staging path, the absolute
 # paths and the interface name are all load-bearing.
-islandr ALL=(root) NOPASSWD: $NFT_BIN -c -f /var/lib/islandr/islandr-nft-*.nft
-islandr ALL=(root) NOPASSWD: $NFT_BIN -f /var/lib/islandr/islandr-nft-*.nft
+islandr ALL=(root) NOPASSWD: $NFT_BIN -c -f $NFT_STAGED
+islandr ALL=(root) NOPASSWD: $NFT_BIN -f $NFT_STAGED
 islandr ALL=(root) NOPASSWD: $NFT_BIN delete table inet islandr
 # Hands over from the fail-closed boot ruleset to islandr's own (ADR-0031).
 # islandr never creates this table, it only removes it once its own is live.
@@ -387,6 +439,11 @@ NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/islandr
+# Short-lived preshared-key files — the one place wg may read a key from on
+# Ubuntu 26.04 (AppArmor). The leading '-' keeps the unit starting on a host
+# where the directory does not exist; Islandr then falls back to its old
+# location, which works everywhere that profile does not exist.
+ReadWritePaths=-/etc/wireguard/islandr
 PrivateTmp=true
 
 # Lets the unprivileged user bind 80/443 (TLS) and 53 (resource DNS). Grants

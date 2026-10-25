@@ -118,17 +118,45 @@ configurations.all {
             useVersion("4.1.137.Final")
             because("CVE-2026-59898 (critical) and CVE-2026-59921, unfixed in the BOM's 4.1.136.Final; same 4.1.x line")
         }
+        // The BOM ships Jackson 2.21.5. 2.21.7 fixes five high-severity parser
+        // DoS issues (number-pattern ReDoS, unbounded number parsing, quadratic
+        // forward-reference completion, unbounded unknown type IDs) plus two
+        // medium ones — reachable through every JSON request body, the login
+        // included. All modules move together so no two disagree on a patch
+        // level. jackson-annotations is left alone: since 2.20 it is versioned
+        // "2.21", not "2.21.x", and has no 2.21.7.
+        if (requested.group.startsWith("com.fasterxml.jackson")
+                && requested.name != "jackson-annotations" && requested.name != "jackson-bom") {
+            useVersion("2.21.7")
+            because("five high and two medium jackson-core/-databind advisories fixed in 2.21.6/2.21.7; same 2.21 line")
+        }
+        // The BOM resolves OpenTelemetry 1.57.0; 1.62.0 fixes unbounded memory
+        // allocation in W3C baggage propagation (medium). Islandr carries no
+        // OTel SDK — only the API and its incubator, pulled in by the Quarkus
+        // scheduler for optional tracing hooks, which without an SDK are
+        // no-ops. So the API/SDK pairing that kept this un-forced before does
+        // not arise. The incubator is alpha and must match the API exactly,
+        // hence these four together; instrumentation-api and semconv keep
+        // their own version lines. Verified by the native build and E2E.
+        if (requested.group == "io.opentelemetry") {
+            when (requested.name) {
+                "opentelemetry-api", "opentelemetry-context", "opentelemetry-common" -> {
+                    useVersion("1.62.0")
+                    because("CVE-2026-45292, unbounded memory in W3C baggage propagation, fixed in 1.62.0")
+                }
+                "opentelemetry-api-incubator" -> {
+                    useVersion("1.62.0-alpha")
+                    because("must match opentelemetry-api exactly")
+                }
+            }
+        }
     }
 }
-// NOT force-overridden: io.opentelemetry:opentelemetry-api (CVE-2026-45292,
-// medium, unbounded memory in W3C baggage propagation, fixed in 1.62.0). The
-// 3.33 BOM resolves 1.57.0 — closer than the 1.46.0 that 3.29.4 carried, but
-// still five minors short, and the OTel API's compatibility with the
-// Quarkus-managed OTel SDK/exporter at that distance needs real verification
-// rather than a one-line force. Left as an open Dependabot alert (see #20).
+// OpenTelemetry was left un-forced until 1.2.0 for fear of an API/SDK
+// mismatch; see the override above for why that does not apply here.
 
 group = "de.chriscohnen.islandr"
-version = "1.1.0"
+version = "1.2.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

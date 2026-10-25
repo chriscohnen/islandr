@@ -7,7 +7,7 @@ specific need. The short version of what the product *is* lives in the
 
 **Authentication & identity**
 - Local admin (ENV-bootstrapped) *and* per-user local passwords (PBKDF2) — no external IdP required
-- OIDC: Microsoft 365 / Entra ID and Google, fully GUI-configurable at runtime without a restart; one provider active at a time
+- OIDC: Microsoft 365 / Entra ID and Google, fully GUI-configurable at runtime without a restart; one provider active at a time; an existing account links on first sign-on only by a verified e-mail address, and an admin can release a link, e.g. after switching provider
 - Avatars: MS Graph photo → Google picture → Gravatar (opt-in) → deterministic initials
 - **Security keys for the local recovery admin** — a "sign in with a security key" button next to the password on the login screen, registered and managed from Settings; issues the same session a password does, offered alongside it and never instead of it, several authenticators can be registered. A credential binds to a name, so a hub reached by IP cannot use them. If every authenticator is lost, `ISLANDR_WEBAUTHN_RESET=true` plus a restart clears them, audit-logged ([ADR-0028](adr/0028-webauthn-library-and-integration.md), [#67](https://github.com/chriscohnen/islandr/issues/67))
 
@@ -44,6 +44,25 @@ specific need. The short version of what the product *is* lives in the
 - **Docker without `NET_ADMIN`** — unprivileged container plus a host-side socket proxy ([ADR-0012](adr/0012-docker-socket-proxy.md))
 - Enforcement state is always visible — direct, via proxy, or degraded. Nothing is ever silently unenforced
 - Activity poller and live handshake indicators (last seen, endpoint, rx/tx)
+
+**Edge hubs**
+- **A second WireGuard hub at a remote site** — devices there dial the edge and reach the local network without their traffic crossing the world to the central hub and back. Users, roles, ACLs and the audit log stay on the central hub; the edge terminates tunnels, it does not hold policy
+- **Off until switched on**, in the network settings. An installation with one hub never sees the concept: no menu entry, no selector, no extra column. The switch cannot be turned off again while edge hubs still exist
+- **A peer belongs to exactly one hub**, named when it is created and immutable afterwards. Someone who works at two locations gets one device entry per location, each with its own key and address — which is also what keeps a compromised location from being a key to anywhere else, and what keeps the same address off two hubs at once
+- **An edge peer's configuration points at its edge** — that edge's endpoint and server key, and routes for only the networks it serves. The split-tunnel supernet is left out for such a peer, since at an edge it would route the other hubs' networks into a tunnel that cannot deliver them
+- **An edge names the resolver its peers should use**, or none at all. The central hub's resolver is not reachable from an edge unless an operator built that path themselves, so it is never inherited
+- **The central hub leaves an edge's peers alone** — they are not pushed onto its interface by the drift reconciler and not rendered into its ruleset, because traffic that never leaves the edge cannot be filtered at the hub
+- **An edge can report connectivity for the peers connected to it**, so they leave "Disconnected" on the dashboard, and **read the preshared keys of the peers it may serve** — both scoped to that one edge, with a key bound elsewhere refused as if it held no scope at all
+- **Drawn as its own node** on the radial topology diagram, with its sites and its peers around it, and on the geo map as a relationship to the central hub
+- The self-service portal asks which location a new device is for — offering only locations where that person can actually reach something — and names the location of each device afterwards
+
+*Not usable yet, and worth being precise about why:* there is no edge software.
+Nothing fetches peers and rules from the hub over the API, and nothing enforces
+a firewall at the site. The hub does not serve a configuration anywhere either.
+An edge is therefore a database row plus a WireGuard interface you maintain by
+hand — useful for modelling your sites and for seeing the shape of it, not for
+running an office on. What is missing is tracked as `edge-plan-peers` and
+`edge-plan-rules`.
 
 **Self-service portal**
 - Users enrol their own devices: platform → QR + `.conf` → first handshake. Key rotation, device list, access overview. Admins can switch it off

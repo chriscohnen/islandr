@@ -1,5 +1,7 @@
 package de.chriscohnen.islandr.peer;
 
+import de.chriscohnen.islandr.acl.AclResolutionService;
+import de.chriscohnen.islandr.acl.EdgeHub;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
@@ -41,6 +43,7 @@ public class PeerResource {
     @Inject RulesetService rulesets;
     @Inject WgAdapter wg;
     @Inject NetworkDiagnosticsService diag;
+    @Inject AclResolutionService acl;
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface") String wgInterface;
 
     @GET
@@ -248,6 +251,20 @@ public class PeerResource {
     }
 
     @GET
+    @Path("/{id}/reachable-edges")
+    public PeerDto.ReachableEdges reachableEdges(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        Auth.requireAdmin(ctx);
+        Peer p = Peer.findById(id);
+        if (p == null) throw new NotFoundException("peer not found: " + id);
+        List<String> ids = acl.reachableEdgeHubIdsForPeer(p).stream().sorted().toList();
+        if (ids.isEmpty()) return new PeerDto.ReachableEdges(List.of(), List.of());
+        Map<String, String> namesById = new LinkedHashMap<>();
+        for (EdgeHub e : EdgeHub.<EdgeHub>list("id in ?1", ids)) namesById.put(e.id, e.name);
+        List<String> names = ids.stream().map(namesById::get).toList();
+        return new PeerDto.ReachableEdges(ids, names);
+    }
+
+    @GET
     @Path("/{id}/conf")
     public PeerDto.CreateResponse reshowConf(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
         Auth.requireAdmin(ctx);
@@ -304,6 +321,33 @@ public class PeerResource {
      * Returns 404 if the peer is not found in the DB, 409 if the peer already
      * has a PSK stored (use the edit form to rotate/remove it explicitly).
      */
+    /**
+     * peer-hub-move-to-edge: move a central-hub peer to an edge hub. The only
+     * direction that exists — see {@code PeerService.moveToHub} for why the
+     * others are refused rather than merely unimplemented.
+     *
+     * <p>The device needs its configuration again afterwards: endpoint, server
+     * key, routed networks and resolver all change. The key pair does not, so
+     * the existing one keeps working once the new {@code [Peer]} block is in
+     * place.
+     */
+    @POST
+    @Path("/{id}/hub")
+    public PeerDto.Response moveHub(@Context ContainerRequestContext ctx, @PathParam("id") String id,
+                                     PeerDto.MoveHubRequest body) {
+        AuthContext a = Auth.requireAdmin(ctx);
+        Peer before = Peer.findById(id);
+        String from = before == null ? null : before.edgeHubId;
+        PeerDto.Response out = peers.moveToHub(id, body == null ? null : body.edgeHubId());
+        audit.logUpdate(a.principal(), "peer.hub_move",
+                "Peer:" + out.name() + " (" + id + ")",
+                Map.of("edgeHubId", from == null ? "" : from),
+                Map.of("edgeHubId", out.edgeHubId() == null ? "" : out.edgeHubId()));
+        // The peer leaves the hub's ruleset with the move (edge-drift-exclusion).
+        rulesets.recomputeFromHook();
+        return out;
+    }
+
     @POST
     @Path("/{id}/psk/sync-from-wg")
     @jakarta.transaction.Transactional

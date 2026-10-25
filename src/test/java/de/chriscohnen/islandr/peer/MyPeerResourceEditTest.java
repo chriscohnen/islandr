@@ -239,8 +239,7 @@ class MyPeerResourceEditTest {
         byte[] keyBytes = new byte[32];
         new java.security.SecureRandom().nextBytes(keyBytes);
         String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
-        Peer p = Peer.createNew(userId, name, publicKey,
-                "10.9.0." + (150 + (int) (Math.random() * 90)));
+        Peer p = Peer.createNew(userId, name, publicKey, TestPeerIps.next());
         p.deviceType = deviceType;
         p.persist();
         return p.id;

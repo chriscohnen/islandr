@@ -21,6 +21,12 @@ const VIEW_Y_MIN = 10;
 const VIEW_Y_MAX = 420;
 const HUB_R = 7;
 const SITE_R = 5;
+// Sentinel id for the central hub in hubPoints/hubPointById — it has no
+// real id of its own (EdgeHub rows are only the *additional* hubs, see
+// EdgeHub's class javadoc), so a site's null `edgeHubId` is mapped to this
+// before the lookup rather than threading a null/undefined special case
+// through every hub-point consumer below.
+const CENTRAL_HUB_ID = "__central__";
 // Link paths live in map user-space (unlike pins/labels, which counter-scale
 // via an inner scale(1/zoom) group — see the template comment above the hub
 // <g>) so their geometry can follow the projected hub/site coordinates.
@@ -108,6 +114,20 @@ function loadLandData() {
   return landDataPromise;
 }
 
+// Quadratic bezier with the control point offset perpendicular to the
+// straight line, matching the design brief's "slightly curved" connection
+// lines. Shared by every link drawn on the map (site-to-hub, and
+// edge-hub-entity's hub-to-hub backbone) so they all read as the same
+// visual language.
+function curvedPath(x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy) || 1;
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const cx = mx - (dy / dist) * dist * 0.15;
+  const cy = my + (dx / dist) * dist * 0.15;
+  return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+}
+
 function project(lat, lng) {
   return {
     x: (lng + 180) * (W / 360),
@@ -134,6 +154,11 @@ export default defineComponent({
     hubLat: { type: Number, default: null },
     hubLon: { type: Number, default: null },
     hubLabel: { type: String, default: "" },
+    // edge-hub-entity (1.2.0): DashboardDto.TopologyHub[] — every edge hub
+    // besides the one central hub above, which has no row of its own (see
+    // EdgeHub's class javadoc). Each site in `sites` carries an `edgeHubId`
+    // (null = central) saying which of these it links to.
+    edgeHubs: { type: Array, default: () => [] },
     // Portal (self-service) reuse of this component (#43) — see the same
     // prop on TopologyDiagram.js for why: swaps Admin-worded tooltip
     // fallback text, doesn't change what data is shown (the backend
@@ -183,6 +208,47 @@ export default defineComponent({
     hubPoint() {
       return this.hasHub ? project(this.hubLat, this.hubLon) : null;
     },
+    // edge-hub-entity (1.2.0): one entry per renderable hub — the central
+    // hub (id CENTRAL_HUB_ID, from hubLat/hubLon/hubLabel, unchanged
+    // behavior) plus every geocoded EdgeHub. A site's `edgeHubId` (null =
+    // central) looks its serving hub up here via hubPointById.
+    hubPoints() {
+      const out = [];
+      if (this.hasHub) {
+        out.push({
+          id: CENTRAL_HUB_ID, name: this.hubLabel || t("dashboard.worldmap_hub"), enabled: true,
+          lat: this.hubLat, lng: this.hubLon, ...project(this.hubLat, this.hubLon),
+        });
+      }
+      for (const h of this.edgeHubs) {
+        if (!isValidCoord(h.lat, h.lng)) continue;
+        out.push({ id: h.id, name: h.name, enabled: h.enabled, lat: h.lat, lng: h.lng, ...project(h.lat, h.lng) });
+      }
+      return out;
+    },
+    hubPointById() {
+      const map = new Map();
+      for (const h of this.hubPoints) map.set(h.id, h);
+      return map;
+    },
+    hasAnyHub() {
+      return this.hubPoints.length > 0;
+    },
+    // edge-hub-entity: an edge hub exists to relay the central hub's
+    // config out to a remote site — it's a spoke of the central hub
+    // itself, same as a site is a spoke of whichever hub serves it. Drawn
+    // separately from gatewayPoints' links (worldmap-link-backbone, not
+    // -live/-down): there's no handshake data behind this one yet
+    // (EdgeHub.peerId is unused until edge-status-report, a later task —
+    // see loop/TASK.md), so it can't honestly claim "up" or "down", only
+    // "this relationship exists".
+    backboneLinks() {
+      const central = this.hubPointById.get(CENTRAL_HUB_ID);
+      if (!central) return [];
+      return this.hubPoints
+        .filter((h) => h.id !== CENTRAL_HUB_ID)
+        .map((h) => ({ edgeHub: h, d: curvedPath(central.x, central.y, h.x, h.y) }));
+    },
     geocodedSites() {
       return this.sites.filter((s) => isValidCoord(s.gatewayLat, s.gatewayLng));
     },
@@ -200,6 +266,12 @@ export default defineComponent({
             gatewayLastSeenAt: s.gatewayLastSeenAt,
             gatewayLat: s.gatewayLat,
             gatewayLng: s.gatewayLng,
+            // edge-hub-entity: which hub this gateway's link line should
+            // originate from. Taken from the first site in the group — a
+            // gateway routing several networks that are themselves split
+            // across different edge hubs is an edge case the UI doesn't
+            // represent specially; the line just follows the first one.
+            hubId: s.edgeHubId || CENTRAL_HUB_ID,
             sites: [],
           });
         }
@@ -264,10 +336,16 @@ export default defineComponent({
       for (const cluster of clusters) {
         const g0 = cluster[0];
         let base = project(g0.gatewayLat, g0.gatewayLng);
-        if (this.hasHub) {
-          const dLat = g0.gatewayLat - this.hubLat, dLng = g0.gatewayLng - this.hubLon;
+        // Collision check against every renderable hub, not just the
+        // central one — an edge hub sitting at the same address as the
+        // gateway it serves is exactly the homelab case this nudge exists
+        // for (see the long comment above), just with a second possible
+        // hub now.
+        for (const hub of this.hubPoints) {
+          const dLat = g0.gatewayLat - hub.lat, dLng = g0.gatewayLng - hub.lng;
           if (Math.hypot(dLat, dLng) < COLLISION_DEG) {
             base = { x: base.x + NUDGE_PX, y: base.y + NUDGE_PX * 0.6 };
+            break;
           }
         }
         if (cluster.length === 1) {
@@ -379,16 +457,13 @@ export default defineComponent({
     relativeTime(iso) { return relativeTime(iso); },
     // Quadratic bezier control point offset perpendicular to the hub-site
     // line, matching the design brief's "slightly curved" connection lines.
+    // Origin is whichever hub serves pt.gateway (edge-hub-entity) — falls
+    // back to not drawing at all if that hub has no usable coordinates,
+    // same as the pre-edge-hub behavior when the (only) hub wasn't geocoded.
     linkPath(pt) {
-      if (!this.hubPoint) return "";
-      const x1 = this.hubPoint.x, y1 = this.hubPoint.y;
-      const x2 = pt.x, y2 = pt.y;
-      const dx = x2 - x1, dy = y2 - y1;
-      const dist = Math.hypot(dx, dy) || 1;
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-      const cx = mx - (dy / dist) * dist * 0.15;
-      const cy = my + (dx / dist) * dist * 0.15;
-      return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+      const hub = this.hubPointById.get(pt.gateway.hubId);
+      if (!hub) return "";
+      return curvedPath(hub.x, hub.y, pt.x, pt.y);
     },
     trafficTierForGateway(gatewayPeerId) {
       const peer = this.livePeerByGatewayId.get(gatewayPeerId);
@@ -578,7 +653,7 @@ export default defineComponent({
     <div style="position: relative">
       <div v-if="loading" class="muted">{{ t('common.loading') }}</div>
       <div v-else-if="error" class="error-banner">{{ error }}</div>
-      <div v-else-if="!hasHub || geocodedSites.length < 1" class="muted">{{ t('dashboard.worldmap_empty') }}</div>
+      <div v-else-if="!hasAnyHub || geocodedSites.length < 1" class="muted">{{ t('dashboard.worldmap_empty') }}</div>
       <svg v-else class="topo worldmap" :viewBox="viewBox" role="img" :aria-label="t('dashboard.worldmap_title')"
            :style="{
              cursor: zoom > 1 ? (dragging ? 'grabbing' : 'grab') : 'default',
@@ -593,6 +668,11 @@ export default defineComponent({
         <rect class="worldmap-ocean" x="0" :y="0" :width="W" :height="H" />
         <path v-for="(d, i) in landPaths" :key="'land-'+i" class="worldmap-land" :d="d" />
 
+        <!-- edge-hub-entity: the backbone relationship itself (central hub
+             ↔ edge hub) — drawn under the site links below so a site's own
+             reachability line always reads as the foreground signal. -->
+        <path v-for="b in backboneLinks" :key="'b-'+b.edgeHub.id" class="worldmap-link worldmap-link-backbone" :d="b.d" />
+
         <path v-for="pt in gatewayPoints" :key="'l-'+pt.gateway.gatewayPeerId" :class="linkClass(pt)" :d="linkPath(pt)" :style="linkStyle(pt)" />
 
         <!-- Pins, labels and the network grid are wrapped in an inner
@@ -602,12 +682,18 @@ export default defineComponent({
              screen pixels instead of visually ballooning as the viewBox
              shrinks. Only the land fill and the link lines are meant to
              scale with zoom; markers and text are not. -->
-        <g v-if="hasHub" :transform="'translate('+hubPoint.x+','+hubPoint.y+')'">
+        <!-- edge-hub-entity (1.2.0): one <g> per renderable hub — the
+             central hub (always first when present, id CENTRAL_HUB_ID) and
+             every geocoded EdgeHub. A disabled edge hub still shows (it
+             still visually "exists"), just dimmed, same convention as a
+             disabled peer elsewhere in the console. -->
+        <g v-for="hub in hubPoints" :key="hub.id" :class="hub.enabled ? '' : 'worldmap-hub-disabled'"
+           :transform="'translate('+hub.x+','+hub.y+')'">
           <g :transform="'scale('+(1/zoom)+')'">
             <circle class="hub-pulse" cx="0" cy="0" :r="HUB_R" />
             <circle class="hub-core"  cx="0" cy="0" :r="HUB_R - 3" />
-            <text class="hub-label" :x="labelDir(hubPoint.x) * (HUB_R + 6)" y="4"
-                  :style="'text-anchor:' + (labelDir(hubPoint.x) > 0 ? 'start' : 'end')">{{ hubLabel || t('dashboard.worldmap_hub') }}</text>
+            <text class="hub-label" :x="labelDir(hub.x) * (HUB_R + 6)" y="4"
+                  :style="'text-anchor:' + (labelDir(hub.x) > 0 ? 'start' : 'end')">{{ hub.name }}</text>
           </g>
         </g>
 

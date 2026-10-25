@@ -26,6 +26,8 @@ reaches the console's own internal API unless it additionally holds the
 - `GET /roles` (scope `resources:read`) — list every role
 - `GET /grants` (scope `grants:read`) — every access grant currently in effect, resolved the same way the firewall ruleset is
 - `GET /audit` (scope `audit:read`) — read the audit log; read-only, paginated via a `before` cursor
+- `GET /edge/{id}/psks` (scope `psks:read`, bound to that one edge) — preshared keys of every peer that may reach resources at this edge hub
+- `POST /edge/{id}/status` (scope `telemetry:write`, bound to that one edge) — report connectivity/traffic for this edge's locally-connected peers; a reported peer that may reach nothing at this edge is rejected and audited, never applied
 
 Full request/response schemas, parameters, and error codes:
 [openapi.yml](/api/openapi.yml)

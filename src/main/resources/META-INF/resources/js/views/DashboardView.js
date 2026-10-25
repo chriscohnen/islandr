@@ -106,9 +106,13 @@ export default defineComponent({
     // second site purely to clear an arbitrary count.
     worldMapAvailable() {
       if (!this.data) return false;
-      const hasHub = this.data.topology.hubLat != null && this.data.topology.hubLon != null;
+      // edge-hub-entity (1.2.0): a hub with coordinates to draw doesn't have
+      // to be the central one — an install that only geocoded an edge hub
+      // (unusual, but not wrong) should still get the map tab.
+      const hasCentralHub = this.data.topology.hubLat != null && this.data.topology.hubLon != null;
+      const hasEdgeHub = (this.data.topology.edgeHubs || []).some((h) => h.lat != null && h.lng != null);
       const geocodedSites = this.data.topology.sites.filter((s) => s.gatewayLat != null && s.gatewayLng != null).length;
-      return hasHub && geocodedSites >= 1;
+      return (hasCentralHub || hasEdgeHub) && geocodedSites >= 1;
     },
   },
   methods: {
@@ -357,6 +361,21 @@ export default defineComponent({
           </div>
         </div>
 
+        <!-- traffic-window-tile: always present. An hour with no traffic is
+             an answer, not a missing feature — and the window is named on the
+             tile, so a zero right after a restart explains itself. -->
+        <div v-if="data.traffic" class="card card-pad">
+          <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2)">
+            <Icon name="activity" :size="13" style="opacity: 0.6" />{{ t('dashboard.kpi_traffic') }}
+          </div>
+          <div style="font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--fg1)">{{ formatBytes(data.traffic.rxBytes + data.traffic.txBytes) }}</div>
+          <div class="muted" style="font-size: var(--text-sm); margin-top: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center">
+            <span class="badge badge-neutral">{{ t('dashboard.traffic_in') }} {{ formatBytes(data.traffic.rxBytes) }}</span>
+            <span class="badge badge-neutral">{{ t('dashboard.traffic_out') }} {{ formatBytes(data.traffic.txBytes) }}</span>
+            <span style="font-size: var(--text-xs)">{{ t('dashboard.traffic_window', { min: data.traffic.windowMinutes }) }}</span>
+          </div>
+        </div>
+
         <!-- dns-query-stats: absent entirely unless the resolver is enabled
              AND actually bound — same "don't show what isn't in use"
              posture as every other optional tile here. -->
@@ -418,6 +437,7 @@ export default defineComponent({
               :resource-overflow="data.topology.resourceOverflow"
               :endpoint="data.topology.hubEndpoint"
               :hub-label="data.topology.hubLabel"
+              :edge-hubs="data.topology.edgeHubs"
               @site="onTopologySite"
               @resource="onTopologyResource" />
 
@@ -462,6 +482,7 @@ export default defineComponent({
               :hub-lat="data.topology.hubLat"
               :hub-lon="data.topology.hubLon"
               :hub-label="data.topology.hubLabel"
+              :edge-hubs="data.topology.edgeHubs"
               @site="onTopologySite" />
         </div>
 

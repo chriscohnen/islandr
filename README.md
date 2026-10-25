@@ -23,7 +23,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **1.1.0 is out.** The topology diagram now shows what is actually happening on the network — device detail, status and DNS name per peer, a traffic-ranking table on the dashboard — and API keys are scoped instead of admin-equivalent, so a key handed to a script or an agent carries only the access it needs. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> **1.2.0 is out — mostly maintenance.** What is new is small and makes what you already have easier to read, plus a handful of long-standing rough edges gone: the peers list says at a glance whether a device is alive and how long it has been connected, its rows are a third of the height they were, the dashboard counts the bytes of the last hour, and the topology diagram stays legible when you drill into a crowded network. **Edge hubs** — a second hub at a remote site — are groundwork in this release and **not usable yet**: they need software at the edge that fetches its configuration from the hub and enforces the firewall there, and that does not exist. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
 > Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
@@ -47,7 +47,7 @@ Small teams, homelabs, and remote-first setups that want **sovereign WireGuard a
 - You want employees to self-service their own device configs, not email you for a `.conf` file
 - Data sovereignty matters — no connection metadata leaving your network
 
-Islandr configures the **native WireGuard client** on every device — no proprietary client app to install, trust, or audit. And it's **hub-and-spoke by design**: every peer connects through one central gateway, so access control is enforced in one place instead of punching holes between every pair of sites and hoping the firewall rules stay in sync.
+Islandr configures the **native WireGuard client** on every device — no proprietary client app to install, trust, or audit. And it's **hub-and-spoke by design**: a device connects to one gateway and reaches everything through it, so access control is enforced where the traffic passes instead of punching holes between every pair of sites and hoping the firewall rules stay in sync. A distant site that should keep its traffic local is what edge hubs are being built for; 1.2.0 carries the model, not yet the edge software (see below).
 
 Islandr is **not** Zero Trust Network Access. It is managed VPN access with network segmentation — simpler, cheaper, fully under your control. If you need ZTNA, look at Teleport. If two devices and manual key files are enough, `wg-easy` is simpler. If a SaaS control plane is fine, Tailscale is excellent.
 
@@ -68,10 +68,19 @@ Islandr unifies four things that today require CLI work, manual tutorials, and e
 
 A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Site gateways (UniFi UCG and friends) are static peers configured on their own side. Road warrior clients are the primary target for dynamic management.
 
+A site that is far away — another continent, a bad route — should not send its local
+traffic to the hub and back. **Edge hubs** are being built for that: a second hub at the
+site, with devices dialling it instead of crossing the world to reach a printer in the
+next room, while policy, users and the audit log stay on the central hub. The model is
+in 1.2.0 and the edge software is not, so this is not something to deploy yet.
+
 ```
 [Road Warrior]──┐
 [Home Office]───┼──wg peer──► [Hub VM / Islandr] ◄──wg peer──[UCG site]
-[Mobile]────────┘
+[Mobile]────────┘                      │
+                                  HTTPS│  rules, keys, status
+                                       ▼
+[Devices on site]──wg peer──► [Edge hub, remote site]
 ```
 
 ![QR code & config download](https://islandr-gateway.net/screenshots/light/qr-conf.png)
@@ -191,30 +200,59 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**1.1.0 — see what's actually happening on the network, and hand out only the access a key needs.**
-Peer dots on the topology diagram used to be one shape regardless of count; now the
-diagram carries real detail — device, status, DNS name — for the peers that fit, and a
-dashboard table ranks traffic by peer. The same cycle closes a standing gap on the
-automation side: an API key was full-admin-equivalent with no way to narrow it, which
-the external facade's own growth (grants, audit, config) only made worse with every key
-issued.
+**1.2.0 — mostly maintenance: less friction in the console.**
+Most of this release is the admin console getting out of the way, and what is new is
+small — figures and history the hub was already collecting, now shown where the question
+gets asked. The peers list used to show a timestamp where the actual question is "is
+this device alive, and how steadily": it now carries 14 days of activity per row, says
+how long a connected device has been connected, and sorts by last handshake. Its rows are a third of the height they were,
+because four labelled buttons used to wrap into three lines at anything under a wide
+screen. The dashboard counts the bytes of the last hour, the topology diagram stays
+legible when you drill into a crowded network, and the update check notices when the
+`update.sh` kept on the hub is older than the release it would install.
+
+Also fixed: an admin viewing someone else's access could add a device there and get it
+themselves, a WireGuard subnet with no room for a single host was accepted at the
+settings page and failed later at the first peer, and every warning banner in seven
+screens named a stylesheet class that does not exist, so none of them had ever been
+amber.
+
+**Ubuntu 26.04 works.** Its new default `sudo` and an AppArmor profile for `wg` broke
+the native installer and peers with a preshared key there; both are fixed, and CI now
+installs, upgrades and rolls back on 26.04. A hub that is moved to 26.04 in place
+needs two small changes, which `update.sh` points out. Single sign-on got stricter
+too: it fetches profile pictures more carefully, and links or creates an account only
+for an e-mail address the identity provider has verified — after switching provider,
+an admin releases each account's old link from the user list.
+
+**Edge hubs are groundwork, not a feature you can use.** A second hub at a remote site
+is modelled, configurable and drawn — a device belongs to exactly one hub, its
+configuration points at that hub, and the central hub leaves an edge's devices alone.
+What does not exist is the edge itself: software that fetches its peers and rules from
+the hub over the API and enforces them locally. Until that lands, an edge is a row in a
+database and a WireGuard interface you maintain by hand. Switch it on to model your
+sites; do not plan an office around it.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 1.1.0
+### What's new in 1.2.0
 
 Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Topology diagram gets three detail tiers for peers**, instead of one dot per device
-- **A peer-traffic ranking table on the dashboard** — current or last month, highest first
-- **API keys are scoped instead of admin-equivalent** ([ADR-0026](docs/adr/0026-external-api-facade.md))
-- **A device owner can share one of their own ports with a colleague**, time-limited and revocable, from the self-service portal
-- **A peer can be marked a roadwarrior**, traveling with its owner on untrusted networks
-- **Port scanning detects what's actually listening**, not just the port number
-- **Every DNS name is tagged hub/peer/resource**, and a peer resolves under its own name
-- Fixed: a hub could pin a CPU core at 100% for days with the DNS resolver on; a slow upstream reply could stall every other query; a user's other sessions weren't revoked on password change
+- **The peers list answers its own question** — 14 days of activity per row, how long a connected device has been connected, and sorting by last handshake
+- **Its rows are a third as tall** — four labelled buttons wrapped into three lines below a wide screen; disable and delete moved into the edit dialog and the device type is now its icon
+- **A traffic tile on the dashboard** — bytes in and out over the last hour
+- **The topology diagram survives a crowded network** — the expanded resource list draws on its own panel instead of letting nodes show through, and the view moves to what you just opened
+- **The update check notices a stale `update.sh`** — the copy kept on the hub can be older than the release it is meant to install
+- Fixed: an admin viewing another person's access could add a device there and receive it themselves
+- Fixed: a WireGuard subnet too narrow to ever assign a host was accepted
+- Fixed: warning banners across seven screens named a stylesheet class that does not exist, so none of them were ever amber
+- **Ubuntu 26.04** — the native installer and preshared keys work there; a hub moved to 26.04 in place needs two small changes, which `update.sh` points out ([install guide](docs/install.md#sudo-rs-on-ubuntu-2604))
+- Security: profile pictures at single sign-on are fetched and served more carefully, and sign-on links or creates an account only for a verified e-mail address; an admin can release an account's link, e.g. after switching identity provider
+- Security: the JSON and telemetry libraries are updated past their published advisories
+- **Groundwork for edge hubs** — modelled, configurable and drawn, but not usable until there is software at the edge that fetches its configuration and enforces the firewall there. [docs/features.md](docs/features.md) says exactly where the line is
 
 ### Roadmap
 

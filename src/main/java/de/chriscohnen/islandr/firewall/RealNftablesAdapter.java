@@ -13,13 +13,21 @@ import java.util.concurrent.TimeUnit;
 /**
  * Shells out to the {@code nft} CLI. Two operations:
  * <ol>
- *   <li>{@link #validate} writes the candidate ruleset to a temp file and
- *       runs {@code nft -c -f <tempfile>}. Returns the exit code +
+ *   <li>{@link #validate} writes the candidate ruleset to the staging file
+ *       and runs {@code nft -c -f <file>}. Returns the exit code +
  *       captured stderr.</li>
  *   <li>{@link #apply} validates again (defence-in-depth) and on success
- *       runs {@code nft -f <tempfile>}. nftables guarantees atomic
+ *       runs {@code nft -f <file>}. nftables guarantees atomic
  *       replacement of the named table.</li>
  * </ol>
+ *
+ * <p>The staging file has one fixed name, {@value #STAGING_FILE}, and both
+ * operations are serialized on this adapter so two of them never share it.
+ * Fixed because the scoped sudoers grant names the file nft may read: until
+ * 1.2.0 that was the pattern {@code islandr-nft-*.nft}, and sudo-rs (Ubuntu
+ * 26.04) refuses a pattern in a command argument. The fixed name still fits
+ * that old pattern, so a hub updated in place keeps working with the sudoers
+ * it already has.
  *
  * <p><b>Safety invariant:</b> the ruleset string always starts with
  * {@code flush table inet islandr} and never contains {@code flush ruleset}
@@ -38,6 +46,10 @@ public class RealNftablesAdapter implements NftablesAdapter {
     /** The fail-closed table installed by setup-hub.sh's oneshot unit (ADR-0031). */
     static final String BOOT_TABLE = "islandr-boot";
 
+    /** Matches the sudoers pattern of every release before 1.2.0 and is the
+     *  exact path the 1.2.0 sudoers names on sudo-rs. Do not rename. */
+    static final String STAGING_FILE = "islandr-nft-current.nft";
+
     private final boolean useSudo;
     private final Path dataDir;
 
@@ -47,14 +59,14 @@ public class RealNftablesAdapter implements NftablesAdapter {
     }
 
     @Override
-    public ValidationResult validate(String rulesetText) {
+    public synchronized ValidationResult validate(String rulesetText) {
         try {
             Path tmp = stage(rulesetText);
             try {
                 ProcessResult r = run(List.of("nft", "-c", "-f", tmp.toString()));
                 if (r.exitCode == 0) return ValidationResult.success();
-                LOG.warnf("nft -c rejected ruleset: %s", r.stderr);
-                return ValidationResult.fail(r.stderr);
+                LOG.warnf("nft -c rejected ruleset: %s", explain(r.stderr));
+                return ValidationResult.fail(explain(r.stderr));
             } finally {
                 Files.deleteIfExists(tmp);
             }
@@ -65,23 +77,23 @@ public class RealNftablesAdapter implements NftablesAdapter {
     }
 
     @Override
-    public void apply(String rulesetText) {
+    public synchronized void apply(String rulesetText) {
         try {
             Path tmp = stage(rulesetText);
             try {
                 // Defence-in-depth: validate again right before apply. Same
                 // file, same nft binary — guards against the rare case where
                 // someone calls apply() without a prior validate() (e.g.
-                // boot-time bootstrap), and against TOCTOU on the temp file.
+                // boot-time bootstrap), and against TOCTOU on the staged file.
                 ProcessResult check = run(List.of("nft", "-c", "-f", tmp.toString()));
                 if (check.exitCode != 0) {
-                    throw new NftablesException("pre-apply validation failed: " + check.stderr);
+                    throw new NftablesException("pre-apply validation failed: " + explain(check.stderr));
                 }
                 ProcessResult applyResult = run(List.of("nft", "-f", tmp.toString()));
                 if (applyResult.exitCode != 0) {
                     // nftables holds the previous table on failure — we don't
                     // need to roll back, just surface the error.
-                    throw new NftablesException("nft -f failed: " + applyResult.stderr);
+                    throw new NftablesException("nft -f failed: " + explain(applyResult.stderr));
                 }
                 LOG.infof("nftables applied (%d bytes)", rulesetText.length());
             } finally {
@@ -124,12 +136,42 @@ public class RealNftablesAdapter implements NftablesAdapter {
         }
     }
 
-    private Path stage(String rulesetText) throws IOException {
-        // Write to dataDir so the path is covered by the sudoers NOPASSWD rule.
-        // /tmp is not allowed by the scoped sudo grant (see docs/adr/0011).
-        Path tmp = Files.createTempFile(dataDir, "islandr-nft-", ".nft");
-        Files.writeString(tmp, rulesetText, StandardCharsets.UTF_8);
-        return tmp;
+    Path stagingFile() {
+        return dataDir.resolve(STAGING_FILE);
+    }
+
+    /**
+     * Writes the ruleset to {@link #stagingFile()}. In dataDir because that is
+     * the path the sudoers grant names; /tmp is not covered (ADR-0011).
+     *
+     * <p>Delete, then create exclusively: whatever is at the path — a leftover
+     * from a killed process, or a symlink — is removed, never written through.
+     * The per-call temp file this replaces got that from its exclusive create;
+     * a fixed name has to ask for it.
+     */
+    Path stage(String rulesetText) throws IOException {
+        Path file = stagingFile();
+        Files.deleteIfExists(file);
+        Files.writeString(file, rulesetText, StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE_NEW,
+                java.nio.file.StandardOpenOption.WRITE);
+        return file;
+    }
+
+    /**
+     * sudo's own refusal names neither the sudoers line nor the fix, and this
+     * text reaches the admin's screen. The likely cause since Ubuntu 26.04 is
+     * sudo-rs, which skips a sudoers line with a pattern in it — the grant
+     * every hub set up before 1.2.0 has. nft's own errors pass through as is.
+     */
+    static String explain(String stderr) {
+        if (stderr == null) return null;
+        String head = stderr.stripLeading();
+        if (!head.startsWith("sudo:") && !head.startsWith("sudo-rs:")) return stderr;
+        return stderr.stripTrailing() + " — sudo refused to run nft for the islandr user. Check the "
+                + "nft lines in /etc/sudoers.d/islandr: on Ubuntu 26.04 and later (sudo-rs) a line "
+                + "with a pattern such as islandr-nft-*.nft is ignored. See docs/install.md, "
+                + "\"sudo-rs on Ubuntu 26.04\".";
     }
 
     private record ProcessResult(int exitCode, String stdout, String stderr) {}

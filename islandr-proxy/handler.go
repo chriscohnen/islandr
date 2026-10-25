@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strings"
+	"sync"
 )
 
 // Config holds the server-side constants. The interface name and ruleset path
@@ -16,7 +18,8 @@ import (
 type Config struct {
 	Iface       string
 	RulesetPath string
-	RuntimeDir  string // where short-lived preshared-key files are written (0600)
+	RuntimeDir  string // socket and other runtime state (0700 islandr:islandr)
+	PskDir      string // where short-lived preshared-key files are written (0600)
 }
 
 // Executor runs one host command as an argument vector (never a shell string).
@@ -71,6 +74,10 @@ const maxPingCount = 10
 type Handler struct {
 	exec Executor
 	cfg  Config
+
+	// The fallback is harmless below Ubuntu 26.04 and happens for every
+	// preshared-key peer — once per process is news, every time is noise.
+	pskFallbackLogged sync.Once
 }
 
 func NewHandler(exec Executor, cfg Config) *Handler {
@@ -247,18 +254,47 @@ func (h *Handler) wgSetPeer(req Request) Response {
 	return ok()
 }
 
-// writePsk writes the base64 key to a fresh 0600 file in the runtime dir and
-// returns its path. os.CreateTemp already creates the file with mode 0600.
+// writePsk writes the base64 key to a fresh file and returns its path.
+//
+// The directory is not a free choice. Ubuntu 26.04 ships an enforcing AppArmor
+// profile for /usr/bin/wg whose only file rule is
+// "file rw @{etc_rw}/wireguard/{,**}", and which denies the binary
+// dac_override and dac_read_search — so a key under /run, /tmp or /root is
+// refused even though wg runs as root, and wg reports nothing but
+// "fopen: Permission denied". PskDir is created by the installer under
+// /etc/wireguard; a host that predates it falls back to the runtime dir, which
+// is what earlier releases used and still works on anything below 26.04.
 func (h *Handler) writePsk(key string) (string, error) {
-	dir := h.cfg.RuntimeDir
-	if dir == "" {
-		dir = os.TempDir()
+	f, err := os.CreateTemp(h.cfg.PskDir, "psk-*")
+	inPskDir := err == nil && h.cfg.PskDir != ""
+	if err != nil && h.cfg.PskDir != "" {
+		h.pskFallbackLogged.Do(func() {
+			log.Printf("preshared-key dir %s unusable (%v) — falling back to %s, which wg cannot read "+
+				"where an AppArmor profile for wg exists (Ubuntu 26.04). Logged once.",
+				h.cfg.PskDir, err, h.cfg.RuntimeDir)
+		})
+		dir := h.cfg.RuntimeDir
+		if dir == "" {
+			dir = os.TempDir()
+		}
+		f, err = os.CreateTemp(dir, "psk-*")
 	}
-	f, err := os.CreateTemp(dir, "psk-*")
 	if err != nil {
 		return "", err
 	}
 	path := f.Name()
+	// In PskDir: 0640. The AppArmor profile denies wg dac_override, so root
+	// reads by the ordinary bits like anyone else, and a 0600 file owned by
+	// the service user is closed to it (measured: refused). The installer
+	// makes the directory setgid root, so the file is born in group root and
+	// group read lets root's wg in. The fallback keeps CreateTemp's 0600.
+	if inPskDir {
+		if err := f.Chmod(0o640); err != nil {
+			f.Close()
+			os.Remove(path)
+			return "", err
+		}
+	}
 	if _, err := f.WriteString(key); err != nil {
 		f.Close()
 		os.Remove(path)

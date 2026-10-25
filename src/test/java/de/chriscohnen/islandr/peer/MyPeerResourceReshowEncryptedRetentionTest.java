@@ -157,7 +157,7 @@ class MyPeerResourceReshowEncryptedRetentionTest {
         new java.security.SecureRandom().nextBytes(keyBytes);
         String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
         Peer p = Peer.createNew(userId, name, publicKey,
-                "10.9.0." + (200 + (int) (Math.random() * 50)));
+                TestPeerIps.next());
         p.privateKeyPem = null;
         p.persist();
         return p.id;

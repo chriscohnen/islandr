@@ -337,7 +337,7 @@ export default defineComponent({
           <button class="btn btn-ghost btn-sm" @click="dismissSecret">✕</button>
         </div>
         <div class="modal-body">
-          <div class="callout callout-warn" style="margin-bottom: var(--space-4)">
+          <div class="callout callout-warning" style="margin-bottom: var(--space-4)">
             {{ t('webhooks.secret_warning') }}
           </div>
           <div class="field">

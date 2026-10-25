@@ -55,7 +55,8 @@ public class SiteResource {
         audit.logCreate(a.principal(), "site.create", "Site:" + s.name + " (" + s.id + ")",
                 Map.of("name", s.name, "cidr", s.cidr,
                         "description", s.description == null ? "" : s.description,
-                        "gatewayPeerId", s.gatewayPeerId == null ? "" : s.gatewayPeerId));
+                        "gatewayPeerId", s.gatewayPeerId == null ? "" : s.gatewayPeerId,
+                        "edgeHubId", s.edgeHubId == null ? "" : s.edgeHubId));
         return Response.created(UriBuilder.fromResource(SiteResource.class).path(s.id).build())
                 .entity(sites.toResponse(s, 0))
                 .build();
@@ -94,12 +95,14 @@ public class SiteResource {
         Map<String, Object> beforeMap = Map.of(
                 "name", before.name, "cidr", before.cidr,
                 "description", before.description == null ? "" : before.description,
-                "gatewayPeerId", before.gatewayPeerId == null ? "" : before.gatewayPeerId);
+                "gatewayPeerId", before.gatewayPeerId == null ? "" : before.gatewayPeerId,
+                "edgeHubId", before.edgeHubId == null ? "" : before.edgeHubId);
         Site after = sites.update(id, body);
         audit.logUpdate(a.principal(), "site.update", "Site:" + after.name + " (" + id + ")", beforeMap,
                 Map.of("name", after.name, "cidr", after.cidr,
                         "description", after.description == null ? "" : after.description,
-                        "gatewayPeerId", after.gatewayPeerId == null ? "" : after.gatewayPeerId));
+                        "gatewayPeerId", after.gatewayPeerId == null ? "" : after.gatewayPeerId,
+                        "edgeHubId", after.edgeHubId == null ? "" : after.edgeHubId));
         return sites.toResponse(after, (int) Resource.count("siteId", id));
     }
 

@@ -31,15 +31,18 @@ public final class SiteDto {
             String subdomain,
             // Optional local DNS server for the discovery-scan PTR-lookup
             // suggestion (issue #45). Null = system-resolver fallback.
-            String dnsServerIp
+            String dnsServerIp,
+            // edge-hub-entity (1.2.0) — null = served by the central hub.
+            String edgeHubId,
+            String edgeHubName
     ) {
         public static Response from(Site s, int resourceCount,
                                     String gatewayPeerName, Boolean gatewayOnline,
-                                    Boolean outsideSplitSupernet) {
+                                    Boolean outsideSplitSupernet, String edgeHubName) {
             return new Response(s.id, s.name, s.cidr, s.description,
                     resourceCount, s.createdAt, s.updatedAt,
                     s.gatewayPeerId, gatewayPeerName, gatewayOnline, outsideSplitSupernet,
-                    s.subdomain, s.dnsServerIp);
+                    s.subdomain, s.dnsServerIp, s.edgeHubId, edgeHubName);
         }
     }
 
@@ -103,7 +106,10 @@ public final class SiteDto {
             // Optional — local DNS server for the discovery-scan PTR-lookup
             // suggestion. Blank/null = fall back to the system resolver.
             @de.chriscohnen.islandr.validation.ValidIpAddress
-            String dnsServerIp
+            String dnsServerIp,
+            // Optional — id of the EdgeHub serving this site (1.2.0). Null/blank
+            // = served by the central hub.
+            String edgeHubId
     ) {}
 
     private SiteDto() {}

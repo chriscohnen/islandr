@@ -38,15 +38,32 @@ public class UserAvatarResource {
     @Inject AvatarService svc;
     @Inject AuditService audit;
 
+    /** The only types this endpoint ever answers with (oidc-avatar-ssrf-xss). */
+    static final java.util.Set<String> IMAGE_TYPES =
+            java.util.Set.of("image/png", "image/jpeg", "image/gif", "image/webp");
+
+    /**
+     * Serves the avatar — and only as an image. Until 1.2.0 a fetched avatar
+     * was stored with the remote server's Content-Type and served back with
+     * it, so an HTML answer went out as {@code text/html} on Islandr's own
+     * origin. Fetches now store the sniffed type and V93 clears old rows; this
+     * is the last line: anything else is a 404, and every answer carries
+     * {@code nosniff} and a {@code sandbox} policy so no browser runs it.
+     */
     @GET
-    @Produces({"image/jpeg", "image/png", "image/gif", MediaType.WILDCARD})
+    @Produces({"image/jpeg", "image/png", "image/gif", "image/webp", MediaType.WILDCARD})
     public Response get(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
         Auth.require(ctx);
         AvatarService.Result r = svc.lookup(id);
         if (r == null) return Response.status(404).build();
+        String type = r.contentType() == null ? ""
+                : r.contentType().split(";", 2)[0].trim().toLowerCase(java.util.Locale.ROOT);
+        if (!IMAGE_TYPES.contains(type)) return Response.status(404).build();
 
         Response.ResponseBuilder ok = Response.ok(r.bytes())
-                .type(r.contentType() != null ? r.contentType() : "image/jpeg")
+                .type(type)
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "sandbox; default-src 'none'")
                 .cacheControl(privateMaxAge(300));
         if (r.etag() != null) ok.tag(r.etag());
         return ok.build();

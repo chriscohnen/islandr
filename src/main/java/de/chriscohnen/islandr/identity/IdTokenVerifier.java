@@ -29,7 +29,19 @@ public class IdTokenVerifier {
 
     @Inject JwksCache jwks;
 
-    public record Claims(String subject, String email, String name, String pictureUrl, String locale, JsonNode raw) {}
+    public record Claims(String subject, String email, String name, String pictureUrl, String locale, JsonNode raw) {
+        /**
+         * Whether the provider confirmed the e-mail address (oidc-email-link-verified).
+         * A boolean {@code true}, or the string {@code "true"} some providers
+         * send instead. A missing claim is not a confirmation — Microsoft sends
+         * none at all and is handled by its tenant binding, not here.
+         */
+        public boolean emailVerified() {
+            if (raw == null) return false;
+            JsonNode v = raw.path("email_verified");
+            return v.isBoolean() ? v.booleanValue() : v.isTextual() && "true".equalsIgnoreCase(v.textValue());
+        }
+    }
 
     public Claims verify(String idToken, ResolvedOidcProvider provider) {
         String[] parts = idToken.split("\\.");

@@ -46,15 +46,37 @@ public class ApiKeyService {
      *         {@link ApiKeyScope#CATALOG} — a key with no scope at all
      *         could authenticate but could never pass a single
      *         {@code Auth.requireScope} check, which is a confusing way to
-     *         fail rather than a useful default. */
-    @Transactional
+     *         fail rather than a useful default.
+     *  @param edgeHubId required exactly when {@code scopes} intersects
+     *         {@link ApiKeyScope#EDGE_BOUND_SCOPES} (edge-psk-exposure) —
+     *         applied to every such scope in the set, never to the others.
+     *         A single key cannot yet hold two edge-bound scopes for two
+     *         different edges; not a real-world need until an edge holds
+     *         both {@code psks:read} and a second edge-bound scope for
+     *         itself, which is exactly the one-edge-per-key case this
+     *         already covers. */
     public CreateResult create(String label, Set<String> scopes, String actor) {
+        return create(label, scopes, null, actor);
+    }
+
+    @Transactional
+    public CreateResult create(String label, Set<String> scopes, String edgeHubId, String actor) {
         if (scopes == null || scopes.isEmpty()) {
             throw new BadRequestException("at least one scope is required");
         }
         for (String s : scopes) {
             if (!ApiKeyScope.CATALOG.contains(s)) {
                 throw new BadRequestException("unknown scope: " + s);
+            }
+        }
+        boolean needsEdge = scopes.stream().anyMatch(ApiKeyScope.EDGE_BOUND_SCOPES::contains);
+        if (needsEdge) {
+            if (edgeHubId == null || edgeHubId.isBlank()) {
+                throw new BadRequestException("edgeHubId is required for scope(s): "
+                        + scopes.stream().filter(ApiKeyScope.EDGE_BOUND_SCOPES::contains).toList());
+            }
+            if (de.chriscohnen.islandr.acl.EdgeHub.findById(edgeHubId) == null) {
+                throw new NotFoundException("edge hub not found: " + edgeHubId);
             }
         }
 
@@ -72,12 +94,24 @@ public class ApiKeyService {
         k.createdAt = Instant.now();
         k.createdBy = actor;
         k.persist();
-        for (String s : scopes) ApiKeyScope.createNew(k.id, s).persist();
+        for (String s : scopes) {
+            String boundEdge = ApiKeyScope.EDGE_BOUND_SCOPES.contains(s) ? edgeHubId : null;
+            ApiKeyScope.createNew(k.id, s, boundEdge).persist();
+        }
         return new CreateResult(k, raw);
     }
 
     public List<String> scopesOf(String apiKeyId) {
         return ApiKeyScope.scopesOf(apiKeyId);
+    }
+
+    /** Distinct edge hub ids this key's edge-bound scopes apply to — empty
+     *  for a key with none. Used by {@link ApiKeyAuthFilter} to populate
+     *  {@code AuthContext.edgeHubIds}, which {@code Auth.requireEdgeScope}
+     *  checks against. */
+    public Set<String> edgeHubIdsOf(String apiKeyId) {
+        return ApiKeyScope.<ApiKeyScope>find("apiKeyId = ?1 and edgeHubId is not null", apiKeyId)
+                .stream().map(s -> s.edgeHubId).collect(java.util.stream.Collectors.toSet());
     }
 
     /** Called by {@link ApiKeyAuthFilter} on every Bearer-authenticated

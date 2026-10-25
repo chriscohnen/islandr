@@ -171,3 +171,35 @@ Any peer/ACL mutation through the Admin Console also recomputes and reapplies
 the full ruleset on its own, so the table won't stay missing indefinitely even
 if you forget — but don't rely on that while actively diagnosing something,
 since a wide-open window is exactly what you're trying to keep short.
+
+## Single sign-on refuses an unconfirmed e-mail address
+
+The login page says the identity provider *has not confirmed the e-mail
+address*. Since 1.2.0 Islandr links an existing account to a single sign-on
+login, or creates a new one, only when the provider marks the address as
+verified — the `email_verified` claim in the ID token. Without that, anyone
+who can register the address at the provider could sign in as the Islandr
+account that has it. A login whose account is already linked keeps working
+either way; the check applies to linking and creating.
+
+- **Microsoft Entra ID** is not affected. It sends no such claim; Islandr
+  checks the token against your configured tenant instead.
+- **Google** marks every confirmed account address as verified. A refusal
+  means the Google account's address really is unconfirmed — confirm it at
+  Google.
+- **A self-run provider** (Keycloak, Authentik, Auth0 and similar) has to
+  verify addresses and say so. In Keycloak, turn on *Verify email* for the
+  realm, or set *Email verified* on the user; the default `email` client scope
+  already puts `email_verified` into the token. Other providers have an
+  equivalent setting.
+
+Do not work around it by marking addresses verified that nobody checked — that
+reopens exactly the takeover this prevents.
+
+A second message says the account is *already linked to another sign-in*. That
+happens after switching identity provider, or when the provider re-created the
+user with a new identity. Islandr no longer moves a link on its own — moving it
+silently is the same mechanism the takeover used. An admin releases the old
+link under **Users**: the small unlink icon on the account's sign-in pill. The
+next sign-on with a confirmed address then links the account afresh; nothing
+else about the account changes, and the release is in the audit log.

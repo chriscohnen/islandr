@@ -38,6 +38,13 @@ const RESOURCE_ICON_R = 10;      // small icon circle at the start of each row
 const RESOURCE_LIST_GAP = 50;    // network box edge → row icons, horizontal
 const RESOURCE_SPINE_GAP = 22;   // network box edge → the vertical tree spine
 const RESOURCE_LABEL_W = 130;    // approx label width, for viewBox sizing only
+// Advance per glyph of .node-label (var(--font-mono) at 11px). Used where the
+// drawn width has to match what is actually there — the backdrop panel —
+// rather than reserve a safe maximum.
+const LABEL_CHAR_W = 6.6;
+// Clear space between the expanded network's box and the resource panel, so
+// the box and its branch line stay legible instead of butting against it.
+const NODE_GAP = 14;
 const RESOURCE_TREE_CORNER_R = 8; // corner radius where a branch leaves the spine
 // topology-expanded-site-columns: pitch between columns once a site's
 // resources wrap past one column — icon width plus the label's own
@@ -54,6 +61,24 @@ const PEER_TIER1_MAX = 8;   // "wenige Peers" — device icon + status ring each
 const PEER_TIER2_MAX = 40;  // "viele Peers" — small dots on an orbit, hover for detail
 const PEER_ICON_R = 11;     // tier-1 device icon radius — bigger than a live dot, smaller than a resource row
 const PEER_SUMMARY_DIST = FIRST_RING - 40; // tier-3 collapsed node position, inside the site/gateway ring
+
+// edge-hub-radial-topology: edge hubs render as small secondary hub nodes of
+// their own, each with its own local fan of the peers that dial it — a second center,
+// but a LOCAL one (polar around the edge hub's own x/y, not CX/CY), not a
+// structural rework of the hub-centric layout math above. Placed on a ring
+// further out than anything else so an edge hub's own fan never collides
+// with the gateway/network ring or an expanded network's resource columns.
+const EDGE_HUB_RING = FIRST_RING + NETWORK_RING_OFFSET + 60;
+const EDGE_HUB_R = HUB_R * 0.55;          // smaller than the central hub — visually subordinate
+const EDGE_HUB_PEER_ORBIT = 44;           // local radius for the peers that dial this edge
+// A site assigned to an edge hub (Site.edgeHubId) renders under that edge
+// hub, never under the central hub — same gateway/direct-network two-tier
+// structure as the center (gatewayGroups/directSites/expandedGatewayNetworkLayout),
+// just scaled down and measured from the edge hub's own x/y instead of
+// CX/CY. Smaller ring than FIRST_RING: an edge hub typically owns a
+// handful of sites, not the whole install's.
+const EDGE_HUB_FIRST_RING = 70;
+const EDGE_HUB_NETWORK_RING_OFFSET = 55;
 
 // The viewBox fits tightly around whatever's on screen (see contentBBox) but
 // is capped here so a big topology doesn't shrink nodes/labels into
@@ -106,6 +131,12 @@ function fanAngles(baseAngle, count) {
 
 function polar(angle, dist) {
   return { x: CX + dist * Math.cos(angle), y: CY + dist * Math.sin(angle) };
+}
+
+// Same as polar(), but around an arbitrary center — used to fan an edge
+// hub's own peers around ITS x/y instead of the diagram's CX/CY.
+function localPolar(cx, cy, angle, dist) {
+  return { x: cx + dist * Math.cos(angle), y: cy + dist * Math.sin(angle) };
 }
 
 // Quadratic-bezier path between two points, bowed to one side — gives the
@@ -169,6 +200,10 @@ export default defineComponent({
     resourceOverflow: { type: Number, default: 0 },
     endpoint:         { type: String, default: "" },
     hubLabel:         { type: String, default: "" },
+    // edge-hub-radial-topology: { id, name, enabled } per EdgeHub — same
+    // list the world map already renders (DashboardDto.TopologyHub),
+    // reused here as secondary hub nodes with their own peer fan.
+    edgeHubs:         { type: Array, default: () => [] },
     // Portal (self-service) reuse of this component (#43): gateway tunnel IP
     // and raw handshake timestamp are Admin-register technical detail the
     // backend already omits for portal callers — this only swaps the
@@ -193,6 +228,7 @@ export default defineComponent({
       networkTooltip: null,  // { site, x, y }
       gatewayTooltip: null,  // { gateway, x, y }
       peerTooltip: null,     // { peer, x, y } — topology-peer-detail-levels tier 2 hover
+      edgeHubTooltip: null,  // { hub, x, y } — edge-hub-radial-topology
       // Uncapped resource lists fetched on demand when a drilled-into site's
       // resources didn't make the diagram-wide TOPOLOGY_RESOURCE_CAP in the
       // main payload. siteId -> TopologyResource[].
@@ -234,57 +270,102 @@ export default defineComponent({
       }
       return counts;
     },
+    // A site assigned to a rendered edge hub (Site.edgeHubId) belongs there,
+    // not at the center — edge-hub-radial-topology: the same "never drawn
+    // twice, never drawn at the wrong hub" rule already applied to peers
+    // (centralLivePeers) applies to sites too.
+    centralSites() {
+      return this.sites.filter((s) => !s.edgeHubId || !this.edgeHubById.has(s.edgeHubId));
+    },
     // Sites sharing a gatewayPeerId collapse into one hub spoke (a router-shaped
-    // node) that fans into its member networks on click.
+    // node) that fans into its member networks on click. Shared with the
+    // per-edge-hub version below (edgeHubGatewayLayout) via groupSitesByGateway.
     gatewayGroups() {
-      const map = new Map();
-      for (const s of this.sites) {
-        if (!s.gatewayPeerId) continue;
-        if (!map.has(s.gatewayPeerId)) {
-          map.set(s.gatewayPeerId, {
-            gatewayPeerId: s.gatewayPeerId,
-            gatewayPeerName: s.gatewayPeerName,
-            gatewayOnline: s.gatewayOnline,
-            gatewayIp: s.gatewayIp,
-            gatewayLastSeenAt: s.gatewayLastSeenAt,
-            sites: [],
-          });
-        }
-        map.get(s.gatewayPeerId).sites.push(s);
-      }
-      return Array.from(map.values());
+      return this.groupSitesByGateway(this.centralSites);
     },
     directSites() {
-      return this.sites.filter((s) => !s.gatewayPeerId);
+      return this.centralSites.filter((s) => !s.gatewayPeerId);
     },
     // First-ring hub spokes: one per gateway group, one per direct (ungated) network.
     gatewayLayout() {
       const total = this.gatewayGroups.length + this.directSites.length;
-      return this.gatewayGroups.map((gw, i) => {
+      const central = this.gatewayGroups.map((gw, i) => {
         const angle = angleAt(i, total);
         const { x, y } = polar(angle, FIRST_RING);
-        return { gateway: gw, angle, x, y, expanded: gw.gatewayPeerId === this.expandedGatewayId };
+        return { gateway: gw, angle, x, y, expanded: gw.gatewayPeerId === this.expandedGatewayId,
+                 centerX: CX, centerY: CY, ring: FIRST_RING, isCentral: true };
       });
+      return [...central, ...this.edgeHubGatewayLayout];
     },
     directNetworkLayout() {
       const total = this.gatewayGroups.length + this.directSites.length;
-      return this.directSites.map((s, i) => {
+      const central = this.directSites.map((s, i) => {
         const angle = angleAt(this.gatewayGroups.length + i, total);
         const { x, y } = polar(angle, FIRST_RING);
         const count = this.countForSite(s);
-        return { site: s, angle, x, y, dist: FIRST_RING, count, expanded: s.id === this.expandedSiteId };
+        return { site: s, angle, x, y, dist: FIRST_RING, count, expanded: s.id === this.expandedSiteId,
+                 parentX: CX, parentY: CY };
+      });
+      return [...central, ...this.edgeHubDirectNetworkLayout];
+    },
+    // edge-hub-radial-topology: the same gateway/direct-network split as the
+    // center, scoped per edge hub and measured from that hub's own x/y
+    // instead of CX/CY. The local ring grows with the hub's own item count
+    // (bug report 2026-10-19: a fixed EDGE_HUB_FIRST_RING packed every one
+    // of an edge hub's own sites into the same small circle regardless of
+    // how many there were, overlapping into an unreadable cluster once a
+    // hub owned more than a handful — the central ring never hit this
+    // because FIRST_RING's much larger circumference had slack the fixed
+    // local radius didn't).
+    edgeHubNetworkGroups() {
+      return this.edgeHubLayout.map((item) => {
+        const hubSites = this.sites.filter((s) => s.edgeHubId === item.hub.id);
+        const groups = this.groupSitesByGateway(hubSites);
+        const directs = hubSites.filter((s) => !s.gatewayPeerId);
+        const total = groups.length + directs.length;
+        const ring = Math.max(EDGE_HUB_FIRST_RING, total * 10);
+        return { item, groups, directs, total, ring };
       });
     },
-    // Networks belonging to the currently expanded gateway, fanned around it.
+    edgeHubGatewayLayout() {
+      const out = [];
+      for (const { item, groups, total, ring } of this.edgeHubNetworkGroups) {
+        groups.forEach((gw, i) => {
+          const angle = angleAt(i, total);
+          const { x, y } = localPolar(item.x, item.y, angle, ring);
+          out.push({ gateway: gw, angle, x, y, expanded: gw.gatewayPeerId === this.expandedGatewayId,
+                     centerX: item.x, centerY: item.y, ring, hubId: item.hub.id });
+        });
+      }
+      return out;
+    },
+    edgeHubDirectNetworkLayout() {
+      const out = [];
+      for (const { item, groups, directs, total, ring } of this.edgeHubNetworkGroups) {
+        directs.forEach((s, i) => {
+          const angle = angleAt(groups.length + i, total);
+          const { x, y } = localPolar(item.x, item.y, angle, ring);
+          const count = this.countForSite(s);
+          out.push({ site: s, angle, x, y, dist: ring, count,
+                     expanded: s.id === this.expandedSiteId, parentX: item.x, parentY: item.y, hubId: item.hub.id });
+        });
+      }
+      return out;
+    },
+    // Networks belonging to the currently expanded gateway, fanned around
+    // whichever center that gateway itself belongs to (gwItem.centerX/Y) —
+    // CX/CY for a central gateway, an edge hub's own x/y for one of its own
+    // (edge-hub-radial-topology generalized this from a CX/CY-only fan).
     expandedGatewayNetworkLayout() {
       if (!this.expandedGatewayId) return [];
       const gwItem = this.gatewayLayout.find((g) => g.gateway.gatewayPeerId === this.expandedGatewayId);
       if (!gwItem) return [];
       const memberSites = gwItem.gateway.sites;
       const angles = fanAngles(gwItem.angle, memberSites.length);
-      const dist = FIRST_RING + NETWORK_RING_OFFSET;
+      const ringOffset = gwItem.isCentral ? NETWORK_RING_OFFSET : EDGE_HUB_NETWORK_RING_OFFSET;
+      const dist = gwItem.ring + ringOffset;
       return memberSites.map((s, i) => {
-        const { x, y } = polar(angles[i], dist);
+        const { x, y } = localPolar(gwItem.centerX, gwItem.centerY, angles[i], dist);
         const count = this.countForSite(s);
         return { site: s, angle: angles[i], x, y, dist, count, expanded: s.id === this.expandedSiteId,
                  parentX: gwItem.x, parentY: gwItem.y };
@@ -357,11 +438,106 @@ export default defineComponent({
       const ys = this.resourceLayout.map((r) => r.y);
       return Math.min(...ys) - RESOURCE_ROW_H;
     },
+    // edge-hub-radial-topology follow-up (bug report 2026-10-19,
+    // screenshot): dimming an unrelated edge hub to 0.35 opacity (see
+    // nodeFocusStyle/edgeHubIsRelevant) wasn't enough once a drilled-into
+    // network's resource list and an edge hub's own position genuinely
+    // overlap on screen — the dimmed hub still showed through the resource
+    // rows. An opaque backdrop the same color as the card itself, sized to
+    // the resource fan's own bounding box, fully occludes whatever sits
+    // behind it instead — same idea as a dialog backdrop, scoped to just
+    // this area rather than the whole diagram. Drawn before the branch
+    // lines/rows in the template so they paint on top of it, not under.
+    resourceBackdropRect() {
+      if (this.resourceLayout.length === 0) return null;
+      const pts = [];
+      for (const item of this.resourceLayout) {
+        const iconEdge = item.dir > 0 ? item.x - RESOURCE_ICON_R : item.x + RESOURCE_ICON_R;
+        // The label's real width, not RESOURCE_LABEL_W. That constant is a
+        // deliberate over-estimate for column pitch and viewBox padding, where
+        // reserving too much is harmless — behind a drawn panel it is not:
+        // measured 2026-10-22, it left 35px of dead backdrop past the longest
+        // label. Names are truncated to 14 characters plus an ellipsis and set
+        // in the mono face at 11px, so the glyph count is the width.
+        const labelW = RESOURCE_ICON_R + 6
+            + this.truncateResourceName(item.resource.name).length * LABEL_CHAR_W;
+        const labelEdge = item.x + item.dir * labelW;
+        pts.push({ x: Math.min(iconEdge, labelEdge), y: item.y - RESOURCE_ICON_R });
+        pts.push({ x: Math.max(iconEdge, labelEdge), y: item.y + RESOURCE_ICON_R });
+      }
+      // Starts right at the network box's own edge, not before — the box
+      // and its link into the resource list must stay visible, only the
+      // resource area itself needs to occlude what's behind it. Bug report
+      // 2026-10-19 (screenshot): using resourceColumnBypassY's own x
+      // (netX, the box's CENTER — correct for contentBBox, which only
+      // needs the bypass line on screen at all) pulled minX back a full
+      // NODE_HALF_W past the edge and hid half the network box under the
+      // backdrop. The box edge's own x is the right anchor for both points
+      // here — only the bypass line's y (if any) needs including.
+      const net = this.visibleNetworks.find((n) => n.site.id === this.expandedSiteId);
+      const dir = this.resourceLayout[0].dir;
+      const edgeX = net ? net.x + dir * NODE_HALF_W : null;
+      // Only the y of these two: their x is the node's edge, and the panel
+      // must start beside the node, not on it (see NODE_GAP below).
+      if (edgeX !== null) {
+        pts.push({ x: edgeX + dir * NODE_GAP, y: net.y });
+        if (this.resourceColumnBypassY !== null && this.resourceLayout.some((r) => r.col > 0)) {
+          pts.push({ x: edgeX + dir * NODE_GAP, y: this.resourceColumnBypassY });
+        }
+      }
+      const PAD = 8;
+      let minX = Math.min(...pts.map((p) => p.x)) - PAD;
+      let maxX = Math.max(...pts.map((p) => p.x)) + PAD;
+      const minY = Math.min(...pts.map((p) => p.y)) - PAD;
+      const maxY = Math.max(...pts.map((p) => p.y)) + PAD;
+      // The near edge is a hard bound, not a padded one: PAD pulled it back
+      // across the node box's edge, so the panel started 5px *inside* the node
+      // (measured 2026-10-22) instead of leaving a gap beside it.
+      if (edgeX !== null) {
+        if (dir > 0) minX = edgeX + NODE_GAP;
+        else maxX = edgeX - NODE_GAP;
+      }
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    },
     // Site-type peers are already represented by their gateway node (ring color
     // shows status) — excluded from every tier below to avoid confusing
     // duplicate dots.
     relevantLivePeers() {
       return this.livePeers.filter((p) => p.type !== "site");
+    },
+    // edge-hub-radial-topology: one secondary hub node per EdgeHub, fanned
+    // on their own outer ring — independent of the gateway/network ring's
+    // own angle math (EDGE_HUB_RING sits well past it), so adding edge hubs
+    // never reflows the existing gateway/network spoke angles.
+    //
+    // Fan starts due EAST (0°), not the usual north (-90°, every other ring
+    // in this diagram's default): .topo's own box is wide and short (CSS
+    // caps height at 440px, width is whatever the card is). A lone edge hub
+    // — the common case — placed north pushes contentBBox tall instead of
+    // wide; against a wide/short box that forces a much bigger scale-down
+    // to fit the height, stranding the whole diagram, now tiny, in a sea of
+    // unused horizontal space (bug report 2026-10-19, screenshot). East
+    // spends the ring's extra size on the dimension the box actually has
+    // slack in.
+    edgeHubLayout() {
+      const total = this.edgeHubs.length;
+      return this.edgeHubs.map((hub, i) => {
+        const angle = angleAt(i, total, 0);
+        const { x, y } = polar(angle, EDGE_HUB_RING);
+        return { hub, angle, x, y };
+      });
+    },
+    edgeHubById() {
+      const map = new Map();
+      for (const item of this.edgeHubLayout) map.set(item.hub.id, item);
+      return map;
+    },
+    // A peer whose derived edge home is actually rendered here belongs at
+    // that edge hub, not at the center — excluded from the central hub's
+    // own tiers so it never appears twice (edge-hub-radial-topology
+    // acceptance: "unter seinem Edge-Hub, nicht unter dem Zentral-Hub").
+    centralLivePeers() {
+      return this.relevantLivePeers.filter((p) => !p.edgeHubId || !this.edgeHubById.has(p.edgeHubId));
     },
     // topology-peer-detail-levels: which of the three detail tiers applies,
     // driven by the *uncapped* connected+stale total (peerStatusCounts) —
@@ -384,7 +560,7 @@ export default defineComponent({
     // rather than an arbitrary interleave.
     livePeerLayout() {
       if (this.peerTier !== "icons" && this.peerTier !== "orbit") return [];
-      let list = this.relevantLivePeers;
+      let list = this.centralLivePeers;
       if (this.peerTier === "orbit") {
         list = [...list].sort((a, b) => {
           if (a.connectionStatus === b.connectionStatus) return 0;
@@ -395,6 +571,24 @@ export default defineComponent({
         const angle = angleAt(i, list.length, -135);
         return { peer: p, x: CX + LIVE_DOT_ORBIT * Math.cos(angle), y: CY + LIVE_DOT_ORBIT * Math.sin(angle) };
       });
+    },
+    // edge-hub-radial-topology: per edge hub, the peers that dial it, fanned
+    // locally around that hub's own x/y (localPolar) — gated behind the
+    // same peerTier as the center so a huge roster collapses everywhere at
+    // once rather than showing individual dots at the edges only.
+    edgeHubPeerLayout() {
+      if (this.peerTier !== "icons" && this.peerTier !== "orbit") return [];
+      const out = [];
+      for (const item of this.edgeHubLayout) {
+        const peers = this.relevantLivePeers.filter((p) => p.edgeHubId === item.hub.id);
+        if (peers.length === 0) continue;
+        const angles = fanAngles(item.angle, peers.length);
+        peers.forEach((p, i) => {
+          const { x, y } = localPolar(item.x, item.y, angles[i], EDGE_HUB_PEER_ORBIT);
+          out.push({ peer: p, hub: item.hub, x, y });
+        });
+      }
+      return out;
     },
     // Tier 3 ("eingeklappt") position — a single fixed point rather than
     // something derived from gatewayLayout/visibleNetworks, since there's
@@ -452,6 +646,17 @@ export default defineComponent({
         pts.push({ x: s.x - NODE_HALF_W, y: s.y - NODE_HALF_H });
         pts.push({ x: s.x + NODE_HALF_W, y: s.y + NODE_HALF_H + 14 });
       }
+      // edge-hub-radial-topology: edge hub nodes (ring + two label lines)
+      // and their own local peer fan need the same bbox treatment as every
+      // other node, or panning/viewBox sizing would clip them.
+      for (const item of this.edgeHubLayout) {
+        pts.push({ x: item.x - EDGE_HUB_R, y: item.y - EDGE_HUB_R });
+        pts.push({ x: item.x + EDGE_HUB_R, y: item.y + EDGE_HUB_R + 30 });
+      }
+      for (const d of this.edgeHubPeerLayout) {
+        pts.push({ x: d.x - 10, y: d.y - 10 });
+        pts.push({ x: d.x + 10, y: d.y + 10 });
+      }
 
       const PAD = CONTENT_PAD;
       let minX = Math.min(...pts.map((p) => p.x)) - PAD;
@@ -495,6 +700,27 @@ export default defineComponent({
   methods: {
     t(key, vars) { return t(key, vars); },
     linkPath(x1, y1, x2, y2, bow) { return curvePath(x1, y1, x2, y2, bow); },
+    // Shared by gatewayGroups (central) and edgeHubGatewayLayout (per edge
+    // hub) — same "sites sharing a gatewayPeerId collapse into one spoke"
+    // rule, just over whichever site list the caller already scoped.
+    groupSitesByGateway(list) {
+      const map = new Map();
+      for (const s of list) {
+        if (!s.gatewayPeerId) continue;
+        if (!map.has(s.gatewayPeerId)) {
+          map.set(s.gatewayPeerId, {
+            gatewayPeerId: s.gatewayPeerId,
+            gatewayPeerName: s.gatewayPeerName,
+            gatewayOnline: s.gatewayOnline,
+            gatewayIp: s.gatewayIp,
+            gatewayLastSeenAt: s.gatewayLastSeenAt,
+            sites: [],
+          });
+        }
+        map.get(s.gatewayPeerId).sites.push(s);
+      }
+      return Array.from(map.values());
+    },
     // A column-0 resource row sits directly left of column 1's icons at the
     // same y for some rows (resourceLayout's startY math), so an untruncated
     // long name runs underneath the next column's row and its icon.
@@ -689,6 +915,40 @@ export default defineComponent({
       this.resetPan();
       this.expandedGatewayId = this.expandedGatewayId === gatewayPeerId ? null : gatewayPeerId;
     },
+    /**
+     * topology-center-on-expand: put the window over what was just opened.
+     *
+     * The viewBox is capped (MAX_VIEW_W/H) and centred on the whole content
+     * bbox. Expanding a network grows that bbox on one side, so the thing the
+     * operator just clicked slides toward the edge and off it — the diagram
+     * looked cut off exactly when it had the most to show. Panning is possible
+     * but nothing says so, and nobody drags a diagram they believe is broken.
+     *
+     * Runs after the layout recomputes, because the rows it measures do not
+     * exist until expandedSiteId is set. The clamp in viewBoxRect still
+     * applies, so this can never pan into empty space.
+     */
+    centerOnExpandedNetwork() {
+      this.$nextTick(() => {
+        const net = this.visibleNetworks.find((n) => n.expanded);
+        if (!net || !this.needsPan) return;
+        const pts = [
+          { x: net.x - NODE_HALF_W, y: net.y - NODE_HALF_H },
+          { x: net.x + NODE_HALF_W, y: net.y + NODE_HALF_H },
+        ];
+        for (const r of this.resourceLayout) {
+          const labelEdge = r.dir > 0 ? r.x + RESOURCE_ICON_R + RESOURCE_LABEL_W
+                                       : r.x - RESOURCE_ICON_R - RESOURCE_LABEL_W;
+          pts.push({ x: Math.min(r.x, labelEdge), y: r.y - RESOURCE_ICON_R });
+          pts.push({ x: Math.max(r.x, labelEdge), y: r.y + RESOURCE_ICON_R });
+        }
+        const cx = (Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2;
+        const cy = (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2;
+        const b = this.contentBBox;
+        this.panX = cx - (b.x + b.w / 2);
+        this.panY = cy - (b.y + b.h / 2);
+      });
+    },
     onNetworkClick(site) {
       this.resetPan();
       if (this.expandedSiteId === site.id) {
@@ -707,6 +967,7 @@ export default defineComponent({
       }
       this.expandedSiteId = site.id;
       this.maybeLoadSiteResources(site);
+      this.centerOnExpandedNetwork();
     },
     // The diagram-wide payload caps resources at TOPOLOGY_RESOURCE_CAP; a
     // network whose resources didn't make that cap would otherwise fan out
@@ -721,6 +982,10 @@ export default defineComponent({
         if (res.ok) {
           const data = await res.json();
           this.siteResourceCache = { ...this.siteResourceCache, [site.id]: data };
+          // The rows this site actually has arrive here, not at click time —
+          // centring on the partial layout would leave the full one off to
+          // one side again, which is the bug this is part of fixing.
+          this.centerOnExpandedNetwork();
         }
       } catch (e) {
         // Silent — the "hidden due to display limit" fallback in the template
@@ -768,6 +1033,16 @@ export default defineComponent({
       this.gatewayTooltip = { ...this.gatewayTooltip, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
     },
     hideGatewayTooltip() { this.gatewayTooltip = null; },
+    showEdgeHubTooltip(event, hub) {
+      const rect = this.$el.getBoundingClientRect();
+      this.edgeHubTooltip = { hub, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
+    },
+    moveEdgeHubTooltip(event) {
+      if (!this.edgeHubTooltip) return;
+      const rect = this.$el.getBoundingClientRect();
+      this.edgeHubTooltip = { ...this.edgeHubTooltip, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
+    },
+    hideEdgeHubTooltip() { this.edgeHubTooltip = null; },
     gatewayRingStyle(item) {
       if (item.expanded) return "stroke: var(--accent); stroke-width: 3";
       return item.gateway.gatewayOnline
@@ -788,6 +1063,18 @@ export default defineComponent({
     nodeFocusStyle(isRelevant, fallback) {
       if (this.expandedSiteId && !isRelevant) return "opacity: 0.35";
       return fallback || "";
+    },
+    // edge-hub-radial-topology: the edge hub node itself (and its own peer
+    // fan) never went through nodeFocusStyle — bug report 2026-10-19,
+    // screenshot: a drilled-into central network's resource column visually
+    // collided with a full-opacity edge hub sitting right next to it. A hub
+    // is "relevant" to the current drilldown when the expanded site is one
+    // of its own (sites already carry edgeHubId directly, no need to walk
+    // the derived gateway/direct-network layouts to find out).
+    edgeHubIsRelevant(hubId) {
+      if (!this.expandedSiteId) return true;
+      const site = this.sites.find((s) => s.id === this.expandedSiteId);
+      return !!site && site.edgeHubId === hubId;
     },
     relativeTime(iso) { return relativeTime(iso); },
     resourceTitle(r) {
@@ -852,17 +1139,24 @@ export default defineComponent({
         <path v-for="item in gatewayLayout" :key="'gl-'+item.gateway.gatewayPeerId"
               :class="['link', item.gateway.gatewayOnline ? '' : 'link-down']"
               :style="nodeFocusStyle(item.gateway.gatewayPeerId === expandedGatewayId)"
-              :d="linkPath(CX, CY, item.x, item.y)" />
+              :d="linkPath(item.centerX, item.centerY, item.x, item.y)" />
         <path v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
               class="link"
               :style="nodeFocusStyle(item.site.id === expandedSiteId)"
-              :d="linkPath(CX, CY, item.x, item.y)" />
+              :d="linkPath(item.parentX, item.parentY, item.x, item.y)" />
 
         <!-- Gateway-to-network links (expanded gateway only) -->
         <path v-for="item in expandedGatewayNetworkLayout" :key="'gnl-'+item.site.id"
               class="link"
               :style="nodeFocusStyle(item.site.id === expandedSiteId, 'opacity:0.45')"
               :d="linkPath(item.parentX, item.parentY, item.x, item.y)" />
+
+        <!-- edge-hub-radial-topology: hub-to-edge-hub links, drawn before the
+             central hub circle so the hub paints on top where they meet. -->
+        <path v-for="item in edgeHubLayout" :key="'ehl-'+item.hub.id"
+              class="link"
+              :style="nodeFocusStyle(edgeHubIsRelevant(item.hub.id), 'opacity:0.6')"
+              :d="linkPath(CX, CY, item.x, item.y)" />
 
         <!-- Hub -->
         <circle class="hub-pulse" :cx="CX" :cy="CY" :r="HUB_R" />
@@ -949,6 +1243,46 @@ export default defineComponent({
           <title>{{ t('topology.peer_summary_title') }}: {{ peerStatusCounts.connected }} {{ t('topology.peer_status_connected') }}, {{ peerStatusCounts.stale }} {{ t('topology.peer_status_stale') }}, {{ peerStatusCounts.disconnected }} {{ t('topology.peer_status_disconnected') }}</title>
         </g>
 
+        <!-- edge-hub-radial-topology: edge hub-to-peer links, same visual
+             language as the central hub's own live-peer links. -->
+        <path v-for="d in edgeHubPeerLayout" :key="'ehpl-'+d.peer.id"
+              :class="['link-live', d.peer.trafficTier === 'flowing' ? 'link-flowing' : '', d.peer.trafficTier === 'flowing-heavy' ? 'link-flowing-heavy' : '']"
+              :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
+              :d="linkPath(edgeHubById.get(d.hub.id).x, edgeHubById.get(d.hub.id).y, d.x, d.y, 0.1)" />
+
+        <!-- edge-hub-radial-topology: a secondary, smaller hub node per
+             EdgeHub, status shown as both ring color AND the label text
+             below (never color-only, CLAUDE.md). Dimmed via nodeFocusStyle
+             like every other node once an unrelated site is drilled into —
+             bug report 2026-10-19: without this an edge hub stayed at full
+             opacity right on top of a drilled-into central network's
+             resource column, reading as a layout collision rather than two
+             separately-focused clusters. -->
+        <g v-for="item in edgeHubLayout" :key="'eh-'+item.hub.id"
+           :transform="'translate('+item.x+','+item.y+')'"
+           :style="nodeFocusStyle(edgeHubIsRelevant(item.hub.id))"
+           @mouseenter="showEdgeHubTooltip($event, item.hub)"
+           @mousemove="moveEdgeHubTooltip($event)"
+           @mouseleave="hideEdgeHubTooltip">
+          <circle class="hub-core" :r="EDGE_HUB_R - 4" />
+          <circle fill="none" :r="EDGE_HUB_R"
+                  :style="item.hub.enabled ? 'stroke: var(--status-ok); stroke-width:2.5' : 'stroke: var(--fg3); stroke-width:2'" />
+          <text class="hub-label" :y="EDGE_HUB_R + 15">{{ item.hub.name }}</text>
+          <text class="hub-endpoint" :y="EDGE_HUB_R + 28">
+            {{ item.hub.enabled ? t('topology.edge_hub_enabled') : t('topology.edge_hub_disabled') }}
+          </text>
+        </g>
+
+        <!-- edge-hub-radial-topology: peers that dial an edge hub, fanned
+             locally around it — same dot style as tier 2's central orbit. -->
+        <circle v-for="d in edgeHubPeerLayout" :key="'ehp-'+d.peer.id"
+                :cx="d.x" :cy="d.y" :r="LIVE_DOT_R"
+                :class="['node', 'peer', 'status-' + peerStatusClass(d.peer)]"
+                :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
+                @mouseenter="showPeerTooltip($event, d.peer)"
+                @mousemove="movePeerTooltip($event)"
+                @mouseleave="hidePeerTooltip" />
+
         <!-- Gateway-peer nodes — router silhouette (box, not circle): a shared
              site router groups every network routed through it into one spoke. -->
         <g v-for="item in gatewayLayout" :key="item.gateway.gatewayPeerId"
@@ -1019,6 +1353,15 @@ export default defineComponent({
                 class="node-label" :y="NODE_HALF_H + 29"
                 style="fill: var(--fg3); font-size: 10px">{{ t('topology.resources_hidden_cap') }}</text>
         </g>
+
+        <!-- edge-hub-radial-topology follow-up (bug report 2026-10-19):
+             opaque backdrop, same color as the card itself, behind the
+             resource fan — occludes a dimmed-but-still-visible node (an
+             edge hub, say) that happens to sit underneath it, rather than
+             letting the two visually collide. -->
+        <rect v-if="resourceBackdropRect" :x="resourceBackdropRect.x" :y="resourceBackdropRect.y"
+              :width="resourceBackdropRect.width" :height="resourceBackdropRect.height"
+              rx="8" style="fill: var(--surface); pointer-events: none" />
 
         <!-- Network-to-resource tree (expanded network only), drawn AFTER
              every hub/gateway/network node above so it paints on top of
@@ -1196,6 +1539,30 @@ export default defineComponent({
           {{ peerTooltip.peer.dnsFqdn }}
         </div>
       </div>
+
+      <!-- edge-hub-radial-topology: edge hub hover tooltip -->
+      <div v-if="edgeHubTooltip" :style="{
+             position: 'absolute',
+             left: edgeHubTooltip.x + 'px',
+             top: edgeHubTooltip.y + 'px',
+             pointerEvents: 'none',
+             zIndex: 10,
+             background: 'var(--surface-2)',
+             border: '1px solid var(--border)',
+             borderRadius: 'var(--radius-sm)',
+             padding: '6px 10px',
+             boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.3))',
+             maxWidth: '220px',
+           }">
+        <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
+          {{ edgeHubTooltip.hub.name }}
+        </div>
+        <div style="font-size: var(--text-xs); color: var(--fg2)">
+          <span :style="edgeHubTooltip.hub.enabled ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
+                style="font-size:9px">{{ edgeHubTooltip.hub.enabled ? '●' : '○' }}</span>
+          {{ edgeHubTooltip.hub.enabled ? t('topology.edge_hub_enabled') : t('topology.edge_hub_disabled') }}
+        </div>
+      </div>
     </div>
   `,
   // Expose constants to template via data so Vue can see them.
@@ -1206,5 +1573,6 @@ export default defineComponent({
     this.RESOURCE_ICON_R = RESOURCE_ICON_R; this.LIVE_DOT_R = LIVE_DOT_R;
     this.PEER_ICON_R = PEER_ICON_R;
     this.CONTENT_PAD = CONTENT_PAD;
+    this.EDGE_HUB_R = EDGE_HUB_R;
   },
 });

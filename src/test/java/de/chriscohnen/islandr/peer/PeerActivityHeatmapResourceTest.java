@@ -46,7 +46,7 @@ class PeerActivityHeatmapResourceTest {
         p.userId = u.id;
         p.name = name;
         p.publicKey = "pk-" + UUID.randomUUID();
-        p.assignedIp = "10.9.0." + (1 + (int) (Math.random() * 200));
+        p.assignedIp = TestPeerIps.next();
         p.enabled = true;
         p.createdAt = Instant.now();
         p.updatedAt = p.createdAt;
@@ -84,7 +84,7 @@ class PeerActivityHeatmapResourceTest {
         p.userId = u.id;
         p.name = peerName;
         p.publicKey = "pk-" + UUID.randomUUID();
-        p.assignedIp = "10.9.0." + (1 + (int) (Math.random() * 200));
+        p.assignedIp = TestPeerIps.next();
         p.enabled = true;
         p.createdAt = Instant.now();
         p.updatedAt = p.createdAt;

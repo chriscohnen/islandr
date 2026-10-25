@@ -43,6 +43,26 @@ class IpSubnetTest {
         assertThat(collect(IpSubnet.parse("10.0.0.5/32").assignableHostIps())).isEmpty();
     }
 
+    // settings-reject-unusable-wg-subnet: hasAssignableHosts() is the
+    // cheap check AssignableSubnetValidator uses instead of materializing
+    // assignableHostIps() just to ask whether it's empty — same boundary,
+    // single source of truth (IpSubnet#maxUsablePrefix).
+
+    @Test
+    void hasAssignableHosts_slash30_isTrue() {
+        assertThat(IpSubnet.parse("10.0.0.0/30").hasAssignableHosts()).isTrue();
+    }
+
+    @Test
+    void hasAssignableHosts_slash31_isFalse() {
+        assertThat(IpSubnet.parse("10.0.0.0/31").hasAssignableHosts()).isFalse();
+    }
+
+    @Test
+    void hasAssignableHosts_slash32_isFalse() {
+        assertThat(IpSubnet.parse("10.0.0.5/32").hasAssignableHosts()).isFalse();
+    }
+
     @Test
     void assignableHostIps_respectsNonZeroNetworkOffset() {
         // 192.168.50.0/28 → 16 addresses, hosts .1–.14, server takes .1, peers .2–.14.
@@ -141,6 +161,21 @@ class IpSubnetTest {
         assertThat(ips).hasSize(2);
         assertThat(ips.get(0)).isEqualTo("fd00::2");
         assertThat(ips.get(1)).isEqualTo("fd00::3");
+    }
+
+    @Test
+    void hasAssignableHosts_ipv6Slash126_isTrue() {
+        assertThat(IpSubnet.parse("fd00::/126").hasAssignableHosts()).isTrue();
+    }
+
+    @Test
+    void hasAssignableHosts_ipv6Slash127_isFalse() {
+        assertThat(IpSubnet.parse("fd00::/127").hasAssignableHosts()).isFalse();
+    }
+
+    @Test
+    void hasAssignableHosts_ipv6Slash128_isFalse() {
+        assertThat(IpSubnet.parse("fd00::1/128").hasAssignableHosts()).isFalse();
     }
 
     @Test

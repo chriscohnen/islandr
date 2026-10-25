@@ -80,4 +80,28 @@ class AvatarImageTest {
                 0, 0, 0, 0, 0, 0, 0, 0, 0,
         };
     }
+
+    // oidc-avatar-ssrf-xss: a fetched avatar is stored with the type its
+    // bytes have, not the type the remote server claimed. A server that
+    // answers with HTML gets nothing stored.
+
+    @Test
+    void sniffsPngJpegGifAndWebp() {
+        assertThat(AvatarImage.sniffType(jpeg(10, 10))).isEqualTo("image/jpeg");
+        byte[] png = { (byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0, 0, 0, 13 };
+        assertThat(AvatarImage.sniffType(png)).isEqualTo("image/png");
+        assertThat(AvatarImage.sniffType("GIF89a......".getBytes(java.nio.charset.StandardCharsets.US_ASCII))).isEqualTo("image/gif");
+        assertThat(AvatarImage.sniffType("GIF87a......".getBytes(java.nio.charset.StandardCharsets.US_ASCII))).isEqualTo("image/gif");
+        assertThat(AvatarImage.sniffType("RIFF\0\0\0\0WEBPVP8 ".getBytes(java.nio.charset.StandardCharsets.US_ASCII))).isEqualTo("image/webp");
+    }
+
+    @Test
+    void refusesWhatIsNotAnImage() {
+        assertThat(AvatarImage.sniffType("<html><script>alert(1)</script>".getBytes(java.nio.charset.StandardCharsets.UTF_8))).isNull();
+        assertThat(AvatarImage.sniffType("{\"ok\":true}".getBytes(java.nio.charset.StandardCharsets.UTF_8))).isNull();
+        assertThat(AvatarImage.sniffType("RIFF\0\0\0\0WAVEfmt ".getBytes(java.nio.charset.StandardCharsets.US_ASCII))).isNull();
+        assertThat(AvatarImage.sniffType(new byte[0])).isNull();
+        assertThat(AvatarImage.sniffType(null)).isNull();
+    }
 }
+

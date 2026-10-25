@@ -102,17 +102,17 @@ export default defineComponent({
     <div v-if="loading && !status" class="muted">{{ t('common.loading') }}</div>
 
     <div v-else-if="status">
-      <div v-if="!status.enabled" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+      <div v-if="!status.enabled" class="callout callout-warning" style="margin-bottom: var(--space-4)">
         <div>{{ t('dns.disabled_hint') }} <router-link :to="{ path: '/settings', query: { tab: 'network' } }" style="color:inherit;text-decoration:underline">{{ t('dns.disabled_link') }}</router-link></div>
       </div>
-      <div v-else-if="!status.running" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+      <div v-else-if="!status.running" class="callout callout-warning" style="margin-bottom: var(--space-4)">
         <div>{{ t('dns.blocked_hint') }} <router-link :to="{ path: '/settings', query: { tab: 'network' } }" style="color:inherit;text-decoration:underline">{{ t('dns.disabled_link') }}</router-link></div>
       </div>
-      <div v-else-if="!status.tcpRunning" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+      <div v-else-if="!status.tcpRunning" class="callout callout-warning" style="margin-bottom: var(--space-4)">
         <div>{{ t('dns.tcp_blocked_hint', { port: status.port }) }}</div>
       </div>
 
-      <div v-if="status.enabled" class="callout callout-warn" style="margin-bottom: var(--space-4)">
+      <div v-if="status.enabled" class="callout callout-warning" style="margin-bottom: var(--space-4)">
         <div>{{ t('dns.split_tunnel_hint', { zone: status.zone, ip: status.bindAddress }) }}
           <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install/dns-clients.md"
              target="_blank" rel="noopener"
@@ -212,7 +212,7 @@ export default defineComponent({
               </div>
             </div>
           </div>
-          <div v-else-if="lookupResult.result === 'nxdomain'" class="callout callout-warn">
+          <div v-else-if="lookupResult.result === 'nxdomain'" class="callout callout-warning">
             <div>
               <div>{{ t('dns.lookup_result_nxdomain') }}</div>
               <div v-if="lookupResultAsPeer" style="font-size: var(--text-xs); margin-top: var(--space-2); opacity: 0.85">

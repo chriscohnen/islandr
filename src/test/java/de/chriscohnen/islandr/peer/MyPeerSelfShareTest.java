@@ -237,7 +237,7 @@ class MyPeerSelfShareTest {
         new java.security.SecureRandom().nextBytes(keyBytes);
         String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
         Peer p = Peer.createNew(userId, name, publicKey,
-                "10.9.1." + (1 + (int) (Math.random() * 250)));
+                TestPeerIps.next());
         p.persist();
         return p.id;
     }

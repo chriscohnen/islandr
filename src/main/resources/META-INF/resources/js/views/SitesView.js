@@ -14,11 +14,12 @@ export default defineComponent({
     return {
       sites: [],
       peers: [],   // site-type peers available as gateway candidates
+      edgeHubs: [], // edge-hub-entity (1.2.0) — candidates for a site's "served by" hub
       allResources: [],  // all resources across all sites, for the type breakdown panel below the table
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
-      form: { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "" },
+      form: { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "" },
       editId: null,
       submitting: false,
       formError: null,
@@ -198,10 +199,11 @@ export default defineComponent({
       this.loading = true;
       this.error = null;
       try {
-        const [sitesRes, peersRes, resourcesRes] = await Promise.all([
+        const [sitesRes, peersRes, resourcesRes, edgeHubsRes] = await Promise.all([
           fetch("/api/v1/sites"),
           fetch("/api/v1/peers"),
           fetch("/api/v1/resources"),
+          fetch("/api/v1/edge-hubs"),
         ]);
         if (!sitesRes.ok) throw new Error("HTTP " + sitesRes.status);
         this.sites = await sitesRes.json();
@@ -213,6 +215,7 @@ export default defineComponent({
         // Used only for the resource-type breakdown panel below the table;
         // the per-site RESOURCES column count comes from site.resourceCount.
         if (resourcesRes.ok) this.allResources = await resourcesRes.json();
+        if (edgeHubsRes.ok) this.edgeHubs = await edgeHubsRes.json();
       } catch (e) {
         this.error = t("sites.error_load", { error: e.message });
       } finally {
@@ -222,7 +225,7 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "" };
+      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "" };
       this.formError = null;
     },
     openEdit(site) {
@@ -235,6 +238,7 @@ export default defineComponent({
         gatewayPeerId: site.gatewayPeerId || "",
         subdomain: site.subdomain || "",
         dnsServerIp: site.dnsServerIp || "",
+        edgeHubId: site.edgeHubId || "",
       };
       this.formError = null;
     },
@@ -272,6 +276,7 @@ export default defineComponent({
           body: JSON.stringify({
             ...this.form,
             gatewayPeerId: this.form.gatewayPeerId || null,
+            edgeHubId: this.form.edgeHubId || null,
           }),
         });
         if (!res.ok) {
@@ -353,6 +358,7 @@ export default defineComponent({
           <th>{{ t('sites.th_name') }}</th>
           <th>{{ t('sites.th_cidr') }}</th>
           <th>{{ t('sites.th_gateway') }}</th>
+          <th v-if="edgeHubs.length">{{ t('sites.field_edge_hub') }}</th>
           <th>{{ t('sites.th_desc') }}</th>
           <th>{{ t('sites.th_resources') }}</th>
           <th></th>
@@ -376,6 +382,7 @@ export default defineComponent({
               <span>{{ s.gatewayPeerName || s.gatewayPeerId }}</span>
             </span>
           </td>
+          <td v-if="edgeHubs.length" class="muted">{{ s.edgeHubName || t('sites.field_edge_hub_none') }}</td>
           <td class="muted">{{ s.description || "—" }}</td>
           <td>
             <button class="btn btn-ghost btn-sm" @click="goToResources(s)">
@@ -564,6 +571,14 @@ export default defineComponent({
                         @click="acceptDnsServerIpSuggestion">{{ t('sites.field_subdomain_accept') }}</button>
               </div>
               <div class="field-hint">{{ t('sites.field_dns_server_hint') }}</div>
+            </div>
+            <div v-if="edgeHubs.length" class="field" style="margin-top: var(--space-4)">
+              <label for="siteEdgeHub">{{ t('sites.field_edge_hub') }}</label>
+              <select id="siteEdgeHub" class="select" v-model="form.edgeHubId">
+                <option value="">{{ t('sites.field_edge_hub_none') }}</option>
+                <option v-for="h in edgeHubs" :key="h.id" :value="h.id">{{ h.name }}</option>
+              </select>
+              <div class="field-hint">{{ t('sites.field_edge_hub_hint') }}</div>
             </div>
           </div>
           <div class="modal-footer">

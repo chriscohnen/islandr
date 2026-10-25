@@ -30,16 +30,22 @@ public class SiteService {
 
     public SiteDto.Response toResponse(Site s, int resourceCount) {
         Boolean outside = outsideSplitSupernet(s);
+        String edgeHubName = s.edgeHubId == null ? null : edgeHubName(s.edgeHubId);
         if (s.gatewayPeerId == null) {
-            return SiteDto.Response.from(s, resourceCount, null, null, outside);
+            return SiteDto.Response.from(s, resourceCount, null, null, outside, edgeHubName);
         }
         Peer gw = Peer.findById(s.gatewayPeerId);
         if (gw == null) {
-            return SiteDto.Response.from(s, resourceCount, null, null, outside);
+            return SiteDto.Response.from(s, resourceCount, null, null, outside, edgeHubName);
         }
         Instant threshold = Instant.now().minus(5, java.time.temporal.ChronoUnit.MINUTES);
         boolean online = gw.lastSeenAt != null && gw.lastSeenAt.isAfter(threshold);
-        return SiteDto.Response.from(s, resourceCount, gw.name, online, outside);
+        return SiteDto.Response.from(s, resourceCount, gw.name, online, outside, edgeHubName);
+    }
+
+    private static String edgeHubName(String edgeHubId) {
+        EdgeHub e = EdgeHub.findById(edgeHubId);
+        return e == null ? null : e.name;
     }
 
     private Boolean outsideSplitSupernet(Site s) {
@@ -86,6 +92,7 @@ public class SiteService {
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         s.subdomain = subdomain;
         s.dnsServerIp = normalizeBlank(req.dnsServerIp());
+        s.edgeHubId = validatedEdgeHubId(req.edgeHubId());
         s.persist();
         return s;
     }
@@ -157,7 +164,7 @@ public class SiteService {
                         "peerId " + e.peerId() + " is not a site peer");
             }
             Site s = create(new SiteDto.UpsertRequest(
-                    e.name().trim(), cidr, e.description(), gateway.id, null, e.dnsServerIp()));
+                    e.name().trim(), cidr, e.description(), gateway.id, null, e.dnsServerIp(), null));
             results.add(new SiteDto.GatewayImportResult(cidr, "imported", s.id));
         }
         return results;
@@ -186,6 +193,7 @@ public class SiteService {
         s.gatewayPeerId = validatedGatewayPeerId(req.gatewayPeerId());
         s.subdomain = subdomain;
         s.dnsServerIp = normalizeBlank(req.dnsServerIp());
+        s.edgeHubId = validatedEdgeHubId(req.edgeHubId());
         s.updatedAt = Instant.now();
         return s;
     }
@@ -207,6 +215,12 @@ public class SiteService {
         if (peerId == null || peerId.isBlank()) return null;
         if (Peer.findById(peerId) == null) throw new jakarta.ws.rs.NotFoundException("gateway peer not found: " + peerId);
         return peerId;
+    }
+
+    private String validatedEdgeHubId(String edgeHubId) {
+        if (edgeHubId == null || edgeHubId.isBlank()) return null;
+        if (EdgeHub.findById(edgeHubId) == null) throw new jakarta.ws.rs.NotFoundException("edge hub not found: " + edgeHubId);
+        return edgeHubId;
     }
 
     @Transactional

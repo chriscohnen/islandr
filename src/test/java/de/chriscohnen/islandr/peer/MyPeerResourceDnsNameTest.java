@@ -91,7 +91,7 @@ class MyPeerResourceDnsNameTest {
 
     @Transactional
     void persistPeer(String userId, String deviceName) {
-        Peer.createNew(userId, deviceName, fakeKey(deviceName), "10.9.0." + (1 + (int) (Math.random() * 200))).persist();
+        Peer.createNew(userId, deviceName, fakeKey(deviceName), TestPeerIps.next()).persist();
     }
 
     private static String fakeKey(String seed) {

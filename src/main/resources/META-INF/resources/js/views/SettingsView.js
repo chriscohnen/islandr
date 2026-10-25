@@ -39,6 +39,10 @@ export default defineComponent({
       wgSetupCopyFailed: null,
       loading: true,
       saving: false,
+      // settings-edge-hubs-toggle: saved on its own endpoint, so it has its
+      // own in-flight and error state rather than riding the big form's.
+      edgeHubsSaving: false,
+      edgeHubsError: null,
       probing: false,
       probeResult: null,
       probedIfMtu: null,
@@ -77,6 +81,7 @@ export default defineComponent({
         firewallDryRun: true,
         selfServicePeerCreation: true,
         peerSelfShareEnabled: false,
+        edgeHubsEnabled: false,
         externalApiEnabled: true,
         // Issue #80: whose forwarded header may name the real client, and
         // which header that is. Empty = nobody may.
@@ -252,6 +257,35 @@ export default defineComponent({
     },
   },
   methods: {
+    /**
+     * Saves immediately rather than on the form's Save button: this is a
+     * feature switch, and the refusal that matters ("edge hubs are still
+     * configured") has to arrive while the operator is still looking at the
+     * checkbox, not after they filled in a WireGuard form.
+     */
+    async toggleEdgeHubs(on) {
+      this.edgeHubsSaving = true;
+      this.edgeHubsError = null;
+      try {
+        const res = await fetch("/api/v1/settings/edge-hubs", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ edgeHubsEnabled: on }),
+        });
+        if (!res.ok) {
+          this.edgeHubsError = (await res.text()) || t("settings.edge_hubs_failed");
+          return;  // leave form.edgeHubsEnabled alone — the checkbox snaps back on re-render
+        }
+        const s = await res.json();
+        this.form.edgeHubsEnabled = !!s.edgeHubsEnabled;
+        this.$emit("settings-changed", s);
+      } catch (e) {
+        this.edgeHubsError = String(e);
+      } finally {
+        this.edgeHubsSaving = false;
+      }
+    },
+
     t(key, vars) { return t(key, vars); },
     // Same "paste a 'lat, lng' pair, split into both fields" convenience the
     // site-peer form already has (peerModal.js#pasteSiteCoordinates) — the
@@ -299,6 +333,7 @@ export default defineComponent({
           firewallDryRun: !!s.firewallDryRun,
           selfServicePeerCreation: s.selfServicePeerCreation !== false,
           peerSelfShareEnabled: !!s.peerSelfShareEnabled,
+          edgeHubsEnabled: !!s.edgeHubsEnabled,
           externalApiEnabled: s.externalApiEnabled !== false,
           trustedProxies: s.trustedProxies || "",
           clientIpHeader: s.clientIpHeader || "",
@@ -1324,6 +1359,21 @@ export default defineComponent({
       </div>
       </template>
 
+      <!-- Edge hubs (settings-edge-hubs-toggle, ADR-I-0003) -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_edge_hubs') }}</h2>
+        <div style="display: flex; flex-direction: column; gap: var(--space-2)">
+          <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+            <input type="checkbox" :checked="form.edgeHubsEnabled" :disabled="edgeHubsSaving"
+                   @change="toggleEdgeHubs($event.target.checked)"
+                   style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+            <span>{{ t('settings.edge_hubs_label') }}</span>
+          </label>
+          <div class="field-hint" style="margin-top: 0">{{ t('settings.edge_hubs_hint') }}</div>
+          <div v-if="edgeHubsError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ edgeHubsError }}</div>
+        </div>
+      </div>
+
       <template v-if="settingsTab === 'advanced'">
       <!-- Private Keys -->
       <div class="card card-pad">
@@ -1345,10 +1395,10 @@ export default defineComponent({
           <div v-if="!encryptionKeyConfigured" class="field-hint" style="margin-top:var(--space-1)">{{ t('settings.ret_encrypted_unavail') }}</div>
         </div>
 
-        <div v-if="form.privateKeyRetention === 'never' && savedRetention !== 'never'" class="callout callout-warn" style="margin-top:var(--space-3)">
+        <div v-if="form.privateKeyRetention === 'never' && savedRetention !== 'never'" class="callout callout-warning" style="margin-top:var(--space-3)">
           {{ t('settings.ret_never_warn') }}
         </div>
-        <div v-if="form.privateKeyRetention === 'plaintext'" class="callout callout-warn" style="margin-top:var(--space-3)">
+        <div v-if="form.privateKeyRetention === 'plaintext'" class="callout callout-warning" style="margin-top:var(--space-3)">
           {{ t('settings.ret_plaintext_warn') }}
         </div>
         <div v-if="form.privateKeyRetention === 'encrypted'" class="callout callout-info" style="margin-top:var(--space-3)">
@@ -1374,7 +1424,7 @@ export default defineComponent({
         <h2 style="margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_tls') }}</h2>
         <div class="field-hint" style="margin-top: 0">{{ t('settings.tls_intro') }}</div>
 
-        <div v-if="tlsMode === 'none'" class="callout callout-warn" style="margin-top: var(--space-3)">
+        <div v-if="tlsMode === 'none'" class="callout callout-warning" style="margin-top: var(--space-3)">
           {{ t('settings.tls_dummy_active') }}
         </div>
 
@@ -1409,7 +1459,7 @@ export default defineComponent({
             <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
               {{ t('settings.acme_active', { domain: acmeDomain }) }}
             </div>
-            <div class="callout callout-warn" v-else>
+            <div class="callout callout-warning" v-else>
               {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
             </div>
             <div style="margin-top: var(--space-3); padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm)">
@@ -1431,7 +1481,7 @@ export default defineComponent({
             </div>
           </div>
 
-          <div v-if="acmeDnsPendingRecordValue" class="callout callout-warn" style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2)">
+          <div v-if="acmeDnsPendingRecordValue" class="callout callout-warning" style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2)">
             <div>{{ t('settings.acme_dns_pending_hint') }}</div>
             <div style="display:flex; flex-direction:column; gap:var(--space-1); font-size:var(--text-sm)">
               <div><span class="muted">{{ t('settings.acme_dns_record_name') }}</span> <span class="mono">{{ acmeDnsPendingRecordName }}</span></div>
@@ -1500,7 +1550,7 @@ export default defineComponent({
             <div class="callout callout-info" v-if="tlsDaysUntilExpiry === null || tlsDaysUntilExpiry > 30">
               {{ t('settings.tls_managed_active', { when: tlsCertExpiresAt ? new Date(tlsCertExpiresAt).toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-US') : '?' }) }}
             </div>
-            <div class="callout callout-warn" v-else>
+            <div class="callout callout-warning" v-else>
               {{ t(tlsDaysUntilExpiry >= 0 ? 'settings.tls_expiry_soon' : 'settings.tls_expired', { days: tlsDaysUntilExpiry }) }}
             </div>
 
@@ -1568,7 +1618,7 @@ export default defineComponent({
               </div>
             </div>
 
-            <div v-if="tlsError" class="callout callout-warn">{{ tlsError }}</div>
+            <div v-if="tlsError" class="callout callout-warning">{{ tlsError }}</div>
             <div v-if="tlsInfo" class="callout callout-info">{{ tlsInfo }}</div>
 
             <div class="field-hint" style="margin: 0">{{ t('settings.tls_activate_note') }}</div>
@@ -1646,7 +1696,7 @@ export default defineComponent({
             <span>{{ t('settings.firewall_dry_run_label') }}</span>
           </label>
           <div class="field-hint" style="margin-top: 0">{{ t('settings.firewall_dry_run_hint') }}</div>
-          <div v-if="form.firewallDryRun" class="callout callout-warn" style="margin-top: var(--space-2)">
+          <div v-if="form.firewallDryRun" class="callout callout-warning" style="margin-top: var(--space-2)">
             {{ t('settings.firewall_dry_run_warn') }}
           </div>
         </div>
@@ -1683,7 +1733,7 @@ export default defineComponent({
             <span>{{ t('settings.external_api_label') }}</span>
           </label>
           <div class="field-hint" style="margin-top: 0">{{ t('settings.external_api_hint') }}</div>
-          <div v-if="!form.externalApiEnabled" class="callout callout-warn" style="margin-top: var(--space-2)">
+          <div v-if="!form.externalApiEnabled" class="callout callout-warning" style="margin-top: var(--space-2)">
             {{ t('settings.external_api_disabled_warn') }}
           </div>
           <router-link to="/api-keys" class="btn btn-ghost btn-sm" style="align-self: flex-start; margin-top: var(--space-2)">
@@ -1843,7 +1893,7 @@ export default defineComponent({
           <span v-if="enforcement.lastProbeAt" class="muted mono" style="font-size: var(--text-xs)">· {{ t('settings.enforcement_last_probe') }} {{ formatDate(enforcement.lastProbeAt) }}</span>
         </div>
 
-        <div v-if="enforcement.runtime.socketMode && enforcement.status !== 'active'" class="callout callout-warn" style="margin: 0">
+        <div v-if="enforcement.runtime.socketMode && enforcement.status !== 'active'" class="callout callout-warning" style="margin: 0">
           {{ t('settings.enforcement_degraded_body') }}
           <span v-if="enforcement.lastError" class="mono" style="display: block; margin-top: 4px; font-size: var(--text-xs)">{{ enforcement.lastError }}</span>
           <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install.md" target="_blank" rel="noopener" style="display: inline-block; margin-top: var(--space-2)">{{ t('settings.enforcement_setup_link') }}</a>
@@ -1873,7 +1923,7 @@ export default defineComponent({
       <div v-if="configExportError" class="callout callout-error" style="margin-bottom: var(--space-4)">{{ configExportError }}</div>
 
       <div style="font-size: var(--text-sm); font-weight: 500; color: var(--fg2); margin-bottom: var(--space-2)">{{ t('settings.config_import_title') }}</div>
-      <div class="callout callout-warn" style="margin-bottom: var(--space-3)">{{ t('settings.config_import_warn') }}</div>
+      <div class="callout callout-warning" style="margin-bottom: var(--space-3)">{{ t('settings.config_import_warn') }}</div>
       <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2)">
         <input ref="importFile" type="file" accept=".json" @change="onImportFile" style="display: none" />
         <button type="button" class="btn btn-secondary btn-sm" @click="$refs.importFile.click()">{{ t('settings.config_import_choose') }}</button>

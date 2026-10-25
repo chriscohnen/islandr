@@ -95,6 +95,10 @@ public final class TestJwt {
         c.put("aud", clientId);
         c.put("sub", subject);
         c.put("email", email);
+        // Real Google ID tokens carry this for every verified account; since
+        // oidc-email-link-verified it decides whether the address may link or
+        // provision an account. Tests about the unverified case remove it.
+        c.put("email_verified", true);
         c.put("name", name);
         if (picture != null) c.put("picture", picture);
         c.put("iat", now);
@@ -113,6 +117,7 @@ public final class TestJwt {
         c.put("aud", clientId);
         c.put("sub", subject);
         c.put("email", email);
+        c.put("email_verified", true);  // see googleClaims
         c.put("name", name);
         c.put("iat", now);
         c.put("exp", now + 3600);

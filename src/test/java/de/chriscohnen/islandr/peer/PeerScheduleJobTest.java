@@ -72,7 +72,7 @@ class PeerScheduleJobTest {
         new java.security.SecureRandom().nextBytes(keyBytes);
         String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
         Peer p = Peer.createNew(null, "sched-test-" + UUID.randomUUID(), publicKey,
-                "10.8.0." + (100 + (int) (Math.random() * 100)));
+                TestPeerIps.next());
         p.enabled = enabled;
         p.enabledSource = enabledSource;
         p.validUntil = validUntil;

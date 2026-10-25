@@ -68,6 +68,88 @@ check_boot_firewall() {
   printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#adopting-the-fail-closed-boot-ruleset\n'
 }
 
+# sudo-rs (the sudo of Ubuntu 26.04 and later) refuses a pattern in a command
+# argument and skips such a line — measured: the rest of the file still works,
+# sudo itself still works, only that line is gone. Every hub set up before
+# 1.2.0 grants nft its staging file by a pattern, so on a host upgraded to 26.04
+# Islandr can no longer apply a single firewall change: the last ruleset stays
+# in the kernel and every later grant or revocation fails. An update touches
+# nothing under /etc, so it says so, loudly, wherever both are true.
+check_sudo_rs() {
+  sudo --version 2>/dev/null | head -1 | grep -q 'sudo-rs' || return 0
+  grep -qF 'islandr-nft-*.nft' /etc/sudoers.d/islandr 2>/dev/null || return 0
+  printf '\nWARNING: Islandr cannot apply firewall changes on this host.\n'
+  printf '  Its sudo is sudo-rs, which ignores the two nft lines in /etc/sudoers.d/islandr\n'
+  printf '  because they contain a pattern. The ruleset already in the kernel stays, but\n'
+  printf '  no grant or revocation made from now on reaches it. Replacing the two lines\n'
+  printf '  takes a minute:\n'
+  printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#sudo-rs-on-ubuntu-2604\n'
+}
+
+# Preshared keys reach wg only as a file, and Ubuntu 26.04 ships an enforcing
+# AppArmor profile that lets wg read files only under /etc/wireguard — root
+# included. Since 1.2.0 Islandr writes them to /etc/wireguard/islandr, which
+# setup-hub.sh creates and opens in the unit (ProtectSystem=strict keeps /etc
+# read-only otherwise). A hub set up before that has neither, and an update
+# touches nothing under /etc, so it says so — but only where the profile
+# exists. Everywhere else the old location still works and there is nothing to
+# report. Melden, nicht ersetzen, like the boot ruleset above.
+check_psk_dir() {
+  [[ -f /etc/apparmor.d/wg ]] || return 0
+  local missing=()
+  if [[ ! -d /etc/wireguard/islandr ]]; then
+    missing+=("the directory /etc/wireguard/islandr")
+  elif [[ "$(stat -c '%a %U %G' /etc/wireguard/islandr 2>/dev/null)" != "2750 islandr root" ]]; then
+    # Group root and setgid are what let root's wg read the key at all — the
+    # profile takes away its dac_override. Present but wrong is just as broken.
+    missing+=("mode 2750, owner islandr, group root on /etc/wireguard/islandr (it is $(stat -c '%a %U %G' /etc/wireguard/islandr))")
+  fi
+  systemctl cat "$SERVICE" 2>/dev/null | grep -q '^ReadWritePaths=.*/etc/wireguard/islandr' \
+    || missing+=("ReadWritePaths=-/etc/wireguard/islandr in ${SERVICE}")
+  [[ ${#missing[@]} -eq 0 ]] && return 0
+  printf '\nNOTE: peers with a preshared key cannot be applied on this host.\n'
+  printf '  An AppArmor profile lets wg read keys only under /etc/wireguard, and this\n'
+  printf '  hub is missing:\n'
+  printf '    - %s\n' "${missing[@]}"
+  printf '  Peers without a preshared key are not affected. Setting it up takes a minute:\n'
+  printf '  https://github.com/chriscohnen/islandr/blob/main/docs/install.md#preshared-keys-on-ubuntu-2604\n'
+}
+
+# update.sh updates the binary, never itself — a copy kept in a home
+# directory (the documented way to run it) drifts from the one each new
+# release ships, silently missing whatever checks a newer copy learned.
+# The fail-closed boot ruleset notice above has exactly this weakness: it
+# only reaches whoever already fetches the current script, the group least
+# likely to need telling (update-self-check, loop/TASK.md).
+#
+# Melden, nicht ersetzen — same line as the boot ruleset and the unit file.
+# A script that overwrites itself mid-run is the opposite of predictable,
+# and `set -euo pipefail` partway through a self-replace is a failure mode
+# nobody wants to debug on a remote box.
+#
+# Silent on any network/compare failure, not just non-fatal: an update must
+# never be held up — or even look held up — by this check succeeding or
+# failing, the same rule check_boot_firewall already follows for its own
+# systemctl probe.
+check_self_update() {
+  local remote_tmp
+  remote_tmp=$(mktemp) || return 0
+  # Fetched from the same DL_BASE as the binary itself — no separate
+  # checksum asset to keep in sync, just hash what gets downloaded.
+  curl -fsSL "${DL_BASE}/${TARGET}/update.sh" -o "$remote_tmp" 2>/dev/null || { rm -f "$remote_tmp"; return 0; }
+  local remote_hash local_hash
+  remote_hash=$(sha256sum "$remote_tmp" 2>/dev/null | awk '{print $1}')
+  local_hash=$(sha256sum "$0" 2>/dev/null | awk '{print $1}')
+  rm -f "$remote_tmp"
+  [[ -n "$remote_hash" && -n "$local_hash" ]] || return 0
+  if [[ "$remote_hash" != "$local_hash" ]]; then
+    printf '\nNOTE: this update.sh differs from the %s release'"'"'s copy.\n' "$TARGET"
+    printf '  You are running a local copy, which never updates itself. Fetch the\n'
+    printf '  current one before your next update:\n'
+    printf '  curl -fsSL -o update.sh %s/update.sh\n' "${DL_BASE}/${TARGET}"
+  fi
+}
+
 # "Was it supposed to be running?" — is-active alone answers no for a service
 # stuck in activating (auto-restart), i.e. exactly the crash loop an update is
 # most often meant to fix. Such a service must be started again afterwards.
@@ -219,6 +301,8 @@ info "Binary         : ${INSTALL_BIN}"
 info "Service        : ${SERVICE}"
 printf '\n'
 
+check_self_update
+
 # ── download ──────────────────────────────────────────────────────────────────
 DL_URL="${DL_BASE}/${TARGET}/${ASSET}"
 SHA_URL="${DL_URL}.sha256"
@@ -285,6 +369,8 @@ if ! $SHOULD_RUN; then
   printf '\nDone. Islandr %s installed. The service was not running, so it was not\n' "$TARGET"
   printf 'started: systemctl start %s\n' "$SERVICE"
   check_boot_firewall
+  check_psk_dir
+  check_sudo_rs
   exit 0
 fi
 
@@ -293,6 +379,8 @@ if start_and_settle; then
   printf '\nDone. Islandr %s is running.\n' "$TARGET"
   printf 'Previous version kept at %s — undo with: sudo bash %s --rollback\n' "$PREV_BIN" "$0"
   check_boot_firewall
+  check_psk_dir
+  check_sudo_rs
   exit 0
 fi
 

@@ -52,6 +52,14 @@ public class Site extends PanacheEntityBase {
     @Column(name = "gateway_peer_id", length = 36)
     public String gatewayPeerId;
 
+    /**
+     * Optional {@link EdgeHub} serving this site (edge-hub-entity, 1.2.0).
+     * Null = served by the central hub, the original and still-default
+     * behavior — most installs will never set this.
+     */
+    @Column(name = "edge_hub_id", length = 36)
+    public String edgeHubId;
+
     /** Explicit DNS label for this network in the resource-name resolver
      *  (ADR-0023) — e.g. resources resolve as {@code <resource>.<subdomain>.<zone>}.
      *  Null/blank = derived live from {@code name} (DnsQueryHandler.slugify)
@@ -96,6 +104,30 @@ public class Site extends PanacheEntityBase {
      */
     public static List<String> enabledGatewayCidrs() {
         return Site.<Site>listAll().stream()
+                .filter(site -> site.gatewayPeerId != null)
+                .filter(site -> {
+                    de.chriscohnen.islandr.peer.Peer gw = de.chriscohnen.islandr.peer.Peer.findById(site.gatewayPeerId);
+                    return gw != null && gw.enabled;
+                })
+                .map(site -> site.cidr)
+                .toList();
+    }
+
+    /**
+     * The same list, narrowed to the sites one edge hub serves
+     * (peer-edge-config-variant, ADR-I-0003). A peer that dials an edge reaches
+     * exactly those networks: traffic for a site behind a different hub never
+     * passes this edge, so routing it into the tunnel would be a black hole.
+     *
+     * <p>Only the edge case is narrowed. A peer at the central hub still gets
+     * every site, including edge-served ones — whether that is right depends on
+     * whether the operator built a tunnel between the hubs by hand, which
+     * Islandr does not know about (see {@link de.chriscohnen.islandr.acl.EdgeHub}).
+     * Narrowing it would take that choice away from them.
+     */
+    public static List<String> enabledGatewayCidrsServedBy(String edgeHubId) {
+        return Site.<Site>listAll().stream()
+                .filter(site -> java.util.Objects.equals(site.edgeHubId, edgeHubId))
                 .filter(site -> site.gatewayPeerId != null)
                 .filter(site -> {
                     de.chriscohnen.islandr.peer.Peer gw = de.chriscohnen.islandr.peer.Peer.findById(site.gatewayPeerId);

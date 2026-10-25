@@ -118,6 +118,20 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "self_service_peer_creation", columnDefinition = "INTEGER")
     public boolean selfServicePeerCreation = true;
 
+    /**
+     * Whether this installation uses edge hubs at all
+     * (settings-edge-hubs-toggle). Default off: one hub is the normal case,
+     * and for those installs every mention of an edge is noise — a menu entry
+     * leading to an empty page, a selector with a single option.
+     *
+     * <p>A stored flag rather than "does any edge hub exist", because of the
+     * order things happen in: with the menu hidden while none exist, nobody
+     * could reach the page that creates the first one. Switching it off again
+     * is refused while edge hubs are still configured.
+     */
+    @Column(name = "edge_hubs_enabled", nullable = false, columnDefinition = "INTEGER")
+    public boolean edgeHubsEnabled = false;
+
     // peer-self-share: opt-in (default off), unlike selfServicePeerCreation —
     // this hands a non-admin user a way to open a firewall hole, even a
     // narrowly-scoped one (own tunnel address, one named colleague, port

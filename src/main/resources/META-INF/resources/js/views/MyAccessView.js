@@ -22,6 +22,9 @@ export default defineComponent({
   props: {
     retention: { type: String, default: "never" },
     selfServicePeerCreation: { type: Boolean, default: true },
+    // portal-shows-device-hub: off by default, like app.js — a flag that
+    // arrives late must never make the column flash and vanish.
+    edgeHubsEnabled: { type: Boolean, default: false },
   },
   data() {
     return {
@@ -56,7 +59,10 @@ export default defineComponent({
       viewAsUserName: null,
       modalMode: null, // null | "create" | "secret" | "rotate" | "edit"
       // create form
-      newDevice: { name: "", publicKey: "", deviceType: "desktop" },
+      newDevice: { name: "", publicKey: "", deviceType: "desktop", edgeHubId: "" },
+      // Standorte, an denen dieser Nutzer ein Gerät anlegen darf — leer, wenn
+      // die Installation keine Edge-Hubs nutzt oder er dort nichts erreicht.
+      edgeOptions: [],
       // edit form (peer-self-edit): rename and re-categorise an existing device
       editPeer: null,
       editForm: { name: "", deviceType: "desktop" },
@@ -105,9 +111,10 @@ export default defineComponent({
     // — a hub plus a single remote network already clears it.
     worldMapAvailable() {
       if (!this.topology) return false;
-      const hasHub = this.topology.hubLat != null && this.topology.hubLon != null;
+      const hasCentralHub = this.topology.hubLat != null && this.topology.hubLon != null;
+      const hasEdgeHub = (this.topology.edgeHubs || []).some((h) => h.lat != null && h.lng != null);
       const geocodedSites = this.topology.sites.filter((s) => s.gatewayLat != null && s.gatewayLng != null).length;
-      return hasHub && geocodedSites >= 1;
+      return (hasCentralHub || hasEdgeHub) && geocodedSites >= 1;
     },
     groupedGrants() {
       const groups = {};
@@ -493,9 +500,21 @@ export default defineComponent({
       } catch (_) {}
     },
 
+    async loadEdgeOptions() {
+      try {
+        const url = "/api/v1/peers/mine/edge-options"
+            + (this.viewAsUserId ? "?userId=" + encodeURIComponent(this.viewAsUserId) : "");
+        const res = await fetch(url);
+        this.edgeOptions = res.ok ? await res.json() : [];
+      } catch {
+        this.edgeOptions = [];
+      }
+    },
+
     openCreate() {
       this.modalMode = "create";
-      this.newDevice = { name: "", publicKey: "", deviceType: "desktop" };
+      this.newDevice = { name: "", publicKey: "", deviceType: "desktop", edgeHubId: "" };
+      this.loadEdgeOptions();
       this.importPublicKey = false;
       this.formError = null;
       this.secret = null;
@@ -510,6 +529,7 @@ export default defineComponent({
         name: this.newDevice.name.trim(),
         deviceType: this.newDevice.deviceType,
       };
+      if (this.newDevice.edgeHubId) payload.edgeHubId = this.newDevice.edgeHubId;
       if (this.importPublicKey) {
         if (!this.newDevice.publicKey.trim()) {
           this.formError = t("myaccess.err_key");
@@ -1143,7 +1163,10 @@ export default defineComponent({
         <div v-else-if="peers.length === 0" class="empty-state">
           <h2>{{ t('myaccess.empty_title') }}</h2>
           <p>{{ t(selfServicePeerCreation ? 'myaccess.setup_s2_self' : 'myaccess.setup_s2_admin') }}</p>
-          <button v-if="selfServicePeerCreation" class="btn btn-primary btn-sm" @click="openCreate" style="margin-top: var(--space-3)">{{ t('myaccess.add_btn') }}</button>
+          <!-- !viewAsUserId like the other one: without it an admin looking at
+               someone else's access could add a device here, and it would be
+               created for the admin, not for the person on screen. -->
+          <button v-if="selfServicePeerCreation && !viewAsUserId" class="btn btn-primary btn-sm" @click="openCreate" style="margin-top: var(--space-3)">{{ t('myaccess.add_btn') }}</button>
         </div>
 
     <table v-else class="table">
@@ -1151,6 +1174,7 @@ export default defineComponent({
         <tr>
           <th>{{ t('myaccess.th_name') }}</th>
           <th>{{ t('myaccess.th_ip') }}</th>
+          <th v-if="edgeHubsEnabled">{{ t('myaccess.th_hub') }}</th>
           <th>{{ t('myaccess.th_status') }}</th>
           <th>{{ t('myaccess.th_handshake') }}</th>
           <th>{{ t('myaccess.th_created') }}</th>
@@ -1172,6 +1196,7 @@ export default defineComponent({
             {{ p.assignedIp }}
             <div v-if="p.dnsFqdn" class="muted" style="font-size: var(--text-xs)">{{ p.dnsFqdn }}</div>
           </td>
+          <td v-if="edgeHubsEnabled" class="muted">{{ p.edgeHubName || t('myaccess.hub_central') }}</td>
           <td>
             <span :class="['badge', p.enabled ? 'badge-success' : 'badge-neutral']">
               {{ p.enabled ? t('myaccess.status_active') : t('myaccess.status_disabled') }}
@@ -1494,7 +1519,8 @@ export default defineComponent({
             :sites="topology.sites"
             :hub-lat="topology.hubLat"
             :hub-lon="topology.hubLon"
-            :hub-label="topology.hubLabel" />
+            :hub-label="topology.hubLabel"
+            :edge-hubs="topology.edgeHubs" />
       </template>
 
       <!-- Own-activity heatmap: GitHub-contributions layout, own peer(s) only. -->
@@ -1561,6 +1587,15 @@ export default defineComponent({
               <div v-if="newDevice.deviceType === 'mobile' || newDevice.deviceType === 'tablet'" class="field-hint">
                 {{ t('myaccess.device_type_mobile_hint') }}
               </div>
+            </div>
+
+            <div v-if="edgeOptions.length > 0" class="field">
+              <label for="myDeviceHub">{{ t('myaccess.hub_label') }}</label>
+              <select id="myDeviceHub" class="input" v-model="newDevice.edgeHubId">
+                <option value="">{{ t('myaccess.hub_central') }}</option>
+                <option v-for="o in edgeOptions" :key="o.id" :value="o.id">{{ o.locationLabel || o.name }}</option>
+              </select>
+              <div class="field-hint">{{ t('myaccess.hub_hint') }}</div>
             </div>
 
             <fieldset class="key-mode">

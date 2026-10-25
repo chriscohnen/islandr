@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -76,6 +78,46 @@ func runtimeDir() string {
 		return d
 	}
 	return "/run/islandr"
+}
+
+// pskDir is where the short-lived preshared-key file is written. It must be a
+// path the AppArmor profile for wg permits to read — on Ubuntu 26.04 that is
+// only /etc/wireguard and below, whatever uid wg runs as. install-proxy.sh
+// creates it 2750, owned by the service user and setgid root, so root's wg
+// can read the 0640 key files through group root (see writePsk).
+func pskDir() string {
+	if d := os.Getenv("ISLANDR_PSK_DIR"); d != "" {
+		return d
+	}
+	return "/etc/wireguard/islandr"
+}
+
+// sweepStalePsk removes preshared-key files a killed proxy left behind in dir.
+// Called once at startup. The old location, /run/islandr, is a tmpfs and gone
+// at the latest on reboot; /etc/wireguard/islandr is on disk, where config
+// backups and etckeeper capture it, so a key left there by a crash would stay
+// for good. A key lives for one wg call, so anything older than maxAge is a
+// leftover. Only files named the way writePsk names them are touched.
+func sweepStalePsk(dir string, maxAge time.Duration) {
+	if dir == "" {
+		return
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "psk-*"))
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, p := range matches {
+		fi, err := os.Stat(p)
+		if err != nil || !fi.Mode().IsRegular() || !fi.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(p); err != nil {
+			log.Printf("could not remove leftover preshared-key file %s: %v", p, err)
+			continue
+		}
+		log.Printf("removed a leftover preshared-key file %s", p)
+	}
 }
 
 // osExec runs the allowlisted command, escalating through sudo only when asked

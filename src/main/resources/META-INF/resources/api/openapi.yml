@@ -39,6 +39,11 @@ tags:
     description: Effective access — who can reach which resource, and how.
   - name: audit
     description: The audit log, read-only.
+  - name: edge
+    description: >
+      Edge hubs — a second WireGuard hub at a remote site. Each endpoint is
+      bound to one edge via its path segment; a key must hold the matching
+      scope bound to that specific edge, not just the scope by name.
 
 paths:
   /peers:
@@ -314,6 +319,81 @@ paths:
                   $ref: "#/components/schemas/Role"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /edge/{id}/psks:
+    get:
+      operationId: edgePsks
+      summary: Preshared keys of every peer that may reach this edge
+      description: >
+        Returns a peer only when it both has a preshared key configured and
+        may reach resources at this edge
+        (`AclResolutionService#reachableEdgeHubIdsForPeer`, derived from access
+        rights). This is deliberately not the same question as where a peer
+        dials in, which is the stored field `peers.edge_hub_id`: an edge needs
+        the keys of everyone it may legitimately serve. Requires the calling key hold `psks:read`
+        bound to this specific edge; a key bound to a different edge, or
+        holding no edge binding at all, is refused the same way a key
+        without the scope is — which edges a key *could* read if asked
+        about a different one is not information this endpoint leaks.
+      tags: [edge]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Every peer that may reach this edge and has a PSK configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EdgePskResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: API key lacks `psks:read` bound to this edge.
+        "404":
+          description: No edge hub with this id.
+
+    post:
+      operationId: edgeStatus
+      summary: Report connectivity/traffic for this edge's locally-connected peers
+      description: >
+        The only way a peer connected to an edge (not the central hub)
+        leaves "Disconnected" on the dashboard — it never appears in the
+        central hub's own `wg show dump`. Each reported peer is checked
+        individually against what this edge may serve
+        (`AclResolutionService#reachableEdgeHubIdsForPeer`); a public key that
+        doesn't belong here is rejected and audited, not silently applied —
+        `lastSeenAt` also gates the peer scheduler, so a false "connected"
+        could hold an access window open past when it should have closed.
+      tags: [edge]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EdgeStatusRequest"
+      responses:
+        "200":
+          description: Per-peer outcome — rejected keys, if any, are never partial failures of the call itself.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EdgeStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: API key lacks `telemetry:write` bound to this edge.
+        "404":
+          description: No edge hub with this id.
 
 components:
   securitySchemes:
@@ -603,3 +683,45 @@ components:
         grantCount: { type: integer }
         autoAll: { type: boolean, description: "true for the seeded 'Everyone' role (ADR-0013)" }
         createdAt: { type: string, format: date-time }
+
+    EdgePeerPsk:
+      type: object
+      properties:
+        peerId: { type: string }
+        peerName: { type: string }
+        presharedKey: { type: string }
+
+    EdgePskResponse:
+      type: object
+      properties:
+        peers:
+          type: array
+          items:
+            $ref: "#/components/schemas/EdgePeerPsk"
+
+    EdgePeerSample:
+      type: object
+      required: [publicKey, lastHandshake]
+      properties:
+        publicKey: { type: string }
+        lastHandshake: { type: string, format: date-time }
+        endpoint: { type: string, nullable: true }
+        rxBytes: { type: integer, format: int64 }
+        txBytes: { type: integer, format: int64 }
+
+    EdgeStatusRequest:
+      type: object
+      properties:
+        peers:
+          type: array
+          items:
+            $ref: "#/components/schemas/EdgePeerSample"
+
+    EdgeStatusResponse:
+      type: object
+      properties:
+        accepted: { type: integer }
+        rejected:
+          type: array
+          items: { type: string }
+          description: Public keys that may not reach anything at this edge.

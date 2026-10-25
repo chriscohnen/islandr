@@ -11,6 +11,7 @@ import de.chriscohnen.islandr.tls.HubCertificateService;
 import de.chriscohnen.islandr.tls.TlsService;
 import de.chriscohnen.islandr.wg.WgAdapter;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -74,6 +75,41 @@ public class SettingsResource {
         // this is the simplest hook that keeps the two in sync without polling.
         dnsResolverSvc.reconcile();
         return toResponse(after);
+    }
+
+    /**
+     * The edge-hub feature switch (settings-edge-hubs-toggle). Its own
+     * endpoint rather than a field on the big settings PUT, so turning a
+     * feature on does not mean re-sending the WireGuard configuration.
+     *
+     * <p>Refuses to switch off while edge hubs exist. Hiding a concept that is
+     * still doing work does not simplify an install, it makes it harder to
+     * reason about: peers would keep dialling an edge the console no longer
+     * mentions.
+     */
+    @PUT
+    @Path("/edge-hubs")
+    @Transactional
+    public SettingsDto.Response setEdgeHubsEnabled(@Context ContainerRequestContext ctx,
+                                                   @Valid SettingsDto.EdgeHubsToggleRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        Settings s = settings.get();
+        if (!body.edgeHubsEnabled() && de.chriscohnen.islandr.acl.EdgeHub.count() > 0) {
+            throw new jakarta.ws.rs.WebApplicationException(
+                    jakarta.ws.rs.core.Response.status(jakarta.ws.rs.core.Response.Status.CONFLICT)
+                            .entity("edge hubs are still configured — delete them first, otherwise "
+                                    + "their peers would keep dialling a hub this console no longer "
+                                    + "shows.")
+                            .build());
+        }
+        boolean before = s.edgeHubsEnabled;
+        s.edgeHubsEnabled = body.edgeHubsEnabled();
+        if (before != s.edgeHubsEnabled) {
+            audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
+                    java.util.Map.of("edgeHubsEnabled", before),
+                    java.util.Map.of("edgeHubsEnabled", s.edgeHubsEnabled));
+        }
+        return toResponse(s);
     }
 
     @PUT

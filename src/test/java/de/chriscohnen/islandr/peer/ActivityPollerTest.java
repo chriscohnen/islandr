@@ -189,6 +189,45 @@ class ActivityPollerTest {
         return p.id;
     }
 
+    /**
+     * peers-list-at-a-glance: the poller marks where a connected stretch began,
+     * so the peers list can say "2h 45m" instead of a bare timestamp.
+     *
+     * <p>It is written on the transition only. A peer that is already connected
+     * when the hub starts keeps a null here, because the poller's previous-status
+     * baseline lives in memory and is gone: the honest answer to "since when" is
+     * then "unknown", and the list falls back to the last handshake. Guessing the
+     * boot time would read as fact and be wrong.
+     */
+    @Test
+    void connectedSince_marksTheTransitionAndIsClearedOnTheWayOut() {
+        String peerId = createPeerAndRegisterWithWg("10.8.0.17");
+        Instant longAgo = Instant.now().minus(10, ChronoUnit.DAYS);
+
+        // Tick 1 establishes the baseline (DISCONNECTED) — no transition yet.
+        mock().pinnedHandshake = longAgo;
+        poller.poll();
+        assertThat(findPeer(peerId).connectedSince)
+                .as("the first tick only establishes a baseline")
+                .isNull();
+
+        // Tick 2: a fresh handshake moves it into CONNECTED.
+        Instant before = Instant.now();
+        mock().pinnedHandshake = Instant.now();
+        poller.poll();
+        assertThat(findPeer(peerId).connectedSince)
+                .as("the transition into CONNECTED is where the stretch begins")
+                .isNotNull()
+                .isBetween(before.minusSeconds(2), Instant.now().plusSeconds(2));
+
+        // Tick 3: the handshake ages out again, so the stretch is over.
+        mock().pinnedHandshake = longAgo;
+        poller.poll();
+        assertThat(findPeer(peerId).connectedSince)
+                .as("a peer that is no longer connected has no current stretch")
+                .isNull();
+    }
+
     String createPeerAndRegisterWithWg(String ip) {
         String id = createPeer(ip);
         Peer p = findPeer(id);

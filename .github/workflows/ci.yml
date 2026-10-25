@@ -543,10 +543,19 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
-          umask 077
-          wg genkey > /tmp/wg0.key
-          sudo wg set wg0 private-key /tmp/wg0.key listen-port 51820
-          rm -f /tmp/wg0.key
+          # /etc/wireguard is the only directory wg may read a key from.
+          # ubuntu-26.04 ships an enforcing AppArmor profile for /usr/bin/wg
+          # whose single file rule is "file rw @{etc_rw}/wireguard/{,**}", and
+          # it denies the binary dac_override and dac_read_search — so running
+          # as root does not help, which is why /tmp, /var/tmp, RUNNER_TEMP and
+          # /root were all refused with nothing but "fopen: Permission denied".
+          # Measured on the image, not guessed. This is also the path the
+          # Settings page tells operators to use, so CI now does what we
+          # document.
+          sudo install -d -m 0700 -o root -g root /etc/wireguard
+          sudo sh -c 'umask 077; wg genkey > /etc/wireguard/wg0.key'
+          sudo wg set wg0 private-key /etc/wireguard/wg0.key listen-port 51820
+          sudo rm -f /etc/wireguard/wg0.key
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
           ip link show wg0
@@ -701,6 +710,37 @@ jobs:
           echo "$NFT_OUT" | grep -F "ip saddr $PEER_IP" | grep -F "ip daddr 10.20.0.50" | grep -F "tcp dport 3389" | grep -q accept \
             || { echo "::error::expected accept rule not found in nftables ruleset"; echo "$NFT_OUT"; cat /tmp/islandr-e2e.log; exit 1; }
 
+          echo "→ /etc/wireguard: islandr may pass through to its own directory, not list"
+          GOT=$(sudo stat -c '%a %U %G' /etc/wireguard/islandr)
+          [ "$GOT" = "2750 islandr root" ] \
+            || { echo "::error::/etc/wireguard/islandr is '$GOT', want '2750 islandr root'"; exit 1; }
+          sudo -u islandr test -w /etc/wireguard/islandr \
+            || { echo "::error::islandr cannot write its own preshared-key directory"; sudo ls -ld /etc/wireguard /etc/wireguard/islandr; exit 1; }
+          if sudo -u islandr ls /etc/wireguard >/dev/null 2>&1; then
+            echo "::error::islandr can list /etc/wireguard — it should only pass through"; sudo ls -ld /etc/wireguard; exit 1
+          fi
+          # The point of setgid root: wg loses dac_override under AppArmor, so
+          # root reads a key file only through group root.
+          BORN=$(sudo -u islandr sh -c 'f=/etc/wireguard/islandr/psk-ci-probe; : > "$f"; stat -c %G "$f"; rm -f "$f"')
+          [ "$BORN" = "root" ] \
+            || { echo "::error::a file islandr creates there is in group '$BORN', want root — root's wg could not read it"; exit 1; }
+
+          # A preshared key reaches wg only as a file, and on ubuntu-26.04 an
+          # AppArmor profile lets wg read files only under /etc/wireguard. So
+          # this is the check that the proxy writes it there — the plain peer
+          # above never touches that path at all.
+          echo "→ Asserting a peer with a preshared key reaches the interface (App → proxy → wg, AppArmor)"
+          PSK_IP=$(curl -s $CJ "$BASE/api/v1/peers/next-ip" | jq -r .assignedIp)
+          PSK_PEER=$(curl -s $CJ -X POST "$BASE/api/v1/users/$USER_ID/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"e2e-psk-peer\",\"assignedIp\":\"$PSK_IP\",\"assignedIpv6\":\"\",\"publicKey\":\"\",\"privateKey\":\"\",\"type\":\"client\",\"generatePresharedKey\":true}")
+          PSK_PUBKEY=$(echo "$PSK_PEER" | jq -r .peer.publicKey)
+          [ -n "$PSK_PUBKEY" ] && [ "$PSK_PUBKEY" != "null" ] \
+            || { echo "::error::a peer with a preshared key was refused"; echo "$PSK_PEER"; sudo journalctl -u islandr-proxy -n 40 --no-pager; cat /tmp/islandr-e2e.log; exit 1; }
+          GOT_PSK=$(sudo wg show wg0 preshared-keys | awk -v k="$PSK_PUBKEY" '$1 == k { print $2 }')
+          [ -n "$GOT_PSK" ] && [ "$GOT_PSK" != "(none)" ] \
+            || { echo "::error::the interface carries no preshared key for that peer"; sudo wg show wg0 preshared-keys; exit 1; }
+
           echo "✓ install-proxy.sh + real App→islandr-proxy→wg/nft enforcement verified end-to-end"
 
   # ── Stage 6: E2E upgrade path (tags only, after release exists) ───────────
@@ -741,10 +781,19 @@ jobs:
           set -euo pipefail
           sudo modprobe wireguard
           sudo ip link add wg0 type wireguard
-          umask 077
-          wg genkey > /tmp/wg0.key
-          sudo wg set wg0 private-key /tmp/wg0.key listen-port 51820
-          rm -f /tmp/wg0.key
+          # /etc/wireguard is the only directory wg may read a key from.
+          # ubuntu-26.04 ships an enforcing AppArmor profile for /usr/bin/wg
+          # whose single file rule is "file rw @{etc_rw}/wireguard/{,**}", and
+          # it denies the binary dac_override and dac_read_search — so running
+          # as root does not help, which is why /tmp, /var/tmp, RUNNER_TEMP and
+          # /root were all refused with nothing but "fopen: Permission denied".
+          # Measured on the image, not guessed. This is also the path the
+          # Settings page tells operators to use, so CI now does what we
+          # document.
+          sudo install -d -m 0700 -o root -g root /etc/wireguard
+          sudo sh -c 'umask 077; wg genkey > /etc/wireguard/wg0.key'
+          sudo wg set wg0 private-key /etc/wireguard/wg0.key listen-port 51820
+          sudo rm -f /etc/wireguard/wg0.key
           sudo ip addr add 10.8.0.1/24 dev wg0
           sudo ip link set wg0 up
 
@@ -771,8 +820,14 @@ jobs:
         if: steps.prev.outputs.skip == 'false'
         run: |
           set -euo pipefail
-          sudo -E ISLANDR_VERSION="${{ steps.prev.outputs.tag }}" \
+          # Every variable on the command line, as docs/install.md shows it.
+          # Not sudo -E: sudo-rs (ubuntu-26.04) ignores it, and setup-hub.sh
+          # silently fell back to ports 80/443 while BASE points at 8080.
+          sudo ISLANDR_VERSION="${{ steps.prev.outputs.tag }}" \
                ISLANDR_SKIP_MEM_CHECK=1 \
+               ISLANDR_HTTP_HOST="$ISLANDR_HTTP_HOST" \
+               ISLANDR_HTTP_PORT="$ISLANDR_HTTP_PORT" \
+               ISLANDR_HTTPS_PORT="$ISLANDR_HTTPS_PORT" \
                bash docs/install/setup-hub.sh
 
       # Everything below reads the version through the console API, because
@@ -793,16 +848,34 @@ jobs:
             -H 'Content-Type: application/json' \
             --data "$(jq -nc --arg u "$USER" --arg p "$PW" '{username:$u,password:$p}')"
           GOT=$(curl -sf -b /tmp/cj.txt "$BASE/api/v1/settings" | jq -r .version)
-          WANT="${{ steps.prev.outputs.tag }}"; WANT="${WANT#v}"
-          echo "running $GOT, expected $WANT"
-          [ "$GOT" = "$WANT" ] || { echo "::error::wrong version before the upgrade"; exit 1; }
+          # Identity by checksum, not by the version the binary reports about
+          # itself: 1.2.0-rc.2 to rc.6 were built still claiming 1.2.0-rc.1, so
+          # that string cannot tell releases apart. The running process's own
+          # executable is compared with the checksum published beside the
+          # release asset — which also proves what runs, not just what is on disk.
+          [ -n "$GOT" ] && [ "$GOT" != "null" ] || { echo "::error::before the upgrade: the console does not answer"; exit 1; }
+          PREV_TAG="${{ steps.prev.outputs.tag }}"
+          WANT_SHA=$(curl -fsSL "https://github.com/${{ github.repository }}/releases/download/$PREV_TAG/islandr-runner-linux-amd64.sha256" | cut -d' ' -f1)
+          PID=$(systemctl show -p MainPID --value islandr)
+          GOT_SHA=$(sudo sha256sum "/proc/$PID/exe" | cut -d' ' -f1)
+          echo "before the upgrade: reports $GOT, runs $GOT_SHA, $PREV_TAG publishes $WANT_SHA"
+          [ -n "$WANT_SHA" ] && [ "$GOT_SHA" = "$WANT_SHA" ] || { echo "::error::the running binary is not $PREV_TAG before the upgrade"; exit 1; }
           sudo sha256sum /etc/default/islandr | cut -d' ' -f1 > /tmp/conf.before
           sudo sqlite3 /var/lib/islandr/data/islandr.db \
             "CREATE TABLE e2e_marker (v TEXT); INSERT INTO e2e_marker VALUES ('before-upgrade');"
 
+      # The runner image carries the AppArmor profile for wg, so update.sh's
+      # preshared-key check really runs here — and on a hub this release's
+      # setup-hub.sh installed it must find nothing to report. A note here
+      # would mean every operator gets a false alarm on every update.
       - name: Upgrade to this tag
         if: steps.prev.outputs.skip == 'false'
-        run: sudo -E bash scripts/update.sh "${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+          sudo bash scripts/update.sh "${{ github.ref_name }}" | tee /tmp/update.out
+          if grep -qE "preshared key cannot be applied|cannot apply firewall changes" /tmp/update.out; then
+            echo "::error::update.sh raises a false alarm on a hub setup-hub.sh just installed"; exit 1
+          fi
 
       - name: Assert the new version is live and the configuration untouched
         if: steps.prev.outputs.skip == 'false'
@@ -832,11 +905,74 @@ jobs:
           sudo sqlite3 /var/lib/islandr/data/islandr.db \
             "UPDATE e2e_marker SET v = 'after-upgrade';"
 
+      # The native half of the preshared-key check: RealWgAdapter under the
+      # unit setup-hub.sh wrote, with ProtectSystem=strict making /etc read-only
+      # except for what ReadWritePaths opens. Runs on the upgraded binary, so it
+      # also proves that a hub set up by this release's script and then updated
+      # can create such a peer on ubuntu-26.04.
+      - name: Assert nftables and a preshared-key peer reach the kernel (native)
+        if: steps.prev.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          # setup-hub.sh starts Islandr in dry-run, where it applies nothing to
+          # wg or nft — the checks below would fail for the wrong reason.
+          # Switching it off and restarting also makes Islandr apply its
+          # nftables table through sudo at startup, which is the check that
+          # the sudoers nft lines work on this host's sudo (sudo-rs on 26.04).
+          sudo sqlite3 /var/lib/islandr/data/islandr.db "UPDATE settings SET firewall_dry_run = 0;"
+          sudo systemctl restart islandr
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/version/check" || true)
+            [ "$code" != "000" ] && break
+            sleep 2
+          done
+          systemctl is-active --quiet islandr || { sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
+          echo "→ nftables applied through sudo"
+          for i in $(seq 1 30); do
+            sudo nft list table inet islandr >/dev/null 2>&1 && break
+            sleep 2
+          done
+          sudo nft list table inet islandr >/dev/null 2>&1 \
+            || { echo "::error::Islandr did not apply its nftables table — check the nft lines in /etc/sudoers.d/islandr"; sudo cat /etc/sudoers.d/islandr; sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
+          echo "→ /etc/wireguard: islandr may pass through to its own directory, not list"
+          GOT=$(sudo stat -c '%a %U %G' /etc/wireguard/islandr)
+          [ "$GOT" = "2750 islandr root" ] \
+            || { echo "::error::/etc/wireguard/islandr is '$GOT', want '2750 islandr root'"; exit 1; }
+          sudo -u islandr test -w /etc/wireguard/islandr \
+            || { echo "::error::islandr cannot write its own preshared-key directory"; sudo ls -ld /etc/wireguard /etc/wireguard/islandr; exit 1; }
+          if sudo -u islandr ls /etc/wireguard >/dev/null 2>&1; then
+            echo "::error::islandr can list /etc/wireguard — it should only pass through"; sudo ls -ld /etc/wireguard; exit 1
+          fi
+          # The point of setgid root: wg loses dac_override under AppArmor, so
+          # root reads a key file only through group root.
+          BORN=$(sudo -u islandr sh -c 'f=/etc/wireguard/islandr/psk-ci-probe; : > "$f"; stat -c %G "$f"; rm -f "$f"')
+          [ "$BORN" = "root" ] \
+            || { echo "::error::a file islandr creates there is in group '$BORN', want root — root's wg could not read it"; exit 1; }
+          ADMIN=$(sudo sed -n 's/^ISLANDR_ADMIN_USER=//p' /etc/default/islandr)
+          PW=$(sudo sed -n 's/^ISLANDR_ADMIN_PASSWORD=//p' /etc/default/islandr)
+          curl -sf -c /tmp/cj.txt -o /dev/null -X POST "$BASE/api/v1/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg u "$ADMIN" --arg p "$PW" '{username:$u,password:$p}')"
+          OWNER=$(curl -sf -b /tmp/cj.txt -X POST "$BASE/api/v1/users" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-psk-owner","email":"e2e-psk@example.com"}' | jq -r .id)
+          PSK_IP=$(curl -sf -b /tmp/cj.txt "$BASE/api/v1/peers/next-ip" | jq -r .assignedIp)
+          PSK_PEER=$(curl -s -b /tmp/cj.txt -X POST "$BASE/api/v1/users/$OWNER/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"e2e-psk-peer\",\"assignedIp\":\"$PSK_IP\",\"assignedIpv6\":\"\",\"publicKey\":\"\",\"privateKey\":\"\",\"type\":\"client\",\"generatePresharedKey\":true}")
+          PSK_PUBKEY=$(echo "$PSK_PEER" | jq -r .peer.publicKey)
+          [ -n "$PSK_PUBKEY" ] && [ "$PSK_PUBKEY" != "null" ] \
+            || { echo "::error::a peer with a preshared key was refused"; echo "$PSK_PEER"; sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
+          GOT_PSK=$(sudo wg show wg0 preshared-keys | awk -v k="$PSK_PUBKEY" '$1 == k { print $2 }')
+          [ -n "$GOT_PSK" ] && [ "$GOT_PSK" != "(none)" ] \
+            || { echo "::error::the interface carries no preshared key for that peer"; sudo wg show wg0 preshared-keys; exit 1; }
+          echo "✓ preshared key applied on the native path"
+
       - name: Roll back, and assert both the binary and the database came back
         if: steps.prev.outputs.skip == 'false'
         run: |
           set -euo pipefail
-          sudo -E bash scripts/update.sh --rollback
+          sudo bash scripts/update.sh --rollback
           systemctl is-active --quiet islandr || { sudo journalctl -u islandr -n 60 --no-pager; exit 1; }
           USER=$(sudo sed -n 's/^ISLANDR_ADMIN_USER=//p' /etc/default/islandr)
           PW=$(sudo sed -n 's/^ISLANDR_ADMIN_PASSWORD=//p' /etc/default/islandr)
@@ -844,8 +980,18 @@ jobs:
             -H 'Content-Type: application/json' \
             --data "$(jq -nc --arg u "$USER" --arg p "$PW" '{username:$u,password:$p}')"
           GOT=$(curl -sf -b /tmp/cj.txt "$BASE/api/v1/settings" | jq -r .version)
-          WANT="${{ steps.prev.outputs.tag }}"; WANT="${WANT#v}"
-          [ "$GOT" = "$WANT" ] || { echo "::error::rollback left $GOT running"; exit 1; }
+          # Identity by checksum, not by the version the binary reports about
+          # itself: 1.2.0-rc.2 to rc.6 were built still claiming 1.2.0-rc.1, so
+          # that string cannot tell releases apart. The running process's own
+          # executable is compared with the checksum published beside the
+          # release asset — which also proves what runs, not just what is on disk.
+          [ -n "$GOT" ] && [ "$GOT" != "null" ] || { echo "::error::after the rollback: the console does not answer"; exit 1; }
+          PREV_TAG="${{ steps.prev.outputs.tag }}"
+          WANT_SHA=$(curl -fsSL "https://github.com/${{ github.repository }}/releases/download/$PREV_TAG/islandr-runner-linux-amd64.sha256" | cut -d' ' -f1)
+          PID=$(systemctl show -p MainPID --value islandr)
+          GOT_SHA=$(sudo sha256sum "/proc/$PID/exe" | cut -d' ' -f1)
+          echo "after the rollback: reports $GOT, runs $GOT_SHA, $PREV_TAG publishes $WANT_SHA"
+          [ -n "$WANT_SHA" ] && [ "$GOT_SHA" = "$WANT_SHA" ] || { echo "::error::the rollback left a binary running that is not $PREV_TAG"; exit 1; }
           # The database half is the one that is easy to get wrong and quiet
           # about it: migrations run at startup and there are no undo
           # migrations, so restoring only the binary leaves a schema it refuses.

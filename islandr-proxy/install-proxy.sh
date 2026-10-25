@@ -76,6 +76,31 @@ if ! id -u islandr >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/islandr --shell /usr/sbin/nologin islandr
 fi
 
+echo "→ Preparing /etc/wireguard/islandr for short-lived preshared-key files"
+# wg reads a PSK only from a file (argv is world readable), and on Ubuntu 26.04
+# an enforcing AppArmor profile lets wg read files only under /etc/wireguard —
+# root included. Islandr gets its own subdirectory there; <iface>.conf and the
+# server key are not touched. The profile also denies wg dac_override, so root
+# reads by the ordinary permission bits like anyone else: the directory is
+# owned by the service user (it writes there) and setgid root, so each key file
+# is born in group root, and the service makes it 0640 — readable by its owner
+# and by group root, by nobody else. To reach it
+# the service user must pass through /etc/wireguard: group islandr, execute
+# only. Without read nobody can list the directory, and its files keep their
+# own modes. Same block in install.sh and docs/install/setup-hub.sh.
+[ -d /etc/wireguard ] || install -d -m 0700 -o root -g root /etc/wireguard
+case "$(stat -c %G /etc/wireguard)" in
+  root|islandr)
+    chgrp islandr /etc/wireguard
+    chmod g+x,g-rw /etc/wireguard
+    ;;
+  *)
+    echo "  note: /etc/wireguard belongs to group '$(stat -c %G /etc/wireguard)' — left as it is."
+    echo "        Preshared keys on Ubuntu 26.04 need the islandr user to pass through it."
+    ;;
+esac
+install -d -m 2750 -o islandr -g root /etc/wireguard/islandr
+
 echo "→ Installing binary → /usr/local/bin/islandr-proxy (root:root 0755)"
 install -o root -g root -m 0755 "$TMP/islandr-proxy" /usr/local/bin/islandr-proxy
 
@@ -129,9 +154,14 @@ NoNewPrivileges=false
 ProtectHome=read-only
 ProtectSystem=full
 PrivateTmp=true
-# /run/islandr already exists (tmpfiles, islandr:islandr 0700); short-lived
-# preshared-key files are written there. runtimeDir() falls back to it when
-# RUNTIME_DIRECTORY is unset, so no RuntimeDirectory= is declared here.
+# Short-lived preshared-key files go to /etc/wireguard/islandr — on Ubuntu 26.04
+# the only place wg may read a key from (AppArmor). ProtectSystem=full makes
+# /etc read-only, so it is opened up here; the leading '-' keeps the unit
+# starting where the directory does not exist, and the proxy then falls back
+# to /run/islandr (tmpfiles, islandr:islandr 0700), which earlier releases
+# used. runtimeDir() falls back to /run/islandr when RUNTIME_DIRECTORY is
+# unset, so no RuntimeDirectory= is declared here.
+ReadWritePaths=-/etc/wireguard/islandr
 
 [Install]
 WantedBy=multi-user.target

@@ -81,7 +81,11 @@ public class RuleBuilder {
         // Peer at all and must still render, so the per-peer loop below is
         // simply a no-op when peers is empty rather than short-circuiting
         // the whole method before the site-grant loop gets a chance to run.
-        List<Peer> peers = Peer.<Peer>list("enabled", true);
+        // edge-drift-exclusion (ADR-I-0002): only the peers that dial this hub.
+        // Traffic from a peer at an edge never passes here, so a rule about it
+        // could not be enforced — and an unenforceable rule that reads like
+        // enforcement is worse than no rule at all.
+        List<Peer> peers = Peer.<Peer>list(Peer.ON_THIS_HUB, true);
 
         Map<String, String> userName = new HashMap<>();
         for (User u : User.<User>list("id in ?1",

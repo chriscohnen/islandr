@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.identity;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import de.chriscohnen.islandr.user.AvatarImage;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -25,7 +26,12 @@ public class AvatarFetcher {
 
     public record Avatar(byte[] bytes, String contentType, String etag) {}
 
+    /** A picture URL may redirect; a few hops cover every real CDN. */
+    static final int MAX_REDIRECTS = 3;
+
     @Inject HttpFetcher http;
+    @Inject HostResolver resolver;
+    @Inject RoutedNetworks routed;
 
     /**
      * Calls an OIDC userinfo endpoint with the access token and pulls the
@@ -70,35 +76,60 @@ public class AvatarFetcher {
                 LOG.debugf("MS Graph photo too large (%d bytes), skipping", r.body().length);
                 return null;
             }
-            String ct = r.headers().getOrDefault("content-type", "image/jpeg");
-            return new Avatar(r.body(), ct, etagFor(r.body()));
+            return sniffed(r.body(), "MS Graph photo");
         } catch (Exception ex) {
             LOG.debugf("MS Graph photo fetch failed: %s", ex.getMessage());
             return null;
         }
     }
 
-    /** Google: ID-Token's 'picture' claim is a URL we GET directly. */
+    /**
+     * Google and custom providers: the {@code picture} claim is a URL we GET.
+     *
+     * <p>That URL is the identity provider's word, and on a self-run provider
+     * the user's (oidc-avatar-ssrf-xss). Every hop — the first and each
+     * redirect — passes {@link UrlFetchPolicy} before it is requested, and
+     * the client never follows a redirect on its own. What comes back is kept
+     * only if its bytes are an image, under the type the bytes have.
+     */
     public Avatar fetchByUrl(String url) {
         if (url == null || url.isBlank()) {
             LOG.infof("avatar by URL skipped: picture claim was null/blank");
             return null;
         }
+        String current = url;
         try {
-            HttpFetcher.Response r = http.get(url, null);
-            if (r.status() != 200) {
-                LOG.infof("avatar URL %s returned HTTP %d", url, r.status());
-                return null;
+            for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+                java.net.URI uri = UrlFetchPolicy.requireFetchable(current, resolver, routed.cidrs());
+                HttpFetcher.Response r = http.getWithoutRedirects(uri.toString(), null);
+                if (r.status() >= 300 && r.status() < 400) {
+                    String location = r.headers().get("location");
+                    if (location == null || location.isBlank()) {
+                        LOG.infof("avatar URL %s redirected without a Location", current);
+                        return null;
+                    }
+                    current = uri.resolve(location.trim()).toString();
+                    continue;
+                }
+                if (r.status() != 200) {
+                    LOG.infof("avatar URL %s returned HTTP %d", current, r.status());
+                    return null;
+                }
+                if (r.body().length > MAX_BYTES) {
+                    LOG.infof("avatar URL %s too large (%d bytes)", current, r.body().length);
+                    return null;
+                }
+                return sniffed(r.body(), "avatar URL " + current);
             }
-            if (r.body().length > MAX_BYTES) {
-                LOG.infof("avatar URL %s too large (%d bytes)", url, r.body().length);
-                return null;
-            }
-            String ct = r.headers().getOrDefault("content-type", "image/jpeg");
-            LOG.infof("avatar fetched: %s (%d bytes, %s)", url, r.body().length, ct);
-            return new Avatar(r.body(), ct, etagFor(r.body()));
+            LOG.infof("avatar URL %s redirected more than %d times, giving up", url, MAX_REDIRECTS);
+            return null;
+        } catch (UrlFetchPolicy.Refused refused) {
+            // WARN, not INFO: on a public provider this does not happen, so it
+            // is either a misconfigured IdP or someone trying.
+            LOG.warnf("avatar URL not fetched: %s", refused.getMessage());
+            return null;
         } catch (Exception ex) {
-            LOG.infof("avatar URL fetch failed (%s): %s", url, ex.getMessage());
+            LOG.infof("avatar URL fetch failed (%s): %s", current, ex.getMessage());
             return null;
         }
     }
@@ -115,12 +146,25 @@ public class AvatarFetcher {
             HttpFetcher.Response r = http.get(url, null);
             if (r.status() != 200) return null;
             if (r.body().length > MAX_BYTES) return null;
-            String ct = r.headers().getOrDefault("content-type", "image/jpeg");
-            return new Avatar(r.body(), ct, etagFor(r.body()));
+            return sniffed(r.body(), "Gravatar");
         } catch (Exception ex) {
             LOG.debugf("Gravatar fetch failed: %s", ex.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Keeps the bytes only if they are an image, under the type they are — the
+     * remote {@code Content-Type} is a claim, and an HTML answer stored with
+     * it was served back as {@code text/html} on Islandr's origin.
+     */
+    private static Avatar sniffed(byte[] body, String what) {
+        String type = AvatarImage.sniffType(body);
+        if (type == null) {
+            LOG.infof("%s is not a PNG, JPEG, GIF or WebP image — not stored", what);
+            return null;
+        }
+        return new Avatar(body, type, etagFor(body));
     }
 
     static String md5Hex(String s) {

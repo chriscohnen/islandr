@@ -76,7 +76,7 @@ class PeerSelfShareRetentionJobTest {
         new java.security.SecureRandom().nextBytes(keyBytes);
         String publicKey = java.util.Base64.getEncoder().encodeToString(keyBytes);
         Peer p = Peer.createNew(u.id, tag + "-device", publicKey,
-                "10.9.2." + (1 + (int) (Math.random() * 250)));
+                TestPeerIps.next());
         p.persist();
         return p.id;
     }

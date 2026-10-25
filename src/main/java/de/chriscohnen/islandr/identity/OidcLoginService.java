@@ -32,6 +32,8 @@ import java.util.Map;
 @ApplicationScoped
 public class OidcLoginService {
 
+    private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(OidcLoginService.class);
+
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Inject OidcProviderRegistry registry;
@@ -163,10 +165,26 @@ public class OidcLoginService {
                 ? User.findByOidc(p.kind(), claims.subject(), p.key())
                 : User.findByOidc(p.kind(), claims.subject());
         boolean provisioned = false;
+        boolean emailTrusted = emailTrusted(p, claims);
         if (u == null) {
-            // Fallback: an admin-created local user with this email gets linked on first OIDC login.
-            u = User.find("email", claims.email()).firstResult();
-            if (u != null) {
+            // Fallback: an admin-created local user with this email gets linked
+            // on first OIDC login — but only on a confirmed address, and only
+            // an account not linked yet (oidc-email-link-verified). Otherwise
+            // anyone able to register that address at the provider would take
+            // the account over, and a second provider login could re-point an
+            // existing link at itself.
+            User byEmail = User.find("email", claims.email()).firstResult();
+            if (byEmail != null) {
+                if (!emailTrusted) {
+                    throw new BadRequestException("the identity provider has not confirmed the e-mail address "
+                            + claims.email() + " — an account with it exists, but it is not linked on an "
+                            + "unconfirmed address");
+                }
+                if (byEmail.oidcSubject != null) {
+                    throw new BadRequestException("the account for " + claims.email()
+                            + " is already linked to another sign-in and is not re-linked automatically");
+                }
+                u = byEmail;
                 u.oidcProvider = p.kind();
                 u.oidcSubject = claims.subject();
                 u.oidcCustomProviderId = p.isCustom() ? p.key() : null;
@@ -175,6 +193,13 @@ public class OidcLoginService {
         if (u == null && !autoProvision) {
             throw new BadRequestException("no account found for " + claims.email()
                     + " — sign-up is disabled; an admin must create the account first");
+        }
+        if (u == null && !emailTrusted) {
+            // The domain allowlist the caller checked looked at this address —
+            // a claimed one. Provisioning on it would let anyone with an
+            // account at the provider mint an Islandr account in any domain.
+            throw new BadRequestException("the identity provider has not confirmed the e-mail address "
+                    + claims.email() + " — no account is created on an unconfirmed address");
         }
         if (u == null) {
             // Auto-provision new user. Domain allowlist was already enforced by caller.
@@ -189,13 +214,36 @@ public class OidcLoginService {
             // Keep display name fresh if the IdP one differs.
             String fresh = displayName(claims);
             if (fresh != null && !fresh.equals(u.name)) u.name = fresh;
-            if (!claims.email().equals(u.email)) u.email = claims.email();
+            // Adopt a changed address only if it is confirmed and nobody else
+            // has it: two accounts must never share one e-mail, or the next
+            // e-mail lookup picks whichever comes first.
+            if (!claims.email().equals(u.email) && emailTrusted) {
+                final String userId = u.id;
+                boolean taken = User.count("email = ?1 and id <> ?2", claims.email(), userId) > 0;
+                if (taken) {
+                    LOG.warnf("OIDC login for user %s reports %s, which another account has — keeping %s",
+                            userId, claims.email(), u.email);
+                } else {
+                    u.email = claims.email();
+                }
+            }
             // Only seed locale from IdP if the user has no stored preference yet.
             if (u.preferredLocale == null && claims.locale() != null) {
                 u.preferredLocale = claims.locale();
             }
         }
         return new UpsertResult(u, provisioned);
+    }
+
+    /**
+     * Whether the login's e-mail address may link or create an account.
+     * Microsoft sends no {@code email_verified}; its issuer is checked against
+     * the configured tenant, so the address comes from a directory this hub's
+     * admin chose to trust. Google and custom providers must say
+     * {@code email_verified: true} — a missing claim counts as unconfirmed.
+     */
+    static boolean emailTrusted(ResolvedOidcProvider p, IdTokenVerifier.Claims claims) {
+        return p.isMicrosoft() || claims.emailVerified();
     }
 
     private void cacheAvatar(ResolvedOidcProvider p, User u, IdTokenVerifier.Claims claims, String accessToken) {
