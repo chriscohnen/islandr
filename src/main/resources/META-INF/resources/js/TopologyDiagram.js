@@ -60,6 +60,20 @@ const LIVE_DOT_ORBIT = 78; // inside FIRST_RING, but far enough out for a name+I
 const PEER_TIER1_MAX = 8;   // "wenige Peers" — device icon + status ring each
 const PEER_TIER2_MAX = 40;  // "viele Peers" — small dots on an orbit, hover for detail
 const PEER_ICON_R = 11;     // tier-1 device icon radius — bigger than a live dot, smaller than a resource row
+// Tier-1 orbit. Wider than LIVE_DOT_ORBIT because each icon carries a name
+// and an IP: at 78 two neighbours' labels (≈86 px for "iphone-thomas") ran
+// into each other, and anything on the lower diagonals sat on the hub's own
+// label. 100 keeps an icon straight below clear of that label block, gives
+// eight peers squeezed between three spokes enough vertical room for their
+// two-line labels, and still leaves room before the first ring at FIRST_RING.
+const PEER_ICON_ORBIT = 100;
+// Directions the hub's own peers keep away from (peer-orbit-free-arcs):
+// the spokes to first-ring networks — a peer on a spoke sits on its line and
+// beside its box — and the sector below the hub, where its name and endpoint
+// are written. Half-widths in radians.
+const SPOKE_CLEARANCE = 0.30;                // ≈17° either side of a spoke
+const HUB_LABEL_ANGLE = Math.PI / 2;         // straight down
+const HUB_LABEL_CLEARANCE = 0.94;            // ≈54° either side: 36°…144°
 const PEER_SUMMARY_DIST = FIRST_RING - 40; // tier-3 collapsed node position, inside the site/gateway ring
 
 // edge-hub-radial-topology: edge hubs render as small secondary hub nodes of
@@ -127,6 +141,78 @@ function fanAngles(baseAngle, count) {
   const arcStart = baseAngle - arcSpan / 2;
   const step = arcSpan / (count - 1);
   return Array.from({ length: count }, (_, i) => arcStart + i * step);
+}
+
+/**
+ * Angles for `n` items on a ring, placed in the arcs the `obstacles`
+ * ({angle, half}) leave free — each arc gets a share of the items in
+ * proportion to its length, spread evenly inside it. Returned in reading
+ * order, clockwise from the upper left, so a sorted list stays sorted on
+ * screen. Falls back to an even spread when the obstacles cover everything.
+ */
+function freeArcAngles(n, obstacles, startDeg = -135) {
+  if (n === 0) return [];
+  const TAU = 2 * Math.PI;
+  const norm = (a) => ((a % TAU) + TAU) % TAU;
+  const blocked = [];
+  for (const o of obstacles) {
+    const s = norm(o.angle - o.half);
+    const e = s + 2 * o.half;
+    if (e <= TAU) blocked.push([s, e]);
+    else { blocked.push([s, TAU]); blocked.push([0, e - TAU]); }
+  }
+  blocked.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const b of blocked) {
+    const last = merged[merged.length - 1];
+    if (last && b[0] <= last[1]) last[1] = Math.max(last[1], b[1]);
+    else merged.push([...b]);
+  }
+  const free = [];
+  let cur = 0;
+  for (const [s, e] of merged) {
+    if (s > cur) free.push([cur, s]);
+    cur = Math.max(cur, e);
+  }
+  if (cur < TAU) free.push([cur, TAU]);
+  // An arc running through 0 arrives as two pieces; join them.
+  if (free.length > 1 && free[0][0] === 0 && free[free.length - 1][1] === TAU) {
+    const tail = free.pop();
+    free[0] = [tail[0], free[0][1] + TAU];
+  }
+  const total = free.reduce((sum, [a, b]) => sum + (b - a), 0);
+  if (total < 1e-6) return Array.from({ length: n }, (_, i) => angleAt(i, n, startDeg));
+  // Largest-remainder split of n across the arcs.
+  const quotas = free.map(([a, b]) => (n * (b - a)) / total);
+  const counts = quotas.map(Math.floor);
+  const order = quotas.map((q, i) => [q - Math.floor(q), i]).sort((x, y) => y[0] - x[0]);
+  for (let k = 0; k < n - counts.reduce((sum, c) => sum + c, 0); k++) counts[order[k][1]]++;
+  const out = [];
+  free.forEach(([a, b], i) => {
+    for (let j = 0; j < counts[i]; j++) out.push(a + ((b - a) * (j + 0.5)) / counts[i]);
+  });
+  const start = norm((startDeg * Math.PI) / 180);
+  return out.sort((x, y) => norm(x - start) - norm(y - start));
+}
+
+/**
+ * Where a peer icon's two label lines go: outward, away from the hub. A
+ * label always written centred below its icon ran into the neighbour's and,
+ * for anything below the hub, into the hub's own name. To the right of the
+ * hub it starts right of the icon, to the left it ends left of it, and only
+ * near the vertical axis is it centred above or below.
+ */
+function radialPeerLabel(angle, iconR) {
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  if (Math.abs(ux) <= 0.15) {
+    return uy > 0
+      ? { x: 0, anchor: "middle", nameY: iconR + 12, ipY: iconR + 24 }
+      : { x: 0, anchor: "middle", nameY: -(iconR + 16), ipY: -(iconR + 4) };
+  }
+  const shift = uy * 8; // lean the block a little in the icon's own direction
+  return { x: Math.sign(ux) * (iconR + 6), anchor: ux > 0 ? "start" : "end",
+           nameY: -1 + shift, ipY: 11 + shift };
 }
 
 function polar(angle, dist) {
@@ -567,9 +653,21 @@ export default defineComponent({
           return a.connectionStatus === "CONNECTED" ? -1 : 1;
         });
       }
+      // peer-orbit-free-arcs: keep off the spokes to first-ring networks and
+      // off the hub's own label below it — see freeArcAngles.
+      const obstacles = [{ angle: HUB_LABEL_ANGLE, half: HUB_LABEL_CLEARANCE }];
+      for (const g of this.gatewayLayout) if (g.isCentral) obstacles.push({ angle: g.angle, half: SPOKE_CLEARANCE });
+      for (const n of this.directNetworkLayout) {
+        if (n.parentX === CX && n.parentY === CY) obstacles.push({ angle: n.angle, half: SPOKE_CLEARANCE });
+      }
+      const icons = this.peerTier === "icons";
+      const orbit = icons ? PEER_ICON_ORBIT : LIVE_DOT_ORBIT;
+      const angles = freeArcAngles(list.length, obstacles);
       return list.map((p, i) => {
-        const angle = angleAt(i, list.length, -135);
-        return { peer: p, x: CX + LIVE_DOT_ORBIT * Math.cos(angle), y: CY + LIVE_DOT_ORBIT * Math.sin(angle) };
+        const angle = angles[i];
+        return { peer: p, angle,
+                 x: CX + orbit * Math.cos(angle), y: CY + orbit * Math.sin(angle),
+                 label: icons ? radialPeerLabel(angle, PEER_ICON_R) : null };
       });
     },
     // edge-hub-radial-topology: per edge hub, the peers that dial it, fanned
@@ -633,13 +731,19 @@ export default defineComponent({
         pts.push({ x: this.resourceLayout[0].netX, y: this.resourceColumnBypassY });
       }
       for (const d of this.livePeerLayout) {
-        // Tier 1 ("icons") always shows two label lines (name + IP) below a
-        // bigger device icon; tier 2 ("orbit") is a small dot with no
-        // permanent label (hover-only) — pad each for what it actually draws.
-        const r = this.peerTier === "icons" ? PEER_ICON_R : LIVE_DOT_R;
-        const labelPad = this.peerTier === "icons" ? 26 : 4;
-        pts.push({ x: d.x - 40, y: d.y - r });
-        pts.push({ x: d.x + 40, y: d.y + r + labelPad });
+        // Tier 2 ("orbit") is a small dot with no permanent label (hover
+        // only). Tier 1 ("icons") carries a name and an IP on the side
+        // radialPeerLabel chose — pad that side by the labels' width.
+        if (!d.label) {
+          pts.push({ x: d.x - LIVE_DOT_R, y: d.y - LIVE_DOT_R });
+          pts.push({ x: d.x + LIVE_DOT_R, y: d.y + LIVE_DOT_R + 4 });
+          continue;
+        }
+        const w = Math.max((d.peer.name || "").length * 6.0, (d.peer.assignedIp || "").length * 5.4);
+        const l = d.label;
+        const lx0 = l.anchor === "middle" ? d.x - w / 2 : l.anchor === "start" ? d.x + l.x : d.x + l.x - w;
+        pts.push({ x: Math.min(d.x - PEER_ICON_R, lx0), y: d.y + Math.min(-PEER_ICON_R, l.nameY - 10) });
+        pts.push({ x: Math.max(d.x + PEER_ICON_R, lx0 + w), y: d.y + Math.max(PEER_ICON_R, l.ipY + 3) });
       }
       if (this.peerSummaryLayout) {
         const s = this.peerSummaryLayout;
@@ -1204,8 +1308,13 @@ export default defineComponent({
                fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round"
                v-html="peerDeviceIconMarkup(d.peer.deviceType)" />
-            <text class="live-label" :y="PEER_ICON_R + 12">{{ d.peer.name || t('topology.unknown_peer') }}</text>
-            <text v-if="d.peer.assignedIp" class="live-ip" :y="PEER_ICON_R + 24">{{ d.peer.assignedIp }}</text>
+            <!-- Written outward from the hub (radialPeerLabel). Inline
+                 text-anchor, because the stylesheet's .live-label centres
+                 and a presentation attribute would lose to it. -->
+            <text class="live-label" :x="d.label.x" :y="d.label.nameY"
+                  :style="{ textAnchor: d.label.anchor }">{{ d.peer.name || t('topology.unknown_peer') }}</text>
+            <text v-if="d.peer.assignedIp" class="live-ip" :x="d.label.x" :y="d.label.ipY"
+                  :style="{ textAnchor: d.label.anchor }">{{ d.peer.assignedIp }}</text>
           </g>
         </template>
 

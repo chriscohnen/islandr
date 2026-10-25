@@ -8,6 +8,10 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.2.1
+
+- Fixed: in the dashboard topology, the labels of devices connected to the hub ran into the hub's own name and into each other. Devices now sit in the gaps between the links to networks, clear of the hub's label, and their name and address point away from the hub
+
 ## 1.2.0
 
 Mostly maintenance: a console that is faster to read, a handful of long-standing
