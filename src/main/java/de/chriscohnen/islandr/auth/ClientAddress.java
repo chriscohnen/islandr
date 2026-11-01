@@ -49,6 +49,29 @@ public class ClientAddress {
         return resolve(socketPeer(request), request.getHeader(clientIpHeader()));
     }
 
+    /**
+     * Whether the browser reached us over HTTPS: the TLS state of the socket
+     * itself, or {@code X-Forwarded-Proto: https} from a proxy the operator
+     * named. Never Vert.x's or Quarkus' rewritten scheme — that one believes
+     * the header from any sender (quarkus-forwarded-trust), and a cookie
+     * flag decided by an attacker-controlled header is no decision at all.
+     */
+    public boolean isHttps(HttpServerRequest request) {
+        if (request == null) return false;
+        var conn = request.connection();
+        if (conn != null && conn.isSsl()) return true;
+        return isHttpsVia(socketPeer(request), request.getHeader("X-Forwarded-Proto"));
+    }
+
+    /** The decision behind {@link #isHttps}, free of Vert.x. */
+    boolean isHttpsVia(String socketPeer, String forwardedProto) {
+        String socket = normalise(socketPeer);
+        if (socket == null || !isTrusted(socket) || forwardedProto == null) return false;
+        // The last value is the one our own proxy wrote; earlier ones came from further out.
+        String[] hops = forwardedProto.split(",");
+        return "https".equalsIgnoreCase(hops[hops.length - 1].trim());
+    }
+
     private String clientIpHeader() {
         return settings.get().effectiveClientIpHeader();
     }

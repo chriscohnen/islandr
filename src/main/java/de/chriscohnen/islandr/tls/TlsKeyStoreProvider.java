@@ -52,6 +52,7 @@ public class TlsKeyStoreProvider implements KeyStoreProvider {
 
     @Inject SettingsService settings;
     @Inject EncryptionService encSvc;
+    @Inject de.chriscohnen.islandr.web.SecurityHeaders securityHeaders;
 
     @Override
     public KeyStoreAndKeyCertOptions getKeyStore(Vertx vertx) {
@@ -68,6 +69,7 @@ public class TlsKeyStoreProvider implements KeyStoreProvider {
             // Expected at the STATIC_INIT validation call — the datasource isn't up
             // yet. Not an admin-actionable problem, so stay quiet about it.
             LOG.debugf(e, "settings not available yet — using the dummy placeholder certificate");
+            securityHeaders.markDirectTls(false);
             return dummyKeyStore(vertx);
         }
         try {
@@ -86,8 +88,16 @@ public class TlsKeyStoreProvider implements KeyStoreProvider {
                 case "referenced" -> referencedOptions(s);
                 default -> dummyOptions();
             };
-            return new KeyStoreAndKeyCertOptions(options.loadKeyStore(vertx), options);
+            KeyStoreAndKeyCertOptions loaded = new KeyStoreAndKeyCertOptions(options.loadKeyStore(vertx), options);
+            // Material a browser can be held to; "none" is the placeholder and
+            // "selfsigned" is untrusted by construction (see SecurityHeaders).
+            securityHeaders.markDirectTls(switch (s.tlsMode) {
+                case "managed", "acme", "referenced" -> true;
+                default -> false;
+            });
+            return loaded;
         } catch (Exception e) {
+            securityHeaders.markDirectTls(false);
             // Settings *was* available and configured something — a broken managed/
             // referenced certificate at this point is a real, admin-actionable
             // problem (bad upload, stale/rotated referenced-path file), not routine

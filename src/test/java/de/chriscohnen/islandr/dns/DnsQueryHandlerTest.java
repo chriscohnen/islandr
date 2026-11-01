@@ -404,7 +404,8 @@ class DnsQueryHandlerTest {
     @Test
     @Transactional
     void resolvableCount_includesTheHub() {
-        long resourcesAndPeers = Resource.count("dnsName is not null") + Peer.count();
+        long resourcesAndPeers = Resource.<Resource>list("dnsName is not null").stream()
+                .mapToLong(r -> 1 + r.dnsAliases.size()).sum() + Peer.count();
         Settings s = Settings.findById(Settings.SINGLETON_ID);
         s.dnsResolverEnabled = true;
         s.dnsResolverZone = ZONE;

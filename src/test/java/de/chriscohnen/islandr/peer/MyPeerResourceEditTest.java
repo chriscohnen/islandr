@@ -192,6 +192,24 @@ class MyPeerResourceEditTest {
         assertThat(Peer.<Peer>findById(victimPeerId).name).isEqualTo("not-yours");
     }
 
+    /** peer-name-length: 64 characters pass, 65 are a 400 and change nothing. */
+    @Test
+    void overlongNameIsRejected_atTheLimitItPasses() {
+        String cookie = orgUserSession();
+        String peerId = persistPeer(currentUserId, "keep-me", null);
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie).contentType("application/json")
+                .body("{\"name\":\"" + "a".repeat(65) + "\"}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(400);
+        assertThat(Peer.<Peer>findById(peerId).name).isEqualTo("keep-me");
+
+        given().cookie(SessionFilter.COOKIE_NAME, cookie).contentType("application/json")
+                .body("{\"name\":\"" + "a".repeat(64) + "\"}")
+                .when().put("/api/v1/peers/mine/" + peerId)
+                .then().statusCode(200);
+    }
+
     @Test
     void blankNameIsRejected() {
         String cookie = orgUserSession();

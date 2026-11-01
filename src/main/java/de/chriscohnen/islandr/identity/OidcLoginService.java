@@ -47,11 +47,15 @@ public class OidcLoginService {
     // Lazily initialised — see SessionService for the same native-image reason.
     private volatile SecureRandom rng;
 
-    public record AuthorizeRedirect(String url, String state) {}
+    /** @param cookieValue what the browser must hand back on the callback:
+     *         {@code <state>.<nonce>.<code_verifier>}, kept in an HttpOnly cookie. */
+    public record AuthorizeRedirect(String url, String cookieValue) {}
 
     public AuthorizeRedirect buildAuthorizeUrl(String providerKey, String redirectUri) {
         ResolvedOidcProvider p = enabledOrThrow(providerKey);
         String state = randomToken();
+        String nonce = randomToken();
+        String verifier = randomToken();
         Map<String, String> params = new LinkedHashMap<>();
         params.put("client_id", p.clientId());
         params.put("response_type", "code");
@@ -59,7 +63,11 @@ public class OidcLoginService {
         params.put("response_mode", "query");
         params.put("scope", p.scopes());
         params.put("state", state);
-        return new AuthorizeRedirect(p.endpoints().authorize() + "?" + encodeQuery(params), state);
+        params.put("nonce", nonce);
+        params.put("code_challenge", pkceChallenge(verifier));
+        params.put("code_challenge_method", "S256");
+        return new AuthorizeRedirect(p.endpoints().authorize() + "?" + encodeQuery(params),
+                state + "." + nonce + "." + verifier);
     }
 
     /**
@@ -69,16 +77,27 @@ public class OidcLoginService {
      */
     @Transactional
     public Session handleCallback(String providerKey, String code, String state,
-                                  String cookieState, String redirectUri) {
-        if (state == null || cookieState == null || !state.equals(cookieState)) {
+                                  String cookieValue, String redirectUri) {
+        // <state>.<nonce>.<code_verifier>, written by buildAuthorizeUrl. A cookie of
+        // any other shape (a login started before this check existed, or a forged
+        // one) is no login: start again.
+        String[] parts = cookieValue == null ? new String[0] : cookieValue.split("\\.", -1);
+        if (state == null || parts.length != 3 || !constantTimeEquals(state, parts[0])) {
             throw new BadRequestException("state mismatch (CSRF protection)");
         }
+        String nonce = parts[1];
+        String codeVerifier = parts[2];
         if (code == null || code.isBlank()) throw new BadRequestException("missing authorization code");
 
         ResolvedOidcProvider p = enabledOrThrow(providerKey);
 
-        TokenResponse tokens = exchangeCode(p, code, redirectUri);
+        TokenResponse tokens = exchangeCode(p, code, redirectUri, codeVerifier);
         IdTokenVerifier.Claims claims = idTokens.verify(tokens.idToken(), p);
+        // Binds the ID token to this browser's login attempt (replay / token injection).
+        String tokenNonce = claims.raw() == null ? null : claims.raw().path("nonce").asText(null);
+        if (tokenNonce == null || !constantTimeEquals(nonce, tokenNonce)) {
+            throw new BadRequestException("ID-Token nonce mismatch");
+        }
         if (claims.email() == null || claims.email().isBlank()) {
             throw new BadRequestException("ID-Token has no email claim — cannot identify user");
         }
@@ -133,11 +152,12 @@ public class OidcLoginService {
 
     record TokenResponse(String idToken, String accessToken) {}
 
-    private TokenResponse exchangeCode(ResolvedOidcProvider p, String code, String redirectUri) {
+    private TokenResponse exchangeCode(ResolvedOidcProvider p, String code, String redirectUri, String codeVerifier) {
         Map<String, String> form = new LinkedHashMap<>();
         form.put("grant_type", "authorization_code");
         form.put("code", code);
         form.put("redirect_uri", redirectUri);
+        form.put("code_verifier", codeVerifier);
         form.put("client_id", p.clientId());
         form.put("client_secret", p.clientSecret());
         try {
@@ -339,6 +359,20 @@ public class OidcLoginService {
             }
         }
         return r;
+    }
+
+    /** PKCE S256: base64url(SHA-256(verifier)), RFC 7636. */
+    static String pkceChallenge(String verifier) {
+        try {
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(d);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        return java.security.MessageDigest.isEqual(a.getBytes(StandardCharsets.UTF_8), b.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String encodeQuery(Map<String, String> params) {

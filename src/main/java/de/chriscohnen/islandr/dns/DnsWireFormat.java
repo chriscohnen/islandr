@@ -114,6 +114,34 @@ final class DnsWireFormat {
         return queriedFamilyMatches ? buildAnswer(query, parsed, addressBytes, ttlSeconds) : buildNoData(query, parsed);
     }
 
+    /** Authoritative PTR answer: echoes the question, one PTR record whose
+     *  target is {@code targetName} (a fully qualified name, dots as written). */
+    static byte[] buildPtrAnswer(byte[] query, Query parsed, String targetName, int ttlSeconds) {
+        ByteArrayOutputStream rdata = new ByteArrayOutputStream();
+        for (String label : targetName.split("\\.")) {
+            if (label.isEmpty()) continue;
+            byte[] l = label.getBytes(StandardCharsets.US_ASCII);
+            rdata.write(Math.min(l.length, 63));
+            rdata.write(l, 0, Math.min(l.length, 63));
+        }
+        rdata.write(0); // root label
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writeU16(out, parsed.id());
+        writeU16(out, header(parsed.recursionDesired(), true, RCODE_NO_ERROR));
+        writeU16(out, 1); // QDCOUNT
+        writeU16(out, 1); // ANCOUNT
+        writeU16(out, 0); // NSCOUNT
+        writeU16(out, 0); // ARCOUNT
+        out.write(query, 12, parsed.questionEnd() - 12);
+        writeU16(out, 0xC00C); // NAME: pointer to the question name
+        writeU16(out, TYPE_PTR);
+        writeU16(out, CLASS_IN);
+        writeU32(out, ttlSeconds);
+        writeU16(out, rdata.size());
+        out.write(rdata.toByteArray(), 0, rdata.size());
+        return out.toByteArray();
+    }
+
     /** NODATA: the name exists (so NOERROR, not NXDOMAIN) but there's nothing
      *  of the queried type — e.g. an AAAA query against an IPv4-only
      *  resource. Distinct from {@link #buildError}'s NXDOMAIN, which means

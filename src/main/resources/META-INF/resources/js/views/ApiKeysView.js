@@ -11,10 +11,11 @@ import { confirmDialog } from "/js/confirmDialog.js";
 // gets, so a preset is just a shortcut for checking a known set.
 const FACADE_SCOPES = [
   "peers:read", "users:read", "resources:read", "grants:read", "audit:read",
-  "peers:write", "users:write",
+  "peers:write", "users:write", "monitoring:read",
 ];
 const SCOPE_PRESETS = {
   readonly: ["peers:read", "users:read", "resources:read", "grants:read", "audit:read"],
+  monitoring: ["monitoring:read"],
   manage: ["peers:read", "peers:write", "users:read", "users:write"],
   fullFacade: [...FACADE_SCOPES],
 };
@@ -229,6 +230,8 @@ export default defineComponent({
               <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3)">
                 <button type="button" class="btn btn-sm" :class="isPresetActive('readonly') ? 'btn-secondary' : 'btn-ghost'"
                         @click="applyPreset('readonly')">{{ t('apikeys.scope_preset_readonly') }}</button>
+                <button type="button" class="btn btn-sm" :class="isPresetActive('monitoring') ? 'btn-secondary' : 'btn-ghost'"
+                        @click="applyPreset('monitoring')">{{ t('apikeys.scope_preset_monitoring') }}</button>
                 <button type="button" class="btn btn-sm" :class="isPresetActive('manage') ? 'btn-secondary' : 'btn-ghost'"
                         @click="applyPreset('manage')">{{ t('apikeys.scope_preset_manage') }}</button>
                 <button type="button" class="btn btn-sm" :class="isPresetActive('fullFacade') ? 'btn-secondary' : 'btn-ghost'"

@@ -117,7 +117,7 @@ Format: EARS (Easy Approach to Requirements Syntax) where it fits cleanly; plain
 | ID | Requirement |
 |----|-------------|
 | N-01 | Fully self-hostable. No external service dependencies at runtime. (CDN fonts are out — self-host IBM Plex per the design brief.) |
-| N-02 | Backend runs on Linux (Ubuntu/Debian 22.04+, Java 21 or as a native binary). |
+| N-02 | Backend runs on Linux (Ubuntu/Debian 22.04+, Java 25 or as a native binary). |
 | N-03 | Backend ships as a single binary (Quarkus native build via GraalVM) for production. |
 | N-04 | Web UI accessible over HTTPS only. TLS termination at Caddy or a reverse proxy. |
 | N-05 | API is RESTful JSON, suitable for scripting and the future pull-mode agent. |

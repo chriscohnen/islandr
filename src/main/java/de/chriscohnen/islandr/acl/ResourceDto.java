@@ -16,6 +16,8 @@ public final class ResourceDto {
             String siteId,
             String name,
             String ip,
+            // Optional second, IPv6 address (dual stack). Null = none.
+            String ip6,
             String description,
             String type,
             // Optional DNS label for the resource-name resolver (ADR-0023, MVP).
@@ -24,6 +26,8 @@ public final class ResourceDto {
             // When true, resolves as "<dnsName>.<zone>" directly — no site
             // subdomain (ADR-0023 follow-up). Meaningless unless dnsName is set.
             boolean dnsFlat,
+            // Further names, same IP and scope as dnsName. Sorted.
+            List<String> dnsAliases,
             List<PortResponse> ports,
             Instant createdAt,
             // Discovered via ARP (import) or the on-demand /identify action
@@ -34,8 +38,8 @@ public final class ResourceDto {
             String vendor
     ) {
         public static Response from(Resource r, List<PortResponse> ports) {
-            return new Response(r.id, r.siteId, r.name, r.ip, r.description, r.type, r.dnsName, r.dnsFlat,
-                    ports, r.createdAt, r.mac,
+            return new Response(r.id, r.siteId, r.name, r.ip, r.ip6, r.description, r.type, r.dnsName, r.dnsFlat,
+                    r.dnsAliases.stream().sorted().toList(), ports, r.createdAt, r.mac,
                     de.chriscohnen.islandr.discovery.OuiVendorLookup.vendorFor(r.mac).orElse(null));
         }
     }
@@ -96,8 +100,31 @@ public final class ResourceDto {
             // loose length cap; malformed input just won't match anything in
             // the OUI table (ResourceService normalizes/lowercases it).
             @jakarta.validation.constraints.Size(max = 17)
-            String mac
-    ) {}
+            String mac,
+
+            // Optional — further DNS names for the same resource (same scope
+            // as dnsName). Ignored when dnsName is blank.
+            @jakarta.validation.constraints.Size(max = 16)
+            List<@Pattern(regexp = "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$",
+                    message = "must be a DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
+                    String> dnsAliases,
+
+            // Optional — second, IPv6 address of the same resource (dual stack).
+            @ValidIpAddress
+            String ip6
+    ) {
+        /** Request without the IPv6 address. */
+        public UpsertRequest(String name, String ip, String description, String type,
+                             String dnsName, boolean dnsFlat, String mac, List<String> dnsAliases) {
+            this(name, ip, description, type, dnsName, dnsFlat, mac, dnsAliases, null);
+        }
+
+        /** Request without aliases — keeps callers that predate them unchanged. */
+        public UpsertRequest(String name, String ip, String description, String type,
+                             String dnsName, boolean dnsFlat, String mac) {
+            this(name, ip, description, type, dnsName, dnsFlat, mac, null, null);
+        }
+    }
 
     /** Read-only result of the on-demand /identify action (issue #76) — never
      *  persists anything; the admin applies what they want via the ordinary

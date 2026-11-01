@@ -62,6 +62,11 @@ public class ApiKeyScope extends PanacheEntityBase {
      *  {@code EdgeExternalResource#status}. */
     public static final String TELEMETRY_WRITE = "telemetry:write";
 
+    /** monitoring-status-endpoint (#71): read the install's health gauges
+     *  (GET /api/external/v1/metrics) — enforcement, boot table, TLS expiry,
+     *  connected-peer total. Nothing per peer or per person. */
+    public static final String MONITORING_READ = "monitoring:read";
+
     /** Every scope a key can actually be given. Deliberately excludes
      *  {@code propose} — a materially bigger feature (a pending change an
      *  API key can suggest but not apply, mirroring the ACL matrix's own
@@ -69,7 +74,8 @@ public class ApiKeyScope extends PanacheEntityBase {
      *  part of apikey-scopes. */
     public static final List<String> CATALOG = List.of(
             FULL, PEERS_READ, USERS_READ, RESOURCES_READ, GRANTS_READ, AUDIT_READ,
-            PEERS_WRITE, USERS_WRITE, CONFIG_EXPORT, CONFIG_IMPORT, PSKS_READ, TELEMETRY_WRITE);
+            PEERS_WRITE, USERS_WRITE, CONFIG_EXPORT, CONFIG_IMPORT, PSKS_READ, TELEMETRY_WRITE,
+            MONITORING_READ);
 
     /** Scopes that are meaningless without an {@link #edgeHubId} —
      *  {@link ApiKeyService#create} requires one whenever the requested

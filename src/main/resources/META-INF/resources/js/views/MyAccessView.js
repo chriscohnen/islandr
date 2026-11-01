@@ -94,6 +94,7 @@ export default defineComponent({
       shareForm: { targetEmail: "", port: "", durationMinutes: 60 },
       shareList: [],
       shareError: null,
+      shareInfo: null,
       shareSubmitting: false,
       rdpDialog: null,
       rdpCreds: { username: "", password: "", domain: "" },
@@ -721,6 +722,7 @@ export default defineComponent({
     async submitShare() {
       if (!this.sharePeer) return;
       this.shareError = null;
+      this.shareInfo = null;
       const port = Number(this.shareForm.port);
       if (!this.shareForm.targetEmail.trim()) {
         this.shareError = t("myaccess.share_err_email");
@@ -743,6 +745,7 @@ export default defineComponent({
         });
         if (!res.ok) throw new Error(await res.text());
         this.shareForm = { targetEmail: "", port: "", durationMinutes: 60 };
+        this.shareInfo = t("myaccess.share_submitted");
         await this.loadShares();
         await this.refreshPeerShareCount();
       } catch (e) {
@@ -1564,7 +1567,7 @@ export default defineComponent({
 
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="devName">{{ t('myaccess.label_device_name') }}</label>
-              <input id="devName" class="input" v-model="newDevice.name" required :placeholder="t('myaccess.ph_device_name')" />
+              <input id="devName" class="input" v-model="newDevice.name" required maxlength="64" :placeholder="t('myaccess.ph_device_name')" />
               <div class="field-hint">{{ t('myaccess.hint_device_name') }}</div>
             </div>
 
@@ -1666,7 +1669,7 @@ export default defineComponent({
 
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="editDevName">{{ t('myaccess.label_device_name') }}</label>
-              <input id="editDevName" class="input" v-model="editForm.name" required :placeholder="t('myaccess.ph_device_name')" />
+              <input id="editDevName" class="input" v-model="editForm.name" required maxlength="64" :placeholder="t('myaccess.ph_device_name')" />
             </div>
 
             <div class="field">
@@ -1713,6 +1716,7 @@ export default defineComponent({
         <div class="modal-body">
           <p class="muted" style="font-size: var(--text-sm); margin-top: 0">{{ t('myaccess.share_intro') }}</p>
           <div v-if="shareError" class="error-banner">{{ shareError }}</div>
+          <div v-else-if="shareInfo" class="field-hint" style="margin-bottom: var(--space-3)">{{ shareInfo }}</div>
 
           <form @submit.prevent="submitShare" style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4)">
             <div class="field" style="margin-bottom: 0">

@@ -24,6 +24,13 @@ public final class PeerSelfShareDto {
             int durationMinutes
     ) {}
 
+    /** The answer to creating a share. Deliberately the same for a person who
+     *  exists and one who does not; the owner's own share list shows what exists. */
+    public record CreateResponse(String message) {
+        public static final CreateResponse NEUTRAL =
+                new CreateResponse("If this person exists, they can now reach the port.");
+    }
+
     public record Response(
             String id,
             String ownerPeerId,

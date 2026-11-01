@@ -315,9 +315,15 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, mac: "" };
+      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, dnsAliasesText: "", ip6: "", mac: "" };
       this.formError = null;
       this.identifyResult = null;
+    },
+    // The alias field is one comma/space separated text input; the API takes a list.
+    formPayload() {
+      const { dnsAliasesText, ...rest } = this.form;
+      const dnsAliases = (dnsAliasesText || "").split(/[\s,;]+/).filter(Boolean);
+      return { ...rest, dnsAliases };
     },
     openEdit(r) {
       this.modal = "edit";
@@ -328,6 +334,7 @@ export default defineComponent({
       this.form = {
         name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer",
         dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat, mac: r.mac || "",
+        dnsAliasesText: (r.dnsAliases || []).join(", "), ip6: r.ip6 || "",
       };
       this.formError = null;
       this.identifyResult = null;
@@ -389,7 +396,7 @@ export default defineComponent({
         const res = await fetch(url, {
           method,
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(this.form),
+          body: JSON.stringify(this.formPayload()),
         });
         if (!res.ok) {
           const body = await res.text();
@@ -1389,6 +1396,12 @@ export default defineComponent({
               </div>
             </div>
 
+            <div class="field" style="margin: 0 0 var(--space-4)">
+              <label for="resIp6">{{ t('resources.field_ip6') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <input id="resIp6" class="input mono" v-model="form.ip6" placeholder="fd00::5" />
+              <div class="field-hint">{{ t('resources.field_ip6_hint') }}</div>
+            </div>
+
             <div class="field" style="margin: 0">
               <label for="resDesc">{{ t('resources.field_desc') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
               <textarea id="resDesc" class="textarea" rows="2" v-model="form.description" :placeholder="t('resources.field_desc_ph')"></textarea>
@@ -1408,6 +1421,11 @@ export default defineComponent({
                 <span>{{ t('resources.field_dns_flat_label') }}</span>
               </label>
               <div v-if="form.dnsName" class="field-hint" style="margin-top: var(--space-1)">{{ t('resources.field_dns_flat_hint') }}</div>
+              <template v-if="form.dnsName">
+                <label for="resDnsAliases" style="margin-top: var(--space-3)">{{ t('resources.field_dns_aliases') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+                <input id="resDnsAliases" class="input mono" v-model="form.dnsAliasesText" :placeholder="t('resources.field_dns_aliases_ph')" />
+                <div class="field-hint">{{ t('resources.field_dns_aliases_hint') }}</div>
+              </template>
             </div>
 
             <div class="field" style="margin: var(--space-4) 0 0">

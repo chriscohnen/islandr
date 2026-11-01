@@ -59,10 +59,14 @@ public class ResourceService {
                             .build());
         }
         String dnsName = normalizeDnsName(req.dnsName());
+        java.util.Set<String> aliases = normalizeAliases(dnsName, req.dnsAliases());
         checkDnsNameAvailable(siteId, dnsName, req.dnsFlat(), null);
+        for (String alias : aliases) checkDnsNameAvailable(siteId, alias, req.dnsFlat(), null);
         Resource r = Resource.createNew(siteId, req.name().strip(), ip, req.description(), req.type());
         r.dnsName = dnsName;
         r.dnsFlat = dnsName != null && req.dnsFlat();
+        r.dnsAliases = aliases;
+        r.ip6 = normalizeIp6(req.ip6());
         r.mac = normalizeMac(req.mac());
         r.persist();
         return r;
@@ -82,9 +86,9 @@ public class ResourceService {
         }
         String dnsName = normalizeDnsName(req.dnsName());
         boolean dnsFlat = dnsName != null && req.dnsFlat();
-        if (dnsName != null && (!dnsName.equals(r.dnsName) || dnsFlat != r.dnsFlat)) {
-            checkDnsNameAvailable(r.siteId, dnsName, dnsFlat, id);
-        }
+        java.util.Set<String> aliases = normalizeAliases(dnsName, req.dnsAliases());
+        checkDnsNameAvailable(r.siteId, dnsName, dnsFlat, id);
+        for (String alias : aliases) checkDnsNameAvailable(r.siteId, alias, dnsFlat, id);
         r.name = req.name().strip();
         r.ip = ip;
         r.description = req.description();
@@ -93,6 +97,10 @@ public class ResourceService {
         }
         r.dnsName = dnsName;
         r.dnsFlat = dnsFlat;
+        // update in place: Hibernate tracks the managed collection
+        r.ip6 = normalizeIp6(req.ip6());
+        r.dnsAliases.clear();
+        r.dnsAliases.addAll(aliases);
         r.mac = normalizeMac(req.mac());
         return r;
     }
@@ -121,20 +129,44 @@ public class ResourceService {
      *  with each other since their resolved FQDN shapes differ. */
     private static void checkDnsNameAvailable(String siteId, String dnsName, boolean dnsFlat, String excludeId) {
         if (dnsName == null) return;
-        boolean conflict = dnsFlat
-                ? (excludeId == null
-                    ? Resource.count("dnsFlat = true and lower(dnsName) = ?1", dnsName) > 0
-                    : Resource.count("dnsFlat = true and lower(dnsName) = ?1 and id <> ?2", dnsName, excludeId) > 0)
-                : (excludeId == null
-                    ? Resource.count("siteId = ?1 and dnsFlat = false and lower(dnsName) = ?2", siteId, dnsName) > 0
-                    : Resource.count("siteId = ?1 and dnsFlat = false and lower(dnsName) = ?2 and id <> ?3", siteId, dnsName, excludeId) > 0);
-        if (conflict) {
-            String scope = dnsFlat ? "already exists" : "already exists in this site";
+        String other = excludeId == null ? "" : excludeId;
+        String scope = dnsFlat ? "dnsFlat = true" : "siteId = ?3 and dnsFlat = false";
+        String q = scope + " and id <> ?2 and (lower(dnsName) = ?1 or ?1 member of dnsAliases)";
+        long clashes = dnsFlat
+                ? Resource.count(q, dnsName, other)
+                : Resource.count(q, dnsName, other, siteId);
+        if (clashes > 0) {
+            String where = dnsFlat ? "already exists" : "already exists in this site";
             throw new WebApplicationException(
                     Response.status(Response.Status.CONFLICT)
-                            .entity("a resource named '" + dnsName + "' " + scope)
+                            .entity("a resource named '" + dnsName + "' " + where)
                             .build());
         }
+    }
+
+    /** Blank → null; otherwise it must be an IPv6 literal (the main address
+     *  carries IPv4, this one the second family). */
+    private static String normalizeIp6(String ip6) {
+        if (ip6 == null || ip6.isBlank()) return null;
+        String v = ip6.strip();
+        if (!v.contains(":")) {
+            throw new WebApplicationException(
+                    Response.status(Response.Status.BAD_REQUEST).entity("ip6 must be an IPv6 address").build());
+        }
+        return v;
+    }
+
+    /** Lowercased, de-duplicated aliases without the main name; none at all
+     *  when there is no main name (an alias without a main name would make
+     *  the PTR answer and the admin listing ambiguous). */
+    private static java.util.Set<String> normalizeAliases(String dnsName, java.util.List<String> aliases) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        if (dnsName == null || aliases == null) return out;
+        for (String a : aliases) {
+            String n = normalizeDnsName(a);
+            if (n != null && !n.equals(dnsName)) out.add(n);
+        }
+        return out;
     }
 
     @Transactional

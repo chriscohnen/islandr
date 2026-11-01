@@ -752,7 +752,7 @@ export const peerModalTemplate = `
 
           <div class="field" style="margin-bottom: var(--space-4)">
             <label for="peerName">{{ peerType === 'site' ? t('peer.field_name_site') : t('peer.field_name') }}</label>
-            <input id="peerName" class="input" v-model="newPeer.name" required :placeholder="peerType === 'site' ? t('peer.field_name_ph_site') : t('peer.field_name_ph')" />
+            <input id="peerName" class="input" v-model="newPeer.name" required maxlength="64" :placeholder="peerType === 'site' ? t('peer.field_name_ph_site') : t('peer.field_name_ph')" />
             <div class="field-hint">{{ t('peer.field_name_hint') }}</div>
           </div>
 
@@ -936,7 +936,7 @@ export const peerModalTemplate = `
 
           <div class="field" style="margin-bottom: var(--space-4)">
             <label for="editName">{{ peerType === 'site' ? t('peer.field_name_site') : t('peer.field_name') }}</label>
-            <input id="editName" class="input" v-model="newPeer.name" required />
+            <input id="editName" class="input" v-model="newPeer.name" required maxlength="64" />
           </div>
 
           <div class="field" style="margin-bottom: var(--space-4)">

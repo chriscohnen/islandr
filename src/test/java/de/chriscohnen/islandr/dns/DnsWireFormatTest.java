@@ -17,6 +17,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DnsWireFormatTest {
 
     @Test
+    void buildPtrAnswer_roundTripsTheTargetName() throws Exception {
+        byte[] q = rawQuery(7, true, "5.140.77.10.in-addr.arpa", DnsWireFormat.TYPE_PTR);
+        DnsWireFormat.Query parsed = DnsWireFormat.parseQuery(q, q.length);
+
+        byte[] answer = DnsWireFormat.buildPtrAnswer(q, parsed, "lena-laptop.islandr.internal", 30);
+
+        assertThat(DnsWireFormat.parseFirstPtrName(answer)).isEqualTo("lena-laptop.islandr.internal");
+    }
+
+    @Test
     void parseQuery_extractsNameAndType() throws Exception {
         byte[] q = rawQuery(0x1234, true, "fileserver.homeoffice.islandr.internal", DnsWireFormat.TYPE_A);
         DnsWireFormat.Query parsed = DnsWireFormat.parseQuery(q, q.length);

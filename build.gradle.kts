@@ -30,7 +30,7 @@ dependencies {
     // inherit the per-request access re-check from #53.
     // Pulls only vertx-auth-common besides vertx-core, which is already pinned
     // to 4.5.27 by the resolution rule below.
-    implementation("io.vertx:vertx-auth-webauthn:4.5.27")
+    implementation("io.vertx:vertx-auth-webauthn:4.5.35")
 
     // Web layer
     implementation("io.quarkus:quarkus-rest")
@@ -93,32 +93,14 @@ dependencies {
 // not a version string on the dependency itself — this also covers transitive
 // submodules that aren't declared directly (e.g. Netty's many codec modules).
 //
-// The 3.33.3.2 BOM already ships jackson 2.21.5, postgresql 42.7.13 and
-// vertx-core 4.5.31 — every force we carried on 3.29.4 for those is now either
+// The 3.33.4.1 BOM already ships Netty 4.1.139 (the former 4.1.137 force is
+// gone: it would now pin us backwards), postgresql 42.7.13 and
+// vertx-core 4.5.35 — every force we carried on 3.29.4 for those is now either
 // equal to or older than the BOM, so they are gone rather than pinning us
 // backwards.
 configurations.all {
     resolutionStrategy.eachDependency {
-        // tcnative artifacts live on their own 2.0.x line (the BOM pins 2.0.78.Final)
-        // and have no 4.1.x release at all — a blanket io.netty force asks for a
-        // netty-tcnative-classes:4.1.137.Final that does not exist and fails resolution.
-        if (requested.group == "io.netty" && !requested.name.startsWith("netty-tcnative")) {
-            // The BOM ships 4.1.136.Final. 4.1.137.Final fixes CVE-2026-59898 and
-            // CVE-2026-59921 (netty-handler, netty-codec-http), which 4.1.136 does
-            // not — hence one step past the BOM, staying inside 4.1.x.
-            //
-            // HISTORY, do not re-introduce blindly: on Quarkus 3.29.4 this was
-            // CAPPED at 4.1.135.Final, because 4.1.136 changed the constructor of
-            // io.netty.handler.ssl.ReferenceCountedOpenSslClientContext, which that
-            // version's Vert.x GraalVM substitution called with the old signature —
-            // the native build failed while the JVM test suite passed. The 3.33 BOM
-            // ships 4.1.136 itself, so the substitution there expects the new
-            // signature. Any change here needs a NATIVE build to verify; tests alone
-            // cannot see this class of failure.
-            useVersion("4.1.137.Final")
-            because("CVE-2026-59898 (critical) and CVE-2026-59921, unfixed in the BOM's 4.1.136.Final; same 4.1.x line")
-        }
-        // The BOM ships Jackson 2.21.5. 2.21.7 fixes five high-severity parser
+        // The BOM ships Jackson below 2.21.7. 2.21.7 fixes five high-severity parser
         // DoS issues (number-pattern ReDoS, unbounded number parsing, quadratic
         // forward-reference completion, unbounded unknown type IDs) plus two
         // medium ones — reachable through every JSON request body, the login
@@ -156,11 +138,11 @@ configurations.all {
 // mismatch; see the override above for why that does not apply here.
 
 group = "de.chriscohnen.islandr"
-version = "1.2.1"
+version = "1.3.0-rc.1"
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 tasks.withType<Test> {
@@ -199,6 +181,9 @@ tasks.withType<JavaCompile> {
 //   The -Psqlite flag drops quarkus-jdbc-postgresql from the dependency tree.
 //   -Dquarkus.native.container-build pulls a Mandrel container so no local
 //   GraalVM is needed. Result: build/islandr-*-runner (Linux x86_64 binary).
+//   CI pins the builder image to a dated tag (ci.yml, Mandrel 25.0.5.0 on
+//   JDK 25) instead of the moving jdk-25 tag, so a release states which JDK
+//   trust store it carries; bump the date deliberately.
 //
 // Native build — with PostgreSQL (when migrating off SQLite, see ADR-0004):
 //   ./gradlew build -Dquarkus.native.enabled=true \

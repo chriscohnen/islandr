@@ -96,7 +96,10 @@ public class DnsResource {
      *  query work" without needing a live WireGuard round-trip to test it.
      *  Requires the full FQDN (no zone-append/bare-name shortcuts — a real
      *  query never gets those either). */
-    public record LookupRequest(@NotBlank String name, String sourceIp) {}
+    public record LookupRequest(@NotBlank String name, String sourceIp,
+                                @jakarta.validation.constraints.Pattern(regexp = "^(auto|A|AAAA|PTR)?$") String type) {
+        public LookupRequest(String name, String sourceIp) { this(name, sourceIp, null); }
+    }
 
     /** {@code result}: "answer" | "nxdomain" | "not-managed". {@code fqdn} is
      *  the canonical name that actually matched — worth showing since the
@@ -117,13 +120,40 @@ public class DnsResource {
      *  "no one can reach this" message), so the frontend needs to know which
      *  kind of name it's explaining before it picks a message. */
     public record LookupResponse(String result, String ip, String fqdn, String upstream,
-                                  java.util.List<String> grantedUsers, String nameKind) {}
+                                  java.util.List<String> grantedUsers, String nameKind,
+                                  String ip6, java.util.List<String> names) {
+        public LookupResponse(String result, String ip, String fqdn, String upstream,
+                              java.util.List<String> grantedUsers, String nameKind) {
+            this(result, ip, fqdn, upstream, grantedUsers, nameKind, null, null);
+        }
+    }
 
     @POST
     @Path("/lookup")
     public LookupResponse lookup(@Context ContainerRequestContext ctx, @Valid LookupRequest body) {
         Auth.requireAdmin(ctx);
         boolean asPeer = body.sourceIp() != null && !body.sourceIp().isBlank();
+        String typed = body.name().trim();
+        String type = body.type() == null || body.type().isBlank() ? "auto" : body.type();
+        String arpa = DnsQueryHandler.isReverseName(typed) ? typed : DnsQueryHandler.reverseName(typed);
+        if (type.equals("PTR") && arpa == null) {
+            throw new jakarta.ws.rs.BadRequestException("PTR needs an IP address or an in-addr.arpa / ip6.arpa name");
+        }
+        if (arpa != null && (type.equals("auto") || type.equals("PTR"))) {
+            // An address (or arpa name): the PTR lookup, same rules as a real query.
+            DnsQueryHandler.Resolution rev = asPeer
+                    ? queryHandler.resolveReverse(arpa, body.sourceIp().trim())
+                    : queryHandler.resolveReverseForAdminPreview(arpa);
+            if (rev instanceof DnsQueryHandler.Resolution.Answer a) {
+                java.util.List<String> all = a.resourceId() == null ? null : queryHandler.resourceNames(a.resourceId());
+                return new LookupResponse("answer", a.ip(), a.fqdn(), null, null, "reverse", null, all);
+            }
+            if (rev instanceof DnsQueryHandler.Resolution.NxDomain) {
+                return new LookupResponse("nxdomain", null, null, null, null, null);
+            }
+            // Outside the tunnel subnets: the upstream answers PTR queries, this preview does not ask it.
+            return new LookupResponse("not-managed", null, null, null, null, null);
+        }
         DnsQueryHandler.Resolution r = asPeer
                 ? queryHandler.resolve(body.name(), body.sourceIp().trim())
                 : queryHandler.resolveForAdminPreview(body.name());
@@ -134,7 +164,19 @@ public class DnsResource {
             // "list of users with a grant" to show.
             java.util.List<String> granted = (asPeer || kind != DnsQueryHandler.ResolvableNameKind.RESOURCE)
                     ? null : queryHandler.grantedUserLabels(a.resourceId());
-            return new LookupResponse("answer", a.ip(), a.fqdn(), null, granted, kind.name().toLowerCase(java.util.Locale.ROOT));
+            String kindName = kind.name().toLowerCase(java.util.Locale.ROOT);
+            // A or AAAA asked for, but the name has no address of that family: NODATA.
+            if ((type.equals("A") || type.equals("AAAA"))
+                    && DnsResolverService.addressFor(type.equals("A") ? 1 : 28, a.ip(), a.ip6()) == null) {
+                return new LookupResponse("nodata", null, a.fqdn(), null, null, kindName);
+            }
+            java.util.List<String> all = a.resourceId() == null ? null : queryHandler.resourceNames(a.resourceId());
+            // A or AAAA asked for: show only the address of that family, as a client would get it.
+            if (type.equals("A") || type.equals("AAAA")) {
+                String address = DnsResolverService.addressStringFor(type.equals("A") ? 1 : 28, a.ip(), a.ip6());
+                return new LookupResponse("answer", address, a.fqdn(), null, granted, kindName, null, all);
+            }
+            return new LookupResponse("answer", a.ip(), a.fqdn(), null, granted, kindName, a.ip6(), all);
         }
         if (r instanceof DnsQueryHandler.Resolution.NxDomain) {
             return new LookupResponse("nxdomain", null, null, null, null, null);

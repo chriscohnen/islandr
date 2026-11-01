@@ -33,14 +33,16 @@ public class OidcAuthResource {
     private static final int STATE_TTL_SECONDS = 300;
 
     @Inject OidcLoginService oidc;
+    @Inject ClientAddress clientAddress;
 
     @GET
     @Path("/{provider}/start")
-    public Response start(@PathParam("provider") String provider, @Context UriInfo uriInfo) {
+    public Response start(@PathParam("provider") String provider, @Context UriInfo uriInfo,
+                          @Context io.vertx.core.http.HttpServerRequest request) {
         String redirectUri = absoluteCallbackUri(uriInfo, provider);
         OidcLoginService.AuthorizeRedirect a = oidc.buildAuthorizeUrl(provider, redirectUri);
         return Response.seeOther(URI.create(a.url()))
-                .cookie(buildStateCookie(provider, a.state(), STATE_TTL_SECONDS))
+                .cookie(buildStateCookie(provider, a.cookieValue(), STATE_TTL_SECONDS, clientAddress.isHttps(request)))
                 .build();
     }
 
@@ -53,7 +55,8 @@ public class OidcAuthResource {
                              @QueryParam("error_description") String idpErrorDescription,
                              @QueryParam("admin_consent") String adminConsent,
                              @Context UriInfo uriInfo,
-                             @Context jakarta.ws.rs.container.ContainerRequestContext ctx) {
+                             @Context jakarta.ws.rs.container.ContainerRequestContext ctx,
+                             @Context io.vertx.core.http.HttpServerRequest request) {
         // An admin-consent return is not a login (issue #81). Microsoft sends
         // the browser here with admin_consent=True and no code, and there is no
         // state cookie because no login was ever started — so the CSRF check
@@ -75,8 +78,8 @@ public class OidcAuthResource {
             Session s = oidc.handleCallback(provider, code, state, cookieState, redirectUri);
             int maxAge = (int) Duration.between(Instant.now(), s.expiresAt).getSeconds();
             return Response.seeOther(URI.create("/"))
-                    .cookie(buildSessionCookie(s.id, maxAge))
-                    .cookie(buildStateCookie(provider, "", 0))  // clear state cookie
+                    .cookie(buildSessionCookie(s.id, maxAge, clientAddress.isHttps(request)))
+                    .cookie(buildStateCookie(provider, "", 0, clientAddress.isHttps(request)))  // clear state cookie
                     .build();
         } catch (jakarta.ws.rs.BadRequestException bre) {
             return loginErrorRedirect("bad_request", bre.getMessage());
@@ -119,21 +122,23 @@ public class OidcAuthResource {
         return java.net.URLEncoder.encode(s, java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    private NewCookie buildStateCookie(String provider, String value, int maxAge) {
+    private NewCookie buildStateCookie(String provider, String value, int maxAge, boolean secure) {
         return new NewCookie.Builder(STATE_COOKIE_PREFIX + provider)
                 .value(value)
                 .path("/api/v1/auth/oidc")
                 .httpOnly(true)
+                .secure(secure)
                 .sameSite(NewCookie.SameSite.LAX)
                 .maxAge(maxAge)
                 .build();
     }
 
-    private NewCookie buildSessionCookie(String value, int maxAge) {
+    private NewCookie buildSessionCookie(String value, int maxAge, boolean secure) {
         return new NewCookie.Builder(SessionFilter.COOKIE_NAME)
                 .value(value)
                 .path("/")
                 .httpOnly(true)
+                .secure(secure)
                 .sameSite(NewCookie.SameSite.LAX)
                 .maxAge(maxAge)
                 .build();

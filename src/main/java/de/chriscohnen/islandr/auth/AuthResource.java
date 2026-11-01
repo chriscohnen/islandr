@@ -107,13 +107,13 @@ public class AuthResource {
             // user-enumeration oracle the dummy PBKDF2 run prevents.
             long heldMs = throttle.delayMillis(body.username(), ip);
             sleepQuietly(heldMs);
-            return attemptLogin(body, ip, heldMs);
+            return attemptLogin(body, ip, heldMs, clientAddress.isHttps(request));
         } finally {
             throttle.exit();
         }
     }
 
-    private Response attemptLogin(LoginRequest body, String ip, long heldMs) {
+    private Response attemptLogin(LoginRequest body, String ip, long heldMs, boolean https) {
         // 1. ENV bootstrap admin (in-memory credential), bound to its admin@local
         //    identity (F-01b) so it can own peers and self-assign roles.
         if (adminBootstrap.isEnabled() && adminBootstrap.matches(body.username(), body.password())) {
@@ -124,7 +124,8 @@ public class AuthResource {
             throttle.recordSuccess(body.username(), ip);
             audit.logEvent(s.principal, "auth.login_local", "Session:" + s.id,
                     java.util.Map.of("provider", "local", "clientIp", ip));
-            return okSession(s, new MeResponse(s.principal, s.provider, adminUserId, true, s.expiresAt));
+            return okSession(s, new MeResponse(s.principal, s.provider, adminUserId, true, s.expiresAt),
+                    https);
         }
 
         // 2. Local DB user with a password (F-01a) — works independently of the ENV
@@ -135,7 +136,8 @@ public class AuthResource {
             throttle.recordSuccess(body.username(), ip);
             audit.logEvent(s.principal, "auth.login_local", "Session:" + s.id,
                     java.util.Map.of("provider", "local", "clientIp", ip));
-            return okSession(s, new MeResponse(localUser.email, s.provider, localUser.id, localUser.isAdmin, s.expiresAt));
+            return okSession(s, new MeResponse(localUser.email, s.provider, localUser.id, localUser.isAdmin, s.expiresAt),
+                    https);
         }
 
         // 3. Neither matched. Failed logins are an intrusion signal — audit the
@@ -168,9 +170,9 @@ public class AuthResource {
      *  other login does — same row, same cookie, same lifetime. A parallel
      *  mechanism next to this one is what ADR-0028 rejected the Quarkus
      *  extension for. */
-    Response okSession(Session s, MeResponse me) {
+    Response okSession(Session s, MeResponse me, boolean secure) {
         return Response.ok(me)
-                .cookie(buildCookie(s.id, (int) java.time.Duration.between(Instant.now(), s.expiresAt).getSeconds()))
+                .cookie(buildCookie(s.id, (int) java.time.Duration.between(Instant.now(), s.expiresAt).getSeconds(), secure))
                 .build();
     }
 
@@ -209,7 +211,7 @@ public class AuthResource {
     @POST
     @Path("/logout")
     @Consumes(MediaType.WILDCARD)  // logout has no body; don't reject for missing Content-Type
-    public Response logout(@Context ContainerRequestContext ctx) {
+    public Response logout(@Context ContainerRequestContext ctx, @Context HttpServerRequest request) {
         Cookie c = ctx.getCookies().get(SessionFilter.COOKIE_NAME);
         if (c != null) {
             // Resolve before revoking so the principal makes it into the audit
@@ -222,7 +224,7 @@ public class AuthResource {
             }
         }
         return Response.noContent()
-                .cookie(buildCookie("", 0))  // max-age 0 = delete in browser
+                .cookie(buildCookie("", 0, clientAddress.isHttps(request)))  // max-age 0 = delete in browser
                 .build();
     }
 
@@ -236,14 +238,15 @@ public class AuthResource {
         return Response.ok(new MeResponse(s.principal, s.provider, s.userId, isAdmin, s.expiresAt)).build();
     }
 
-    NewCookie buildCookie(String value, int maxAgeSeconds) {
-        // Secure flag intentionally left false: dev runs over plain HTTP.
-        // The reverse proxy / TLS terminator in prod sets Secure via cookie rewrite
-        // (or we promote this to a config flag when deploying).
+    /** @param secure whether this request came over HTTPS ({@link ClientAddress#isHttps});
+     *         plain HTTP (dev, or an install without TLS) must not get a Secure cookie
+     *         or the browser would drop it and nobody could log in. */
+    NewCookie buildCookie(String value, int maxAgeSeconds, boolean secure) {
         return new NewCookie.Builder(SessionFilter.COOKIE_NAME)
                 .value(value)
                 .path("/")
                 .httpOnly(true)
+                .secure(secure)
                 .sameSite(NewCookie.SameSite.LAX)
                 .maxAge(maxAgeSeconds)
                 .build();

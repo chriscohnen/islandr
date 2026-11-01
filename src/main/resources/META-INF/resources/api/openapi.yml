@@ -250,6 +250,20 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /metrics:
+    get:
+      summary: Health gauges in the Prometheus text format
+      description: >
+        Install-wide gauges only (enforcement ok, age of the last successful
+        ruleset apply, boot table still active, TLS certificate days left,
+        connected peers as a total). Nothing per peer or per person. Scope monitoring:read.
+      responses:
+        "200":
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema: { type: string }
+        "403": { description: The key lacks the monitoring:read scope }
   /audit:
     get:
       operationId: listAudit
@@ -642,8 +656,13 @@ components:
         ip: { type: string }
         description: { type: string, nullable: true }
         type: { type: string, enum: [computer, router, printer, nas, camera, iot, virt-host, rackserver, kvm, management, other] }
+        ip6: { type: string, nullable: true, description: Optional second, IPv6 address (dual stack). }
         dnsName: { type: string, nullable: true }
         dnsFlat: { type: boolean }
+        dnsAliases:
+          type: array
+          description: Further DNS names of the same resource (same IP and scope as dnsName).
+          items: { type: string }
         ports:
           type: array
           items:

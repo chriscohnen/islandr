@@ -32,6 +32,7 @@ public class RulesetService {
     @Inject AuditService audit;
     @Inject EnforcementStatus enforcement;
     @Inject BootTableState bootTable;
+    @Inject de.chriscohnen.islandr.webhook.WebhookDispatcher webhooks;
 
     /**
      * Build a fresh ruleset from DB state and apply it. Persists the result
@@ -45,10 +46,18 @@ public class RulesetService {
      * @return the resulting state record (so the caller can render it back
      *         to the UI immediately).
      */
+    /** One webhook per failure streak: a retry that fails again says nothing new. */
+    private void notifyApplyFailed(boolean alreadyFailed) {
+        if (alreadyFailed) return;
+        webhooks.publish(de.chriscohnen.islandr.webhook.WebhookEventType.FIREWALL_APPLY_FAILED,
+                "system", "Firewall:ruleset", java.util.Map.of());
+    }
+
     @Transactional
     public FirewallState recomputeAndApply(String actor) {
         RuleBuilder.Snapshot snap = builder.build();
         FirewallState state = FirewallState.get();
+        boolean wasFailed = FirewallState.FAILED.equals(state.lastStatus);
         state.lastAttemptAt = Instant.now();
 
         NftablesAdapter.ValidationResult validation;
@@ -71,6 +80,7 @@ public class RulesetService {
             // would be misleading here.
             audit.logEvent(actor, "firewall.apply_failed", "Firewall:ruleset",
                     auditDetails(snap, validation.stderr()));
+            notifyApplyFailed(wasFailed);
             return state;
         }
 
@@ -86,6 +96,7 @@ public class RulesetService {
             state.stderrText = ex.getMessage();
             audit.logEvent(actor, "firewall.apply_failed", "Firewall:ruleset",
                     auditDetails(snap, ex.getMessage()));
+            notifyApplyFailed(wasFailed);
             return state;
         }
 

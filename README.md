@@ -9,7 +9,7 @@
   <a href="https://codecov.io/gh/chriscohnen/islandr"><img src="https://codecov.io/gh/chriscohnen/islandr/graph/badge.svg" alt="Coverage"></a>
   <a href="https://github.com/chriscohnen/islandr/releases/latest"><img src="https://img.shields.io/github/v/release/chriscohnen/islandr?label=release" alt="Latest release"></a>
   <a href="https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12"><img src="https://img.shields.io/badge/licence-EUPL--1.2-blue" alt="Licence EUPL-1.2"></a>
-  <img src="https://img.shields.io/badge/java-21-orange" alt="Java 21">
+  <img src="https://img.shields.io/badge/java-25-orange" alt="Java 25">
   <img src="https://img.shields.io/badge/built%20with-Quarkus-4695EB" alt="Built with Quarkus">
 </p>
 
@@ -139,7 +139,7 @@ check runs only when you ask for it.
 | TLS | built in, with automatic Let's Encrypt — a reverse proxy stays optional |
 | Privileges | runs unprivileged; `sudo` scoped to `nft` and `wg` ([ADR-0011](docs/adr/0011-process-privilege-model.md)) |
 
-Built with Quarkus and Java 21, compiled ahead of time with GraalVM; the
+Built with Quarkus and Java 25, compiled ahead of time with GraalVM; the
 frontend is Vue 3 served as plain ES modules with no build step. None of that
 is anything you have to install or maintain — the reasoning is in
 [docs/adr/](docs/adr/).
@@ -199,6 +199,23 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 | Database | in-memory SQLite (auto) | SQLite file or PostgreSQL |
 
 ## Status & roadmap
+
+**1.3.0 — DNS that answers more of the questions, and a hub that tells you when it fails.**
+A resource can now carry several DNS names, so one VM behind a reverse proxy that picks the
+app by name needs one resource, not three. The resolver answers reverse lookups (PTR) for tunnel
+addresses with the same names and the same visibility as the forward lookup, serves AAAA for
+peers, the hub and resources with a second IPv6 address, and no longer hands out an A record
+for a record type it has no address for. The DNS page lets you pick the record type and shows
+all names of a resource. A status endpoint (`GET /api/external/v1/metrics`, Prometheus text,
+read-only `monitoring:read` key) reports whether the firewall rules are being applied, whether
+the boot table is still in the way, certificate days left and the number of connected peers;
+totals only, nothing per person. A webhook event fires when the firewall rules cannot be applied.
+
+Security: the session cookie is `Secure` over HTTPS, every response carries framing, sniffing and
+referrer headers, a Content-Security-Policy runs in report-only mode so it can be enforced in a
+later release, single sign-on uses a nonce and PKCE, device names are capped at 64 characters, and
+sharing a port no longer shows which e-mail addresses have an account. Islandr is built on
+Java 25 and Quarkus 3.33.4.
 
 **1.2.0 — mostly maintenance: less friction in the console.** *1.2.1 fixes overlapping device labels in the dashboard topology.*
 Most of this release is the admin console getting out of the way, and what is new is
@@ -260,9 +277,6 @@ Planned features are tracked as GitHub issues — 👍 or comment to signal what
 
 **v2 — Usability & convenience** ([milestone](https://github.com/chriscohnen/islandr/milestone/1))
 - [Entra ID user import](https://github.com/chriscohnen/islandr/issues/12) — browse org users and import selected; the Google Workspace half of this shipped in 0.9.1
-
-**v3 — Operations** ([milestone](https://github.com/chriscohnen/islandr/milestone/2))
-- [Prometheus `/metrics`](https://github.com/chriscohnen/islandr/issues/71) — so the hub reports into the monitoring you already run
 
 ## What 1.0 promises
 

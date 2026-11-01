@@ -1,7 +1,11 @@
 package de.chriscohnen.islandr.acl;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -10,6 +14,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -39,6 +45,12 @@ public class Resource extends PanacheEntityBase {
     @Column(name = "ip", nullable = false, length = 45)
     public String ip;
 
+    /** Optional second, IPv6 address (dual stack): the resource's DNS names then
+     *  answer AAAA with it next to the A record for {@link #ip}. */
+    @ValidIpAddress
+    @Column(name = "ip6", length = 45)
+    public String ip6;
+
     @Column(name = "description", columnDefinition = "TEXT")
     public String description;
 
@@ -59,6 +71,15 @@ public class Resource extends PanacheEntityBase {
             message = "must be a lowercase DNS label (letters, digits, hyphens; not starting/ending with a hyphen)")
     @Column(name = "dns_name", length = 63)
     public String dnsName;
+
+    /** Further names of this resource (a reverse proxy picks the app by FQDN).
+     *  Same IP, same scope as {@link #dnsName} ({@link #dnsFlat} applies to all),
+     *  lowercase labels, unique like the main name. Empty unless {@code dnsName}
+     *  is set. */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "resource_dns_aliases", joinColumns = @JoinColumn(name = "resource_id"))
+    @Column(name = "name", nullable = false, length = 63)
+    public Set<String> dnsAliases = new LinkedHashSet<>();
 
     /** When true, this resource resolves as {@code <dnsName>.<zone>} directly —
      *  no site subdomain layer — instead of {@code <dnsName>.<site>.<zone>}

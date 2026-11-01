@@ -8,6 +8,20 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.3.0
+
+- Security: sharing a port with a colleague no longer reveals whether an e-mail address has an account; a person who does not exist or may not sign in gets the same answer as one who does
+- Security: single sign-on logins carry a `nonce` that the ID token must echo and use PKCE (S256) on the code exchange; a login started before the upgrade has to be started again
+- Security: a Content-Security-Policy is sent in report-only mode (violations are logged, nothing is blocked yet) so it can be enforced in a later release
+- Security: the session cookie is `Secure` when the browser reached Islandr over HTTPS (directly, or through a proxy named under trusted proxies); security headers on every response (no framing, no content sniffing, same-origin referrer, no camera, microphone or location); `Strict-Transport-Security` only on HTTPS with a certificate a browser can be held to; device names are limited to 64 characters
+- Added: `GET /api/external/v1/metrics` — health gauges in the Prometheus text format for existing monitoring, behind a new read-only `monitoring:read` API key scope; a webhook event `firewall.apply_failed` fires when the firewall rules cannot be applied
+- Added: a resource can carry a second, IPv6 address; peers, the hub and such resources answer AAAA. Other record types now get an empty answer instead of an A record
+- Added: the DNS lookup preview lets you pick the record type (A, AAAA, PTR), shows no-data answers and lists all names of a resource
+- Added: the DNS resolver answers reverse lookups (PTR) for tunnel addresses with the same names and visibility as the forward lookup; the lookup preview takes an IP address
+- Added: a resource can have more than one DNS name, for a reverse proxy that picks the app by name
+- Changed: built and run on Java 25 (LTS); Mandrel 25.0.5.0 for the native binary
+- Changed: Quarkus 3.33.4.1 (Netty 4.1.139, Vert.x 4.5.35); native release builds use a pinned Mandrel 23.1.12.1 builder image
+
 ## 1.2.1
 
 - Fixed: in the dashboard topology, the labels of devices connected to the hub ran into the hub's own name and into each other. Devices now sit in the gaps between the links to networks, clear of the hub's label, and their name and address point away from the hub

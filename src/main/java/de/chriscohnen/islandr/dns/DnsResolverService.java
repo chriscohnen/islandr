@@ -307,18 +307,33 @@ public class DnsResolverService {
         }
 
         DnsQueryHandler.Resolution resolution;
+        boolean reverse = DnsQueryHandler.isReverseName(parsed.name());
         try {
-            resolution = queryHandler.resolve(parsed.name(), sourceIp);
+            resolution = reverse
+                    ? queryHandler.resolveReverse(parsed.name(), sourceIp)
+                    : queryHandler.resolve(parsed.name(), sourceIp);
         } catch (RuntimeException e) {
             LOG.warnf("dns resolver: query handling failed for '%s' — %s", parsed.name(), e.getMessage());
             return null;
         }
 
+        if (reverse && resolution instanceof DnsQueryHandler.Resolution.Answer answer) {
+            stats.recordLocal();
+            return parsed.qtype() == DnsWireFormat.TYPE_PTR
+                    ? DnsWireFormat.buildPtrAnswer(query, parsed, answer.fqdn(), ANSWER_TTL_SECONDS)
+                    : DnsWireFormat.buildNoData(query, parsed);
+        }
         if (resolution instanceof DnsQueryHandler.Resolution.Answer answer) {
             stats.recordLocal();
-            byte[] addressBytes = literalAddressBytes(answer.ip());
-            if (addressBytes == null) return DnsWireFormat.buildError(query, parsed, DnsWireFormat.RCODE_NXDOMAIN);
-            return DnsWireFormat.buildAnswerOrNoData(query, parsed, addressBytes, ANSWER_TTL_SECONDS);
+            if (literalAddressBytes(answer.ip()) == null) {
+                return DnsWireFormat.buildError(query, parsed, DnsWireFormat.RCODE_NXDOMAIN);
+            }
+            // Only A and AAAA carry addresses; any other type (HTTPS, TXT, ...) for a
+            // name we own is NODATA, never an A record under a foreign QTYPE.
+            byte[] addressBytes = addressFor(parsed.qtype(), answer.ip(), answer.ip6());
+            return addressBytes == null
+                    ? DnsWireFormat.buildNoData(query, parsed)
+                    : DnsWireFormat.buildAnswer(query, parsed, addressBytes, ANSWER_TTL_SECONDS);
         }
         if (resolution instanceof DnsQueryHandler.Resolution.NxDomain) {
             stats.recordLocal();
@@ -326,6 +341,24 @@ public class DnsResolverService {
         }
         stats.recordForwarded();
         return forward(query);
+    }
+
+    /** The address of the family the question asks for (A → 4 bytes, AAAA → 16),
+     *  taken from the answer's main or IPv6 address; null when there is none. */
+    static byte[] addressFor(int qtype, String ip, String ip6) {
+        String s = addressStringFor(qtype, ip, ip6);
+        return s == null ? null : literalAddressBytes(s);
+    }
+
+    /** Same choice as {@link #addressFor}, as the literal; null when the family has no address. */
+    static String addressStringFor(int qtype, String ip, String ip6) {
+        if (qtype != DnsWireFormat.TYPE_A && qtype != DnsWireFormat.TYPE_AAAA) return null;
+        int want = qtype == DnsWireFormat.TYPE_AAAA ? 16 : 4;
+        for (String candidate : new String[] {ip, ip6}) {
+            byte[] b = candidate == null ? null : literalAddressBytes(candidate);
+            if (b != null && b.length == want) return candidate;
+        }
+        return null;
     }
 
     private static byte[] literalAddressBytes(String ip) {

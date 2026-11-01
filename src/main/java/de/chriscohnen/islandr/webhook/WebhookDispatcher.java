@@ -177,6 +177,7 @@ public class WebhookDispatcher {
      *  Gotify client if the admin configures it that way. */
     private static int gotifyPriority(String eventType) {
         if (WebhookEventType.ACME_CERT_RENEWAL_FAILED.equals(eventType)
+                || WebhookEventType.FIREWALL_APPLY_FAILED.equals(eventType)
                 || WebhookEventType.PEER_DISCONNECTED.equals(eventType)) {
             return 8;
         }
@@ -194,6 +195,7 @@ public class WebhookDispatcher {
             case WebhookEventType.DISCOVERY_SCAN_COMPLETED -> "Device discovery scan completed";
             case WebhookEventType.ACME_CERT_RENEWED -> "Certificate renewed";
             case WebhookEventType.ACME_CERT_RENEWAL_FAILED -> "Certificate renewal failed";
+            case WebhookEventType.FIREWALL_APPLY_FAILED -> "Firewall apply failed";
             case WebhookEventType.TEST -> "Test notification";
             default -> eventType;
         };
