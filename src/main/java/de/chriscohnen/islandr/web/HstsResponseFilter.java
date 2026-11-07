@@ -35,7 +35,14 @@ public class HstsResponseFilter implements ContainerResponseFilter {
     boolean applies(HttpServerRequest r) {
         if (r == null) return false;
         var conn = r.connection();
-        if (conn != null && conn.isSsl()) return securityHeaders.directTlsTrusted();
-        return clientAddress.isHttps(r);
+        boolean directTls = conn != null && conn.isSsl();
+        return applies(directTls, !directTls && clientAddress.isHttps(r));
+    }
+
+    /** The decision, free of Vert.x: a direct TLS socket counts only with a
+     *  certificate a browser can validate; a trusted proxy's HTTPS always counts. */
+    boolean applies(boolean directTls, boolean httpsViaTrustedProxy) {
+        if (directTls) return securityHeaders.directTlsTrusted();
+        return httpsViaTrustedProxy;
     }
 }

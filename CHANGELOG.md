@@ -20,7 +20,7 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 - Added: the DNS resolver answers reverse lookups (PTR) for tunnel addresses with the same names and visibility as the forward lookup; the lookup preview takes an IP address
 - Added: a resource can have more than one DNS name, for a reverse proxy that picks the app by name
 - Changed: built and run on Java 25 (LTS); Mandrel 25.0.5.0 for the native binary
-- Changed: Quarkus 3.33.4.1 (Netty 4.1.139, Vert.x 4.5.35); native release builds use a pinned Mandrel 23.1.12.1 builder image
+- Changed: Quarkus 3.33.4.1 (Netty 4.1.139, Vert.x 4.5.35); native release builds use a pinned Mandrel builder image
 
 ## 1.2.1
 

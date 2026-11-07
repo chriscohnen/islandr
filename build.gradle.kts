@@ -138,7 +138,7 @@ configurations.all {
 // mismatch; see the override above for why that does not apply here.
 
 group = "de.chriscohnen.islandr"
-version = "1.3.0-rc.1"
+version = "1.3.0-rc.2"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25

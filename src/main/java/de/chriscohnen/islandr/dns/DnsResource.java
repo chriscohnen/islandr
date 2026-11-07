@@ -146,7 +146,11 @@ public class DnsResource {
                     : queryHandler.resolveReverseForAdminPreview(arpa);
             if (rev instanceof DnsQueryHandler.Resolution.Answer a) {
                 java.util.List<String> all = a.resourceId() == null ? null : queryHandler.resourceNames(a.resourceId());
-                return new LookupResponse("answer", a.ip(), a.fqdn(), null, null, "reverse", null, all);
+                // Grants of the resource behind the address, as for a name lookup; a hub or
+                // peer address has none, and a tested peer's own outcome needs no list.
+                java.util.List<String> granted = (asPeer || a.resourceId() == null)
+                        ? null : queryHandler.grantedUserLabels(a.resourceId());
+                return new LookupResponse("answer", a.ip(), a.fqdn(), null, granted, "reverse", null, all);
             }
             if (rev instanceof DnsQueryHandler.Resolution.NxDomain) {
                 return new LookupResponse("nxdomain", null, null, null, null, null);

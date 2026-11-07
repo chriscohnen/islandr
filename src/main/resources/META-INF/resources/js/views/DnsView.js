@@ -226,7 +226,7 @@ export default defineComponent({
                 <span v-else-if="lookupResult.grantedUsers && lookupResult.grantedUsers.length > 0">
                   {{ t('dns.lookup_result_granted_users', { users: lookupResult.grantedUsers.join(', ') }) }}
                 </span>
-                <span v-else>{{ t('dns.lookup_result_no_grants') }}</span>
+                <span v-else-if="lookupResult.grantedUsers">{{ t('dns.lookup_result_no_grants') }}</span>
               </div>
             </div>
           </div>
