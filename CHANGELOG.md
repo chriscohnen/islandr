@@ -10,6 +10,7 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ## 1.3.0
 
+- The sign-in screen, the self-service portal and Settings name the copyright holder next to the licence; README and TRADEMARK.md carry the same notice as LICENSE
 - Security: sharing a port with a colleague no longer reveals whether an e-mail address has an account; a person who does not exist or may not sign in gets the same answer as one who does
 - Security: single sign-on logins carry a `nonce` that the ID token must echo and use PKCE (S256) on the code exchange; a login started before the upgrade has to be started again
 - Security: a Content-Security-Policy is sent in report-only mode (violations are logged, nothing is blocked yet) so it can be enforced in a later release

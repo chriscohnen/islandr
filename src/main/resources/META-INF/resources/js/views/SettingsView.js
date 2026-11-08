@@ -1843,6 +1843,11 @@ export default defineComponent({
           <span class="muted" style="font-size: var(--text-sm)">·</span>
           <a href="https://github.com/chriscohnen/islandr" target="_blank" rel="noopener" style="font-size: var(--text-sm)">{{ t('settings.license_source') }}</a>
           <span class="field-hint" style="flex-basis: 100%; margin-top: 0">{{ t('settings.license_scope') }}</span>
+          <!-- The rights holder, same wording as LICENSE and TRADEMARK.md.
+               Admins only — the login footer and the portal carry the short
+               form without a link. -->
+          <a href="https://chriscohnen.de" target="_blank" rel="noopener"
+             class="muted" style="flex-basis: 100%; font-size: var(--text-sm)">{{ t('common.copyright') }}</a>
         </div>
 
         <div v-if="versionCheck && !versionCheck.error && !versionCheck.upToDate"

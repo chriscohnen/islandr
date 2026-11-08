@@ -71,6 +71,7 @@ const messages = {
     "common.copy_failed": "Copy failed — select the text and copy manually",
     "common.theme_light": "Switch to light mode",
     "common.theme_dark": "Switch to dark mode",
+    "common.copyright": "© 2026 Christian Cohnen",
     "common.pw_show":   "Show password",
     "common.pw_hide":   "Hide password",
 
@@ -507,6 +508,7 @@ const messages = {
     "atlas.empty_no_users":   "No users exist yet.",
     "atlas.empty_no_resources": "No resources exist yet.",
     "atlas.circle_mobile":    "Mobile / Roaming",
+    "atlas.edge_group_title": "{n} grants into this site — hover, select or zoom in to see each one",
     "atlas.pan_zoom_hint":    "Drag to pan · +/- buttons or keys to zoom · double-click to reset",
     "atlas.legend_hint":      "Each circle is a network. A line means the user at its start has been granted access to the resource at its end.",
     "atlas.legend_connected_hint": "A green dot (•) marks a user with a currently connected device — pingable, same as a resource.",
@@ -1949,6 +1951,7 @@ const messages = {
     "common.copy_failed": "Kopieren fehlgeschlagen — Text markieren und manuell kopieren",
     "common.theme_light": "Zum Hellmodus wechseln",
     "common.theme_dark": "Zum Dunkelmodus wechseln",
+    "common.copyright": "© 2026 Christian Cohnen",
     "common.pw_show":   "Passwort anzeigen",
     "common.pw_hide":   "Passwort verbergen",
 
@@ -2384,6 +2387,7 @@ const messages = {
     "atlas.empty_no_users":   "Es gibt noch keine Nutzer.",
     "atlas.empty_no_resources": "Es gibt noch keine Ressourcen.",
     "atlas.circle_mobile":    "Mobil / Roaming",
+    "atlas.edge_group_title": "{n} Freigaben in dieses Netz — Hover, Auswahl oder Zoom zeigen jede einzeln",
     "atlas.pan_zoom_hint":    "Ziehen zum Verschieben · +/- Buttons oder Tasten zum Zoomen · Doppelklick setzt zurück",
     "atlas.legend_hint":      "Jeder Kreis steht für ein Netz. Eine Linie bedeutet: Der User am Anfang der Linie hat Zugriff auf die Ressource am Ende erhalten.",
     "atlas.legend_connected_hint": "Ein grüner Punkt (•) markiert einen User mit aktuell verbundenem Gerät — pingbar, genau wie eine Ressource.",

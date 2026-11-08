@@ -23,7 +23,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **1.2.0 is out — mostly maintenance.** What is new is small and makes what you already have easier to read, plus a handful of long-standing rough edges gone: the peers list says at a glance whether a device is alive and how long it has been connected, its rows are a third of the height they were, the dashboard counts the bytes of the last hour, and the topology diagram stays legible when you drill into a crowded network. **Edge hubs** — a second hub at a remote site — are groundwork in this release and **not usable yet**: they need software at the edge that fetches its configuration from the hub and enforces the firewall there, and that does not exist. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> **1.3.0 is out — DNS that answers more of the questions, and a hub that tells you when it fails.** A resource can carry several DNS names and a second IPv6 address, the resolver answers reverse lookups, and a read-only status endpoint reports whether the firewall rules are being applied. Security headers, a report-only Content-Security-Policy and a nonce plus PKCE on single sign-on come with it, and Islandr now runs on Java 25. **Edge hubs** — a second hub at a remote site — are still groundwork and **not usable yet**: they need software at the edge that fetches its configuration from the hub and enforces the firewall there, and that does not exist. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
 > Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
@@ -71,8 +71,8 @@ A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Sit
 A site that is far away — another continent, a bad route — should not send its local
 traffic to the hub and back. **Edge hubs** are being built for that: a second hub at the
 site, with devices dialling it instead of crossing the world to reach a printer in the
-next room, while policy, users and the audit log stay on the central hub. The model is
-in 1.2.0 and the edge software is not, so this is not something to deploy yet.
+next room, while policy, users and the audit log stay on the central hub. The model has
+existed since 1.2.0 and the edge software has not, so this is not something to deploy yet.
 
 ```
 [Road Warrior]──┐
@@ -360,7 +360,7 @@ Bug reports and feature ideas via [GitHub Issues](https://github.com/chriscohnen
 
 ## License
 
-**EUPL-1.2** (EU-governed, copyleft, AGPL-compatible). See [docs/adr/0009-license-eupl-1.2.md](docs/adr/0009-license-eupl-1.2.md) for the rationale.
+Copyright (c) 2026 Christian Cohnen. Licensed under **EUPL-1.2** (EU-governed, copyleft, AGPL-compatible). See [docs/adr/0009-license-eupl-1.2.md](docs/adr/0009-license-eupl-1.2.md) for the rationale.
 
 ## Legal Notice / Trademark Disclaimer
 

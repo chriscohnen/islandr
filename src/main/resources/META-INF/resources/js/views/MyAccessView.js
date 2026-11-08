@@ -1551,6 +1551,7 @@ export default defineComponent({
         <a href="https://islandr-gateway.net" target="_blank" rel="noopener"
            class="myaccess-project-link">{{ t('myaccess.project_name') }}</a>
         <span aria-hidden="true"> · </span>{{ t('myaccess.project_license') }}
+        <span aria-hidden="true"> · </span>{{ t('common.copyright') }}
       </p>
     </div>
 

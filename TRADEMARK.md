@@ -49,7 +49,7 @@ to remove the origin. The EUPL's *Attribution right* obliges anyone who
 distributes a modified version to:
 
 - **keep every copyright, patent, trademark and licence notice intact** — the
-  `Copyright (c) Christian Cohnen` line stays, including in your renamed build;
+  `Copyright (c) 2026 Christian Cohnen` line stays, including in your renamed build;
 - **ship a copy of those notices and of the Licence** with every copy;
 - **carry prominent notices that the work has been modified, and when**;
 - **publish the source** of the modified version under the EUPL.

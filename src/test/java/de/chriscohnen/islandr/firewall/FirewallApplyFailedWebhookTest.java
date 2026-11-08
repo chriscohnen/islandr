@@ -6,9 +6,9 @@ import de.chriscohnen.islandr.webhook.WebhookDto;
 import de.chriscohnen.islandr.webhook.WebhookEventType;
 import de.chriscohnen.islandr.webhook.WebhookService;
 import io.quarkus.arc.ClientProxy;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,9 +34,12 @@ class FirewallApplyFailedWebhookTest {
     }
 
     @BeforeEach
-    @Transactional
     void setUp() {
-        Webhook.deleteAll();
+        deleteWebhooks();
+        QuarkusTransaction.requiringNew().run(this::seed);
+    }
+
+    private void seed() {
         http.reset();
         nft().resetForTests();
         FirewallState s = FirewallState.get();
@@ -48,10 +51,26 @@ class FirewallApplyFailedWebhookTest {
     }
 
     @AfterEach
-    @Transactional
     void tearDown() {
         nft().resetForTests();
-        Webhook.deleteAll();
+        deleteWebhooks();
+    }
+
+    /** A delivery thread may still be recording the last delivery's status
+     *  on this webhook when the test ends, and the shared-cache test database
+     *  answers that overlap with SQLITE_LOCKED at once rather than waiting —
+     *  the same contention WebhookDispatcher#record retries on. Retry here
+     *  too, so the cleanup cannot fail the suite. */
+    private static void deleteWebhooks() {
+        for (int i = 0; ; i++) {
+            try {
+                QuarkusTransaction.requiringNew().run(() -> Webhook.deleteAll());
+                return;
+            } catch (RuntimeException e) {
+                if (i >= 20) throw e;
+                try { Thread.sleep(100); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+            }
+        }
     }
 
     private long deliveries() {

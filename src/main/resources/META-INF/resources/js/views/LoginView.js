@@ -464,6 +464,7 @@ export default defineComponent({
       <br>
         <a href="https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12"
            target="_blank" rel="noopener">{{ t('login.license') }}</a>
+        <span aria-hidden="true"> · </span>{{ t('common.copyright') }}
       </p>
     </div>
   `,
