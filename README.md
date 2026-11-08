@@ -360,7 +360,7 @@ Bug reports and feature ideas via [GitHub Issues](https://github.com/chriscohnen
 
 ## License
 
-Copyright (c) 2026 Christian Cohnen. Licensed under **EUPL-1.2** (EU-governed, copyleft, AGPL-compatible). See [docs/adr/0009-license-eupl-1.2.md](docs/adr/0009-license-eupl-1.2.md) for the rationale.
+Copyright (c) 2026 Christian Cohnen. Licensed under **EUPL-1.2** (EU-governed, copyleft, AGPL-compatible) — full text in [LICENSE](LICENSE), the notice a copy must keep in [NOTICE](NOTICE). See [docs/adr/0009-license-eupl-1.2.md](docs/adr/0009-license-eupl-1.2.md) for the rationale.
 
 ## Legal Notice / Trademark Disclaimer
 

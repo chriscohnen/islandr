@@ -2,6 +2,7 @@ plugins {
     java
     id("io.quarkus")
     jacoco
+    id("com.github.jk1.dependency-license-report") version "3.1.5"
 }
 
 repositories {
@@ -138,7 +139,7 @@ configurations.all {
 // mismatch; see the override above for why that does not apply here.
 
 group = "de.chriscohnen.islandr"
-version = "1.3.0-rc.3"
+version = "1.3.0-rc.4"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25
@@ -222,4 +223,94 @@ tasks.named<Test>("testNative") {
     // only exercises native serialization (see DiscoveryNativeIT), not an actual
     // network scan, and the sandboxed CI container has no route to any real host.
     environment("ISLANDR_DISCOVERY_MODE", "mock")
+}
+
+// ---------------------------------------------------------------------------
+// Third-party licence notices (ship-licence-notices). The native binary
+// carries Quarkus, Netty, Vert.x, Jackson and more, mostly Apache-2.0, whose
+// section 4 asks a redistributor to hand over the licence and the libraries'
+// NOTICE texts. Generated, never hand-written — a hand-kept list goes stale at
+// the next Quarkus bump.
+//
+// The plugin does not support the configuration cache, so it is NOT wired into
+// the normal build: run `./gradlew thirdPartyNotices --no-configuration-cache`.
+// It writes the committed file under META-INF/resources/licenses/, and CI
+// regenerates it and fails on any difference or on a licence outside
+// config/allowed-licenses.json.
+licenseReport {
+    configurations = arrayOf("runtimeClasspath")
+    filters = arrayOf<com.github.jk1.license.filter.DependencyFilter>(
+            com.github.jk1.license.filter.LicenseBundleNormalizer())
+    renderers = arrayOf<com.github.jk1.license.render.ReportRenderer>(
+            ThirdPartyNoticesRenderer(layout.buildDirectory.dir("reports/dependency-license").get().asFile))
+    allowedLicensesFile = layout.projectDirectory.file("config/allowed-licenses.json").asFile
+}
+
+/**
+ * One deterministic text file: every runtime library with its licence, then
+ * each NOTICE text the libraries ship, then each distinct licence text once.
+ * No timestamp and a fixed order, so CI can regenerate it and compare.
+ */
+class ThirdPartyNoticesRenderer(private val outDir: File) : com.github.jk1.license.render.ReportRenderer {
+    override fun render(data: com.github.jk1.license.ProjectData) {
+        val modules = data.allDependencies.sortedBy { "${it.group}:${it.name}:${it.version}" }
+        fun licences(m: com.github.jk1.license.ModuleData): List<String> =
+                com.github.jk1.license.render.LicenseDataCollector.multiModuleLicenseInfo(m).licenses
+                        .mapNotNull { it.name }.distinct()
+        fun embedded(m: com.github.jk1.license.ModuleData, notice: Boolean) =
+                m.licenseFiles.flatMap { lf: com.github.jk1.license.LicenseFileData -> lf.fileDetails }
+                        .filter { d: com.github.jk1.license.LicenseFileDetails -> File(d.file).name.uppercase().contains("NOTICE") == notice }
+                        .map { d: com.github.jk1.license.LicenseFileDetails -> File(outDir, d.file) }
+                        .filter { f: File -> f.isFile }
+                        .sortedBy { f: File -> f.path }
+
+        val sb = StringBuilder()
+        sb.append("Third-party software in Islandr\n")
+        sb.append("================================\n\n")
+        sb.append("Islandr itself: Copyright (c) 2026 Christian Cohnen, licensed under the EUPL\n")
+        sb.append("(see LICENSE and NOTICE). The libraries below are distributed with it under\n")
+        sb.append("their own licences. Generated from the build's runtime dependencies.\n\n")
+        sb.append("Libraries\n---------\n\n")
+        for (m in modules) {
+            sb.append("${m.group}:${m.name} ${m.version}\n")
+            sb.append("  Licence: ${licences(m).joinToString(" / ").ifEmpty { "unknown" }}\n")
+        }
+        sb.append("\n\nNOTICE files shipped by the libraries\n-------------------------------------\n")
+        for (m in modules) {
+            for (f in embedded(m, notice = true)) {
+                sb.append("\n=== ${m.group}:${m.name} ${m.version} — ${f.name}\n\n")
+                sb.append(f.readText().trim()).append("\n")
+            }
+        }
+        sb.append("\n\nLicence texts shipped by the libraries (each distinct text once)\n")
+        sb.append("---------------------------------------------------------------\n")
+        val seen = LinkedHashMap<String, MutableList<String>>()
+        val texts = HashMap<String, String>()
+        for (m in modules) {
+            for (f in embedded(m, notice = false)) {
+                val text = f.readText().trim()
+                if (text.isEmpty()) continue
+                val key = text.replace(Regex("\\s+"), " ")
+                texts.putIfAbsent(key, text)
+                seen.getOrPut(key) { mutableListOf() }.add("${m.group}:${m.name}")
+            }
+        }
+        for ((key, users) in seen) {
+            sb.append("\n=== Used by: ${users.distinct().joinToString(", ")}\n\n")
+            sb.append(texts.getValue(key)).append("\n")
+        }
+        File(outDir, "THIRD-PARTY-NOTICES.txt").writeText(sb.toString())
+    }
+}
+
+val thirdPartyNoticesFile = layout.projectDirectory.file(
+        "src/main/resources/META-INF/resources/licenses/THIRD-PARTY-NOTICES.txt")
+
+// Regenerate the committed notices. Needs --no-configuration-cache (see above).
+tasks.register<Copy>("thirdPartyNotices") {
+    group = "documentation"
+    description = "Regenerates THIRD-PARTY-NOTICES.txt from the runtime dependencies and checks their licences"
+    dependsOn("generateLicenseReport", "checkLicense")
+    from(layout.buildDirectory.file("reports/dependency-license/THIRD-PARTY-NOTICES.txt"))
+    into(thirdPartyNoticesFile.asFile.parentFile)
 }

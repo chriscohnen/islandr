@@ -2,7 +2,6 @@ package de.chriscohnen.islandr.webhook;
 
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.NotFoundException;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,9 +18,8 @@ class WebhookServiceTest {
     @Inject WebhookService svc;
 
     @BeforeEach
-    @Transactional
     void reset() {
-        Webhook.deleteAll();
+        WebhookTestCleanup.deleteAllWebhooks();
     }
 
     @Test

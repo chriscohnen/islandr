@@ -10,6 +10,8 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ## 1.3.0
 
+- Releases, the Docker image and the installed hub (`/usr/share/doc/islandr/`) carry LICENSE, NOTICE and the licences of every bundled library; Settings links to the list. The list is generated from the build and CI rejects a licence outside the allowed set
+- Fixed: the edge hubs switch in Settings showed on every tab; it now sits under Network only
 - The sign-in screen, the self-service portal and Settings name the copyright holder next to the licence; README and TRADEMARK.md carry the same notice as LICENSE
 - Security: sharing a port with a colleague no longer reveals whether an e-mail address has an account; a person who does not exist or may not sign in gets the same answer as one who does
 - Security: single sign-on logins carry a `nonce` that the ID token must echo and use PKCE (S256) on the code exchange; a login started before the upgrade has to be started again

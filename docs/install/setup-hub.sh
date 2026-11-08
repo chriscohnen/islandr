@@ -232,6 +232,16 @@ else
     [[ "$EXPECTED" == "$ACTUAL" ]] || fail "Checksum mismatch — refusing to install." \
         "expected: $EXPECTED" "actual:   $ACTUAL"
     echo "  Checksum OK ($ACTUAL)"
+
+    # Licence notices of the same release (ship-licence-notices): the EUPL for
+    # Islandr and the third-party licences of the libraries in the binary.
+    # Releases before 1.3.0 have none — warn, never stop the install.
+    install -d -m 0755 /usr/share/doc/islandr
+    for doc in LICENSE NOTICE THIRD-PARTY-NOTICES.txt; do
+        curl -fsSL "$BASE/$doc" -o "/usr/share/doc/islandr/$doc" \
+            && chmod 0644 "/usr/share/doc/islandr/$doc" \
+            || echo "  Warning: $doc not found in release $ISLANDR_VERSION — licence notices skipped."
+    done
 fi
 
 # ---------------------------------------------------------------------------

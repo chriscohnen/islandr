@@ -45,6 +45,18 @@ jobs:
       - name: Check Vue templates
         run: node scripts/check-templates.mjs
 
+      # THIRD-PARTY-NOTICES.txt is generated from the runtime dependencies and
+      # committed (ship-licence-notices). Regenerating it here catches both a
+      # dependency bump nobody re-ran it for and a licence outside
+      # config/allowed-licenses.json (checkLicense fails the task). The
+      # licence-report plugin does not support the configuration cache,
+      # hence the flag on this one call only.
+      - name: Check third-party licence notices
+        run: |
+          ./gradlew thirdPartyNotices --no-configuration-cache --no-daemon
+          git diff --exit-code -- src/main/resources/META-INF/resources/licenses/ \
+            || { echo "::error::THIRD-PARTY-NOTICES.txt is stale — run ./gradlew thirdPartyNotices --no-configuration-cache and commit it"; exit 1; }
+
       - name: Run tests
         run: ./gradlew test jacocoTestReport --no-daemon
         # No datasource env vars — the %test profile in application.properties
@@ -392,6 +404,9 @@ jobs:
             dist/proxy/install-proxy.sh
             scripts/update.sh
             scripts/backup.sh
+            LICENSE
+            NOTICE
+            src/main/resources/META-INF/resources/licenses/THIRD-PARTY-NOTICES.txt
 
   # ── Stage 4: Docker multi-arch image (tags only) ──────────────────────────
   docker:
@@ -899,6 +914,13 @@ jobs:
           # restore and would pass for the wrong reason.
           sudo test -f /opt/islandr/islandr.prev
           sudo test -f /var/lib/islandr/data/islandr.db.prev
+          # The licence notices of the new release land next to the binary
+          # (ship-licence-notices) — the EUPL and the third-party licences.
+          for doc in LICENSE NOTICE THIRD-PARTY-NOTICES.txt; do
+            test -s "/usr/share/doc/islandr/$doc" \
+              || { echo "::error::update.sh did not install /usr/share/doc/islandr/$doc"; exit 1; }
+          done
+          grep -q "Apache License, Version 2.0" /usr/share/doc/islandr/THIRD-PARTY-NOTICES.txt
           # Change the marker now, *after* the backup was taken. Without this
           # the value would read the same either way and the rollback check
           # below would pass whether or not the database was actually restored.

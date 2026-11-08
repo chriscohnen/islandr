@@ -364,6 +364,22 @@ fi
 install -o islandr -g islandr -m 0755 "${TMP}/${ASSET}" "$INSTALL_BIN"
 info "Binary installed."
 
+# ── licence notices ───────────────────────────────────────────────────────────
+# The EUPL for Islandr and the third-party licences of what the binary carries,
+# from the same release (ship-licence-notices). Releases before 1.3.0 have no
+# such assets — a missing file is a warning, never a reason to stop an update
+# or a rollback.
+DOC_DIR=/usr/share/doc/islandr
+install -d -m 0755 "$DOC_DIR"
+for doc in LICENSE NOTICE THIRD-PARTY-NOTICES.txt; do
+  if curl -fsSL "${DL_BASE}/${TARGET}/${doc}" -o "${TMP}/${doc}"; then
+    install -m 0644 "${TMP}/${doc}" "${DOC_DIR}/${doc}"
+  else
+    printf '  Warning: %s not found in release %s — licence notices not updated.\n' "$doc" "$TARGET"
+  fi
+done
+info "Licence notices in ${DOC_DIR}."
+
 # ── start and watch ───────────────────────────────────────────────────────────
 if ! $SHOULD_RUN; then
   printf '\nDone. Islandr %s installed. The service was not running, so it was not\n' "$TARGET"
