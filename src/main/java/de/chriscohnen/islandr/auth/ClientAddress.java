@@ -2,6 +2,7 @@ package de.chriscohnen.islandr.auth;
 
 import de.chriscohnen.islandr.peer.IpSubnet;
 import de.chriscohnen.islandr.settings.SettingsService;
+import io.vertx.core.Context;
 import io.vertx.core.http.HttpServerRequest;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -44,9 +45,15 @@ public class ClientAddress {
     private volatile String parsedFrom;
     private volatile List<IpSubnet> trusted = List.of();
 
+    /** The client-IP header name as last read on a worker thread. */
+    private volatile String lastClientIpHeader;
+
     public String of(HttpServerRequest request) {
         if (request == null) return "unknown";
-        return resolve(socketPeer(request), request.getHeader(clientIpHeader()));
+        String headerName = clientIpHeader();
+        // null only on the event loop before any worker thread read the
+        // setting — then no forwarded header is consulted at all.
+        return resolve(socketPeer(request), headerName == null ? null : request.getHeader(headerName));
     }
 
     /**
@@ -73,7 +80,10 @@ public class ClientAddress {
     }
 
     private String clientIpHeader() {
-        return settings.get().effectiveClientIpHeader();
+        if (Context.isOnEventLoopThread()) return lastClientIpHeader;
+        String header = settings.get().effectiveClientIpHeader();
+        lastClientIpHeader = header;
+        return header;
     }
 
     /**
@@ -131,6 +141,14 @@ public class ClientAddress {
     }
 
     private List<IpSubnet> trustedSubnets() {
+        // Response filters also run for requests no endpoint served (a 404),
+        // and those run on the Vert.x event loop, where reading the settings
+        // row is a blocking call Quarkus refuses — every unknown path became a
+        // 500 in 1.3.0-rc.4. On the event loop, use what a worker thread last
+        // read. Before the first such read that is the empty list: no proxy is
+        // trusted, the safe side — at worst a 404 page goes without HSTS, never
+        // is a forwarded header believed.
+        if (Context.isOnEventLoopThread()) return trusted;
         String raw = settings.get().trustedProxies;
         String key = raw == null ? "" : raw;
         // The value is admin-editable at runtime, so the cache is keyed on it
