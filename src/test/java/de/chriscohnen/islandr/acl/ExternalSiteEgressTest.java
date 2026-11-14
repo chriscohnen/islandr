@@ -128,8 +128,9 @@ class ExternalSiteEgressTest {
     void ruleset_withoutAKnownWanInterface_masqueradesNothing() {
         external(PARTNER_CIDR);
         wan(null);
-        // The test JVM has no /proc/net/route to detect one from; with no WAN
-        // interface known there is nothing safe to masquerade out of.
+        // The test profile points the route table at a path that does not exist, so
+        // detection finds nothing on any host; with no WAN interface known there is
+        // nothing safe to masquerade out of.
         String text = QuarkusTransaction.requiringNew().call(() -> rules.build().rulesetText());
         assertThat(text).doesNotContain("masquerade");
     }

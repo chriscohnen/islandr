@@ -31,7 +31,14 @@ public class WanInterface {
     /** IFNAMSIZ is 16 including the NUL terminator. */
     public static final Pattern NAME = Pattern.compile("^[A-Za-z0-9_.-]{1,15}$");
 
-    static final Path PROC_NET_ROUTE = Path.of("/proc/net/route");
+    /**
+     * Where the routing table is read from. The kernel's own file in production;
+     * the test profile points it at a path that does not exist, because a CI
+     * runner (Linux) has a default route and a developer's machine (macOS) does
+     * not — a test that needs "no interface known" cannot depend on the host.
+     */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wan.route-table", defaultValue = "/proc/net/route")
+    String routeTable;
 
     /** The interface to masquerade out of, or null when none is known. */
     public String current() {
@@ -44,11 +51,12 @@ public class WanInterface {
 
     /** The interface of the default route, or null when there is none to read. */
     public String detected() {
-        if (!Files.isReadable(PROC_NET_ROUTE)) return null;
+        Path table = Path.of(routeTable);
+        if (!Files.isReadable(table)) return null;
         try {
-            return valid(parseDefaultRoute(Files.readString(PROC_NET_ROUTE)));
+            return valid(parseDefaultRoute(Files.readString(table)));
         } catch (IOException e) {
-            LOG.warnf("cannot read %s: %s", PROC_NET_ROUTE, e.getMessage());
+            LOG.warnf("cannot read %s: %s", table, e.getMessage());
             return null;
         }
     }
