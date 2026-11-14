@@ -32,7 +32,8 @@ public class BackupScheduler {
     @Inject AuditService audit;
     @Inject WebhookDispatcher webhooks;
 
-    @Scheduled(every = "60s", identity = "islandr-backup-schedule",
+    // delayed: the first look comes after startup has finished writing its own state
+    @Scheduled(every = "60s", delayed = "45s", identity = "islandr-backup-schedule",
                concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     void tick() {
         if (!enabled) return;

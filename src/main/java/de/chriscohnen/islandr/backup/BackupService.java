@@ -151,7 +151,11 @@ public class BackupService {
 
     /** True when the schedule says a backup is due right now. */
     boolean scheduledBackupDue(Instant now) {
-        BackupConfig c = load();
+        // Read-only on purpose: this runs every minute, including right at startup, and
+        // must never be the writer that makes another startup transaction fail with
+        // SQLITE_BUSY. No row yet means no schedule was ever set.
+        BackupConfig c = BackupConfig.findById(BackupConfig.SINGLETON_ID);
+        if (c == null) return false;
         return BackupSchedule.due(now, c.schedule, LocalTime.parse(c.scheduleTime), c.scheduleDay,
                 ZoneId.systemDefault(), c.scheduleSince, c.lastRunAt);
     }
@@ -334,7 +338,7 @@ public class BackupService {
     }
 
     private static String safe(String s) {
-        return s.replaceAll("[^A-Za-z0-9._]", "_");
+        return s.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     private static String hostName() {

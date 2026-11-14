@@ -19,6 +19,8 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 - Added: adding a device with your own public key is marked as the safest option
 - Changed: from the resources overview, a click opens the resource in its network, filtered to it, instead of the unfiltered network list; the overview's filter is kept in the address
 - Changed: the "all ports" entry of a resource is explained in the port dialog, which warns when it meets a browser-only RDP port
+- Fixed: behind a reverse proxy that Islandr listens to on the loopback address (`QUARKUS_HTTP_HOST=127.0.0.1`), every request was answered with `400` since the move to Quarkus 3.40, which refuses any host name but localhost; the public name is accepted again
+- Fixed: the first start after the update could log a database lock while applying the firewall; the scheduled-backup check only reads and starts after startup
 - Fixed: the refusal to switch edge hubs off while some exist is worded in the console's language
 - Fixed: hovering the number on a folded grant line in the Atlas shows how many grants it stands for
 - Added: a site can be an external network — a partner's public range that only admits fixed source addresses. Devices route that range into the tunnel and the hub sends it on with its own public address; grants decide who may reach it, discovery never scans it. The WAN interface is detected from the default route and can be set under Settings → Network ([install guide](docs/install.md#reaching-a-partner-through-the-hubs-address))

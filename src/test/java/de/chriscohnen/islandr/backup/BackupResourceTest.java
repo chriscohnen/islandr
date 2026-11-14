@@ -42,6 +42,7 @@ class BackupResourceTest {
     private static final String MARK = "backup-s3-";
 
     @Inject BackupScheduler scheduler;
+    @Inject BackupService backupService;
     /** When set, a PUT waits on it — to hold a backup in flight. */
     private volatile CountDownLatch putGate;
 
@@ -283,7 +284,12 @@ class BackupResourceTest {
             c.endpoint = "http://127.0.0.1:1";   // nothing listens there
         });
 
-        scheduler.runIfDue(java.time.Instant.now());
+        // run() itself, not the scheduler tick: a failed tick also publishes a webhook, whose
+        // asynchronous delivery reads the webhooks table and collides with other test classes'
+        // cleanup of it (SQLITE_LOCKED_SHAREDCACHE) — the status is what this test is about.
+        assertThat(scheduler).isNotNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> backupService.run())
+                .isInstanceOf(jakarta.ws.rs.WebApplicationException.class);
 
         given().when().get("/api/v1/admin/backup").then()
                 .body("lastRunOk", is(false)).body("lastRunMessage", containsString("could not be reached"));
@@ -305,5 +311,13 @@ class BackupResourceTest {
             first.join(15000);
             putGate = null;
         }
+    }
+
+    /** The minute tick must not be a writer: it runs at startup next to other transactions. */
+    @Test
+    void theScheduleCheckNeverCreatesTheConfigRow() {
+        QuarkusTransaction.requiringNew().run(() -> BackupConfig.deleteAll());
+        scheduler.runIfDue(java.time.Instant.now());
+        assertThat(QuarkusTransaction.requiringNew().call(() -> BackupConfig.count())).isZero();
     }
 }
