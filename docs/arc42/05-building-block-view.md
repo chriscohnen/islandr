@@ -16,7 +16,7 @@ See [Chapter 3](03-system-scope-and-context.md). The C4 Level 1 diagram is there
 |---|---|---|---|
 | **Admin Console** | Vue.js (ESM, no npm) | Data-dense SPA for admins. Peers, ACL matrix (Roles × Resources), users, roles, audit log, dashboard, runtime settings. | `src/main/resources/META-INF/resources/js/` |
 | **Self-Service Portal** | Vue.js (ESM, no npm) | Guided SPA for end users. Enroll devices (3-step flow), view access list in plain language. German UI, informal _Du_. | `src/main/resources/META-INF/resources/js/views/MyAccessView.js` |
-| **Islandr Backend** | Quarkus 3 / Java 21 | REST API under `/api/v1/`, domain logic, WireGuard and nftables adapters, OIDC verification, activity polling, audit logging. Ships as a GraalVM native binary. | `src/main/java/de/chriscohnen/islandr/` |
+| **Islandr Backend** | Quarkus 3 / Java 25 | REST API under `/api/v1/`, domain logic, WireGuard and nftables adapters, OIDC verification, activity polling, audit logging. Ships as a GraalVM native binary. | `src/main/java/de/chriscohnen/islandr/` |
 | **Database** | SQLite (default) or PostgreSQL | Persistent storage for all domain entities, activity samples, audit log, and runtime settings. Schema managed by Flyway. | `src/main/resources/db/migration/` |
 
 ## 5.3 Level 3 — Backend Components

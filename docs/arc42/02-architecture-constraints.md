@@ -13,7 +13,7 @@
 | TC-7 | Firewall enforcement uses nftables exclusively. ufw is not used. Rules are generated programmatically and validated with `nft -c -f` before every atomic reload. | [ADR-0003](../adr/0003-nftables-replaces-ufw.md) |
 | TC-8 | The hub VM holds no UCG credentials and initiates no connections into the trusted internal network. | [ADR-0005](../adr/0005-hub-only-firewall.md) |
 | TC-9 | Islandr runs as an unprivileged system user (`islandr`). Privilege for `nft` and `wg` commands is granted via scoped `sudoers` entries or `CAP_NET_ADMIN` capability. | [ADR-0011](../adr/0011-process-privilege-model.md) |
-| TC-10 | Java 21 (LTS). Source and target compatibility set to Java 21 in `build.gradle.kts`. | `build.gradle.kts` |
+| TC-10 | Java 25 (LTS), since 1.3.0 (Java 21 before). Source and target compatibility set to Java 25 in `build.gradle.kts`. | `build.gradle.kts` |
 
 ## 2.2 Organizational Constraints
 
