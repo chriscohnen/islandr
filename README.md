@@ -217,30 +217,9 @@ later release, single sign-on uses a nonce and PKCE, device names are capped at 
 sharing a port no longer shows which e-mail addresses have an account. Islandr is built on
 Java 25 and Quarkus 3.33.4.
 
-**1.2.0 — mostly maintenance: less friction in the console.** *1.2.1 fixes overlapping device labels in the dashboard topology.*
-Most of this release is the admin console getting out of the way, and what is new is
-small — figures and history the hub was already collecting, now shown where the question
-gets asked. The peers list used to show a timestamp where the actual question is "is
-this device alive, and how steadily": it now carries 14 days of activity per row, says
-how long a connected device has been connected, and sorts by last handshake. Its rows are a third of the height they were,
-because four labelled buttons used to wrap into three lines at anything under a wide
-screen. The dashboard counts the bytes of the last hour, the topology diagram stays
-legible when you drill into a crowded network, and the update check notices when the
-`update.sh` kept on the hub is older than the release it would install.
-
-Also fixed: an admin viewing someone else's access could add a device there and get it
-themselves, a WireGuard subnet with no room for a single host was accepted at the
-settings page and failed later at the first peer, and every warning banner in seven
-screens named a stylesheet class that does not exist, so none of them had ever been
-amber.
-
-**Ubuntu 26.04 works.** Its new default `sudo` and an AppArmor profile for `wg` broke
-the native installer and peers with a preshared key there; both are fixed, and CI now
-installs, upgrades and rolls back on 26.04. A hub that is moved to 26.04 in place
-needs two small changes, which `update.sh` points out. Single sign-on got stricter
-too: it fetches profile pictures more carefully, and links or creates an account only
-for an e-mail address the identity provider has verified — after switching provider,
-an admin releases each account's old link from the user list.
+**1.2.0** made the admin console faster to read — activity per peer, a traffic tile, a topology
+that survives a crowded network — and made the native installer work on Ubuntu 26.04. *1.2.1 fixed
+overlapping device labels in the dashboard topology.*
 
 **Edge hubs are groundwork, not a feature you can use.** A second hub at a remote site
 is modelled, configurable and drawn — a device belongs to exactly one hub, its
@@ -253,30 +232,25 @@ sites; do not plan an office around it.
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 1.2.0
+### What's new in 1.3.0
 
 Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **The peers list answers its own question** — 14 days of activity per row, how long a connected device has been connected, and sorting by last handshake
-- **Its rows are a third as tall** — four labelled buttons wrapped into three lines below a wide screen; disable and delete moved into the edit dialog and the device type is now its icon
-- **A traffic tile on the dashboard** — bytes in and out over the last hour
-- **The topology diagram survives a crowded network** — the expanded resource list draws on its own panel instead of letting nodes show through, and the view moves to what you just opened
-- **The update check notices a stale `update.sh`** — the copy kept on the hub can be older than the release it is meant to install
-- Fixed: an admin viewing another person's access could add a device there and receive it themselves
-- Fixed: a WireGuard subnet too narrow to ever assign a host was accepted
-- Fixed: warning banners across seven screens named a stylesheet class that does not exist, so none of them were ever amber
-- **Ubuntu 26.04** — the native installer and preshared keys work there; a hub moved to 26.04 in place needs two small changes, which `update.sh` points out ([install guide](docs/install.md#sudo-rs-on-ubuntu-2604))
-- Security: profile pictures at single sign-on are fetched and served more carefully, and sign-on links or creates an account only for a verified e-mail address; an admin can release an account's link, e.g. after switching identity provider
-- Security: the JSON and telemetry libraries are updated past their published advisories
-- **Groundwork for edge hubs** — modelled, configurable and drawn, but not usable until there is software at the edge that fetches its configuration and enforces the firewall there. [docs/features.md](docs/features.md) says exactly where the line is
+- **Several DNS names per resource** — one VM behind a reverse proxy that picks the app by name is one resource, not three
+- **Reverse lookups (PTR) and AAAA** — the resolver names tunnel addresses with the same visibility as forward lookups, and a resource can carry a second, IPv6 address
+- **The DNS page picks the record type** (A, AAAA, PTR), takes an IP address and lists all names of a resource
+- **A status endpoint for your monitoring** — `GET /api/external/v1/metrics` in the Prometheus text format, read-only `monitoring:read` key, totals only; plus a webhook event when the firewall rules cannot be applied
+- **Licence notices ship with every artefact** — LICENSE, NOTICE and the licences of every bundled library in the release, the Docker image and on the hub; Settings links to the list
+- Security: `Secure` session cookie over HTTPS, security headers on every response, a Content-Security-Policy in report-only mode, nonce and PKCE on single sign-on, device names capped at 64 characters, and sharing a port no longer reveals which e-mail addresses have an account
+- Built on Java 25 (LTS) and Quarkus 3.33.4
 
 ### Roadmap
 
-Planned features are tracked as GitHub issues — 👍 or comment to signal what matters to you.
-
-**v2 — Usability & convenience** ([milestone](https://github.com/chriscohnen/islandr/milestone/1))
-- [Entra ID user import](https://github.com/chriscohnen/islandr/issues/12) — browse org users and import selected; the Google Workspace half of this shipped in 0.9.1
+Planned work lives in the [issue tracker](https://github.com/chriscohnen/islandr/issues) — a 👍 or a
+comment there is how you shape priority. The current direction, edge hubs, and the open issues by
+milestone are on the [roadmap page](https://islandr-gateway.net/architecture/master/roadmap/), rebuilt from the
+tracker so it cannot drift from it.
 
 ## What 1.0 promises
 
