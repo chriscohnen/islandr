@@ -71,16 +71,15 @@ class MyPeerSelfShareTest {
                 .body("{\"targetEmail\":\"" + colleagueEmail + "\",\"port\":3000,\"durationMinutes\":60}")
                 .when().post("/api/v1/peers/mine/" + peerId + "/shares")
                 .then().statusCode(201)
-                .body("targetUserEmail", is(colleagueEmail))
-                .body("port", is(3000))
-                .body("live", is(true))
-                .body("id", notNullValue());
+                .body("message", notNullValue());
 
         given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
                 .when().get("/api/v1/peers/mine/" + peerId + "/shares")
                 .then().statusCode(200)
                 .body("size()", is(1))
-                .body("[0].targetUserEmail", is(colleagueEmail));
+                .body("[0].targetUserEmail", is(colleagueEmail))
+                .body("[0].port", is(3000))
+                .body("[0].live", is(true));
     }
 
     @Test
@@ -89,11 +88,14 @@ class MyPeerSelfShareTest {
         String peerId = persistPeer(currentUserId, "owner2-device");
         String colleagueEmail = newColleague("colleague-b");
 
-        String shareId = given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
+        given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
                 .contentType("application/json")
                 .body("{\"targetEmail\":\"" + colleagueEmail + "\",\"port\":3001,\"durationMinutes\":60}")
                 .when().post("/api/v1/peers/mine/" + peerId + "/shares")
-                .then().statusCode(201).extract().path("id");
+                .then().statusCode(201);
+        String shareId = given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
+                .when().get("/api/v1/peers/mine/" + peerId + "/shares")
+                .then().statusCode(200).extract().path("[0].id");
 
         given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
                 .when().delete("/api/v1/peers/mine/shares/" + shareId)
@@ -118,16 +120,28 @@ class MyPeerSelfShareTest {
                 .then().statusCode(400);
     }
 
+    /** share-email-enumeration: an unknown address answers exactly like a known one. */
     @Test
-    void rejectsAnUnknownColleagueEmail() {
+    void anUnknownColleagueEmail_answersLikeAKnownOne_andCreatesNothing() {
         String ownerCookie = orgUserSession("owner4");
         String peerId = persistPeer(currentUserId, "owner4-device");
+        String known = newColleague("colleague-e");
 
-        given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
+        String knownBody = given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
+                .contentType("application/json")
+                .body("{\"targetEmail\":\"" + known + "\",\"port\":3000,\"durationMinutes\":60}")
+                .when().post("/api/v1/peers/mine/" + peerId + "/shares")
+                .then().statusCode(201).extract().asString();
+        String unknownBody = given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
                 .contentType("application/json")
                 .body("{\"targetEmail\":\"nobody-" + UUID.randomUUID() + "@firma.de\",\"port\":3000,\"durationMinutes\":60}")
                 .when().post("/api/v1/peers/mine/" + peerId + "/shares")
-                .then().statusCode(400);
+                .then().statusCode(201).extract().asString();
+
+        org.assertj.core.api.Assertions.assertThat(unknownBody).isEqualTo(knownBody);
+        given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
+                .when().get("/api/v1/peers/mine/" + peerId + "/shares")
+                .then().body("size()", is(1));
     }
 
     @Test
@@ -168,11 +182,14 @@ class MyPeerSelfShareTest {
                 .body("[0].activeShareCount", is(0));
 
         String colleagueEmail = newColleague("colleague-f");
-        String shareId = given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
+        given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
                 .contentType("application/json")
                 .body("{\"targetEmail\":\"" + colleagueEmail + "\",\"port\":3000,\"durationMinutes\":60}")
                 .when().post("/api/v1/peers/mine/" + peerId + "/shares")
-                .then().statusCode(201).extract().path("id");
+                .then().statusCode(201);
+        String shareId = given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
+                .when().get("/api/v1/peers/mine/" + peerId + "/shares")
+                .then().statusCode(200).extract().path("[0].id");
 
         given().cookie(SessionFilter.COOKIE_NAME, ownerCookie)
                 .when().get("/api/v1/peers/mine")

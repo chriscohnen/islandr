@@ -74,7 +74,7 @@ class OidcLoginServiceTest {
                 Map.of("content-type", "image/jpeg"));
 
         String state = "state-xyz";
-        Session s = oidc.handleCallback("microsoft", "code-abc", state, state, REDIRECT_URI);
+        Session s = oidc.handleCallback("microsoft", "code-abc", state, state + ".test-nonce.test-verifier", REDIRECT_URI);
 
         assertThat(s.id).isNotBlank();
         assertThat(s.provider).isEqualTo("microsoft");
@@ -98,7 +98,7 @@ class OidcLoginServiceTest {
                 idToken, "ms-access-token");
         http.stub("https://graph.microsoft.com/v1.0/me/photo/$value", 404, new byte[0], null);
 
-        Session s = oidc.handleCallback("microsoft", "code-2", "st", "st", REDIRECT_URI);
+        Session s = oidc.handleCallback("microsoft", "code-2", "st", "st.test-nonce.test-verifier", REDIRECT_URI);
         User u = readUser(s.userId);
         assertThat(u.avatarBytes).isNull();
     }
@@ -121,7 +121,7 @@ class OidcLoginServiceTest {
         stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
         http.stub(pictureUrl, 200, PICTURE_PNG, Map.of("content-type", "image/png"));
 
-        Session s = oidc.handleCallback("google", "code-ssrf", "st", "st",
+        Session s = oidc.handleCallback("google", "code-ssrf", "st", "st.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/google/callback");
 
         assertThat(s.id).isNotBlank();
@@ -138,7 +138,7 @@ class OidcLoginServiceTest {
         stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
         http.stub(pictureUrl, 200, PICTURE_PNG, Map.of("content-type", "image/png"));
 
-        Session s = oidc.handleCallback("google", "code-g1", "st", "st",
+        Session s = oidc.handleCallback("google", "code-g1", "st", "st.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/google/callback");
 
         User u = readUser(s.userId);
@@ -167,7 +167,7 @@ class OidcLoginServiceTest {
         http.stub(gravatarUrl, 200, new byte[] { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 9, 9, 9, 9, 9, 9 },
                 Map.of("content-type", "image/jpeg"));
 
-        Session s = oidc.handleCallback("google", "code-grav", "st", "st",
+        Session s = oidc.handleCallback("google", "code-grav", "st", "st.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/google/callback");
 
         User u = readUser(s.userId);
@@ -189,7 +189,7 @@ class OidcLoginServiceTest {
                 + de.chriscohnen.islandr.identity.AvatarFetcher.md5Hex("erin@firma.de") + "?s=200&d=404";
         http.stub(gravatarUrl, 404, new byte[0], null);
 
-        Session s = oidc.handleCallback("google", "code-fb", "st", "st",
+        Session s = oidc.handleCallback("google", "code-fb", "st", "st.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/google/callback");
 
         User u = readUser(s.userId);
@@ -205,7 +205,7 @@ class OidcLoginServiceTest {
         stubTokenExchange("https://login.microsoftonline.com/" + TENANT + "/oauth2/v2.0/token",
                 idToken, "ms-access-token");
 
-        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "s", "s", REDIRECT_URI))
+        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.test-verifier", REDIRECT_URI))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("allowlist");
     }
@@ -223,14 +223,14 @@ class OidcLoginServiceTest {
                 idToken, "ms-access-token");
         http.stub("https://graph.microsoft.com/v1.0/me/photo/$value", 404, new byte[0], null);
 
-        Session s = oidc.handleCallback("microsoft", "c", "s", "s", REDIRECT_URI);
+        Session s = oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.test-verifier", REDIRECT_URI);
         User u = readUser(s.userId);
         assertThat(u.email).isEqualTo("anyone@whatever.example");
     }
 
     @Test
     void callback_stateMismatch_rejected() {
-        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "state-a", "state-b", REDIRECT_URI))
+        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "state-a", "state-b.test-nonce.test-verifier", REDIRECT_URI))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("state mismatch");
     }
@@ -238,7 +238,7 @@ class OidcLoginServiceTest {
     @Test
     void callback_disabledProvider_rejected() {
         // BeforeEach configures credentials but leaves microsoft disabled.
-        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "s", "s", REDIRECT_URI))
+        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.test-verifier", REDIRECT_URI))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("not enabled");
     }
@@ -253,7 +253,74 @@ class OidcLoginServiceTest {
                 .contains("response_type=code")
                 .contains("state=")
                 .contains("scope=");
-        assertThat(a.state()).isNotBlank();
+        assertThat(a.cookieValue()).isNotBlank();
+    }
+
+    // -- oidc-nonce-pkce ------------------------------------------------------
+
+    @Test
+    void buildAuthorizeUrl_carriesNonceAndPkceS256Challenge() throws Exception {
+        enable("microsoft");
+        OidcLoginService.AuthorizeRedirect a = oidc.buildAuthorizeUrl("microsoft", REDIRECT_URI);
+
+        String[] parts = a.cookieValue().split("\\.");
+        assertThat(parts).hasSize(3);
+        byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(parts[2].getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        String challenge = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        assertThat(a.url())
+                .contains("state=" + parts[0])
+                .contains("nonce=" + parts[1])
+                .contains("code_challenge=" + challenge)
+                .contains("code_challenge_method=S256");
+    }
+
+    @Test
+    void callback_tokenRequestCarriesTheCodeVerifier() {
+        enable("microsoft");
+        String tokenUrl = "https://login.microsoftonline.com/" + TENANT + "/oauth2/v2.0/token";
+        stubTokenExchange(tokenUrl, msJwt.signIdToken(TestJwt.microsoftClaims(
+                TENANT, MS_CLIENT, "ms-sub-pkce", "pkce@firma.de", "Pia")), "tok");
+
+        oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.the-verifier", REDIRECT_URI);
+
+        assertThat(FakeHttpFetcher.calls).anySatisfy(c -> {
+            assertThat(c.url()).isEqualTo(tokenUrl);
+            assertThat(c.form()).containsEntry("code_verifier", "the-verifier");
+        });
+    }
+
+    @Test
+    void callback_idTokenWithWrongNonce_rejected() {
+        enable("microsoft");
+        java.util.Map<String, Object> claims = TestJwt.microsoftClaims(TENANT, MS_CLIENT, "sub-n1", "n1@firma.de", "N");
+        claims.put("nonce", "somebody-elses-nonce");
+        stubTokenExchange("https://login.microsoftonline.com/" + TENANT + "/oauth2/v2.0/token",
+                msJwt.signIdToken(claims), "tok");
+
+        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.v", REDIRECT_URI))
+                .isInstanceOf(jakarta.ws.rs.BadRequestException.class)
+                .hasMessageContaining("nonce");
+    }
+
+    @Test
+    void callback_idTokenWithoutNonce_rejected() {
+        enable("microsoft");
+        java.util.Map<String, Object> claims = TestJwt.microsoftClaims(TENANT, MS_CLIENT, "sub-n2", "n2@firma.de", "N");
+        claims.remove("nonce");
+        stubTokenExchange("https://login.microsoftonline.com/" + TENANT + "/oauth2/v2.0/token",
+                msJwt.signIdToken(claims), "tok");
+
+        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.v", REDIRECT_URI))
+                .isInstanceOf(jakarta.ws.rs.BadRequestException.class)
+                .hasMessageContaining("nonce");
+    }
+
+    @Test
+    void callback_cookieWithoutNonceAndVerifier_rejected() {
+        enable("microsoft");
+        assertThatThrownBy(() -> oidc.handleCallback("microsoft", "c", "s", "s", REDIRECT_URI))
+                .isInstanceOf(jakarta.ws.rs.BadRequestException.class);
     }
 
     @Test
@@ -266,7 +333,7 @@ class OidcLoginServiceTest {
                 idToken, "ms-access-token");
         http.stub("https://graph.microsoft.com/v1.0/me/photo/$value", 404, new byte[0], null);
 
-        Session s = oidc.handleCallback("microsoft", "c", "s", "s", REDIRECT_URI);
+        Session s = oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.test-verifier", REDIRECT_URI);
         User u = readUser(s.userId);
         assertThat(u.oidcSubject).isEqualTo("ms-sub-dan");
         assertThat(u.name).isEqualTo("Dan Microsoft");  // refreshed from token
@@ -286,7 +353,7 @@ class OidcLoginServiceTest {
 
     private Session googleLogin(String idToken) {
         stubTokenExchange("https://oauth2.googleapis.com/token", idToken, "g-access-token");
-        return oidc.handleCallback("google", "code", "st", "st",
+        return oidc.handleCallback("google", "code", "st", "st.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/google/callback");
     }
 
@@ -349,7 +416,7 @@ class OidcLoginServiceTest {
                 idToken, "ms-access-token");
         http.stub("https://graph.microsoft.com/v1.0/me/photo/$value", 404, new byte[0], null);
 
-        Session s = oidc.handleCallback("microsoft", "c", "s", "s", REDIRECT_URI);
+        Session s = oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.test-verifier", REDIRECT_URI);
 
         assertThat(readUser(s.userId).oidcSubject).isEqualTo("ms-sub-hal");
     }

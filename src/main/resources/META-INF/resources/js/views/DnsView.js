@@ -16,6 +16,7 @@ export default defineComponent({
       loading: true,
       error: null,
       lookupName: "",
+      lookupType: "auto",
       lookupAsPeerIp: "",
       peers: [],
       lookupResult: null,
@@ -60,6 +61,7 @@ export default defineComponent({
       this.lookupResult = null;
       try {
         const body = { name: this.lookupName.trim() };
+        if (this.lookupType !== "auto") body.type = this.lookupType;
         if (this.lookupAsPeerIp) body.sourceIp = this.lookupAsPeerIp;
         this.lookupResultAsPeer = this.peers.find((p) => p.assignedIp === this.lookupAsPeerIp) || null;
         const res = await fetch("/api/v1/dns/lookup", {
@@ -172,6 +174,15 @@ export default defineComponent({
             <input id="dnsLookupName" class="input mono" v-model="lookupName"
                    :placeholder="'fileserver.homeoffice.' + (status.zone || 'islandr.internal')" />
           </div>
+          <div class="field" style="margin: 0; min-width: 120px">
+            <label for="dnsLookupType">{{ t('dns.lookup_type_label') }}</label>
+            <select id="dnsLookupType" class="select" v-model="lookupType" :title="t('dns.lookup_type_hint')">
+              <option value="auto">{{ t('dns.lookup_type_auto') }}</option>
+              <option value="A">A</option>
+              <option value="AAAA">AAAA</option>
+              <option value="PTR">PTR</option>
+            </select>
+          </div>
           <div class="field" style="margin: 0; min-width: 220px">
             <label for="dnsLookupAsPeer">{{ t('dns.lookup_as_peer_label') }}</label>
             <select id="dnsLookupAsPeer" class="select" v-model="lookupAsPeerIp" :title="t('dns.lookup_as_peer_hint')">
@@ -189,8 +200,15 @@ export default defineComponent({
         <div v-if="lookupResult" style="margin-top: var(--space-4)">
           <div v-if="lookupResult.result === 'answer'" class="callout callout-success">
             <div>
-              <div>{{ t('dns.lookup_result_answer', { ip: lookupResult.ip }) }}</div>
+              <div v-if="lookupResult.nameKind === 'reverse'">{{ t('dns.lookup_result_reverse', { ip: lookupResult.ip }) }}</div>
+              <div v-else>{{ t('dns.lookup_result_answer', { ip: lookupResult.ip }) }}</div>
+              <div v-if="lookupResult.ip6" class="mono" style="font-size: var(--text-sm); margin-top: 2px">{{ t('dns.lookup_result_answer_ip6', { ip: lookupResult.ip6 }) }}</div>
               <div class="mono" style="font-size: var(--text-sm); margin-top: 2px; opacity: 0.85">{{ lookupResult.fqdn }}</div>
+              <div v-if="lookupResult.names && lookupResult.names.length > 1" style="font-size: var(--text-xs); margin-top: var(--space-2); opacity: 0.85">
+                {{ t('dns.lookup_result_all_names') }}
+                <span class="mono">{{ lookupResult.names.join(', ') }}</span>
+                <span v-if="lookupResult.nameKind === 'reverse'"> — {{ t('dns.lookup_result_ptr_main') }}</span>
+              </div>
               <!-- The plain preview skips the ACL check entirely (DnsQueryHandler
                    .resolveForAdminPreview's own doc comment) — resolving here says
                    nothing about which real peer would get an answer on the wire.
@@ -208,8 +226,14 @@ export default defineComponent({
                 <span v-else-if="lookupResult.grantedUsers && lookupResult.grantedUsers.length > 0">
                   {{ t('dns.lookup_result_granted_users', { users: lookupResult.grantedUsers.join(', ') }) }}
                 </span>
-                <span v-else>{{ t('dns.lookup_result_no_grants') }}</span>
+                <span v-else-if="lookupResult.grantedUsers">{{ t('dns.lookup_result_no_grants') }}</span>
               </div>
+            </div>
+          </div>
+          <div v-else-if="lookupResult.result === 'nodata'" class="callout callout-info">
+            <div>
+              <div>{{ t('dns.lookup_result_nodata', { type: lookupType }) }}</div>
+              <div class="mono" style="font-size: var(--text-sm); margin-top: 2px; opacity: 0.85">{{ lookupResult.fqdn }}</div>
             </div>
           </div>
           <div v-else-if="lookupResult.result === 'nxdomain'" class="callout callout-warning">

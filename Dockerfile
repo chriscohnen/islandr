@@ -26,5 +26,9 @@ WORKDIR /var/lib/islandr
 VOLUME /var/lib/islandr
 
 COPY dist/${TARGETARCH}/islandr-runner /islandr
+# The licence notices travel with the binary (ship-licence-notices): EUPL for
+# Islandr itself, and the third-party licences and NOTICE texts of the
+# libraries compiled into it.
+COPY LICENSE NOTICE src/main/resources/META-INF/resources/licenses/THIRD-PARTY-NOTICES.txt /usr/share/doc/islandr/
 EXPOSE 8080
 ENTRYPOINT ["/islandr"]

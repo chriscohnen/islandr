@@ -328,4 +328,36 @@ class DnsResourceTest {
                 .body("result", equalTo("answer"))
                 .body("grantedUsers", org.hamcrest.Matchers.hasItem("Bypass Ungranted " + suffix));
     }
+
+    @Test
+    void lookup_ptr_listsTheUsersWhoWouldGetAnAnswer_notAnEmptyList() {
+        // The preview of an address answered with grantedUsers missing, and the
+        // UI read that as "no user has access" for a resource they do have.
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String siteName = "PtrSite-" + suffix;
+        String dnsName = "ptrprinter-" + suffix;
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.dnsResolverEnabled = true;
+            s.dnsResolverZone = ZONE;
+            s.dnsResolveAllResourcesAndPeers = true;
+
+            Site site = Site.createNew(siteName, "10.79.7.0/24", null);
+            site.persist();
+            Resource resource = Resource.createNew(site.id, "PtrPrinter-" + suffix, "10.79.7.9", null, "printer");
+            resource.dnsName = dnsName;
+            resource.persist();
+
+            User user = User.createNew("Ptr User " + suffix, "ptr-user-" + suffix + "@firma.de");
+            user.persist();
+        });
+
+        given().contentType("application/json")
+                .body("{ \"name\": \"10.79.7.9\" }")
+                .when().post("/api/v1/dns/lookup")
+                .then().statusCode(200)
+                .body("result", equalTo("answer"))
+                .body("nameKind", equalTo("reverse"))
+                .body("grantedUsers", org.hamcrest.Matchers.hasItem("Ptr User " + suffix));
+    }
 }

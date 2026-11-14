@@ -10,6 +10,7 @@ import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.ForbiddenException;
@@ -54,7 +55,7 @@ public class MyPeerResource {
 
     @RegisterForReflection
     public record CreateMineRequest(
-            @NotBlank String name,
+            @NotBlank @Size(max = 64, message = "name must be at most 64 characters") String name,
 
             // Optional. If empty the server generates a fresh keypair and
             // returns the private half once in the response. If provided, the
@@ -81,7 +82,7 @@ public class MyPeerResource {
 
     @RegisterForReflection
     public record UpdateMineRequest(
-            @NotBlank String name,
+            @NotBlank @Size(max = 64, message = "name must be at most 64 characters") String name,
 
             // Same enum as creation; "" clears it back to none.
             @Pattern(regexp = "^$|^(laptop|desktop|mobile|tablet|server|other)$",
@@ -449,17 +450,23 @@ public class MyPeerResource {
     @POST
     @Path("/{id}/shares")
     @ResponseStatus(201)
-    public PeerSelfShareDto.Response createShare(@Context ContainerRequestContext ctx,
+    public PeerSelfShareDto.CreateResponse createShare(@Context ContainerRequestContext ctx,
                                                  @PathParam("id") String id,
                                                  @Valid PeerSelfShareDto.CreateRequest body) {
         AuthContext a = Auth.require(ctx);
         String userId = requireOrgUserId(a);
         PeerSelfShare share = shares.create(id, userId, body.targetEmail(), body.port(), body.durationMinutes());
+        if (share == null) {
+            // Unknown or not allowed to sign in: nothing is created, the answer is the same.
+            audit.logEvent(a.principal(), "peer.share_ignored", "Peer:" + id,
+                    Map.of("targetEmail", body.targetEmail(), "port", body.port()));
+            return PeerSelfShareDto.CreateResponse.NEUTRAL;
+        }
         audit.logEvent(a.principal(), "peer.share_created", "Peer:" + id,
                 Map.of("targetEmail", body.targetEmail(), "port", body.port(),
                         "durationMinutes", body.durationMinutes()));
         rulesets.recomputeFromHook();
-        return PeerSelfShareDto.Response.from(share, java.time.Instant.now());
+        return PeerSelfShareDto.CreateResponse.NEUTRAL;
     }
 
     @GET

@@ -1357,9 +1357,8 @@ export default defineComponent({
           </div>
         </div>
       </div>
-      </template>
-
-      <!-- Edge hubs (settings-edge-hubs-toggle, ADR-I-0003) -->
+      <!-- Edge hubs (settings-edge-hubs-toggle, ADR-I-0003). Inside the network
+           tab: it sat between two tab templates once and showed on every tab. -->
       <div class="card card-pad">
         <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_edge_hubs') }}</h2>
         <div style="display: flex; flex-direction: column; gap: var(--space-2)">
@@ -1373,6 +1372,8 @@ export default defineComponent({
           <div v-if="edgeHubsError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ edgeHubsError }}</div>
         </div>
       </div>
+
+      </template>
 
       <template v-if="settingsTab === 'advanced'">
       <!-- Private Keys -->
@@ -1842,7 +1843,15 @@ export default defineComponent({
              target="_blank" rel="noopener" style="font-size: var(--text-sm)">EUPL-1.2</a>
           <span class="muted" style="font-size: var(--text-sm)">·</span>
           <a href="https://github.com/chriscohnen/islandr" target="_blank" rel="noopener" style="font-size: var(--text-sm)">{{ t('settings.license_source') }}</a>
+          <span class="muted" style="font-size: var(--text-sm)">·</span>
+          <!-- Generated from the build's runtime dependencies (ship-licence-notices). -->
+          <a href="/licenses/THIRD-PARTY-NOTICES.txt" target="_blank" rel="noopener" style="font-size: var(--text-sm)">{{ t('settings.license_third_party') }}</a>
           <span class="field-hint" style="flex-basis: 100%; margin-top: 0">{{ t('settings.license_scope') }}</span>
+          <!-- The rights holder, same wording as LICENSE and TRADEMARK.md.
+               Admins only — the login footer and the portal carry the short
+               form without a link. -->
+          <a href="https://chriscohnen.de" target="_blank" rel="noopener"
+             class="muted" style="flex-basis: 100%; font-size: var(--text-sm)">{{ t('common.copyright') }}</a>
         </div>
 
         <div v-if="versionCheck && !versionCheck.error && !versionCheck.upToDate"

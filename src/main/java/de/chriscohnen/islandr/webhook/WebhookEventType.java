@@ -21,6 +21,10 @@ public final class WebhookEventType {
     public static final String ACME_CERT_RENEWED = "acme.cert_renewed";
     public static final String ACME_CERT_RENEWAL_FAILED = "acme.cert_renewal_failed";
 
+    /** monitoring-status-endpoint (#71): nftables rejected or failed to apply the
+     *  ruleset. Fired on the transition into the failed state, not on every retry. */
+    public static final String FIREWALL_APPLY_FAILED = "firewall.apply_failed";
+
     /** Used only by the admin UI's "test connection" action — never a real
      *  subscribable filter value, delivered regardless of a webhook's
      *  event_types selection. */
@@ -32,7 +36,8 @@ public final class WebhookEventType {
             PEER_CONNECTED, PEER_DISCONNECTED, PEER_ENABLED, PEER_DISABLED,
             ACL_GRANT_CREATED, ACL_GRANT_REVOKED,
             DISCOVERY_SCAN_COMPLETED,
-            ACME_CERT_RENEWED, ACME_CERT_RENEWAL_FAILED
+            ACME_CERT_RENEWED, ACME_CERT_RENEWAL_FAILED,
+            FIREWALL_APPLY_FAILED
     );
 
     private WebhookEventType() {}

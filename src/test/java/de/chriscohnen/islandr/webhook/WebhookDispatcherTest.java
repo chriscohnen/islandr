@@ -27,9 +27,8 @@ class WebhookDispatcherTest {
     @Inject FakeHttpFetcher http;
 
     @BeforeEach
-    @Transactional
     void reset() {
-        Webhook.deleteAll();
+        WebhookTestCleanup.deleteAllWebhooks();
         http.reset();
     }
 

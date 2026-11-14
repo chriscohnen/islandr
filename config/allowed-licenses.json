@@ -1,0 +1,13 @@
+{
+  "allowedLicenses": [
+    { "moduleLicense": "Apache License, Version 2.0" },
+    { "moduleLicense": "MIT License" },
+    { "moduleLicense": "MIT-0" },
+    { "moduleLicense": "The 2-Clause BSD License" },
+    { "moduleLicense": "The 3-Clause BSD License" },
+    { "moduleLicense": "Eclipse Public License - v 1.0" },
+    { "moduleLicense": "Eclipse Public License - v 2.0" },
+    { "moduleLicense": "GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception" },
+    { "moduleLicense": "PUBLIC DOMAIN" }
+  ]
+}

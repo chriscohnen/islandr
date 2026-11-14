@@ -39,6 +39,21 @@ class AuthResourceTest {
                 .then().statusCode(401);
     }
 
+    /** session-cookie-secure: over plain HTTP the cookie must not be Secure (the browser would drop it),
+     *  and a forged X-Forwarded-Proto from an address nobody named must not change that. */
+    @Test
+    void login_overPlainHttp_cookieIsNotSecure_evenWithAForgedForwardedProto() {
+        Response plain = given().contentType("application/json")
+                .body("{ \"username\": \"admin\", \"password\": \"test-admin-pw\" }")
+                .when().post("/api/v1/auth/login");
+        Response forged = given().contentType("application/json").header("X-Forwarded-Proto", "https")
+                .body("{ \"username\": \"admin\", \"password\": \"test-admin-pw\" }")
+                .when().post("/api/v1/auth/login");
+
+        assertThat(plain.getDetailedCookie(SessionFilter.COOKIE_NAME).isSecured()).isFalse();
+        assertThat(forged.getDetailedCookie(SessionFilter.COOKIE_NAME).isSecured()).isFalse();
+    }
+
     @Test
     void login_correctCredentials_setsCookie_meReturnsPrincipal_logoutClears() {
         Response loginResp = given().contentType("application/json").body("""

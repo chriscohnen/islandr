@@ -45,6 +45,7 @@ public class WebAuthnResource {
     @Inject SessionService sessions;
     @Inject AdminBootstrap adminBootstrap;
     @Inject AuthResource auth;
+    @Inject ClientAddress clientAddress;
     @Inject AuditService audit;
 
     public record RegisterStart(String label) {}
@@ -102,6 +103,7 @@ public class WebAuthnResource {
     @Path("/login/verify")
     public Response loginVerify(@HeaderParam("Host") String host,
                                 @HeaderParam("Origin") String origin,
+                                @Context io.vertx.core.http.HttpServerRequest request,
                                 VerifyRequest body) {
         requireResponse(body);
         String rpId = RelyingPartyId.of(host);
@@ -114,7 +116,7 @@ public class WebAuthnResource {
         audit.logEvent(s.principal, "auth.login_webauthn", "Session:" + s.id,
                 Map.of("provider", "webauthn", "rpId", String.valueOf(rpId)));
         return auth.okSession(s, new AuthResource.MeResponse(
-                s.principal, s.provider, adminUserId, true, s.expiresAt));
+                s.principal, s.provider, adminUserId, true, s.expiresAt), clientAddress.isHttps(request));
     }
 
     @GET

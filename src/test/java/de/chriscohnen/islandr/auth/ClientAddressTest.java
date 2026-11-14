@@ -92,4 +92,16 @@ class ClientAddressTest {
         assertThat(ClientAddress.normalise("[2001:db8::1]:443")).isEqualTo("2001:db8::1");
         assertThat(ClientAddress.normalise("2001:db8::1")).isEqualTo("2001:db8::1");
     }
+
+    /** session-cookie-secure: only a proxy the operator named may say the browser used HTTPS. */
+    @Test
+    void forwardedProto_countsOnlyFromATrustedProxy() {
+        ClientAddress c = resolver("10.0.0.0/8", "X-Forwarded-For");
+        assertThat(c.isHttpsVia("10.0.0.2", "https")).isTrue();
+        assertThat(c.isHttpsVia("203.0.113.9", "https")).isFalse(); // forged by an outsider
+        assertThat(c.isHttpsVia("10.0.0.2", "http")).isFalse();
+        assertThat(c.isHttpsVia("10.0.0.2", null)).isFalse();
+        assertThat(c.isHttpsVia("10.0.0.2", "https, http")).isFalse(); // last hop wins
+        assertThat(resolver("", "X-Forwarded-For").isHttpsVia("10.0.0.2", "https")).isFalse();
+    }
 }

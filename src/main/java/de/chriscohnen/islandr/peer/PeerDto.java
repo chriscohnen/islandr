@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 
@@ -126,7 +127,7 @@ public final class PeerDto {
      * Sending {@code privateKey} without {@code publicKey} is rejected with 400.
      */
     public record CreateRequest(
-            @NotBlank String name,
+            @NotBlank @Size(max = 64, message = "name must be at most 64 characters") String name,
             @NotBlank @ValidIpAddress
             String assignedIp,
 
@@ -211,7 +212,7 @@ public final class PeerDto {
      * be deleted and recreated, losing its activity history.
      */
     public record UpdateRequest(
-            @NotBlank String name,
+            @NotBlank @Size(max = 64, message = "name must be at most 64 characters") String name,
             @NotBlank @ValidIpAddress
             String assignedIp,
 

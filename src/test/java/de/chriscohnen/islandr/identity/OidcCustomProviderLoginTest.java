@@ -57,7 +57,7 @@ class OidcCustomProviderLoginTest {
                 ISSUER, CLIENT_ID, "sub-1", "frank@firma.de", "Frank"));
         stubTokenExchange(idToken, "access-token-1");
 
-        Session s = oidc.handleCallback(providerId, "code-1", "st", "st",
+        Session s = oidc.handleCallback(providerId, "code-1", "st", "st.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/" + providerId + "/callback");
 
         assertThat(s.provider).isEqualTo("custom");
@@ -77,8 +77,8 @@ class OidcCustomProviderLoginTest {
         stubTokenExchange(idToken, "access-token-2");
         String redirect = "http://localhost:8080/api/v1/auth/oidc/" + providerId + "/callback";
 
-        Session first = oidc.handleCallback(providerId, "code-a", "st", "st", redirect);
-        Session second = oidc.handleCallback(providerId, "code-b", "st2", "st2", redirect);
+        Session first = oidc.handleCallback(providerId, "code-a", "st", "st.test-nonce.test-verifier", redirect);
+        Session second = oidc.handleCallback(providerId, "code-b", "st2", "st2.test-nonce.test-verifier", redirect);
 
         assertThat(second.userId).isEqualTo(first.userId);
     }
@@ -91,7 +91,7 @@ class OidcCustomProviderLoginTest {
                 "https://someone-else.example.com", CLIENT_ID, "sub-3", "hank@firma.de", "Hank"));
         stubTokenExchange(idToken, "access-token-3");
 
-        assertThatThrownBy(() -> oidc.handleCallback(providerId, "code-3", "st", "st",
+        assertThatThrownBy(() -> oidc.handleCallback(providerId, "code-3", "st", "st.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/" + providerId + "/callback"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("unexpected iss");
@@ -100,7 +100,7 @@ class OidcCustomProviderLoginTest {
     @Test
     void callback_disabledCustomProvider_rejected() {
         disable(providerId);
-        assertThatThrownBy(() -> oidc.handleCallback(providerId, "c", "s", "s",
+        assertThatThrownBy(() -> oidc.handleCallback(providerId, "c", "s", "s.test-nonce.test-verifier",
                 "http://localhost:8080/api/v1/auth/oidc/" + providerId + "/callback"))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("not enabled");

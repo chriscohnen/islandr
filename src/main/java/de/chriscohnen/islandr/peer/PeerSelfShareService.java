@@ -27,6 +27,12 @@ public class PeerSelfShareService {
 
     @Inject SettingsService settings;
 
+    /**
+     * @return the new share, or {@code null} when the target is unknown or may
+     *         not sign in (disabled, access window closed). The caller answers
+     *         both the same way as a created share, so a Portal user cannot use
+     *         this to find out who has an account (share-email-enumeration).
+     */
     @Transactional
     public PeerSelfShare create(String ownerPeerId, String callerUserId, String targetEmail, int port, int durationMinutes) {
         if (!settings.get().peerSelfShareEnabled) {
@@ -41,8 +47,8 @@ public class PeerSelfShareService {
         }
 
         User target = User.find("lower(email) = ?1", targetEmail.trim().toLowerCase(java.util.Locale.ROOT)).firstResult();
-        if (target == null) {
-            throw new BadRequestException("no user with that e-mail address");
+        if (target == null || !target.accessAllowedAt(Instant.now())) {
+            return null;
         }
         if (target.id.equals(callerUserId)) {
             // Sharing a port on your own device with yourself is meaningless —

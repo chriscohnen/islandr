@@ -51,7 +51,11 @@ public class DnsQueryHandler {
         // not necessarily what was typed (resolveForAdminPreview's zone-append/
         // bare-name shortcuts mean those can differ; #resolve's real protocol
         // path always matches them exactly, so it's a no-op there).
-        record Answer(String ip, String fqdn, String resourceId) implements Resolution {}
+        /** @param ip   the main address (A, or AAAA when it is itself IPv6)
+         *  @param ip6  an optional second, IPv6 address of the same name (AAAA); null if none */
+        record Answer(String ip, String fqdn, String resourceId, String ip6) implements Resolution {
+            public Answer(String ip, String fqdn, String resourceId) { this(ip, fqdn, resourceId, null); }
+        }
         record NxDomain() implements Resolution {}
     }
 
@@ -102,7 +106,7 @@ public class DnsQueryHandler {
         // nothing by itself" reasoning resolveHub/resolvePeerByName already
         // apply unconditionally, just extended to every named resource.
         return (s.dnsResolveAllResourcesAndPeers || aclSvc.canReachNow(sourcePeer.userId, resource.id))
-                ? new Resolution.Answer(resource.ip, canonicalFqdn(resource, lookup.site(), normalizeZone(s.dnsResolverZone)), resource.id)
+                ? new Resolution.Answer(resource.ip, canonicalFqdn(resource, lookup.site(), normalizeZone(s.dnsResolverZone), lookup.label()), resource.id, resource.ip6)
                 : NXDOMAIN;
     }
 
@@ -158,18 +162,170 @@ public class DnsQueryHandler {
             }
         }
         if (lookup.status() == ZoneStatus.NO_MATCH && !candidate.contains(".")) {
-            List<Resource> matches = Resource.<Resource>list("lower(dnsName) = ?1", candidate);
+            List<Resource> matches = Resource.<Resource>list("lower(dnsName) = ?1 or ?1 member of dnsAliases", candidate);
             if (matches.size() == 1) {
                 Resource r = matches.get(0);
                 Site site = Site.findById(r.siteId);
-                if (site != null) return new Resolution.Answer(r.ip, canonicalFqdn(r, site, zone), r.id);
+                if (site != null) return new Resolution.Answer(r.ip, canonicalFqdn(r, site, zone, candidate), r.id, r.ip6);
             }
         }
         return switch (lookup.status()) {
             case NOT_MANAGED -> NOT_MANAGED;
             case NO_MATCH -> NXDOMAIN;
-            case FOUND -> new Resolution.Answer(lookup.resource().ip, canonicalFqdn(lookup.resource(), lookup.site(), zone), lookup.resource().id);
+            case FOUND -> new Resolution.Answer(lookup.resource().ip, canonicalFqdn(lookup.resource(), lookup.site(), zone, lookup.label()), lookup.resource().id, lookup.resource().ip6);
         };
+    }
+
+
+    // ---- Reverse lookups (PTR) -------------------------------------------------
+
+    /** PTR for a tunnel address: the name the forward lookup returns for it —
+     *  hub, peer, then resource, the same order {@link #resolve} uses (a peer
+     *  name wins over a resource on the same address; of several resources the
+     *  first visible one wins). Answered locally for every address of the WG
+     *  subnets, visible or not: an unknown or hidden address is NXDOMAIN, never
+     *  a question to the upstream, which would reveal which addresses are asked
+     *  about and could not answer anyway. Outside the tunnel subnets only a
+     *  resource that matches the address is answered; anything else goes to
+     *  the upstream as before.
+     *
+     *  @param queriedName {@code <d>.<c>.<b>.<a>.in-addr.arpa} or {@code ...ip6.arpa}
+     *  @return an {@link Resolution.Answer} whose {@code fqdn} is the PTR
+     *          target, {@link Resolution.NxDomain}, or {@link Resolution.NotManaged} */
+    @Transactional
+    public Resolution resolveReverse(String queriedName, String sourceIp) {
+        Settings s = settingsSvc.get();
+        Peer sourcePeer = Peer.<Peer>find("assignedIp = ?1 or assignedIpv6 = ?1", sourceIp).firstResult();
+        return reverse(s, queriedName, sourcePeer, false);
+    }
+
+    /** Admin preview of a PTR lookup: ACL and peer-identity checks skipped,
+     *  same as {@link #resolveForAdminPreview}. Accepts the address itself or
+     *  the {@code arpa} name. */
+    @Transactional
+    public Resolution resolveReverseForAdminPreview(String ipOrArpaName) {
+        String in = ipOrArpaName == null ? "" : ipOrArpaName.trim();
+        String arpa = in.toLowerCase(Locale.ROOT).endsWith(".arpa") ? in : reverseName(in);
+        if (arpa == null) return NXDOMAIN;
+        return reverse(settingsSvc.get(), arpa, null, true);
+    }
+
+    /** True when {@code name} is a reverse (arpa) name, whatever it asks for. */
+    public static boolean isReverseName(String name) {
+        String n = normalizeName(name);
+        return n.endsWith(".in-addr.arpa") || n.endsWith(".ip6.arpa");
+    }
+
+    private Resolution reverse(Settings s, String queriedName, Peer sourcePeer, boolean bypass) {
+        if (!s.dnsResolverEnabled) return NOT_MANAGED;
+        java.net.InetAddress addr = parseReverseName(normalizeName(queriedName));
+        if (addr == null) return NOT_MANAGED;
+        String ip = addr.getHostAddress();
+        String zone = normalizeZone(s.dnsResolverZone);
+
+        String hub = hubAddress(s);
+        if ((hub != null && sameAddress(hub, addr)) || sameAddress(hubAddress6(s), addr)) {
+            return new Resolution.Answer(ip, HUB_LABEL + "." + zone, null);
+        }
+
+        for (Map.Entry<Peer, String> e : peerDnsLabels().entrySet()) {
+            Peer p = e.getKey();
+            if (!sameAddress(p.assignedIp, addr) && !sameAddress(p.assignedIpv6, addr)) continue;
+            return (bypass || peerNameVisibleTo(p, sourcePeer, s))
+                    ? new Resolution.Answer(ip, e.getValue() + "." + zone, null)
+                    : NXDOMAIN;
+        }
+
+        boolean anyResource = false;
+        for (Resource r : Resource.<Resource>list("dnsName is not null order by createdAt, id")) {
+            if (!sameAddress(r.ip, addr) && !sameAddress(r.ip6, addr)) continue;
+            anyResource = true;
+            boolean visible = bypass || s.dnsResolveAllResourcesAndPeers
+                    || (sourcePeer != null && sourcePeer.userId != null && aclSvc.canReachNow(sourcePeer.userId, r.id));
+            if (!visible) continue;
+            Site site = r.dnsFlat ? null : Site.<Site>findById(r.siteId);
+            if (!r.dnsFlat && site == null) continue;
+            return new Resolution.Answer(ip, canonicalFqdn(r, site, zone), r.id);
+        }
+        if (anyResource || inTunnelSubnet(s, ip)) return NXDOMAIN;
+        return NOT_MANAGED;
+    }
+
+    private static boolean inTunnelSubnet(Settings s, String ip) {
+        for (String cidr : new String[] {s.wgSubnet, s.wgSubnet6}) {
+            if (cidr == null || cidr.isBlank()) continue;
+            try {
+                if (IpSubnet.parse(cidr).contains(ip)) return true;
+            } catch (RuntimeException ignored) {
+                // unparseable subnet: not ours to claim
+            }
+        }
+        return false;
+    }
+
+    private static boolean sameAddress(String stored, java.net.InetAddress addr) {
+        if (stored == null || stored.isBlank()) return false;
+        try {
+            return java.net.InetAddress.getByName(stored.trim()).equals(addr);
+        } catch (java.net.UnknownHostException e) {
+            return false;
+        }
+    }
+
+    /** {@code 4.3.2.1.in-addr.arpa} → 1.2.3.4; 32 nibbles under {@code ip6.arpa}
+     *  → the IPv6 address; anything else (partial, malformed) → null. */
+    static java.net.InetAddress parseReverseName(String name) {
+        try {
+            if (name.endsWith(".in-addr.arpa")) {
+                String[] l = name.substring(0, name.length() - ".in-addr.arpa".length()).split("\\.", -1);
+                if (l.length != 4) return null;
+                byte[] b = new byte[4];
+                for (int i = 0; i < 4; i++) {
+                    if (!l[3 - i].matches("\\d{1,3}")) return null;
+                    int v = Integer.parseInt(l[3 - i]);
+                    if (v > 255) return null;
+                    b[i] = (byte) v;
+                }
+                return java.net.InetAddress.getByAddress(b);
+            }
+            if (name.endsWith(".ip6.arpa")) {
+                String[] l = name.substring(0, name.length() - ".ip6.arpa".length()).split("\\.", -1);
+                if (l.length != 32) return null;
+                byte[] b = new byte[16];
+                for (int i = 0; i < 32; i++) {
+                    String nib = l[31 - i];
+                    if (!nib.matches("[0-9a-f]")) return null;
+                    int v = Character.digit(nib.charAt(0), 16);
+                    b[i / 2] |= (byte) (i % 2 == 0 ? v << 4 : v);
+                }
+                return java.net.InetAddress.getByAddress(b);
+            }
+        } catch (java.net.UnknownHostException e) {
+            return null;
+        }
+        return null;
+    }
+
+    /** The arpa name for a literal address, or null when it isn't one. */
+    public static String reverseName(String ip) {
+        java.net.InetAddress a;
+        try {
+            if (ip.isBlank() || !ip.matches("[0-9a-fA-F:.]+")) return null;
+            a = java.net.InetAddress.getByName(ip);
+        } catch (java.net.UnknownHostException e) {
+            return null;
+        }
+        byte[] b = a.getAddress();
+        StringBuilder sb = new StringBuilder();
+        if (b.length == 4) {
+            for (int i = 3; i >= 0; i--) sb.append(b[i] & 0xff).append('.');
+            return sb.append("in-addr.arpa").toString();
+        }
+        for (int i = 15; i >= 0; i--) {
+            sb.append(Character.forDigit(b[i] & 0xf, 16)).append('.')
+              .append(Character.forDigit((b[i] >> 4) & 0xf, 16)).append('.');
+        }
+        return sb.append("ip6.arpa").toString();
     }
 
     /** Every user who would actually get an {@code Answer} for this resource
@@ -199,6 +355,20 @@ public class DnsQueryHandler {
         if (a.resourceId() != null) return ResolvableNameKind.RESOURCE;
         Settings s = settingsSvc.get();
         return hubLabels(s).contains(normalizeName(a.fqdn())) ? ResolvableNameKind.HUB : ResolvableNameKind.PEER;
+    }
+
+    /** Every name of a resource, main name first (the one a PTR query returns). */
+    @Transactional
+    public List<String> resourceNames(String resourceId) {
+        Settings s = settingsSvc.get();
+        String zone = normalizeZone(s.dnsResolverZone);
+        Resource r = Resource.findById(resourceId);
+        if (r == null || r.dnsName == null) return List.of();
+        Site site = r.dnsFlat ? null : Site.<Site>findById(r.siteId);
+        List<String> out = new ArrayList<>();
+        out.add(canonicalFqdn(r, site, zone));
+        r.dnsAliases.stream().sorted().forEach(a -> out.add(canonicalFqdn(r, site, zone, a)));
+        return out;
     }
 
     @Transactional
@@ -239,7 +409,7 @@ public class DnsQueryHandler {
         // an NXDOMAIN for a name we own — it is us having nothing to say. Fall
         // through so the query takes its normal course instead of a lie.
         if (ip == null) return null;
-        return new Resolution.Answer(ip, name, null);
+        return new Resolution.Answer(ip, name, null, hubAddress6(s));
     }
 
     /** The name(s) that currently resolve to the hub itself — the fixed
@@ -257,6 +427,16 @@ public class DnsQueryHandler {
             labels.add(normalizeName(s.dnsHubAlias));
         }
         return labels;
+    }
+
+    /** The hub's IPv6 tunnel address (network + 1 of the IPv6 subnet), if one is configured. */
+    private static String hubAddress6(Settings s) {
+        if (s.wgSubnet6 == null || s.wgSubnet6.isBlank()) return null;
+        try {
+            return IpSubnet.parse(s.wgSubnet6).networkAddress();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     /** The hub's tunnel address, by the same network+1 convention the peer
@@ -321,7 +501,7 @@ public class DnsQueryHandler {
         Peer match = findPeerByDnsLabel(label);
         if (match == null) return null;
         if (!bypassOwnershipCheck && !peerNameVisibleTo(match, sourcePeer, s)) return NXDOMAIN;
-        return new Resolution.Answer(match.assignedIp, name, null);
+        return new Resolution.Answer(match.assignedIp, name, null, match.assignedIpv6);
     }
 
     /** The actual gate behind {@link #resolvePeerByName} — split out so its
@@ -388,14 +568,22 @@ public class DnsQueryHandler {
     }
 
     private enum ZoneStatus { NOT_MANAGED, NO_MATCH, FOUND }
-    private record ZoneLookup(ZoneStatus status, Site site, Resource resource) {}
+    /** @param label the name label that matched: the resource's main name or one of its aliases */
+    private record ZoneLookup(ZoneStatus status, Site site, Resource resource, String label) {
+        ZoneLookup(ZoneStatus status, Site site, Resource resource) { this(status, site, resource, null); }
+    }
 
     /** Canonical FQDN for a resource — {@code <dnsName>.<zone>} when it opted
      *  out of the subdomain layer ({@code dnsFlat}), otherwise
      *  {@code <dnsName>.<subdomain>.<zone>}. */
     private static String canonicalFqdn(Resource resource, Site site, String zone) {
-        if (resource.dnsFlat) return resource.dnsName + "." + zone;
-        return resource.dnsName + "." + effectiveSubdomain(site) + "." + zone;
+        return canonicalFqdn(resource, site, zone, resource.dnsName);
+    }
+
+    /** FQDN for one specific label of a resource — its main name or an alias. */
+    private static String canonicalFqdn(Resource resource, Site site, String zone, String label) {
+        if (resource.dnsFlat) return label + "." + zone;
+        return label + "." + effectiveSubdomain(site) + "." + zone;
     }
 
     /** A site's own DNS label: the explicit {@code subdomain} override when
@@ -426,9 +614,10 @@ public class DnsQueryHandler {
             // Its dnsName is a global (not per-site) uniqueness domain, since
             // there's no site label left to disambiguate it — enforced at
             // save time (ResourceService), so at most one match is possible.
-            Resource flat = Resource.<Resource>find("dnsFlat = true and lower(dnsName) = ?1", withoutZone).firstResult();
+            Resource flat = Resource.<Resource>find(
+                    "dnsFlat = true and (lower(dnsName) = ?1 or ?1 member of dnsAliases)", withoutZone).firstResult();
             if (flat == null) return new ZoneLookup(ZoneStatus.NO_MATCH, null, null);
-            return new ZoneLookup(ZoneStatus.FOUND, Site.findById(flat.siteId), flat);
+            return new ZoneLookup(ZoneStatus.FOUND, Site.findById(flat.siteId), flat, withoutZone);
         }
         String resourceLabel = withoutZone.substring(0, lastDot);
         String siteLabel = withoutZone.substring(lastDot + 1);
@@ -443,10 +632,11 @@ public class DnsQueryHandler {
         // path above, never additionally under its site's subdomain too — one
         // canonical FQDN per resource, not two aliases for the same one.
         Resource resource = Resource.<Resource>find(
-                "siteId = ?1 and dnsFlat = false and lower(dnsName) = ?2", site.id, resourceLabel).firstResult();
+                "siteId = ?1 and dnsFlat = false and (lower(dnsName) = ?2 or ?2 member of dnsAliases)",
+                site.id, resourceLabel).firstResult();
         if (resource == null) return new ZoneLookup(ZoneStatus.NO_MATCH, site, null);
 
-        return new ZoneLookup(ZoneStatus.FOUND, site, resource);
+        return new ZoneLookup(ZoneStatus.FOUND, site, resource, resourceLabel);
     }
 
     /** Everything {@link DnsResolverService} (and the System → DNS status page,
@@ -525,7 +715,7 @@ public class DnsQueryHandler {
      *  per install (ADR-0023). */
     @Transactional
     public long resolvableCount() {
-        return Resource.count("dnsName is not null") + Peer.count() + hubLabels(settingsSvc.get()).size();
+        return Resource.<Resource>list("dnsName is not null").stream().mapToLong(r -> 1 + r.dnsAliases.size()).sum() + Peer.count() + hubLabels(settingsSvc.get()).size();
     }
 
     /** One entry in {@link #resolvableNames()} — the FQDN plus which of the
@@ -562,13 +752,12 @@ public class DnsQueryHandler {
             fqdns.add(new ResolvableName(hub, ResolvableNameKind.HUB));
         }
         for (Resource r : named) {
-            if (r.dnsFlat) {
-                fqdns.add(new ResolvableName(canonicalFqdn(r, null, zone), ResolvableNameKind.RESOURCE));
-                continue;
-            }
-            Site site = Site.findById(r.siteId);
-            if (site == null) continue; // orphaned row, shouldn't happen — skip rather than throw
+            Site site = r.dnsFlat ? null : Site.<Site>findById(r.siteId);
+            if (!r.dnsFlat && site == null) continue; // orphaned row, shouldn't happen — skip rather than throw
             fqdns.add(new ResolvableName(canonicalFqdn(r, site, zone), ResolvableNameKind.RESOURCE));
+            for (String alias : r.dnsAliases) {
+                fqdns.add(new ResolvableName(canonicalFqdn(r, site, zone, alias), ResolvableNameKind.RESOURCE));
+            }
         }
         for (Peer p : Peer.<Peer>listAll()) {
             fqdns.add(new ResolvableName(peerDnsLabel(p) + "." + zone, ResolvableNameKind.PEER));

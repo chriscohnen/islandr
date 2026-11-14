@@ -2,6 +2,7 @@ plugins {
     java
     id("io.quarkus")
     jacoco
+    id("com.github.jk1.dependency-license-report") version "3.1.5"
 }
 
 repositories {
@@ -30,7 +31,7 @@ dependencies {
     // inherit the per-request access re-check from #53.
     // Pulls only vertx-auth-common besides vertx-core, which is already pinned
     // to 4.5.27 by the resolution rule below.
-    implementation("io.vertx:vertx-auth-webauthn:4.5.27")
+    implementation("io.vertx:vertx-auth-webauthn:4.5.35")
 
     // Web layer
     implementation("io.quarkus:quarkus-rest")
@@ -93,32 +94,14 @@ dependencies {
 // not a version string on the dependency itself — this also covers transitive
 // submodules that aren't declared directly (e.g. Netty's many codec modules).
 //
-// The 3.33.3.2 BOM already ships jackson 2.21.5, postgresql 42.7.13 and
-// vertx-core 4.5.31 — every force we carried on 3.29.4 for those is now either
+// The 3.33.4.1 BOM already ships Netty 4.1.139 (the former 4.1.137 force is
+// gone: it would now pin us backwards), postgresql 42.7.13 and
+// vertx-core 4.5.35 — every force we carried on 3.29.4 for those is now either
 // equal to or older than the BOM, so they are gone rather than pinning us
 // backwards.
 configurations.all {
     resolutionStrategy.eachDependency {
-        // tcnative artifacts live on their own 2.0.x line (the BOM pins 2.0.78.Final)
-        // and have no 4.1.x release at all — a blanket io.netty force asks for a
-        // netty-tcnative-classes:4.1.137.Final that does not exist and fails resolution.
-        if (requested.group == "io.netty" && !requested.name.startsWith("netty-tcnative")) {
-            // The BOM ships 4.1.136.Final. 4.1.137.Final fixes CVE-2026-59898 and
-            // CVE-2026-59921 (netty-handler, netty-codec-http), which 4.1.136 does
-            // not — hence one step past the BOM, staying inside 4.1.x.
-            //
-            // HISTORY, do not re-introduce blindly: on Quarkus 3.29.4 this was
-            // CAPPED at 4.1.135.Final, because 4.1.136 changed the constructor of
-            // io.netty.handler.ssl.ReferenceCountedOpenSslClientContext, which that
-            // version's Vert.x GraalVM substitution called with the old signature —
-            // the native build failed while the JVM test suite passed. The 3.33 BOM
-            // ships 4.1.136 itself, so the substitution there expects the new
-            // signature. Any change here needs a NATIVE build to verify; tests alone
-            // cannot see this class of failure.
-            useVersion("4.1.137.Final")
-            because("CVE-2026-59898 (critical) and CVE-2026-59921, unfixed in the BOM's 4.1.136.Final; same 4.1.x line")
-        }
-        // The BOM ships Jackson 2.21.5. 2.21.7 fixes five high-severity parser
+        // The BOM ships Jackson below 2.21.7. 2.21.7 fixes five high-severity parser
         // DoS issues (number-pattern ReDoS, unbounded number parsing, quadratic
         // forward-reference completion, unbounded unknown type IDs) plus two
         // medium ones — reachable through every JSON request body, the login
@@ -156,11 +139,11 @@ configurations.all {
 // mismatch; see the override above for why that does not apply here.
 
 group = "de.chriscohnen.islandr"
-version = "1.2.1"
+version = "1.3.0"
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 tasks.withType<Test> {
@@ -199,6 +182,9 @@ tasks.withType<JavaCompile> {
 //   The -Psqlite flag drops quarkus-jdbc-postgresql from the dependency tree.
 //   -Dquarkus.native.container-build pulls a Mandrel container so no local
 //   GraalVM is needed. Result: build/islandr-*-runner (Linux x86_64 binary).
+//   CI pins the builder image to a dated tag (ci.yml, Mandrel 25.0.5.0 on
+//   JDK 25) instead of the moving jdk-25 tag, so a release states which JDK
+//   trust store it carries; bump the date deliberately.
 //
 // Native build — with PostgreSQL (when migrating off SQLite, see ADR-0004):
 //   ./gradlew build -Dquarkus.native.enabled=true \
@@ -237,4 +223,94 @@ tasks.named<Test>("testNative") {
     // only exercises native serialization (see DiscoveryNativeIT), not an actual
     // network scan, and the sandboxed CI container has no route to any real host.
     environment("ISLANDR_DISCOVERY_MODE", "mock")
+}
+
+// ---------------------------------------------------------------------------
+// Third-party licence notices (ship-licence-notices). The native binary
+// carries Quarkus, Netty, Vert.x, Jackson and more, mostly Apache-2.0, whose
+// section 4 asks a redistributor to hand over the licence and the libraries'
+// NOTICE texts. Generated, never hand-written — a hand-kept list goes stale at
+// the next Quarkus bump.
+//
+// The plugin does not support the configuration cache, so it is NOT wired into
+// the normal build: run `./gradlew thirdPartyNotices --no-configuration-cache`.
+// It writes the committed file under META-INF/resources/licenses/, and CI
+// regenerates it and fails on any difference or on a licence outside
+// config/allowed-licenses.json.
+licenseReport {
+    configurations = arrayOf("runtimeClasspath")
+    filters = arrayOf<com.github.jk1.license.filter.DependencyFilter>(
+            com.github.jk1.license.filter.LicenseBundleNormalizer())
+    renderers = arrayOf<com.github.jk1.license.render.ReportRenderer>(
+            ThirdPartyNoticesRenderer(layout.buildDirectory.dir("reports/dependency-license").get().asFile))
+    allowedLicensesFile = layout.projectDirectory.file("config/allowed-licenses.json").asFile
+}
+
+/**
+ * One deterministic text file: every runtime library with its licence, then
+ * each NOTICE text the libraries ship, then each distinct licence text once.
+ * No timestamp and a fixed order, so CI can regenerate it and compare.
+ */
+class ThirdPartyNoticesRenderer(private val outDir: File) : com.github.jk1.license.render.ReportRenderer {
+    override fun render(data: com.github.jk1.license.ProjectData) {
+        val modules = data.allDependencies.sortedBy { "${it.group}:${it.name}:${it.version}" }
+        fun licences(m: com.github.jk1.license.ModuleData): List<String> =
+                com.github.jk1.license.render.LicenseDataCollector.multiModuleLicenseInfo(m).licenses
+                        .mapNotNull { it.name }.distinct()
+        fun embedded(m: com.github.jk1.license.ModuleData, notice: Boolean) =
+                m.licenseFiles.flatMap { lf: com.github.jk1.license.LicenseFileData -> lf.fileDetails }
+                        .filter { d: com.github.jk1.license.LicenseFileDetails -> File(d.file).name.uppercase().contains("NOTICE") == notice }
+                        .map { d: com.github.jk1.license.LicenseFileDetails -> File(outDir, d.file) }
+                        .filter { f: File -> f.isFile }
+                        .sortedBy { f: File -> f.path }
+
+        val sb = StringBuilder()
+        sb.append("Third-party software in Islandr\n")
+        sb.append("================================\n\n")
+        sb.append("Islandr itself: Copyright (c) 2026 Christian Cohnen, licensed under the EUPL\n")
+        sb.append("(see LICENSE and NOTICE). The libraries below are distributed with it under\n")
+        sb.append("their own licences. Generated from the build's runtime dependencies.\n\n")
+        sb.append("Libraries\n---------\n\n")
+        for (m in modules) {
+            sb.append("${m.group}:${m.name} ${m.version}\n")
+            sb.append("  Licence: ${licences(m).joinToString(" / ").ifEmpty { "unknown" }}\n")
+        }
+        sb.append("\n\nNOTICE files shipped by the libraries\n-------------------------------------\n")
+        for (m in modules) {
+            for (f in embedded(m, notice = true)) {
+                sb.append("\n=== ${m.group}:${m.name} ${m.version} — ${f.name}\n\n")
+                sb.append(f.readText().trim()).append("\n")
+            }
+        }
+        sb.append("\n\nLicence texts shipped by the libraries (each distinct text once)\n")
+        sb.append("---------------------------------------------------------------\n")
+        val seen = LinkedHashMap<String, MutableList<String>>()
+        val texts = HashMap<String, String>()
+        for (m in modules) {
+            for (f in embedded(m, notice = false)) {
+                val text = f.readText().trim()
+                if (text.isEmpty()) continue
+                val key = text.replace(Regex("\\s+"), " ")
+                texts.putIfAbsent(key, text)
+                seen.getOrPut(key) { mutableListOf() }.add("${m.group}:${m.name}")
+            }
+        }
+        for ((key, users) in seen) {
+            sb.append("\n=== Used by: ${users.distinct().joinToString(", ")}\n\n")
+            sb.append(texts.getValue(key)).append("\n")
+        }
+        File(outDir, "THIRD-PARTY-NOTICES.txt").writeText(sb.toString())
+    }
+}
+
+val thirdPartyNoticesFile = layout.projectDirectory.file(
+        "src/main/resources/META-INF/resources/licenses/THIRD-PARTY-NOTICES.txt")
+
+// Regenerate the committed notices. Needs --no-configuration-cache (see above).
+tasks.register<Copy>("thirdPartyNotices") {
+    group = "documentation"
+    description = "Regenerates THIRD-PARTY-NOTICES.txt from the runtime dependencies and checks their licences"
+    dependsOn("generateLicenseReport", "checkLicense")
+    from(layout.buildDirectory.file("reports/dependency-license/THIRD-PARTY-NOTICES.txt"))
+    into(thirdPartyNoticesFile.asFile.parentFile)
 }

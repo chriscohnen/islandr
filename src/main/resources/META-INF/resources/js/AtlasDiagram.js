@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { COOL_PALETTE } from "/js/Avatar.js";
 import { t } from "/js/i18n.js";
+import { aggregateEdges, EXPAND_SCALE } from "/js/AtlasEdges.js";
 
 // Layout constants (SVG viewBox units).
 const W = 1000;
@@ -19,6 +20,16 @@ function curvePath(x1, y1, x2, y2, bow = 0.18) {
   const cx = mx + (-dy / dist) * dist * bow;
   const cy = my + (dx / dist) * dist * bow;
   return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+}
+
+// Point halfway along the quadratic curve curvePath() draws — where an
+// aggregated edge puts its count.
+function curveMid(x1, y1, x2, y2, bow = 0.18) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy) || 1;
+  const cx = (x1 + x2) / 2 + (-dy / dist) * dist * bow;
+  const cy = (y1 + y2) / 2 + (dx / dist) * dist * bow;
+  return { x: 0.25 * x1 + 0.5 * cx + 0.25 * x2, y: 0.25 * y1 + 0.5 * cy + 0.25 * y2 };
 }
 
 // Vogel's sunflower model: distributes N points evenly across a disk's whole
@@ -435,6 +446,49 @@ export default defineComponent({
               key: edgeKey(e),
             };
           });
+    },
+    // Whether grant edges are folded into one counted line per subject, site
+    // and kind (AtlasEdges.js). Off as soon as the viewer asks about something
+    // specific — a selection, a hovered table row, the revoke tool (which needs
+    // every individual edge to click) — or has zoomed in far enough to read
+    // single lines.
+    edgesAggregated() {
+      return !this.selectedUserId && !this.selectedResourceId && !this.selectedSiteId
+          && !this.rowHoverKey && this.tool !== "revoke" && this.view.scale < EXPAND_SCALE;
+    },
+    // edgeLines split into what is drawn one by one and what is drawn as a
+    // counted group. The hovered user or resource keeps its individual lines.
+    edgeSplit() {
+      if (!this.edgesAggregated) return { lines: this.edgeLines, groupLines: [] };
+      const h = this.hoverActivated;
+      const circleOf = (id) => this.nodesById.get(id)?.circleId;
+      const { singles, groups } = aggregateEdges(this.edgeLines.map((l) => l.edge), {
+        circleOfSubject: circleOf,
+        circleOfResource: circleOf,
+        expand: (e) => !!h && ((h.type === "user" && e.subjectId === h.id) || (h.type === "resource" && e.resourceId === h.id)),
+      });
+      const single = new Set(singles);
+      const slot = new Map(); // per subject+circle: kinds fan out so two lines do not lie on each other
+      const groupLines = groups.map((g) => {
+        const from = this.nodesById.get(g.subjectId);
+        const circle = this.circlesById.get(g.circleId);
+        const pair = g.subjectId + "|" + g.circleId;
+        const i = slot.get(pair) || 0;
+        slot.set(pair, i + 1);
+        const bow = 0.18 + 0.1 * i;
+        const dx = circle.cx - from.x, dy = circle.cy - from.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const toX = circle.cx - (dx / dist) * circle.r;
+        const toY = circle.cy - (dy / dist) * circle.r;
+        const mid = curveMid(from.x, from.y, toX, toY, bow);
+        return {
+          key: g.key, kind: g.kind, count: g.count,
+          path: curvePath(from.x, from.y, toX, toY, bow),
+          lx: mid.x, ly: mid.y,
+          width: 1.5 + Math.min(g.count, 12) * 0.12,
+        };
+      });
+      return { lines: this.edgeLines.filter((l) => single.has(l.edge)), groupLines };
     },
     // Sites targeted by a currently-visible network-grant edge (i.e. still
     // present in edgeLines after the selectedUserId/selectedResourceId
@@ -899,7 +953,7 @@ export default defineComponent({
                dashed: red alone is the same red a network grant already
                wears, and a dashed line reads as the connection being cut —
                the one thing a click here would actually do. -->
-          <path v-for="line in edgeLines" :key="line.key" :d="line.path"
+          <path v-for="line in edgeSplit.lines" :key="line.key" :d="line.path"
                 fill="none"
                 :stroke="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 'var(--danger-solid)' : edgeColor(line.edge.kind)"
                 :stroke-width="(tool === 'revoke' && hoveredEdgeKey === line.key) ? 3.5 : (rowHoverKey === line.key ? 3 : (line.edge.kind === 'network-grant' ? 2.5 : 1.5))"
@@ -910,6 +964,17 @@ export default defineComponent({
                 @pointerenter="onEdgeHover(line.key)"
                 @pointerleave="onEdgeLeave()"
                 @click="onEdgeClick(line.edge)" />
+          <!-- Folded grants: one line per user, site and kind with the number of
+               grants it stands for. Each kind keeps its own colour. -->
+          <g v-for="grp in edgeSplit.groupLines" :key="'grp-' + grp.key">
+            <path :d="grp.path" fill="none" :stroke="edgeColor(grp.kind)" :stroke-width="grp.width"
+                  stroke-opacity="0.55" :marker-end="'url(#atlas-arrow-' + grp.kind + ')'">
+              <title>{{ t('atlas.edge_group_title', { n: grp.count }) }}</title>
+            </path>
+            <text :x="grp.lx" :y="grp.ly" text-anchor="middle" dominant-baseline="central" font-size="10"
+                  font-family="var(--font-mono)" fill="var(--fg2)" stroke="var(--canvas)" stroke-width="3"
+                  paint-order="stroke" pointer-events="none">{{ grp.count }}</text>
+          </g>
           <template v-if="tool === 'revoke'">
             <path v-for="line in edgeLines" :key="'hit-' + line.key" :d="line.path"
                   fill="none" stroke="transparent" stroke-width="14"

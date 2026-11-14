@@ -84,6 +84,7 @@ public final class TestJwt {
         c.put("name", name);
         c.put("iat", now);
         c.put("exp", now + 3600);
+        c.put("nonce", "test-nonce");
         return c;
     }
 
@@ -103,6 +104,7 @@ public final class TestJwt {
         if (picture != null) c.put("picture", picture);
         c.put("iat", now);
         c.put("exp", now + 3600);
+        c.put("nonce", "test-nonce");
         return c;
     }
 
@@ -121,6 +123,7 @@ public final class TestJwt {
         c.put("name", name);
         c.put("iat", now);
         c.put("exp", now + 3600);
+        c.put("nonce", "test-nonce");
         return c;
     }
 
