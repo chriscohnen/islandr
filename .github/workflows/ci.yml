@@ -756,6 +756,88 @@ jobs:
           [ -n "$GOT_PSK" ] && [ "$GOT_PSK" != "(none)" ] \
             || { echo "::error::the interface carries no preshared key for that peer"; sudo wg show wg0 preshared-keys; exit 1; }
 
+          # egress-via-hub (1.4.0): real packets, not rule text. A client in its
+          # own netns dials wg0; a "partner" netns behind a veth plays the
+          # partner's public range and has no route back to the tunnel subnet,
+          # so it can only answer if the hub masqueraded. The veth is set as the
+          # WAN override, which also exercises that endpoint.
+          echo "→ Asserting egress via the hub: partner sees the hub's address, only with a grant"
+          sudo sysctl -qw net.ipv4.ip_forward=1
+          # Docker on the runner sets the iptables FORWARD policy to DROP; that
+          # is the runner's firewall, not Islandr's, and would hide the result.
+          sudo iptables -P FORWARD ACCEPT || true
+          sudo ip netns add partner
+          sudo ip link add vpart0 type veth peer name vpart1
+          sudo ip link set vpart1 netns partner
+          sudo ip addr add 203.0.113.1/28 dev vpart0
+          sudo ip link set vpart0 up
+          sudo ip -n partner addr add 203.0.113.2/28 dev vpart1
+          sudo ip -n partner link set vpart1 up
+          sudo ip -n partner link set lo up
+          sudo ip netns exec partner python3 -m http.server 8099 --bind 203.0.113.2 \
+            > /tmp/partner.log 2>&1 &
+
+          EXT_SITE=$(curl -s $CJ -X POST "$BASE/api/v1/sites" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-partner","cidr":"203.0.113.0/28","description":"","gatewayPeerId":null,"kind":"external"}' | jq -r .id)
+          [ -n "$EXT_SITE" ] && [ "$EXT_SITE" != "null" ] || { echo "::error::external site creation failed"; cat /tmp/islandr-e2e.log; exit 1; }
+          EXT_RES=$(curl -s $CJ -X POST "$BASE/api/v1/sites/$EXT_SITE/resources" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-partner-app","ip":"203.0.113.2","description":"","type":"","dnsName":"","dnsFlat":false}' | jq -r .id)
+          curl -s $CJ -X POST "$BASE/api/v1/resources/$EXT_RES/ports" \
+            -H 'content-type: application/json' \
+            -d '{"port":8099,"portEnd":null,"transport":"tcp","protocol":"tcp","label":"","pathPrefix":"","rdpClipboard":false,"rdpFileTransfer":false,"rdpAccessMode":"native"}' > /dev/null
+          WAN=$(curl -s $CJ -o /dev/null -w '%{http_code}' -X PUT "$BASE/api/v1/settings/wan-interface" \
+            -H 'content-type: application/json' -d '{"wanInterface":"vpart0"}')
+          [ "$WAN" = "200" ] || { echo "::error::WAN override refused (HTTP $WAN)"; exit 1; }
+
+          EG_ROLE=$(curl -s $CJ -X POST "$BASE/api/v1/roles" \
+            -H 'content-type: application/json' -d '{"name":"e2e-egress","description":""}' | jq -r .id)
+          EG_USER=$(curl -s $CJ -X POST "$BASE/api/v1/users" \
+            -H 'content-type: application/json' -d '{"name":"e2e-egress-user","email":"e2e-egress@example.com"}' | jq -r .id)
+          EG_KEY=$(wg genkey)
+          EG_PUB=$(echo "$EG_KEY" | wg pubkey)
+          EG_IP=$(curl -s $CJ "$BASE/api/v1/peers/next-ip" | jq -r .assignedIp)
+          curl -s $CJ -X POST "$BASE/api/v1/users/$EG_USER/peers" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"e2e-egress-peer\",\"assignedIp\":\"$EG_IP\",\"assignedIpv6\":\"\",\"publicKey\":\"$EG_PUB\",\"privateKey\":\"\",\"type\":\"client\"}" > /dev/null
+
+          # The client: its own netns, reaching the hub's wg0 over a veth.
+          sudo ip netns add client
+          sudo ip link add vcli0 type veth peer name vcli1
+          sudo ip link set vcli1 netns client
+          sudo ip addr add 192.168.77.1/30 dev vcli0
+          sudo ip link set vcli0 up
+          sudo ip -n client addr add 192.168.77.2/30 dev vcli1
+          sudo ip -n client link set vcli1 up
+          sudo ip -n client link set lo up
+          sudo ip -n client link add wgc type wireguard
+          sudo sh -c "umask 077; echo '$EG_KEY' > /etc/wireguard/e2e-client.key"
+          sudo ip netns exec client wg set wgc private-key /etc/wireguard/e2e-client.key \
+            peer "$(sudo wg show wg0 public-key)" endpoint 192.168.77.1:51820 allowed-ips 203.0.113.0/28
+          sudo rm -f /etc/wireguard/e2e-client.key
+          sudo ip -n client addr add "$EG_IP/32" dev wgc
+          sudo ip -n client link set wgc up
+          sudo ip -n client route add 203.0.113.0/28 dev wgc
+
+          if sudo ip netns exec client curl -s -m 5 -o /dev/null http://203.0.113.2:8099/; then
+            echo "::error::the partner answered a peer without a grant"; sudo nft list table inet islandr; exit 1
+          fi
+
+          curl -s $CJ -X PUT "$BASE/api/v1/acl/matrix" \
+            -H 'content-type: application/json' \
+            -d "{\"grants\":[{\"roleId\":\"$ROLE_ID\",\"resourceId\":\"$RESOURCE_ID\",\"allPorts\":true,\"portIds\":[]},{\"roleId\":\"$EG_ROLE\",\"resourceId\":\"$EXT_RES\",\"allPorts\":true,\"portIds\":[]}]}" > /dev/null
+          curl -s $CJ -X PUT "$BASE/api/v1/roles/$EG_ROLE/users" \
+            -H 'content-type: application/json' -d "{\"userIds\":[\"$EG_USER\"]}" > /dev/null
+
+          sudo ip netns exec client curl -sf -m 10 -o /dev/null http://203.0.113.2:8099/ \
+            || { echo "::error::a peer with a grant did not reach the partner through the hub"; sudo nft list table inet islandr; sudo wg show; cat /tmp/islandr-e2e.log; exit 1; }
+          grep -q '^203\.0\.113\.1 ' /tmp/partner.log \
+            || { echo "::error::the partner did not see the hub's address as the source"; cat /tmp/partner.log; exit 1; }
+          if grep -q "^$EG_IP " /tmp/partner.log; then
+            echo "::error::the partner saw the tunnel address — no masquerade"; cat /tmp/partner.log; exit 1
+          fi
+
           echo "✓ install-proxy.sh + real App→islandr-proxy→wg/nft enforcement verified end-to-end"
 
   # ── Stage 6: E2E upgrade path (tags only, after release exists) ───────────

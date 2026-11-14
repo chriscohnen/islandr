@@ -3,6 +3,7 @@ package de.chriscohnen.islandr.acl;
 import de.chriscohnen.islandr.audit.AuditService;
 import de.chriscohnen.islandr.auth.Auth;
 import de.chriscohnen.islandr.auth.AuthContext;
+import de.chriscohnen.islandr.firewall.RulesetService;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
@@ -29,6 +30,7 @@ public class SiteResource {
 
     @Inject SiteService sites;
     @Inject AuditService audit;
+    @Inject RulesetService rulesets;
 
     @GET
     public List<SiteDto.Response> list(@Context ContainerRequestContext ctx) {
@@ -56,7 +58,11 @@ public class SiteResource {
                 Map.of("name", s.name, "cidr", s.cidr,
                         "description", s.description == null ? "" : s.description,
                         "gatewayPeerId", s.gatewayPeerId == null ? "" : s.gatewayPeerId,
-                        "edgeHubId", s.edgeHubId == null ? "" : s.edgeHubId));
+                        "edgeHubId", s.edgeHubId == null ? "" : s.edgeHubId,
+                        "kind", s.kind));
+        // egress-via-hub: an external site's masquerade rule lives in the
+        // ruleset, so it has to follow the site, not wait for the next grant.
+        if (s.isExternal()) rulesets.recomputeFromHook();
         return Response.created(UriBuilder.fromResource(SiteResource.class).path(s.id).build())
                 .entity(sites.toResponse(s, 0))
                 .build();
@@ -96,13 +102,20 @@ public class SiteResource {
                 "name", before.name, "cidr", before.cidr,
                 "description", before.description == null ? "" : before.description,
                 "gatewayPeerId", before.gatewayPeerId == null ? "" : before.gatewayPeerId,
-                "edgeHubId", before.edgeHubId == null ? "" : before.edgeHubId);
+                "edgeHubId", before.edgeHubId == null ? "" : before.edgeHubId,
+                "kind", before.kind);
+        boolean wasExternal = before.isExternal();
+        String cidrBefore = before.cidr;
         Site after = sites.update(id, body);
         audit.logUpdate(a.principal(), "site.update", "Site:" + after.name + " (" + id + ")", beforeMap,
                 Map.of("name", after.name, "cidr", after.cidr,
                         "description", after.description == null ? "" : after.description,
                         "gatewayPeerId", after.gatewayPeerId == null ? "" : after.gatewayPeerId,
-                        "edgeHubId", after.edgeHubId == null ? "" : after.edgeHubId));
+                        "edgeHubId", after.edgeHubId == null ? "" : after.edgeHubId,
+                        "kind", after.kind));
+        if (wasExternal != after.isExternal() || (after.isExternal() && !cidrBefore.equals(after.cidr))) {
+            rulesets.recomputeFromHook();
+        }
         return sites.toResponse(after, (int) Resource.count("siteId", id));
     }
 
@@ -114,8 +127,10 @@ public class SiteResource {
         Map<String, Object> beforeMap = Map.of(
                 "name", before.name, "cidr", before.cidr,
                 "description", before.description == null ? "" : before.description);
+        boolean wasExternal = before.isExternal();
         sites.delete(id);
         audit.logDelete(a.principal(), "site.delete", "Site:" + before.name + " (" + id + ")", beforeMap);
+        if (wasExternal) rulesets.recomputeFromHook();
         return Response.noContent().build();
     }
 }

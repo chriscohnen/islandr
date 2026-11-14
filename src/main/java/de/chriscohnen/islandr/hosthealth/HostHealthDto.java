@@ -6,6 +6,10 @@ public final class HostHealthDto {
 
     private HostHealthDto() {}
 
+    /** One sample in the history behind the dashboard's mini graph; cpu is null
+     *  while there is nothing to measure yet (first sample after start). */
+    public record Point(Double cpuPercent, double memPercent) {}
+
     /** "ok" | "high" | "critical" | "unavailable" (no /proc — e.g. non-Linux dev machine). */
     public static final class Status {
         public static final String OK = "ok";

@@ -2,6 +2,7 @@ import { defineComponent } from "vue";
 import { COOL_PALETTE } from "/js/Avatar.js";
 import { t } from "/js/i18n.js";
 import { aggregateEdges, EXPAND_SCALE } from "/js/AtlasEdges.js";
+import { BUTTON_ZOOM_STEP, zoomKey } from "/js/diagramZoom.js";
 
 // Layout constants (SVG viewBox units).
 const W = 1000;
@@ -11,6 +12,7 @@ const NODE_RADIUS = 16;
 const NODE_RING_MARGIN = 26; // distance from circle edge to node centers
 const MIN_CIRCLE_RADIUS = 90;
 const HUB_SIZE = 20; // half-width of the hub's square icon
+const HUB_MIN_DX = 130; // closest two hub squares may sit, so their names never collide
 const HUB_GAP = 56; // vertical gap between the topmost circle's rim and the hub anchor
 
 function curvePath(x1, y1, x2, y2, bow = 0.18) {
@@ -125,7 +127,6 @@ function relaxCirclePositions(items, iterations = 200) {
 
 const MIN_SCALE = 0.15;
 const MAX_SCALE = 4;
-const BUTTON_ZOOM_STEP = 1.6; // per +/- click or keypress — deliberate steps, no continuous wheel-zoom
 const FIT_PADDING = 0.9;
 // Screen-pixel movement below this, between pointerdown and pointerup on a
 // user node, counts as a click (select/mode-switch) rather than a drag
@@ -547,12 +548,74 @@ export default defineComponent({
     // mirrors how the "mobile" circle sits centered below it — computed from
     // the already-laid-out circles rather than folded into the relaxation
     // pass, since it's a single point, not something that needs packing.
+    // Networks that are a partner's, reached through the hub's own address.
+    externalSiteIds() {
+      return new Set((this.graph.sites || []).filter((s) => s.kind === "external").map((s) => s.id));
+    },
     hubPoint() {
+      return this.hubNodes.find((h) => h.central);
+    },
+    // atlas-edge-hubs: one square per hub in a single row above the cluster —
+    // the central hub plus every edge hub that serves a network. Each sits
+    // over the networks it serves, spread apart so neighbours never overlap.
+    // With no edge hubs this is the one central square it always was.
+    hubNodes() {
       const circles = this.layout;
-      if (circles.length === 0) return { x: W / 2, y: H / 2 - 140 };
+      const edgeHubs = this.graph.edgeHubs || [];
+      if (circles.length === 0) {
+        return [{ id: "__hub__", central: true, name: t("atlas.diagnostics_hop_hub"), x: W / 2, y: H / 2 - 140, circles: [] }];
+      }
+      const siteHub = new Map((this.graph.sites || []).map((s) => [s.id, s.edgeHubId || null]));
       const topY = Math.min(...circles.map((c) => c.cy - c.r));
-      const avgX = circles.reduce((sum, c) => sum + c.cx, 0) / circles.length;
-      return { x: avgX, y: topY - HUB_GAP - HUB_SIZE };
+      const y = topY - HUB_GAP - HUB_SIZE;
+      const avg = (list) => list.reduce((sum, c) => sum + c.cx, 0) / list.length;
+      const nodes = [];
+      const edgeServed = new Set();
+      for (const h of edgeHubs) {
+        const served = circles.filter((c) => siteHub.get(c.id) === h.id);
+        served.forEach((c) => edgeServed.add(c.id));
+        // A hub with no visible network still gets its square (at the right
+        // edge); dropping it would look like the hub is gone.
+        const x = served.length ? avg(served) : Math.max(...circles.map((c) => c.cx));
+        nodes.push({ id: h.id, central: false, name: h.name, x, y, circles: served });
+      }
+      // The central hub also keeps the roaming users' circle, which no edge serves.
+      const central = circles.filter((c) => !edgeServed.has(c.id));
+      nodes.push({ id: "__hub__", central: true, name: t("atlas.diagnostics_hop_hub"),
+        x: central.length ? avg(central) : avg(circles), y, circles: nodes.length > 1 || edgeServed.size ? central : [] });
+      nodes.sort((a, b) => a.x - b.x);
+      for (let i = 1; i < nodes.length; i++) {
+        nodes[i].x = Math.max(nodes[i].x, nodes[i - 1].x + HUB_MIN_DX);
+      }
+      return nodes;
+    },
+    // Dashed hub -> network line that keeps clear of every other network's
+    // circle: straight when nothing is in the way, otherwise a curve bent to
+    // whichever side first clears them all (straight again if none does).
+    hubLinkPath(hub, c) {
+      const x1 = hub.x, y1 = hub.y + HUB_SIZE, x2 = c.cx, y2 = c.cy - c.r;
+      const straight = "M" + x1 + "," + y1 + " L" + x2 + "," + y2;
+      const others = this.layout.filter((o) => o.id !== c.id);
+      const clear = (pointAt) => {
+        for (let i = 1; i < 24; i++) {
+          const p = pointAt(i / 24);
+          if (others.some((o) => Math.hypot(p.x - o.cx, p.y - o.cy) < o.r + 6)) return false;
+        }
+        return true;
+      };
+      if (clear((t) => ({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t }))) return straight;
+      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len; // unit normal
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      for (const d of [60, -60, 120, -120, 180, -180, 260, -260]) {
+        const cx = mx + nx * d, cy = my + ny * d;
+        const at = (t) => ({
+          x: (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2,
+          y: (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * cy + t * t * y2,
+        });
+        if (clear(at)) return "M" + x1 + "," + y1 + " Q" + cx + "," + cy + " " + x2 + "," + y2;
+      }
+      return straight;
     },
     // Maps a PathHop list (ADR-0025's hub -> [site-gateway] -> resource/peer
     // chain, as returned by the ping/tracepath endpoints) onto actual
@@ -595,10 +658,11 @@ export default defineComponent({
         minY = Math.min(minY, circle.cy - circle.r - 24);
         maxY = Math.max(maxY, circle.cy + circle.r);
       }
-      const hub = this.hubPoint;
-      minY = Math.min(minY, hub.y - HUB_SIZE - 20);
-      minX = Math.min(minX, hub.x - HUB_SIZE - 10);
-      maxX = Math.max(maxX, hub.x + HUB_SIZE + 10);
+      for (const hub of this.hubNodes) {
+        minY = Math.min(minY, hub.y - HUB_SIZE - 20);
+        minX = Math.min(minX, hub.x - HUB_SIZE - 10);
+        maxX = Math.max(maxX, hub.x + HUB_SIZE + 10);
+      }
       return { minX, minY, maxX, maxY };
     },
     contentTransform() {
@@ -675,11 +739,12 @@ export default defineComponent({
       this.view = { scale, tx: cursorX - contentX * scale, ty: cursorY - contentY * scale };
     },
     onKeyDown(evt) {
-      const tag = (evt.target && evt.target.tagName) || "";
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (evt.target && evt.target.isContentEditable)) return;
-      if (evt.key === "+" || evt.key === "=") { evt.preventDefault(); this.zoomInBtn(); }
-      else if (evt.key === "-" || evt.key === "_") { evt.preventDefault(); this.zoomOutBtn(); }
-      else if (evt.key === "0") { evt.preventDefault(); this.fitToContent(); }
+      const k = zoomKey(evt);
+      if (!k) return;
+      evt.preventDefault();
+      if (k === "in") this.zoomInBtn();
+      else if (k === "out") this.zoomOutBtn();
+      else this.fitToContent();
     },
     zoomInBtn() { this.zoomAt(W / 2, H / 2, BUTTON_ZOOM_STEP); },
     zoomOutBtn() { this.zoomAt(W / 2, H / 2, 1 / BUTTON_ZOOM_STEP); },
@@ -912,6 +977,11 @@ export default defineComponent({
 
         <g :transform="contentTransform">
           <g v-for="circle in layout" :key="circle.id">
+            <!-- An external network (partner, reached through the hub's address):
+                 a second, outer ring plus the word "extern" under the name, so it
+                 reads as "not one of ours" without relying on colour. -->
+            <circle v-if="externalSiteIds.has(circle.id)" :cx="circle.cx" :cy="circle.cy" :r="circle.r + 7"
+                    fill="none" :stroke="circle.color" stroke-width="1.5" />
             <circle :cx="circle.cx" :cy="circle.cy" :r="circle.r"
                     :fill="(visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id) ? 'var(--success-solid)' : circle.color"
                     :fill-opacity="(visualHoverTarget && visualHoverTarget.type === 'circle' && visualHoverTarget.id === circle.id) ? 0.18 : 0.07"
@@ -946,7 +1016,7 @@ export default defineComponent({
                   :fill="circle.color" font-size="13" font-weight="600"
                   style="text-transform: uppercase; letter-spacing: 0.06em">{{ circle.name }}</text>
             <text v-if="circle.cidr" :x="circle.cx" :y="circle.cy - circle.r - 8" text-anchor="middle"
-                  fill="var(--fg2)" font-size="11" font-family="var(--font-mono)">{{ circle.cidr }}</text>
+                  fill="var(--fg2)" font-size="11" font-family="var(--font-mono)">{{ circle.cidr }}{{ externalSiteIds.has(circle.id) ? ' · ' + t('atlas.site_external') : '' }}</text>
           </g>
 
           <!-- Under the revoke tool the hovered edge turns red, thick AND
@@ -971,9 +1041,16 @@ export default defineComponent({
                   stroke-opacity="0.55" :marker-end="'url(#atlas-arrow-' + grp.kind + ')'">
               <title>{{ t('atlas.edge_group_title', { n: grp.count }) }}</title>
             </path>
+            <!-- The line is 1.5–3 px wide, too thin to hover: a transparent
+                 12 px stroke over it carries the same tooltip. It sits before
+                 the revoke tool's hit areas and the nodes in the document, so
+                 both stay on top of it. -->
+            <path :d="grp.path" fill="none" stroke="transparent" stroke-width="12" pointer-events="stroke">
+              <title>{{ t('atlas.edge_group_title', { n: grp.count }) }}</title>
+            </path>
             <text :x="grp.lx" :y="grp.ly" text-anchor="middle" dominant-baseline="central" font-size="10"
                   font-family="var(--font-mono)" fill="var(--fg2)" stroke="var(--canvas)" stroke-width="3"
-                  paint-order="stroke" pointer-events="none">{{ grp.count }}</text>
+                  paint-order="stroke">{{ grp.count }}<title>{{ t('atlas.edge_group_title', { n: grp.count }) }}</title></text>
           </g>
           <template v-if="tool === 'revoke'">
             <path v-for="line in edgeLines" :key="'hit-' + line.key" :d="line.path"
@@ -1067,16 +1144,24 @@ export default defineComponent({
                user/resource node or a site's gateway peer — no click/drag
                behavior of its own, it's the fixed origin every probe starts
                from, never a grant subject or a probe target. -->
-          <g style="cursor: default"
-             @pointerenter="onNodeHover('hub', { id: '__hub__', name: t('atlas.diagnostics_hop_hub') }, $event)"
+          <g v-for="hub in hubNodes" :key="hub.id" style="cursor: default"
+             @pointerenter="onNodeHover('hub', { id: hub.id, name: hub.name, central: hub.central }, $event)"
              @pointermove="hoveredKind === 'hub' && updateHoverPos($event)"
              @pointerleave="onNodeLeave()">
-            <rect :x="hubPoint.x - ${HUB_SIZE}" :y="hubPoint.y - ${HUB_SIZE}"
+            <!-- Which networks this hub serves — only drawn once there is more
+                 than one hub, since a single hub serves everything. -->
+            <template v-if="hubNodes.length > 1">
+              <path v-for="c in hub.circles" :key="c.id" :d="hubLinkPath(hub, c)" fill="none"
+                    stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="3 4" />
+            </template>
+            <rect :x="hub.x - ${HUB_SIZE}" :y="hub.y - ${HUB_SIZE}"
                   :width="${HUB_SIZE * 2}" :height="${HUB_SIZE * 2}" rx="4"
                   fill="var(--surface)" stroke="var(--fg1)" stroke-width="2" />
-            <text :x="hubPoint.x" :y="hubPoint.y + 4" text-anchor="middle"
+            <text :x="hub.x" :y="hub.y + 4" text-anchor="middle"
                   fill="var(--fg1)" font-size="11" font-weight="700"
-                  style="text-transform: uppercase; letter-spacing: 0.05em">{{ t('atlas.diagnostics_hop_hub') }}</text>
+                  style="text-transform: uppercase; letter-spacing: 0.05em">{{ hub.central ? t('atlas.diagnostics_hop_hub') : t('atlas.edge_hub_short') }}</text>
+            <text v-if="!hub.central" :x="hub.x" :y="hub.y - ${HUB_SIZE} - 6" text-anchor="middle"
+                  fill="var(--fg2)" font-size="11">{{ hub.name }}</text>
           </g>
         </g>
       </svg>
@@ -1146,6 +1231,9 @@ export default defineComponent({
         </div>
 
         <!-- Hub node: its own tunnel address(es) — the origin of every probe. -->
+        <div v-else-if="hoveredKind === 'hub' && hoveredNode && hoveredNode.central === false" style="font-size: var(--text-xs)">
+          <div class="muted">{{ t('atlas.edge_hub_tooltip') }}</div>
+        </div>
         <div v-else-if="hoveredKind === 'hub'" style="display: grid; grid-template-columns: auto auto; gap: 2px var(--space-3); font-size: var(--text-xs)">
           <span class="muted">{{ t('atlas.tooltip_ip4') }}</span><span class="mono">{{ hubIp4 || '—' }}</span>
           <span class="muted">{{ t('atlas.tooltip_ip6') }}</span><span class="mono">{{ hubIp6 || '—' }}</span>

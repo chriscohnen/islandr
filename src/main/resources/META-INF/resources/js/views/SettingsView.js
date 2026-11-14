@@ -42,7 +42,16 @@ export default defineComponent({
       // settings-edge-hubs-toggle: saved on its own endpoint, so it has its
       // own in-flight and error state rather than riding the big form's.
       edgeHubsSaving: false,
+      portalLinksSaving: false,
+      portalLinksError: null,
       edgeHubsError: null,
+      edgeHubsErrorIsKey: true, // true: edgeHubsError is an i18n key, false: a raw network error
+      // egress-via-hub: WAN interface override, own endpoint like edge hubs.
+      wanInterface: "",
+      wanInterfaceDetected: null,
+      wanSaving: false,
+      wanError: null,
+      wanSaved: false,
       probing: false,
       probeResult: null,
       probedIfMtu: null,
@@ -96,6 +105,7 @@ export default defineComponent({
         hubLocationLabel: "",
         activityRetentionDays: 180,
         dnsResolverEnabled: false,
+        portalLinksUseDnsName: false,
         dnsResolverZone: "",
         dnsHubAlias: "",
         dnsResolverUpstream: "",
@@ -266,6 +276,7 @@ export default defineComponent({
     async toggleEdgeHubs(on) {
       this.edgeHubsSaving = true;
       this.edgeHubsError = null;
+      this.edgeHubsErrorIsKey = true;
       try {
         const res = await fetch("/api/v1/settings/edge-hubs", {
           method: "PUT",
@@ -273,7 +284,11 @@ export default defineComponent({
           body: JSON.stringify({ edgeHubsEnabled: on }),
         });
         if (!res.ok) {
-          this.edgeHubsError = (await res.text()) || t("settings.edge_hubs_failed");
+          // 409 = edge hubs still exist; the console words that itself (the server
+          // text is English and meant for API callers).
+          // Kept as a key, translated where it is shown, so a language switch
+          // changes a message that is already on screen.
+          this.edgeHubsError = res.status === 409 ? "settings.edge_hubs_still_configured" : "settings.edge_hubs_failed";
           return;  // leave form.edgeHubsEnabled alone — the checkbox snaps back on re-render
         }
         const s = await res.json();
@@ -281,8 +296,57 @@ export default defineComponent({
         this.$emit("settings-changed", s);
       } catch (e) {
         this.edgeHubsError = String(e);
+        this.edgeHubsErrorIsKey = false;
       } finally {
         this.edgeHubsSaving = false;
+      }
+    },
+
+    // Saves at once like toggleEdgeHubs: it is a switch, not part of the DNS form.
+    async togglePortalLinks(on) {
+      this.portalLinksSaving = true;
+      this.portalLinksError = null;
+      try {
+        const res = await fetch("/api/v1/settings/portal-links", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ portalLinksUseDnsName: on }),
+        });
+        if (!res.ok) {
+          this.portalLinksError = t("settings.portal_links_failed");
+          return;
+        }
+        const s = await res.json();
+        this.form.portalLinksUseDnsName = !!s.portalLinksUseDnsName;
+      } catch (e) {
+        this.portalLinksError = String(e);
+      } finally {
+        this.portalLinksSaving = false;
+      }
+    },
+
+    async saveWanInterface() {
+      this.wanSaving = true;
+      this.wanError = null;
+      this.wanSaved = false;
+      try {
+        const res = await fetch("/api/v1/settings/wan-interface", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ wanInterface: this.wanInterface.trim() || null }),
+        });
+        if (!res.ok) {
+          this.wanError = res.status === 400 ? t("settings.wan_invalid") : t("settings.wan_failed");
+          return;
+        }
+        const s = await res.json();
+        this.wanInterface = s.wanInterface || "";
+        this.wanInterfaceDetected = s.wanInterfaceDetected || null;
+        this.wanSaved = true;
+      } catch (e) {
+        this.wanError = String(e);
+      } finally {
+        this.wanSaving = false;
       }
     },
 
@@ -316,6 +380,8 @@ export default defineComponent({
         this.savedRetention = s.privateKeyRetention || "never";
         this.encryptionKeyConfigured = !!s.encryptionKeyConfigured;
         this.wgInterface = s.wgInterface || "wg0";
+        this.wanInterface = s.wanInterface || "";
+        this.wanInterfaceDetected = s.wanInterfaceDetected || null;
         this.form = {
           wgSubnet: s.wgSubnet || "",
           wgSubnet6: s.wgSubnet6 || "",
@@ -346,6 +412,7 @@ export default defineComponent({
           hubLocationLabel: s.hubLocationLabel || "",
           activityRetentionDays: s.activityRetentionDays || 180,
           dnsResolverEnabled: !!s.dnsResolverEnabled,
+          portalLinksUseDnsName: !!s.portalLinksUseDnsName,
           dnsResolverZone: s.dnsResolverZone || "",
           dnsHubAlias: s.dnsHubAlias || "",
           dnsResolverUpstream: s.dnsResolverUpstream || "",
@@ -1289,6 +1356,16 @@ export default defineComponent({
 
           <div v-if="form.dnsResolverEnabled" class="field field-full">
             <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
+              <input id="portalLinksUseDnsName" type="checkbox" :checked="form.portalLinksUseDnsName" :disabled="portalLinksSaving"
+                     @change="togglePortalLinks($event.target.checked)" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+              <span>{{ t('settings.portal_links_label') }}</span>
+            </label>
+            <div class="field-hint" style="margin-top: var(--space-1)">{{ t('settings.portal_links_hint') }}</div>
+            <div v-if="portalLinksError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ portalLinksError }}</div>
+          </div>
+
+          <div v-if="form.dnsResolverEnabled" class="field field-full">
+            <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--fg1); font-weight: 500; text-transform: none; letter-spacing: 0">
               <input id="dnsResolveAllResourcesAndPeers" type="checkbox" v-model="form.dnsResolveAllResourcesAndPeers" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
               <span>{{ t('settings.dns_resolve_all_label') }}</span>
             </label>
@@ -1369,8 +1446,28 @@ export default defineComponent({
             <span>{{ t('settings.edge_hubs_label') }}</span>
           </label>
           <div class="field-hint" style="margin-top: 0">{{ t('settings.edge_hubs_hint') }}</div>
-          <div v-if="edgeHubsError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ edgeHubsError }}</div>
+          <div v-if="edgeHubsError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ edgeHubsErrorIsKey ? t(edgeHubsError) : edgeHubsError }}</div>
         </div>
+      </div>
+      <!-- egress-via-hub: where traffic to external sites leaves the hub. -->
+      <div class="card card-pad">
+        <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">{{ t('settings.section_wan') }}</h2>
+        <form class="field" @submit.prevent="saveWanInterface">
+          <label for="wanInterface">{{ t('settings.wan_label') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+          <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap">
+            <input id="wanInterface" class="input mono" style="max-width: 14rem" v-model="wanInterface"
+                   maxlength="15" autocomplete="off" @input="wanSaved = false"
+                   :placeholder="wanInterfaceDetected || 'eth0'" />
+            <button type="submit" class="btn btn-secondary" :class="{ 'is-loading': wanSaving }" :disabled="wanSaving">
+              {{ t('settings.wan_save') }}
+            </button>
+            <span v-if="wanSaved" class="muted" style="font-size: var(--text-sm)">{{ t('settings.wan_saved') }}</span>
+          </div>
+          <div class="field-hint" v-if="wanInterfaceDetected">{{ t('settings.wan_detected', { iface: wanInterfaceDetected }) }}</div>
+          <div class="field-hint" v-else>{{ t('settings.wan_not_detected') }}</div>
+          <div class="field-hint">{{ t('settings.wan_hint') }}</div>
+          <div v-if="wanError" class="callout callout-warning" style="margin-top: var(--space-2)">{{ wanError }}</div>
+        </form>
       </div>
 
       </template>

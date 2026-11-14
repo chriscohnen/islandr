@@ -1,6 +1,7 @@
 import { defineComponent } from "vue";
 import { PATHS as ICON_PATHS } from "/js/Icons.js";
 import { t, relativeTime } from "/js/i18n.js";
+import { BUTTON_ZOOM_STEP, zoomKey } from "/js/diagramZoom.js";
 
 // Three-tier radial topology with nested collapse/expand (issue #24):
 //   Hub (circle) → gateway peers (router-shaped box) + direct networks (box)
@@ -101,6 +102,10 @@ const EDGE_HUB_NETWORK_RING_OFFSET = 55;
 const MAX_VIEW_W = 900;
 const MAX_VIEW_H = 620;
 const PAN_SLACK = 40; // a little overscroll room at the content's own edges
+// topology-zoom-pan: zoom is relative to the capped window above — 1 is the
+// readable default, below 1 shows more of a large diagram (down to all of it,
+// see fitZoom), above 1 magnifies.
+const MAX_ZOOM = 4;
 const DRAG_THRESHOLD_PX = 4; // pointer movement before a press counts as a pan, not a click
 // contentBBox pads the tight content bounds by this much on all four sides —
 // also reused by the "click to expand" corner hint below, which used to sit
@@ -305,6 +310,7 @@ export default defineComponent({
       activeTypes: new Set(),
       panX: 0,
       panY: 0,
+      zoom: 1,
       dragging: false,
       dragStartPointer: null,
       dragStartPan: null,
@@ -775,21 +781,41 @@ export default defineComponent({
 
       return { x: minX, y: minY, w, h };
     },
-    // Content larger than the cap needs manual panning — everything past
-    // MAX_VIEW_W/H no longer fits by shrinking, only by dragging.
-    needsPan() {
+    // The window at zoom 1: the content bbox, capped at MAX_VIEW_W/H so a
+    // large diagram stays readable instead of shrinking to specks.
+    baseView() {
       const b = this.contentBBox;
-      return b.w > MAX_VIEW_W + 1 || b.h > MAX_VIEW_H + 1;
+      return { w: Math.min(b.w, MAX_VIEW_W), h: Math.min(b.h, MAX_VIEW_H) };
     },
-    // Visible window: content bbox, capped at MAX_VIEW_W/H, recentered by
-    // the current pan offset and clamped so dragging can't wander into empty
+    // The zoom at which the whole content fits — 1 when it fits the cap
+    // already. Reset goes here, and zooming out stops here.
+    fitZoom() {
+      const b = this.contentBBox, v = this.baseView;
+      return Math.min(1, v.w / b.w, v.h / b.h);
+    },
+    // The stored zoom, kept inside what the current content allows — the
+    // content changes under it whenever a network opens or closes.
+    effectiveZoom() {
+      return Math.min(MAX_ZOOM, Math.max(this.fitZoom, this.zoom));
+    },
+    canZoomIn() { return this.effectiveZoom < MAX_ZOOM - 1e-6; },
+    canZoomOut() { return this.effectiveZoom > this.fitZoom + 1e-6; },
+    // Something lies outside the window. Mouse drag works regardless (within
+    // PAN_SLACK); touch only takes over the gesture when there is something
+    // to reveal, so swiping across a diagram that fits still scrolls the page.
+    needsPan() {
+      const b = this.contentBBox, r = this.viewBoxRect;
+      return b.w > r.w + 1 || b.h > r.h + 1;
+    },
+    // Visible window: the base window divided by the zoom, recentered by the
+    // current pan offset and clamped so dragging can't wander into empty
     // space far past the content's own edges (PAN_SLACK allows a little).
     viewBoxRect() {
       const b = this.contentBBox;
-      const w = Math.min(b.w, MAX_VIEW_W);
-      const h = Math.min(b.h, MAX_VIEW_H);
-      const rangeX = (b.w - w) / 2 + PAN_SLACK;
-      const rangeY = (b.h - h) / 2 + PAN_SLACK;
+      const w = this.baseView.w / this.effectiveZoom;
+      const h = this.baseView.h / this.effectiveZoom;
+      const rangeX = Math.max(0, (b.w - w) / 2) + PAN_SLACK;
+      const rangeY = Math.max(0, (b.h - h) / 2) + PAN_SLACK;
       const panX = Math.min(Math.max(this.panX, -rangeX), rangeX);
       const panY = Math.min(Math.max(this.panY, -rangeY), rangeY);
       const x = b.x + b.w / 2 - w / 2 + panX;
@@ -895,12 +921,11 @@ export default defineComponent({
       if (item.gatewayOnline === false) return "down";
       return "unknown";
     },
-    // Drag-to-pan, mouse and touch alike via Pointer Events. Only does
-    // anything once the content no longer fits the capped viewBox
-    // (needsPan) — otherwise everything's already visible and there's
-    // nothing to pan to.
+    // Drag-to-pan, mouse and touch alike via Pointer Events. Always on for a
+    // mouse — nothing says a diagram can be dragged, so it must not depend on
+    // its size; on touch only when there is something to pan to (needsPan).
     onPointerDown(e) {
-      if (!this.needsPan) return;
+      if (e.pointerType === "touch" && !this.needsPan) return;
       // Don't commit to a drag (and don't capture the pointer) yet — a plain
       // click on a node must survive. Per the Pointer Events spec, once an
       // element captures the pointer, the pointerup/click for that pointer
@@ -944,6 +969,21 @@ export default defineComponent({
       this._pendingTarget = null;
     },
     resetPan() { this.panX = 0; this.panY = 0; },
+    // Zoom about the window's centre: the centre is contentBBox's centre plus
+    // the pan offset, which a zoom change leaves alone.
+    zoomIn() { this.zoom = Math.min(MAX_ZOOM, this.effectiveZoom * BUTTON_ZOOM_STEP); },
+    zoomOut() { this.zoom = Math.max(this.fitZoom, this.effectiveZoom / BUTTON_ZOOM_STEP); },
+    // Reset shows everything, even when that is more than the readable cap —
+    // smaller beats cut off.
+    resetView() { this.zoom = this.fitZoom; this.resetPan(); },
+    onKeyDown(evt) {
+      const k = zoomKey(evt);
+      if (!k) return;
+      evt.preventDefault();
+      if (k === "in") this.zoomIn();
+      else if (k === "out") this.zoomOut();
+      else this.resetView();
+    },
     // No active type filter → the backend's per-site count (site.resourceCount)
     // is the true, uncapped total (a plain GROUP BY over every resource) and is
     // what the Networks table shows too. A type filter narrows what should be
@@ -1031,11 +1071,15 @@ export default defineComponent({
      * Runs after the layout recomputes, because the rows it measures do not
      * exist until expandedSiteId is set. The clamp in viewBoxRect still
      * applies, so this can never pan into empty space.
+     *
+     * topology-zoom-pan: the opened list has to fit completely, so the zoom
+     * drops as far as needed (never below fitZoom). It never rises here — an
+     * operator who zoomed out keeps the overview.
      */
     centerOnExpandedNetwork() {
       this.$nextTick(() => {
         const net = this.visibleNetworks.find((n) => n.expanded);
-        if (!net || !this.needsPan) return;
+        if (!net) return;
         const pts = [
           { x: net.x - NODE_HALF_W, y: net.y - NODE_HALF_H },
           { x: net.x + NODE_HALF_W, y: net.y + NODE_HALF_H },
@@ -1046,19 +1090,27 @@ export default defineComponent({
           pts.push({ x: Math.min(r.x, labelEdge), y: r.y - RESOURCE_ICON_R });
           pts.push({ x: Math.max(r.x, labelEdge), y: r.y + RESOURCE_ICON_R });
         }
-        const cx = (Math.min(...pts.map((p) => p.x)) + Math.max(...pts.map((p) => p.x))) / 2;
-        const cy = (Math.min(...pts.map((p) => p.y)) + Math.max(...pts.map((p) => p.y))) / 2;
+        const minX = Math.min(...pts.map((p) => p.x)), maxX = Math.max(...pts.map((p) => p.x));
+        const minY = Math.min(...pts.map((p) => p.y)), maxY = Math.max(...pts.map((p) => p.y));
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const needW = maxX - minX + 2 * CONTENT_PAD, needH = maxY - minY + 2 * CONTENT_PAD;
+        const fits = Math.min(this.baseView.w / needW, this.baseView.h / needH);
+        this.zoom = Math.max(this.fitZoom, Math.min(this.effectiveZoom, fits));
         const b = this.contentBBox;
         this.panX = cx - (b.x + b.w / 2);
         this.panY = cy - (b.y + b.h / 2);
       });
     },
     onNetworkClick(site) {
-      this.resetPan();
+      // Closing keeps the window where it is — jumping back would throw away
+      // the place the operator was looking at. The clamp pulls it in if the
+      // content shrank past it.
       if (this.expandedSiteId === site.id) {
         this.expandedSiteId = null;
         return;
       }
+      this.resetPan();
       // A gateway group left open while an unrelated site drills into its
       // resource columns clutters the diagram and can visually collide with
       // it (bug report 2026-10-03: a resource-column connecting line ran
@@ -1213,6 +1265,17 @@ export default defineComponent({
            style="font-size: var(--text-xs); margin-bottom: var(--space-2)">
         {{ t('topology.resource_overflow', { count: resourceOverflow }) }}
       </div>
+      <div v-if="sites.length > 0" class="muted" style="font-size: var(--text-xs); margin-bottom: var(--space-2)">{{ t('topology.pan_zoom_hint') }}</div>
+
+      <!-- topology-zoom-pan: same controls as the Atlas, bottom right. -->
+      <div v-if="sites.length > 0" style="position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; z-index: 2">
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="!canZoomIn" @click="zoomIn"
+                :title="t('atlas.zoom_in')" :aria-label="t('atlas.zoom_in')" style="width: 28px; height: 28px; padding: 0; font-size: var(--text-md)">+</button>
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="!canZoomOut" @click="zoomOut"
+                :title="t('atlas.zoom_out')" :aria-label="t('atlas.zoom_out')" style="width: 28px; height: 28px; padding: 0; font-size: var(--text-md)">−</button>
+        <button type="button" class="btn btn-ghost btn-sm" @click="resetView"
+                :title="t('atlas.zoom_reset')" :aria-label="t('atlas.zoom_reset')" style="width: 28px; height: 28px; padding: 0; font-size: 10px">⟲</button>
+      </div>
 
       <!-- Anchored to the bottom of the .topo SVG's own box (not the whole
            card) and below the hub, rather than centered over the whole
@@ -1228,7 +1291,7 @@ export default defineComponent({
       <svg class="topo" :viewBox="viewBox"
            :style="{
              transition: dragging ? 'none' : 'viewBox 0.3s ease',
-             cursor: needsPan ? (dragging ? 'grabbing' : 'grab') : 'default',
+             cursor: dragging ? 'grabbing' : 'grab',
              touchAction: needsPan ? 'none' : 'auto',
              userSelect: 'none',
            }"
@@ -1674,6 +1737,12 @@ export default defineComponent({
       </div>
     </div>
   `,
+  mounted() {
+    window.addEventListener("keydown", this.onKeyDown);
+  },
+  beforeUnmount() {
+    window.removeEventListener("keydown", this.onKeyDown);
+  },
   // Expose constants to template via data so Vue can see them.
   created() {
     this.CX = CX; this.CY = CY;

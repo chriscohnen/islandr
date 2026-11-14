@@ -78,6 +78,21 @@ public class Site extends PanacheEntityBase {
     @Column(name = "dns_server_ip", length = 45)
     public String dnsServerIp;
 
+    /** {@link #KIND_INTERNAL} (default) or {@link #KIND_EXTERNAL} — egress-via-hub. */
+    @Column(name = "kind", nullable = false, length = 16)
+    public String kind = KIND_INTERNAL;
+
+    /** A network behind a gateway peer, or reachable from the hub's own LAN. */
+    public static final String KIND_INTERNAL = "internal";
+    /** A partner's public network, reached through the hub's WAN address:
+     *  routed to clients and masqueraded on the way out, never scanned,
+     *  never with a gateway peer (egress-via-hub, 1.4.0). */
+    public static final String KIND_EXTERNAL = "external";
+
+    public boolean isExternal() {
+        return KIND_EXTERNAL.equals(kind);
+    }
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
@@ -94,6 +109,22 @@ public class Site extends PanacheEntityBase {
         s.createdAt = Instant.now();
         s.updatedAt = s.createdAt;
         return s;
+    }
+
+    /**
+     * What a client of the central hub routes into the tunnel for sites: every
+     * enabled gateway site ({@link #enabledGatewayCidrs()}) plus every external
+     * site, whose traffic the hub sends on through its WAN interface
+     * (egress-via-hub). Edge peers use {@link #enabledGatewayCidrsServedBy}
+     * instead — an external site hangs off the central hub only.
+     */
+    public static List<String> clientRoutedCidrs() {
+        List<String> out = new java.util.ArrayList<>(enabledGatewayCidrs());
+        Site.<Site>list("kind", KIND_EXTERNAL).stream()
+                .map(site -> site.cidr)
+                .filter(c -> !out.contains(c))
+                .forEach(out::add);
+        return out;
     }
 
     /**

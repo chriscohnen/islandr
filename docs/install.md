@@ -225,6 +225,41 @@ This just hands `forward` traffic back to whatever else is on the host; islandr 
 
 ---
 
+## Reaching a partner through the hub's address
+
+Some partner systems admit only fixed source addresses. Create a site of kind
+**External network** with the partner's public range as its CIDR (for example
+`203.0.113.0/28`), add the partner's systems as resources and grant them as
+usual. Islandr then
+
+- routes exactly that range into the tunnel on every device of the central hub
+  (split tunnel: added to `AllowedIPs`; full tunnel already routes everything),
+- sends it on through the hub's WAN interface with the hub's public address
+  (`masquerade` in the nat chain of `inet islandr`, only tunnel subnet →
+  that range),
+- never scans the range in discovery.
+
+Give the partner the hub's public address to admit. Forwarding must be on, as
+for any site (`net.ipv4.ip_forward=1`, and `net.ipv6.conf.all.forwarding=1`
+for an IPv6 range). The WAN interface comes from the default route; if the hub
+has several uplinks, set it under **Settings → Network → Egress for external
+networks**. Without a known interface nothing is translated and the hub logs a
+warning.
+
+Who used it is in the hub's kernel log: every grant that reaches an external
+site logs a new connection once a minute, prefixed with the device's name.
+
+```bash
+sudo journalctl -k --grep islandr-egress
+```
+
+An external site cannot have a site peer or an edge hub: the traffic leaves at
+the central hub. If the fixed address has to be a different one, run a small
+hub there and connect it as a site peer instead — the partner's range is then
+an ordinary internal site behind that peer.
+
+Backups of the configuration to an S3 bucket, with a key you write down, are described in [install/backup-s3.md](install/backup-s3.md).
+
 ## Post-install checklist (native binary / production)
 
 - [ ] Reverse proxy with TLS in front of port 8080

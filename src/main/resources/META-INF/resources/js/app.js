@@ -23,6 +23,7 @@ import FirewallView from "/js/views/FirewallView.js";
 import DnsView from "/js/views/DnsView.js";
 import WebhooksView from "/js/views/WebhooksView.js";
 import ApiKeysView from "/js/views/ApiKeysView.js";
+import BackupView from "/js/views/BackupView.js";
 import StubView from "/js/views/StubView.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
@@ -104,6 +105,7 @@ const router = createRouter({
     { path: "/identity", name: "identity", component: IdentityView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/audit", name: "audit", component: AuditView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/webhooks", name: "webhooks", component: WebhooksView, meta: { requiresAuth: true, requiresAdmin: true } },
+    { path: "/backup", name: "backup", component: BackupView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/api-keys", name: "apiKeys", component: ApiKeysView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: "/settings", name: "settings", component: SettingsView, meta: { requiresAuth: true, requiresAdmin: true } },
   ],
@@ -351,6 +353,7 @@ const App = defineComponent({
           <router-link to="/audit" class="nav-item"><Icon name="audit" />{{ t('nav.audit') }}</router-link>
           <router-link to="/webhooks" class="nav-item"><Icon name="link" />{{ t('nav.webhooks') }}</router-link>
           <router-link to="/api-keys" class="nav-item"><Icon name="identity" />{{ t('nav.api_keys') }}</router-link>
+          <router-link to="/backup" class="nav-item"><Icon name="download" />{{ t('nav.backup') }}</router-link>
 
           <!-- An admin in a small team is a user too, with their own devices
                and their own grants — and had no way to reach the portal short

@@ -190,6 +190,7 @@ public class ResourceService {
                 req.protocol(), req.label(), req.pathPrefix(),
                 req.rdpClipboard(), req.rdpFileTransfer(), req.rdpAccessMode());
         applyReservationConfig(p, req);
+        p.linkHost = checkedLinkHost(r, req.linkHost());
         p.persist();
         return p;
     }
@@ -218,6 +219,7 @@ public class ResourceService {
         p.rdpFileTransfer = req.rdpFileTransfer();
         p.rdpAccessMode = req.rdpAccessMode() != null ? req.rdpAccessMode() : "native";
         applyReservationConfig(p, req);
+        p.linkHost = checkedLinkHost(get(p.resourceId), req.linkHost());
         return p;
     }
 
@@ -229,6 +231,19 @@ public class ResourceService {
      * ones back instead of having silently evicted everyone. The expiry job
      * closes them on schedule either way.
      */
+    /** resource-links-by-name: a port may pick "ip" or one of the resource's
+     *  own DNS labels — never free text, or the portal would link a name the
+     *  resolver does not answer. Blank = follow the global switch. */
+    private static String checkedLinkHost(Resource r, String linkHost) {
+        if (linkHost == null || linkHost.isBlank()) return null;
+        String v = linkHost.strip().toLowerCase(java.util.Locale.ROOT);
+        if (v.equals(ResourcePort.LINK_HOST_IP)) return v;
+        if (v.equals(r.dnsName) || r.dnsAliases.contains(v)) return v;
+        throw new WebApplicationException(
+                Response.status(Response.Status.BAD_REQUEST)
+                        .entity("linkHost must be 'ip' or one of the resource's DNS names").build());
+    }
+
     private static void applyReservationConfig(ResourcePort p, ResourceDto.PortRequest req) {
         p.maxConcurrentUsers = req.maxConcurrentUsers();
         p.maxReservationMinutes = req.maxReservationMinutes();

@@ -52,4 +52,17 @@ class TrafficWindowStatsTest {
         assertThat(snap.rxBytes()).isZero();
         assertThat(snap.txBytes()).isEqualTo(900);
     }
+
+    @Test
+    void seriesIsOldestFirst_oneZeroPointPerIdleMinute_andNeverLongerThanAsked() {
+        var stats = new TrafficWindowStats();
+        stats.record(100, 40);
+        var series = stats.series(5);
+        assertThat(series).hasSize(5);
+        // the newest minute is last and carries what was just recorded
+        assertThat(series.get(4)).isEqualTo(new TrafficWindowStats.Point(100, 40));
+        assertThat(series.subList(0, 4)).allMatch(p -> p.rxBytes() == 0 && p.txBytes() == 0);
+        // asking for more than the window keeps is capped at the window
+        assertThat(stats.series(10_000)).hasSize(60);
+    }
 }

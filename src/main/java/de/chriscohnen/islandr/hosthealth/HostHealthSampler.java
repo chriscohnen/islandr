@@ -75,6 +75,22 @@ public class HostHealthSampler {
         return latest;
     }
 
+    /** About fifteen minutes of 5 s samples — in memory only, a restart empties it. */
+    static final int HISTORY_SIZE = 180;
+    private final java.util.ArrayDeque<HostHealthDto.Point> history = new java.util.ArrayDeque<>();
+
+    /** Oldest first. */
+    public synchronized java.util.List<HostHealthDto.Point> history() {
+        return new java.util.ArrayList<>(history);
+    }
+
+    synchronized void remember(HostHealthDto.Snapshot snap) {
+        if (HostHealthDto.Status.UNAVAILABLE.equals(snap.status())) return;
+        double mem = snap.memTotalBytes() <= 0 ? 0 : 100.0 * snap.memUsedBytes() / snap.memTotalBytes();
+        history.addLast(new HostHealthDto.Point(snap.cpuPercent(), mem));
+        while (history.size() > HISTORY_SIZE) history.removeFirst();
+    }
+
     @Scheduled(every = "5s",
                identity = "islandr-host-health-sampler",
                concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
@@ -82,12 +98,14 @@ public class HostHealthSampler {
         if (!pollEnabled) return;
         if (!"real".equalsIgnoreCase(mode)) {
             latest = mockSnapshot(mockTick++);
+            remember(latest);
             return;
         }
         try {
             Double cpuPercent = sampleCpuPercent();
             MemReading mem = sampleMemory();
             latest = buildSnapshot(cpuPercent, mem);
+            remember(latest);
         } catch (Exception e) {
             // /proc missing entirely (non-Linux dev machine) is the expected
             // case here, not a bug — log once at debug, not a warning spammed

@@ -16,8 +16,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * dns-upstream-lock-pinning: {@code queryUpstream} used to guard its
  * send-then-receive pair with {@code synchronized (sock)}. A virtual thread
- * blocked inside a {@code synchronized} block stays pinned to its carrier OS
- * thread for the duration (JEP 444, still true on JDK 21) — on a single-vCPU
+ * blocked inside a {@code synchronized} block stayed pinned to its carrier OS
+ * thread for the duration (JEP 444, true on JDK 21; JDK 24 lifted it with
+ * JEP 491, and Islandr runs on 25 — the lock stays regardless) — on a single-vCPU
  * hub, the one carrier available would be held hostage by a slow or lost
  * upstream reply (up to {@code UPSTREAM_TIMEOUT_MS}), stalling every other
  * in-flight query, including ones answered entirely from the local zone and

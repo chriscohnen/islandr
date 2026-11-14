@@ -23,7 +23,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **1.3.0 is out — DNS that answers more of the questions, and a hub that tells you when it fails.** A resource can carry several DNS names and a second IPv6 address, the resolver answers reverse lookups, and a read-only status endpoint reports whether the firewall rules are being applied. Security headers, a report-only Content-Security-Policy and a nonce plus PKCE on single sign-on come with it, and Islandr now runs on Java 25. **Edge hubs** — a second hub at a remote site — are still groundwork and **not usable yet**: they need software at the edge that fetches its configuration from the hub and enforces the firewall there, and that does not exist. Islandr still drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`), so read the release notes before upgrading regardless.
+> **1.4.0 is in release-candidate testing — backups to your own bucket, a dashboard that moves, and a hub that can reach a partner's network.** Back the whole configuration up to any S3-compatible bucket (encrypted with a key you write down, restorable on a freshly installed hub), let the dashboard tiles refresh themselves with a small graph for traffic and hub load, and reach a partner system that only admits one fixed address *through the hub's own address*. The Atlas draws every edge hub, the portal can link by DNS name, and the firewall writes one rule per device and resource instead of one per port. **Edge hubs** are still groundwork and **not usable yet** (the software at the edge does not exist). Read the release notes before upgrading — Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`).
 > Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
@@ -200,22 +200,30 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**1.3.0 — DNS that answers more of the questions, and a hub that tells you when it fails.**
-A resource can now carry several DNS names, so one VM behind a reverse proxy that picks the
-app by name needs one resource, not three. The resolver answers reverse lookups (PTR) for tunnel
-addresses with the same names and the same visibility as the forward lookup, serves AAAA for
-peers, the hub and resources with a second IPv6 address, and no longer hands out an A record
-for a record type it has no address for. The DNS page lets you pick the record type and shows
-all names of a resource. A status endpoint (`GET /api/external/v1/metrics`, Prometheus text,
-read-only `monitoring:read` key) reports whether the firewall rules are being applied, whether
-the boot table is still in the way, certificate days left and the number of connected peers;
-totals only, nothing per person. A webhook event fires when the firewall rules cannot be applied.
+**1.4.0 — backups you control, a dashboard that moves, and a way to reach a partner through the hub.**
+Islandr can back its whole configuration up to an S3-compatible bucket — AWS, Cloudflare R2,
+Backblaze B2, MinIO — on a schedule or on demand. Backups are encrypted with a key you generate
+once and write down; with the bucket's details and that key you restore on a freshly installed
+hub, even if the old one is gone. The access key you give Islandr needs only write, read and
+list: Islandr never deletes a backup, so a hub that is taken over cannot erase them. The
+dashboard tiles refresh on their own, with a small history graph for traffic and hub load.
 
-Security: the session cookie is `Secure` over HTTPS, every response carries framing, sniffing and
-referrer headers, a Content-Security-Policy runs in report-only mode so it can be enforced in a
-later release, single sign-on uses a nonce and PKCE, device names are capped at 64 characters, and
-sharing a port no longer shows which e-mail addresses have an account. Islandr is built on
-Java 25 and Quarkus 3.33.4.
+A site can be an **external network** — a partner's public range that only admits fixed source
+addresses. Devices route that range into the tunnel and the hub sends it on with its own public
+address; grants decide who may reach it, and new connections show up in the hub's log. The Atlas
+draws every edge hub in a row and marks external networks; the dashboard topology can be zoomed
+and dragged. The portal can link a resource by its DNS name instead of its IP (a setting, with an
+override per port), a device can be added with your own public key as the safest option, and the
+resources overview opens a resource where you can edit its ports.
+
+The firewall now writes one rule per device, resource and protocol with the ports as a set
+(`tcp dport { 22, 443 }`) — the number of rules on the dashboard drops — and the "all ports" entry
+on a resource, which nftables used to reject, works. Islandr is built on Quarkus 3.40 (LTS).
+
+**1.3.0** brought several DNS names per resource, reverse lookups and AAAA, a read-only status
+endpoint for your monitoring (`GET /api/external/v1/metrics`), a webhook when the firewall rules
+cannot be applied, security headers, a report-only Content-Security-Policy, and a nonce plus PKCE
+on single sign-on; Islandr moved to Java 25.
 
 **1.2.0** made the admin console faster to read — activity per peer, a traffic tile, a topology
 that survives a crowded network — and made the native installer work on Ubuntu 26.04. *1.2.1 fixed
@@ -232,18 +240,28 @@ sites; do not plan an office around it.
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
 
-### What's new in 1.3.0
+### What's new in 1.4.0
 
 Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 [GitHub releases](https://github.com/chriscohnen/islandr/releases).
 
-- **Several DNS names per resource** — one VM behind a reverse proxy that picks the app by name is one resource, not three
-- **Reverse lookups (PTR) and AAAA** — the resolver names tunnel addresses with the same visibility as forward lookups, and a resource can carry a second, IPv6 address
-- **The DNS page picks the record type** (A, AAAA, PTR), takes an IP address and lists all names of a resource
+- **Backups to an S3 bucket** — one encrypted file per backup, restorable on a fresh install from the bucket's details and the key you wrote down; automatic daily or weekly; no delete permission needed ([docs/install/backup-s3.md](docs/install/backup-s3.md))
+- **A live dashboard** — traffic and hub load refresh on their own, each with a small graph of the last minutes
+- **External networks** — reach a partner that admits only one fixed address through the hub's public address; new connections are logged ([install guide](docs/install.md#reaching-a-partner-through-the-hubs-address))
+- **The Atlas shows edge hubs** and marks external networks; the dashboard topology zooms and drags
+- **Portal links by DNS name** (with a per-port override) and a pill that marks your own public key as the safest way to add a device
+- **A better path to editing a resource** — from the overview straight to its card, with the overview's filter kept in the address
+- **One firewall rule per device and resource** with the ports as a set, and a working "all ports" entry
+- A webhook event `backup.failed` when a scheduled backup does not complete
+- Built on Quarkus 3.40 (LTS)
+
+### What's new in 1.3.0
+
+- **Several DNS names per resource**, reverse lookups (PTR) and AAAA, and a DNS page that picks the record type
 - **A status endpoint for your monitoring** — `GET /api/external/v1/metrics` in the Prometheus text format, read-only `monitoring:read` key, totals only; plus a webhook event when the firewall rules cannot be applied
-- **Licence notices ship with every artefact** — LICENSE, NOTICE and the licences of every bundled library in the release, the Docker image and on the hub; Settings links to the list
-- Security: `Secure` session cookie over HTTPS, security headers on every response, a Content-Security-Policy in report-only mode, nonce and PKCE on single sign-on, device names capped at 64 characters, and sharing a port no longer reveals which e-mail addresses have an account
-- Built on Java 25 (LTS) and Quarkus 3.33.4
+- **Licence notices ship with every artefact**
+- Security: `Secure` session cookie over HTTPS, security headers, a Content-Security-Policy in report-only mode, nonce and PKCE on single sign-on
+- Built on Java 25 (LTS)
 
 ### Roadmap
 
@@ -315,6 +333,7 @@ the outcome.
 - [docs/install/hardening.md](docs/install/hardening.md) — why the systemd unit and sudoers file look the way they do
 - [docs/install/identity-microsoft365.md](docs/install/identity-microsoft365.md) — registering the Entra ID app, the permissions Islandr needs, and the setup errors that do not name their cause
 - [docs/install/dns-clients.md](docs/install/dns-clients.md) — reaching the internal zone from a client, the split-tunnel DNS field that fails silently, and what to check when a name does not resolve
+- [docs/install/backup-s3.md](docs/install/backup-s3.md) — backups to an S3-compatible bucket, the backup key, an access key that cannot delete, and restoring onto a fresh install
 - [docs/install/fail2ban.md](docs/install/fail2ban.md) — the built-in login backoff, the log line fail2ban matches, and why banning your own reverse proxy is the easy mistake
 - [docs/prd.md](docs/prd.md) — Product Requirements Document
 - [docs/adr/](docs/adr/) — Architecture Decision Records (Nygard format, Pugh matrix)

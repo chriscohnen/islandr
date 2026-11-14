@@ -30,8 +30,22 @@ public final class DashboardDto {
             // from TrafficWindowStats. In-memory like hostHealth and dns above,
             // so a restart zeroes it — the tile names its own window, which is
             // what keeps that honest rather than puzzling.
-            TrafficStats traffic
+            TrafficStats traffic,
+            // Mini graphs (dashboard-live-tiles): in-memory history, oldest first.
+            List<TrafficPoint> trafficSeries,
+            List<HostHealthDto.Point> hostSeries
     ) {}
+
+    /** What the dashboard tiles poll between full loads — only the live parts. */
+    public record Live(
+            HostHealthDto.Snapshot hostHealth,
+            TrafficStats traffic,
+            List<TrafficPoint> trafficSeries,
+            List<HostHealthDto.Point> hostSeries
+    ) {}
+
+    /** Bytes moved in one wall-clock minute. */
+    public record TrafficPoint(long rxBytes, long txBytes) {}
 
     /** DNS resolver query split over a rolling window (dns-query-stats) —
      *  in-memory only (DnsQueryStats), reset by a restart, same as

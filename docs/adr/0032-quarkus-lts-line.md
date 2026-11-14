@@ -1,6 +1,6 @@
 # ADR-0032 — Islandr sits on the Quarkus LTS line, identified by its four-segment backports
 
-**Status:** Accepted (implemented for 1.0.0 — moved 3.29.4 → 3.33.3.2)
+**Status:** Accepted (implemented for 1.0.0 — moved 3.29.4 → 3.33.3.2; 1.4.0 moved 3.33 → 3.40.1.2, see the note at the end)
 **Date:** 2026-09-19
 **Deciders:** Christian Cohnen
 **Relates to:** [ADR-0001](0001-quarkus-backend.md) (why Quarkus at all), [ADR-0028](0028-webauthn-library-and-integration.md) (R-187 depends on when the platform adopts Vert.x 5)
@@ -100,3 +100,26 @@ It leaves **opentelemetry-api** deliberately unforced. The 3.33 BOM resolves
 `1.57.0` against a fixed `1.62.0` — five minors instead of sixteen, tractable now
 but still needing verification against the Quarkus-managed OTel SDK rather than a
 one-line force (issue #20).
+
+## Implementation note — 1.4.0: 3.33 → 3.40 (2026-11-14)
+
+3.40 was announced as LTS on 2026-09-30 (quarkus.io, blog tag "lts"); 3.33 had
+been LTS since 2026-03-25. Moved to **3.40.1.2**, the newest backport on the day.
+The identification rule is refined accordingly: four-segment releases show
+which lines receive backports, but the LTS announcement is what confirms a
+line before moving onto it.
+
+- **No forced versions remain.** The 3.40.1.2 BOM ships Netty 4.1.139, Jackson
+  2.21.8 and OpenTelemetry 1.62.0 — the last two forces (Jackson 2.21.7,
+  OpenTelemetry 1.62.0) would have pinned backwards or been redundant.
+  Vert.x stays on 4.5.35, so `vertx-auth-webauthn` and R-187 are unchanged.
+- **One API move:** `KeyStoreProvider` and `KeyStoreAndKeyCertOptions` moved from
+  `io.quarkus.tls.runtime` to `io.quarkus.tls` (new module
+  `quarkus-tls-registry-spi`), same signatures; `TlsKeyStoreProvider` changed
+  its imports only.
+- **Hibernate ORM 7.2 → 7.4** with the SQLite community dialect: full test suite
+  green, no migration needed.
+- **Native image** (arm64, Mandrel 25.0.5.0, measured like the 1.3.0 baseline):
+  binary 115.48 → 119.08 MB, idle RSS 152 → 155 MiB, after 300 requests 159 →
+  164 MiB, start-up unchanged at 0.74–0.85 s. Accepted: about 3 % on each.
+

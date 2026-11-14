@@ -50,7 +50,15 @@ public class AtlasDto {
     /** Every Site, independent of whether it owns any resources — a site that only ever
      * grants (never receives) access has no ResourceNode of its own to hang a name/cidr
      * off of, so the frontend needs this list to draw its gateway node regardless. */
-    public record SiteNode(String id, String name, String cidr, String gatewayPeerId, String gatewayPeerName) {}
+    public record SiteNode(String id, String name, String cidr, String gatewayPeerId, String gatewayPeerName,
+                           // atlas-edge-hubs: the edge hub whose traffic this network uses;
+                           // null = the central hub, and always null while edge hubs are off.
+                           String edgeHubId,
+                           // internal (default) or external — a partner network reached through the hub's address
+                           String kind) {}
+
+    /** atlas-edge-hubs: an edge hub (listed while edge hubs are on, served networks or not). */
+    public record EdgeHubNode(String id, String name) {}
 
     public record Graph(
             List<UserNode> users, List<ResourceNode> resources,
@@ -60,5 +68,6 @@ public class AtlasDto {
             // Atlas diagram's hover on the Hub node can show something concrete
             // instead of just a label. hubIp6 is null on IPv4-only installs or if
             // wgSubnet6 fails to parse.
-            String hubIp4, String hubIp6) {}
+            String hubIp4, String hubIp6,
+            List<EdgeHubNode> edgeHubs) {}
 }

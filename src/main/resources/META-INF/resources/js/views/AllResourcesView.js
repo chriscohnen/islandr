@@ -25,11 +25,19 @@ export default defineComponent({
     };
   },
   async mounted() {
+    // View state lives in the address, so Back and bookmarks keep the filter.
+    const { q, type } = this.$route.query;
+    if (typeof q === "string") this.filter = q;
+    if (typeof type === "string") this.typeFilter = type;
     await this.load();
     this._offSlash = onSlashFocus(() => this.$refs.searchInput);
   },
   beforeUnmount() {
     if (this._offSlash) this._offSlash();
+  },
+  watch: {
+    filter() { this.syncQuery(); },
+    typeFilter() { this.syncQuery(); },
   },
   computed: {
     _lang() { return locale.current; },
@@ -97,8 +105,14 @@ export default defineComponent({
     typeLabel(type) {
       return this.typeLabels[type] || type;
     },
+    syncQuery() {
+      const query = {};
+      if (this.filter) query.q = this.filter;
+      if (this.typeFilter) query.type = this.typeFilter;
+      this.$router.replace({ query });
+    },
     goToResource(r) {
-      this.$router.push({ name: "resources", params: { siteId: r.siteId } });
+      this.$router.push({ name: "resources", params: { siteId: r.siteId }, query: { resource: r.id } });
     },
     portList(r) {
       if (!r.ports || r.ports.length === 0) return "—";

@@ -359,9 +359,27 @@ export default defineComponent({
       }
     },
 
-    httpUrl(resource, port) {
+    // resource-links-by-name: the host a link points at — the DNS name the
+    // hub chose for this port (switch, port override), else the IP. IronRDP
+    // keeps the IP on purpose: there the hub, not the browser, dials the host.
+    linkHost(resource, port, forceIp) {
+      return !forceIp && port && port.linkHost ? port.linkHost : resource.ip;
+    },
+
+    // Reached from the card's IP line and Shift+click: the same web link, by IP.
+    firstWebPort(resource) {
+      return (resource.grantedPorts || []).find((p) => this.isWebPort(p) && p.linkHost) || null;
+    },
+
+    openAsIp(event, resource, port) {
+      if (!event.shiftKey || !port.linkHost) return;
+      event.preventDefault();
+      window.open(this.httpUrl(resource, port, true), "_blank", "noopener,noreferrer");
+    },
+
+    httpUrl(resource, port, forceIp) {
       const scheme = port.protocol === "HTTPS" ? "https" : "http";
-      const base = scheme + "://" + resource.ip + ":" + port.port;
+      const base = scheme + "://" + this.linkHost(resource, port, forceIp) + ":" + port.port;
       return port.pathPrefix ? base + port.pathPrefix : base;
     },
 
@@ -378,11 +396,11 @@ export default defineComponent({
     },
 
     vncUrl(resource, port) {
-      return "vnc://" + resource.ip + ":" + port.port;
+      return "vnc://" + this.linkHost(resource, port) + ":" + port.port;
     },
 
     rdpUri(resource, port) {
-      return "rdp://" + resource.ip + ":" + port.port;
+      return "rdp://" + this.linkHost(resource, port) + ":" + port.port;
     },
 
     isSshPort(port) {
@@ -390,7 +408,7 @@ export default defineComponent({
     },
 
     sshUrl(resource, port) {
-      return "ssh://" + resource.ip + ":" + port.port;
+      return "ssh://" + this.linkHost(resource, port) + ":" + port.port;
     },
 
     isSftpPort(port) {
@@ -398,7 +416,7 @@ export default defineComponent({
     },
 
     sftpUrl(resource, port) {
-      return "sftp://" + resource.ip + ":" + port.port;
+      return "sftp://" + this.linkHost(resource, port) + ":" + port.port;
     },
 
     isSmbPort(port) {
@@ -406,7 +424,7 @@ export default defineComponent({
     },
 
     smbUrl(resource, port) {
-      return "smb://" + resource.ip;
+      return "smb://" + this.linkHost(resource, port);
     },
 
     isPrintPort(port) {
@@ -414,12 +432,12 @@ export default defineComponent({
     },
 
     ippUrl(resource, port) {
-      return "ipp://" + resource.ip + ":" + port.port;
+      return "ipp://" + this.linkHost(resource, port) + ":" + port.port;
     },
 
     downloadRdp(resource, port) {
       const content = [
-        "full address:s:" + resource.ip + ":" + port.port,
+        "full address:s:" + this.linkHost(resource, port) + ":" + port.port,
         "prompt for credentials:i:1",
         "screen mode id:i:2",
         "use multimon:i:0",
@@ -1261,7 +1279,10 @@ export default defineComponent({
               </div>
               <div style="flex:1; min-width:0">
                 <div style="font-weight:600; font-size: var(--text-sm)">{{ r.name }}</div>
-                <div class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
+                <a v-if="firstWebPort(r)" class="mono myaccess-ip-link" style="font-size: var(--text-xs); color: var(--fg3)"
+                   :href="httpUrl(r, firstWebPort(r), true)" target="_blank" rel="noopener noreferrer"
+                   :title="t('myaccess.open_as_ip')">{{ r.ip }}</a>
+                <div v-else class="mono" style="font-size: var(--text-xs); color: var(--fg3)">{{ r.ip }}</div>
               </div>
               <div style="display:flex; align-items:center; gap: var(--space-2)">
                 <template v-if="reachability[r.id] && !reachability[r.id].loading">
@@ -1339,7 +1360,8 @@ export default defineComponent({
                    target="_blank"
                    rel="noopener noreferrer"
                    class="myaccess-port-link"
-                   :title="httpUrl(r, p) + ' — ' + t('myaccess.open_in_browser')">
+                   @click="openAsIp($event, r, p)"
+                   :title="httpUrl(r, p) + ' — ' + t('myaccess.open_in_browser') + (p.linkHost ? ' · ' + t('myaccess.shift_for_ip') : '')">
                   <span class="mono">{{ p.port }}/{{ p.transport }}</span>
                   <span>{{ p.protocol }}</span>
                   <span v-if="p.label" style="color:var(--fg3)">{{ p.label }}</span>
@@ -1614,7 +1636,9 @@ export default defineComponent({
               <label class="key-mode-option">
                 <input type="radio" :checked="importPublicKey" @change="importPublicKey = true" />
                 <div>
-                  <div class="key-mode-title">{{ t('peer.key_import') }}</div>
+                  <div class="key-mode-title">{{ t('peer.key_import') }}
+                    <span class="badge badge-success" style="margin-left: var(--space-2)"><Icon name="check" :size="12" />{{ t('myaccess.badge_safest') }}</span>
+                  </div>
                   <div class="key-mode-hint">{{ t('myaccess.hint_own_key') }}</div>
                 </div>
               </label>

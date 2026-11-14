@@ -2339,6 +2339,8 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
   color: var(--fg2);
 }
 
+.myaccess-ip-link { text-decoration: none; }
+.myaccess-ip-link:hover { text-decoration: underline; color: var(--fg2); }
 .myaccess-port-link {
   display: inline-flex;
   align-items: center;

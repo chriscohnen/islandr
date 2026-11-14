@@ -73,16 +73,15 @@ public class DnsResolverService {
     private final Map<String, DatagramSocket> upstreamSockets = new ConcurrentHashMap<>();
 
     // One lock per upstream, guarding the same send-then-receive pair
-    // queryUpstream() always did — but a ReentrantLock, not `synchronized` on
-    // the socket. A virtual thread blocked inside a synchronized block stays
-    // pinned to its carrier OS thread for the duration (JEP 444, still true
-    // on JDK 21); receive() can block for up to UPSTREAM_TIMEOUT_MS waiting
-    // on a slow or lost upstream reply. On a single-vCPU hub there is only
-    // one carrier, so that pinned wait stalls every other query on the
-    // process — including ones answered entirely locally, never touching an
-    // upstream at all. ReentrantLock.lock()/unlock() park and unpark the
-    // virtual thread without pinning the carrier either while waiting for
-    // the lock or while the lock holder blocks on receive() beneath it.
+    // queryUpstream() always did — a ReentrantLock, not `synchronized` on the
+    // socket. Introduced on JDK 21, where a virtual thread blocked inside a
+    // synchronized block stayed pinned to its carrier OS thread (JEP 444):
+    // receive() can block for up to UPSTREAM_TIMEOUT_MS on a slow or lost
+    // upstream reply, and on a single-vCPU hub the one carrier was held for
+    // that long, stalling every other query, local ones included. JDK 24
+    // removed that pinning (JEP 491) and Islandr runs on 25, so `synchronized`
+    // would be fine again today. The lock stays: it costs nothing, says what
+    // it guards, and does not depend on which JDK the binary was built with.
     private final Map<String, ReentrantLock> upstreamLocks = new ConcurrentHashMap<>();
 
     void onStart(@Observes StartupEvent ev) {

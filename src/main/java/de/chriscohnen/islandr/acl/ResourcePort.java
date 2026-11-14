@@ -56,6 +56,13 @@ public class ResourcePort extends PanacheEntityBase {
     @Column(name = "path_prefix", length = 255)
     public String pathPrefix;
 
+    /** resource-links-by-name: per-port override of the portal's link host.
+     *  Null = follow the global switch, "ip" = the IP, otherwise one of the
+     *  resource's own DNS labels. */
+    public static final String LINK_HOST_IP = "ip";
+    @Column(name = "link_host", length = 63)
+    public String linkHost;
+
     // RDP-specific options (only meaningful when protocol = "RDP")
     @Column(name = "rdp_clipboard", nullable = false, columnDefinition = "INTEGER")
     public boolean rdpClipboard = true;

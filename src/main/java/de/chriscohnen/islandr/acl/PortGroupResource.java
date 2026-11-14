@@ -40,7 +40,7 @@ public class PortGroupResource {
                         byGroup.getOrDefault(g.id, List.of()).stream()
                                 .map(m -> new ResourceDto.PortResponse(
                                         m.id, m.port, m.portEnd, m.transport, m.protocol, m.label, null, true, false, "native",
-                                        null, null, true, null))
+                                        null, null, true, null, null))
                                 .toList()))
                 .toList();
     }
@@ -55,7 +55,7 @@ public class PortGroupResource {
                 groups.membersFor(id).stream()
                         .map(m -> new ResourceDto.PortResponse(
                                 m.id, m.port, m.portEnd, m.transport, m.protocol, m.label, null, true, false, "native",
-                                        null, null, true, null))
+                                        null, null, true, null, null))
                         .toList());
     }
 
