@@ -192,7 +192,7 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 | | Dev / CI | Production hub |
 |---|---|---|
-| Java | 21 (Temurin recommended) | not needed — native binary |
+| Java | 25 (Temurin recommended) | not needed — native binary |
 | WireGuard | not needed (mock adapter) | `wg` (wireguard-tools) on the hub, and an interface that is already up |
 | nftables | not needed (mock adapter) | `nft` on the hub |
 | OS | macOS / Linux / Windows (dev only) | Linux x86_64 or ARM64 |
