@@ -44,6 +44,10 @@ class ConfigTablesRoundTripTest {
     @Inject ConfigService configService;
     @Inject SettingsService settings;
     @PersistenceContext EntityManager em;
+    @Inject javax.sql.DataSource dataSource;
+
+    /** Seeded rows outlive their test, and assigned_ip is unique: never reuse an address. */
+    private static final java.util.concurrent.atomic.AtomicInteger nextIp = new java.util.concurrent.atomic.AtomicInteger();
 
     /** A recognisable value in every column group that has ever been lost. */
     private record Seed(String siteId, String resourceId, String portId, String userId, String peerId,
@@ -80,7 +84,7 @@ class ConfigTablesRoundTripTest {
             user.avatarBytes = avatar;
             user.persist();
 
-            Peer peer = Peer.createNew(user.id, "laptop-" + x, "RoundTrip" + x + "0000000000000000000000000000=", "10.8.0." + (100 + (int) (Math.random() * 100)));
+            Peer peer = Peer.createNew(user.id, "laptop-" + x, "RoundTrip" + x + "0000000000000000000000000000=", "10.77." + (nextIp.get() / 250) + "." + (1 + nextIp.getAndIncrement() % 250));
             peer.mtu = 1380;
             peer.persistentKeepalive = 15;
             peer.assignedIpv6 = "fd00::" + x.substring(0, 4);
@@ -91,6 +95,8 @@ class ConfigTablesRoundTripTest {
             hook.url = "https://hooks.example.test/" + x;
             hook.eventTypes = "backup.failed";
             hook.secret = "s3cret-" + x;
+            // disabled: a live hook would be updated by the dispatcher while a restore deletes it
+            hook.enabled = false;
             hook.createdAt = Instant.now();
             hook.updatedAt = Instant.now();
             hook.updatedBy = "test";
@@ -238,7 +244,14 @@ class ConfigTablesRoundTripTest {
         orphan.put("created_at", "2026-01-01 00:00:00.000");
         broken.put("resources", new ArrayList<>(List.of(orphan)));
 
-        assertThatThrownBy(() -> restore(broken)).isInstanceOf(RuntimeException.class);
+        // The test database is in memory and shared: when the failed commit makes the pool
+        // drop its connection, the database goes with it unless another connection is open.
+        // (A file database, as in production, has no such problem.)
+        try (java.sql.Connection keepAlive = dataSource.getConnection()) {
+            assertThatThrownBy(() -> restore(broken)).isInstanceOf(RuntimeException.class);
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException(e);
+        }
 
         assertThat(QuarkusTransaction.requiringNew().call(() -> (Resource) Resource.findById(s.resourceId())))
                 .as("the failed import rolled back").isNotNull();
