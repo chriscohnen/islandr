@@ -89,6 +89,13 @@ public class Resource extends PanacheEntityBase {
     @Column(name = "dns_flat", nullable = false, columnDefinition = "INTEGER")
     public boolean dnsFlat = false;
 
+    /** The public name of a partner machine in an external network, for portal
+     *  links only. A full host name, outside the hub's zone, not unique (a
+     *  service behind a CDN has several addresses under one name) and never
+     *  answered by the hub's resolver. Null elsewhere. */
+    @Column(name = "link_fqdn", length = 253)
+    public String linkFqdn;
+
     /** Discovered via ARP during a scan, or set via the on-demand /identify
      *  action (issue #76). Canonical lowercase "aa:bb:cc:dd:ee:ff" form.
      *  Vendor is never stored — always derived from OuiVendorLookup at read

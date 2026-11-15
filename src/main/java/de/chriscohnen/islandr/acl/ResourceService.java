@@ -68,6 +68,7 @@ public class ResourceService {
         r.dnsAliases = aliases;
         r.ip6 = normalizeIp6(req.ip6());
         r.mac = normalizeMac(req.mac());
+        r.linkFqdn = checkedLinkFqdn(siteId, req.linkFqdn());
         r.persist();
         return r;
     }
@@ -102,7 +103,30 @@ public class ResourceService {
         r.dnsAliases.clear();
         r.dnsAliases.addAll(aliases);
         r.mac = normalizeMac(req.mac());
+        r.linkFqdn = checkedLinkFqdn(r.siteId, req.linkFqdn());
         return r;
+    }
+
+    private static final java.util.regex.Pattern FQDN = java.util.regex.Pattern.compile(
+            "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$");
+
+    /** Blank → null. A link name only makes sense for a partner's machine: the
+     *  hub never answers it, so on an internal network it would point nowhere.
+     *  Lowercased, no trailing dot, a real host name with at least two labels. */
+    private static String checkedLinkFqdn(String siteId, String linkFqdn) {
+        if (linkFqdn == null || linkFqdn.isBlank()) return null;
+        String v = linkFqdn.strip().toLowerCase(java.util.Locale.ROOT);
+        if (v.endsWith(".")) v = v.substring(0, v.length() - 1);
+        Site site = Site.findById(siteId);
+        if (site == null || !Site.KIND_EXTERNAL.equals(site.kind)) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity("linkFqdn is only for resources in an external network").build());
+        }
+        if (!FQDN.matcher(v).matches()) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity("linkFqdn must be a host name such as icanhazip.com").build());
+        }
+        return v;
     }
 
 
@@ -238,6 +262,7 @@ public class ResourceService {
         if (linkHost == null || linkHost.isBlank()) return null;
         String v = linkHost.strip().toLowerCase(java.util.Locale.ROOT);
         if (v.equals(ResourcePort.LINK_HOST_IP)) return v;
+        if (v.equals(ResourcePort.LINK_HOST_FQDN) && r.linkFqdn != null) return v;
         if (v.equals(r.dnsName) || r.dnsAliases.contains(v)) return v;
         throw new WebApplicationException(
                 Response.status(Response.Status.BAD_REQUEST)

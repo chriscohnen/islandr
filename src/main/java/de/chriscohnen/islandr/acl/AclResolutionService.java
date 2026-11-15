@@ -334,6 +334,7 @@ public class AclResolutionService {
         boolean namesOn = st.dnsResolverEnabled;
         boolean namesDefault = namesOn && st.portalLinksUseDnsName;
         Map<String, List<String>> namesByResource = new HashMap<>();
+        Map<String, String> fqdnByResource = new HashMap<>();
 
         Map<String, List<ResourceDto.MyAccessPort>> portsByResource = new HashMap<>();
         for (Object[] p : portRows) {
@@ -348,7 +349,17 @@ public class AclResolutionService {
             boolean autoApprove = p[13] == null || ((Number) p[13]).intValue() != 0;
             String linkChoice = p[14] == null ? null : (String) p[14];
             String linkHost = null;
-            if (namesOn && !ResourcePort.LINK_HOST_IP.equals(linkChoice) && (linkChoice != null || namesDefault)) {
+            // A partner machine's public name (external networks) is not the
+            // hub's to resolve, so it does not depend on the resolver being on.
+            String fqdn = fqdnByResource.computeIfAbsent(rid, id -> {
+                Resource rr = Resource.findById(id);
+                return rr == null || rr.linkFqdn == null ? "" : rr.linkFqdn;
+            });
+            boolean wantsFqdn = !fqdn.isEmpty() && (ResourcePort.LINK_HOST_FQDN.equals(linkChoice)
+                    || (linkChoice == null && st.portalLinksUseDnsName));
+            if (wantsFqdn) {
+                linkHost = fqdn;
+            } else if (namesOn && !ResourcePort.LINK_HOST_IP.equals(linkChoice) && (linkChoice != null || namesDefault)) {
                 List<String> names = namesByResource.computeIfAbsent(rid, dns::resourceNames);
                 // A chosen label that is gone (alias removed) falls back to
                 // the main name; a resource without a DNS name has none.

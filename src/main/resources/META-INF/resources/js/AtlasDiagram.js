@@ -196,7 +196,7 @@ export default defineComponent({
     // as an outcome nobody has measured yet.
     probePending: { type: Boolean, default: false },
   },
-  emits: ["drag-grant", "revoke-edge", "user-click", "resource-click", "peer-click", "site-click"],
+  emits: ["drag-grant", "drag-grant-network", "revoke-edge", "user-click", "resource-click", "peer-click", "site-click"],
   data() {
     return {
       dragFromUserId: null,
@@ -519,6 +519,11 @@ export default defineComponent({
             }
           }
         }
+        // Over no resource, but inside a network: that drop grants the whole network.
+        if (!this.dragFromIsGateway) {
+          const c = this.circleAt(this.dragPointer);
+          if (c) return { type: "circle", id: c.id };
+        }
         return null;
       }
       if (this.dragFromResourceId) {
@@ -809,12 +814,17 @@ export default defineComponent({
       const moved = this.dragMoved;
       let resourceId = null;
       let gatewaySubjectId = null;
+      let networkId = null;
       if (moved && this.tool === "grant") {
         const target = document.elementFromPoint(evt.clientX, evt.clientY);
         if (fromUserId) {
           resourceId = target && target.closest("[data-resource-id]")
               ? target.closest("[data-resource-id]").getAttribute("data-resource-id")
               : null;
+          if (!resourceId && !fromIsGateway) {
+            const c = this.circleAt(this.screenToContent(evt));
+            networkId = c ? c.id : null;
+          }
         } else if (fromResourceId) {
           // Mirror of the above: dropped on a gateway diamond instead of a
           // resource circle. Only gateway (site) nodes are valid drop
@@ -831,6 +841,8 @@ export default defineComponent({
       if (moved) {
         if (resourceId && fromUserId) {
           this.$emit("drag-grant", { subjectType: fromIsGateway ? "site" : "user", subjectId: fromUserId, resourceId });
+        } else if (networkId && fromUserId) {
+          this.$emit("drag-grant-network", { subjectId: fromUserId, siteId: networkId });
         } else if (gatewaySubjectId && fromResourceId) {
           this.$emit("drag-grant", { subjectType: "site", subjectId: gatewaySubjectId, resourceId: fromResourceId });
         }
@@ -842,6 +854,14 @@ export default defineComponent({
         // no-op, since there's nothing to ping at that hop.
         this.$emit("peer-click", { peerId: fromGatewayPeerId, peerName: fromGatewayPeerName, siteName: fromGatewaySiteName });
       }
+    },
+    // The network under a content-space point, the smallest when circles overlap.
+    circleAt(pt) {
+      let best = null;
+      for (const c of this.layout) {
+        if (Math.hypot(c.cx - pt.x, c.cy - pt.y) <= c.r && (!best || c.r < best.r)) best = c;
+      }
+      return best;
     },
     onWindowPointerCancel() {
       this.endDrag();

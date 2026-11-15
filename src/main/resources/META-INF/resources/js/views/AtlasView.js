@@ -3,6 +3,7 @@ import { t, locale } from "/js/i18n.js";
 import AtlasDiagram, { edgeKey } from "/js/AtlasDiagram.js";
 import { Icon } from "/js/Icons.js";
 import { onEscape } from "/js/keyboard.js";
+import { confirmDialog } from "/js/confirmDialog.js";
 
 const GRANTS_PAGE_SIZE = 20;
 
@@ -496,6 +497,42 @@ export default defineComponent({
       };
     },
 
+    // A user dragged onto a whole network. A whole-network grant belongs to a
+    // role (ADR-0029), so it needs the role picker set; in direct mode there is
+    // nothing to attach it to, and the message says what to do.
+    async onDragGrantNetwork({ siteId }) {
+      const site = (this.graph.sites || []).find((s) => s.id === siteId);
+      if (!site) return;
+      if (!this.selectedRoleId) {
+        this.error = t("atlas.network_grant_needs_role", { site: site.name });
+        return;
+      }
+      const role = (this.graph.roles || []).find((r) => r.id === this.selectedRoleId);
+      const roleName = role ? role.name : this.selectedRoleId;
+      if (this.graph.edges.some((e) => e.kind === "network-grant" && e.siteId === siteId && e.roleId === this.selectedRoleId)) {
+        this.error = t("atlas.network_grant_exists", { role: roleName, site: site.name });
+        return;
+      }
+      const ok = await confirmDialog(t("atlas.network_grant_confirm", { role: roleName, site: site.name }),
+          { danger: false, confirmLabel: t("atlas.network_grant_confirm_label") });
+      if (!ok) return;
+      this.error = null;
+      try {
+        const res = await fetch("/api/v1/acl/network-grants", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ roleId: this.selectedRoleId, siteId }),
+        });
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
+        }
+        await this.load();
+      } catch (e) {
+        this.error = t("atlas.error_grant", { error: e.message });
+      }
+    },
+
     cancelGrantDialog() {
       this.grantDialog = null;
     },
@@ -966,7 +1003,7 @@ export default defineComponent({
                        :active-types="Array.from(activeTypes)" :active-user-ids="Array.from(activeUserIds)"
                        :probe-path="diagModal ? diagModal.path : null" :probe-label="probeLabel" :probe-reachable="probeReachable"
                        :probe-pending="probePending"
-                       @drag-grant="onDragGrant" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" @site-click="onSiteClick" />
+                       @drag-grant="onDragGrant" @drag-grant-network="onDragGrantNetwork" @revoke-edge="onRevokeEdge" @user-click="onUserClick" @resource-click="onResourceClick" @peer-click="onPeerClick" @site-click="onSiteClick" />
 
         <!-- Network diagnostics (ADR-0025): docked beside the graph, not a modal —
              the whole point is seeing the probed hub -> [site-gateway] -> target

@@ -329,7 +329,7 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, dnsAliasesText: "", ip6: "", mac: "" };
+      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, dnsAliasesText: "", ip6: "", mac: "", linkFqdn: "" };
       this.formError = null;
       this.identifyResult = null;
     },
@@ -348,7 +348,7 @@ export default defineComponent({
       this.form = {
         name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer",
         dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat, mac: r.mac || "",
-        dnsAliasesText: (r.dnsAliases || []).join(", "), ip6: r.ip6 || "",
+        dnsAliasesText: (r.dnsAliases || []).join(", "), ip6: r.ip6 || "", linkFqdn: r.linkFqdn || "",
       };
       this.formError = null;
       this.identifyResult = null;
@@ -490,6 +490,13 @@ export default defineComponent({
       if (!r || !r.dnsName) return [];
       return [r.dnsName, ...(r.dnsAliases || [])];
     },
+    // The partner's own public name (external networks), a choice of its own
+    // in the port's link-host select.
+    portLinkFqdn() {
+      const r = this.resources.find((x) => x.id === this.portFormFor);
+      return r && r.linkFqdn ? r.linkFqdn : "";
+    },
+    isExternalSite() { return !!this.site && this.site.kind === "external"; },
     // An "all ports" entry opens every port, so a web-only RDP port on the same
     // resource stops being a protection: say so while it is being set up, either way round.
     allPortsWarning() {
@@ -1281,11 +1288,12 @@ export default defineComponent({
                   <label>{{ t('resources.label_path_prefix') }}</label>
                   <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
                 </div>
-                <div v-if="portLinkNames().length" class="field" style="margin: 0; flex: 1">
+                <div v-if="portLinkNames().length || portLinkFqdn()" class="field" style="margin: 0; flex: 1">
                   <label>{{ t('resources.label_link_host') }}</label>
                   <select class="input" v-model="portForm.linkHost">
                     <option value="">{{ t('resources.link_host_inherit') }}</option>
                     <option value="ip">{{ t('resources.link_host_ip') }}</option>
+                    <option v-if="portLinkFqdn()" value="@fqdn">{{ portLinkFqdn() }}</option>
                     <option v-for="n in portLinkNames()" :key="n" :value="n">{{ n }}</option>
                   </select>
                 </div>
@@ -1472,6 +1480,12 @@ export default defineComponent({
                 <input id="resDnsAliases" class="input mono" v-model="form.dnsAliasesText" :placeholder="t('resources.field_dns_aliases_ph')" />
                 <div class="field-hint">{{ t('resources.field_dns_aliases_hint') }}</div>
               </template>
+            </div>
+
+            <div v-if="isExternalSite()" class="field" style="margin: var(--space-4) 0 0">
+              <label for="resLinkFqdn">{{ t('resources.field_link_fqdn') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <input id="resLinkFqdn" class="input mono" v-model="form.linkFqdn" :placeholder="t('resources.field_link_fqdn_ph')" />
+              <div class="field-hint">{{ t('resources.field_link_fqdn_hint') }}</div>
             </div>
 
             <div class="field" style="margin: var(--space-4) 0 0">

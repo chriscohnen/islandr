@@ -35,12 +35,14 @@ public final class ResourceDto {
             String mac,
             // Never persisted — derived from the bundled OUI table at read
             // time so a later table refresh can't leave a stale name behind.
-            String vendor
+            String vendor,
+            // Public name for portal links; external networks only. Null = none.
+            String linkFqdn
     ) {
         public static Response from(Resource r, List<PortResponse> ports) {
             return new Response(r.id, r.siteId, r.name, r.ip, r.ip6, r.description, r.type, r.dnsName, r.dnsFlat,
                     r.dnsAliases.stream().sorted().toList(), ports, r.createdAt, r.mac,
-                    de.chriscohnen.islandr.discovery.OuiVendorLookup.vendorFor(r.mac).orElse(null));
+                    de.chriscohnen.islandr.discovery.OuiVendorLookup.vendorFor(r.mac).orElse(null), r.linkFqdn);
         }
     }
 
@@ -112,18 +114,29 @@ public final class ResourceDto {
 
             // Optional — second, IPv6 address of the same resource (dual stack).
             @ValidIpAddress
-            String ip6
+            String ip6,
+
+            // Optional — the public host name a partner machine in an external
+            // network is known by, for portal links. Checked in ResourceService.
+            @jakarta.validation.constraints.Size(max = 253)
+            String linkFqdn
     ) {
+        /** Request without the link name. */
+        public UpsertRequest(String name, String ip, String description, String type,
+                             String dnsName, boolean dnsFlat, String mac, List<String> dnsAliases, String ip6) {
+            this(name, ip, description, type, dnsName, dnsFlat, mac, dnsAliases, ip6, null);
+        }
+
         /** Request without the IPv6 address. */
         public UpsertRequest(String name, String ip, String description, String type,
                              String dnsName, boolean dnsFlat, String mac, List<String> dnsAliases) {
-            this(name, ip, description, type, dnsName, dnsFlat, mac, dnsAliases, null);
+            this(name, ip, description, type, dnsName, dnsFlat, mac, dnsAliases, null, null);
         }
 
         /** Request without aliases — keeps callers that predate them unchanged. */
         public UpsertRequest(String name, String ip, String description, String type,
                              String dnsName, boolean dnsFlat, String mac) {
-            this(name, ip, description, type, dnsName, dnsFlat, mac, null, null);
+            this(name, ip, description, type, dnsName, dnsFlat, mac, null, null, null);
         }
     }
 
@@ -241,7 +254,7 @@ public final class ResourceDto {
             Boolean autoApproveReservations,
             // resource-links-by-name: null/blank = follow the global switch,
             // "ip", or one of the resource's own DNS labels (checked in the service).
-            @Pattern(regexp = "^[a-z0-9-]{0,63}$", message = "linkHost must be 'ip' or one of the resource's DNS names")
+            @Pattern(regexp = "^(@fqdn|[a-z0-9-]{0,63})$", message = "linkHost must be 'ip', '@fqdn' or one of the resource's DNS names")
             String linkHost
     ) {}
 

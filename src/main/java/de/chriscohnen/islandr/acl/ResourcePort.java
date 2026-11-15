@@ -60,6 +60,8 @@ public class ResourcePort extends PanacheEntityBase {
      *  Null = follow the global switch, "ip" = the IP, otherwise one of the
      *  resource's own DNS labels. */
     public static final String LINK_HOST_IP = "ip";
+    /** The resource's {@code linkFqdn} (external networks). */
+    public static final String LINK_HOST_FQDN = "@fqdn";
     @Column(name = "link_host", length = 63)
     public String linkHost;
 
