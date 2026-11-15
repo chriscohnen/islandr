@@ -27,6 +27,7 @@ import BackupView from "/js/views/BackupView.js";
 import StubView from "/js/views/StubView.js";
 import Avatar from "/js/Avatar.js";
 import { Icon } from "/js/Icons.js";
+import { shellView, showBackToAdmin } from "/js/shellView.js";
 
 // ---------------------------------------------------------------------------
 // Auth store. /api/v1/auth/me is the SINGLE source of truth — the session
@@ -166,6 +167,10 @@ const App = defineComponent({
   computed: {
     me() { return this.session.me; },
     isAdmin() { return !!(this.me && this.me.isAdmin); },
+    // The admin chrome (sidebar, banners) shows on admin routes only; /my-access
+    // is drawn exactly as a plain user sees it, for admins too.
+    adminChrome() { return shellView(this.isAdmin, this.$route.name) === "admin"; },
+    backToAdmin() { return showBackToAdmin(this.isAdmin, this.$route.name); },
     // Install commands for the enforcement banner (shown only in a container).
     // install-proxy.sh auto-detects the host arch and verifies the checksum, so
     // the one-liner needs no arch here.
@@ -331,7 +336,7 @@ const App = defineComponent({
           <span>island<span class="accent">r</span></span>
         </div>
 
-        <template v-if="isAdmin">
+        <template v-if="adminChrome">
           <div class="section-label">{{ t('nav.overview') }}</div>
           <router-link to="/dashboard" class="nav-item"><Icon name="dashboard" />{{ t('nav.dashboard') }}</router-link>
 
@@ -398,13 +403,16 @@ const App = defineComponent({
           <span v-if="me.provider !== 'local'" class="badge badge-info" style="margin-left: var(--space-2)">
             {{ me.provider === 'microsoft' ? 'MS365' : 'Google' }}
           </span>
-          <span v-if="isAdmin" class="badge badge-info" style="margin-left: var(--space-2)">Admin</span>
+          <router-link v-if="backToAdmin" :to="{ name: 'dashboard' }" class="badge badge-info badge-link" style="margin-left: var(--space-2)" :aria-label="t('nav.back_to_admin')" :title="t('nav.back_to_admin')">
+            <Icon name="dashboard" :size="12" />Admin
+          </router-link>
+          <span v-else-if="isAdmin" class="badge badge-info" style="margin-left: var(--space-2)">Admin</span>
         </div>
         <button class="btn btn-ghost btn-sm" @click="logout">{{ t('nav.logout') }}</button>
       </header>
 
       <main class="main">
-        <div v-if="isAdmin && !setupComplete && $route.name !== 'settings'" class="callout callout-warning">
+        <div v-if="adminChrome && !setupComplete && $route.name !== 'settings'" class="callout callout-warning">
           <div>
             <strong>{{ t('app.setup_incomplete') }}</strong>
             {{ t('app.setup_desc') }}
@@ -415,7 +423,7 @@ const App = defineComponent({
              and nothing routes, which reads as a routing fault unless it is
              named here. Separate from the enforcement banner below — this one
              fires while enforcement is otherwise healthy. -->
-        <div v-if="isAdmin && enforcement.bootTable && enforcement.bootTable.filtering" class="callout callout-warning">
+        <div v-if="adminChrome && enforcement.bootTable && enforcement.bootTable.filtering" class="callout callout-warning">
           <div>
             <strong>{{ t('boot_table.banner_title') }}</strong>
             {{ enforcement.bootTable.handover === 'failed'
@@ -424,7 +432,7 @@ const App = defineComponent({
             <router-link v-if="enforcement.bootTable.handover !== 'failed'" :to="{ name: 'settings' }">{{ t('boot_table.banner_link') }}</router-link>
           </div>
         </div>
-        <div v-if="isAdmin && enforcement.status !== 'active'" class="callout callout-warning">
+        <div v-if="adminChrome && enforcement.status !== 'active'" class="callout callout-warning">
           <div>
             <strong>{{ t('enforcement.banner_title') }}</strong>
             {{ t('enforcement.banner_body') }}

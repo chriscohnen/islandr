@@ -1159,6 +1159,10 @@ export default defineComponent({
       this.activeTypes = next;
     },
     clearTypes() { this.activeTypes = new Set(); },
+    isExternalResource(resource) {
+      const site = this.sites.find((s) => s.id === resource.siteId);
+      return !!site && site.kind === "external";
+    },
     showTooltip(event, resource, reachability) {
       const rect = this.$el.getBoundingClientRect();
       this.tooltip = { resource, reachability, x: event.clientX - rect.left + 14, y: event.clientY - rect.top - 10 };
@@ -1659,7 +1663,12 @@ export default defineComponent({
         <!-- topology-resource-ring: this is gateway liveness, not a check of
              the resource itself — the wording says so explicitly, or a green
              dot here would promise more than the data backs up. -->
-        <div style="font-size: var(--text-xs); margin-bottom: 4px">
+        <!-- An external network is reached through the hub's own address; it has no
+             gateway by design, so "no gateway configured" would be the wrong thing to say. -->
+        <div v-if="isExternalResource(tooltip.resource)" style="font-size: var(--text-xs); margin-bottom: 4px; color: var(--fg2)">
+          <span style="font-size: 9px; color: var(--fg3)">→</span> {{ t('topology.resource_via_hub') }}
+        </div>
+        <div v-else style="font-size: var(--text-xs); margin-bottom: 4px">
           <span :style="'color:' + (tooltip.reachability === 'live' ? 'var(--status-ok)' : 'var(--fg3)')"
                 style="font-size:9px">{{ tooltip.reachability === 'live' ? '●' : tooltip.reachability === 'down' ? '◌' : '○' }}</span>
           <span :style="'color:' + (tooltip.reachability === 'down' ? 'var(--fg3)' : 'var(--fg2)')">

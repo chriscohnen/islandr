@@ -122,6 +122,7 @@ const messages = {
     "nav.settings":    "Settings",
     "nav.my_account":  "My account",
     "nav.my_access":   "My access",
+    "nav.back_to_admin": "Back to administration",
     "nav.logout":      "Sign out",
 
     // ── Common ───────────────────────────────────────────────────────────────
@@ -647,6 +648,7 @@ const messages = {
     "atlas.tooltip_gateway":      "{site} — {cidr}",
     "atlas.tooltip_gateway_peer": "Gateway peer",
     "atlas.tooltip_no_gateway":   "No gateway peer configured",
+    "atlas.tooltip_via_hub":      "No gateway: reached through the hub, with its public address",
     "atlas.stat_sites":           "Sites",
     "atlas.stat_devices":         "Devices",
     "atlas.stat_users":           "Users",
@@ -1982,6 +1984,7 @@ const messages = {
     "topology.resource_gateway_live":    "This site's gateway is up",
     "topology.resource_gateway_down":    "This site's gateway isn't responding",
     "topology.resource_gateway_unknown": "No gateway configured for this site",
+    "topology.resource_via_hub": "Reached through the hub, with the hub's public address",
     "topology.networks_short": "networks",
     "topology.unknown_peer":   "unrecognised peer",
     "topology.peer_status_connected":    "Connected",
@@ -2116,6 +2119,7 @@ const messages = {
     "nav.settings":    "Einstellungen",
     "nav.my_account":  "Mein Konto",
     "nav.my_access":   "Mein Zugang",
+    "nav.back_to_admin": "Zurück zur Verwaltung",
     "nav.logout":      "Abmelden",
 
     // ── Common ───────────────────────────────────────────────────────────────
@@ -2640,6 +2644,7 @@ const messages = {
     "atlas.tooltip_gateway":      "{site} — {cidr}",
     "atlas.tooltip_gateway_peer": "Gateway-Peer",
     "atlas.tooltip_no_gateway":   "Kein Gateway-Peer konfiguriert",
+    "atlas.tooltip_via_hub":      "Kein Gateway: läuft über den Hub, mit dessen öffentlicher Adresse",
     "atlas.stat_sites":           "Standorte",
     "atlas.stat_devices":         "Geräte",
     "atlas.stat_users":           "User",
@@ -3973,6 +3978,7 @@ const messages = {
     "topology.resource_gateway_live":    "Das Gateway dieses Standorts lebt",
     "topology.resource_gateway_down":    "Das Gateway dieses Standorts antwortet nicht",
     "topology.resource_gateway_unknown": "Kein Gateway für diesen Standort konfiguriert",
+    "topology.resource_via_hub": "Läuft über den Hub, mit dessen öffentlicher Adresse",
     "topology.networks_short": "Netze",
     "topology.unknown_peer":   "unbekannter Peer",
     "topology.peer_status_connected":    "Verbunden",

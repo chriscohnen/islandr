@@ -1205,7 +1205,8 @@ export default defineComponent({
               <span class="muted">{{ t('atlas.tooltip_gateway_peer') }}</span><span>{{ hoveredNode.peerName }}</span>
             </template>
           </div>
-          <div v-if="!hoveredNode.peerId" class="muted">{{ t('atlas.tooltip_no_gateway') }}</div>
+          <div v-if="!hoveredNode.peerId && externalSiteIds.has(hoveredNode.id)" class="muted">{{ t('atlas.tooltip_via_hub') }}</div>
+          <div v-else-if="!hoveredNode.peerId" class="muted">{{ t('atlas.tooltip_no_gateway') }}</div>
           <template v-else>
             <div style="margin-bottom: var(--space-2)">
               {{ connectedGatewayPeerIdSet.has(hoveredNode.peerId) ? t('atlas.tooltip_connected') : t('atlas.tooltip_disconnected') }}

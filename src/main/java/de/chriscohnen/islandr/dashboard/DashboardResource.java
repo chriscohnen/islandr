@@ -231,7 +231,7 @@ public class DashboardResource {
                             gw == null ? null : gw.lastSeenAt,
                             gw == null ? null : gw.lat,
                             gw == null ? null : gw.lng,
-                            site.edgeHubId);
+                            site.edgeHubId, site.kind);
                 })
                 .toList();
         int resourceOverflow = Math.max(0, allResources.size() - TOPOLOGY_RESOURCE_CAP);

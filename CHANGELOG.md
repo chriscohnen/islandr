@@ -22,6 +22,8 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 - Fixed: behind a reverse proxy that Islandr listens to on the loopback address (`QUARKUS_HTTP_HOST=127.0.0.1`), every request was answered with `400` since the move to Quarkus 3.40, which refuses any host name but localhost; the public name is accepted again
 - Fixed: the first start after the update could log a database lock while applying the firewall; the scheduled-backup check only reads and starts after startup
 - Fixed: the refusal to switch edge hubs off while some exist is worded in the console's language
+- Added: admins can switch to the plain user view (My access) and back through the Admin pill; the user-search preview stays available there
+- Fixed: the tooltip of a resource in an external network said no gateway was configured; it now says the traffic leaves through the hub's public address
 - Fixed: hovering the number on a folded grant line in the Atlas shows how many grants it stands for
 - Added: a site can be an external network — a partner's public range that only admits fixed source addresses. Devices route that range into the tunnel and the hub sends it on with its own public address; grants decide who may reach it, discovery never scans it. The WAN interface is detected from the default route and can be set under Settings → Network ([install guide](docs/install.md#reaching-a-partner-through-the-hubs-address))
 - Fixed: a resource port entry for "all ports" made the firewall refuse the generated ruleset; it is applied again

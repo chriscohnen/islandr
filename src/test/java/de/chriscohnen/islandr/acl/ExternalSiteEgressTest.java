@@ -227,4 +227,14 @@ class ExternalSiteEgressTest {
         assertThat(text).contains("ip daddr " + PARTNER_CIDR + " ct state new limit rate 1/minute "
                 + "log prefix \"islandr-egress " + MARK + "-net \"");
     }
+
+    @Test
+    void dashboardTopology_tellsAnExternalSiteFromAnInternalOne_soNoGatewayIsNotClaimed() {
+        Site partner = external(PARTNER_CIDR);
+        Site lan = QuarkusTransaction.requiringNew().call(() -> sites.create(new SiteDto.UpsertRequest(
+                MARK + "-topo-lan", "10.95.0.0/24", null, null, null, null, null, null)));
+        given().when().get("/api/v1/dashboard").then().statusCode(200)
+                .body("topology.sites.find { it.id == '" + partner.id + "' }.kind", org.hamcrest.Matchers.is("external"))
+                .body("topology.sites.find { it.id == '" + lan.id + "' }.kind", org.hamcrest.Matchers.is("internal"));
+    }
 }

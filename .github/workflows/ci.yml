@@ -652,6 +652,7 @@ jobs:
 
           sudo -u islandr env \
             ISLANDR_ADMIN_PASSWORD=ci-e2e-pw \
+            QUARKUS_HTTP_HOST=127.0.0.1 \
             QUARKUS_HTTP_PORT=8083 \
             QUARKUS_DATASOURCE_JDBC_URL="jdbc:sqlite:/tmp/islandr-e2e.db" \
             ISLANDR_WG_MODE=socket \
@@ -668,6 +669,13 @@ jobs:
             sleep 1
           done
           [ "$code" != "000" ] || { echo "::error::app did not start"; cat /tmp/islandr-e2e.log; exit 1; }
+
+          # Behind a reverse proxy Islandr listens on the loopback address (as above) and is
+          # asked for the proxy's public name. Quarkus 3.40 refused every name but localhost
+          # there with a bare 400 — 1.4.0-rc.2 took a hub behind Traefik offline that way, and
+          # nothing here bound to loopback or sent a foreign Host header, so CI stayed green.
+          hostcode=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: islandr.e2e.example.test' "$BASE/")
+          [ "$hostcode" = "200" ] || { echo "::error::bound to 127.0.0.1, a request for another host name was answered HTTP $hostcode (Quarkus host validation?)"; cat /tmp/islandr-e2e.log; exit 1; }
 
           login=$(curl -s -c /tmp/cj.txt -o /dev/null -w '%{http_code}' \
             -X POST "$BASE/api/v1/auth/login" \

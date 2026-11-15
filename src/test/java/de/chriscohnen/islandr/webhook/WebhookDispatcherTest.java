@@ -185,9 +185,22 @@ class WebhookDispatcherTest {
         return sb.toString();
     }
 
-    @Transactional
+    /**
+     * The delivery thread records its status on the same row this polls, and the
+     * shared-cache test database answers an overlap with SQLITE_LOCKED at once
+     * instead of waiting — the contention {@link WebhookTestCleanup} and
+     * {@code WebhookDispatcher#record} already retry on. A poll that throws on it
+     * fails the test for a reason that has nothing to do with delivery, so retry.
+     */
     Webhook readWebhook(String id) {
-        return Webhook.findById(id);
+        for (int i = 0; ; i++) {
+            try {
+                return io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() -> Webhook.findById(id));
+            } catch (RuntimeException e) {
+                if (i >= 20) throw e;
+                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+            }
+        }
     }
 
     /** No awaitility dependency in this project — a small manual poll loop

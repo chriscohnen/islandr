@@ -2659,3 +2659,9 @@ td.heatmap-cell.heatmap-down { background: var(--danger-bg); border: 1px solid v
     transform: none;
   }
 }
+
+/* The Admin pill doubles as the way back from the user view: a link, so it is
+   keyboard- and touch-reachable; icon + text, never colour alone. */
+.badge-link { text-decoration: none; cursor: pointer; gap: var(--space-1); transition: filter 0.15s cubic-bezier(0.2, 0, 0.2, 1); }
+.badge-link:hover { filter: brightness(0.95); }
+.badge-link:focus-visible { outline: 2px solid var(--accent-500); outline-offset: 2px; }

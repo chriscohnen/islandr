@@ -150,7 +150,10 @@ public final class DashboardDto {
             Double gatewayLng,
             // edge-hub-entity (1.2.0) — id of the EdgeHub this site is
             // assigned to; null = served by the central hub (the default).
-            String edgeHubId
+            String edgeHubId,
+            // "internal" or "external": an external network has no gateway because it is
+            // reached through the hub's own address — the diagram must not say "no gateway".
+            String kind
     ) {}
 
     public record TopologyResource(

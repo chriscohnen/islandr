@@ -239,6 +239,14 @@ usual. Islandr then
   that range),
 - never scans the range in discovery.
 
+A site holds one range. A partner with several separate addresses is several external
+sites, one per range, until a site can carry a list.
+
+A partner behind a content delivery network is a poor fit for fixed ranges: its
+addresses change, and a browser may resolve the name to an address you did not
+enter, which then bypasses the tunnel. Enter the exact addresses the partner
+publishes, and check an address with `curl --resolve <name>:443:<address> https://<name>/`.
+
 Give the partner the hub's public address to admit. Forwarding must be on, as
 for any site (`net.ipv4.ip_forward=1`, and `net.ipv6.conf.all.forwarding=1`
 for an IPv6 range). The WAN interface comes from the default route; if the hub
