@@ -52,6 +52,21 @@ On the new instance, open **Backup → Restore**, tick *Give the bucket's detail
 
 A wrong or mistyped key is refused and changes nothing; the file is checked before any data is imported. The key tolerates spaces, dashes and capitals.
 
+## What is in a backup
+
+A backup holds every table of the configuration, column for column: users (with their local password hashes and avatars), peers, networks (including whether one is external), resources with their DNS names and ports, roles and all grants, webhooks, edge hubs, API keys, identity providers, passkeys and the settings.
+
+What it leaves out on purpose, because it belongs to the host or is rebuilt:
+
+- the hub's own WireGuard identity and public address, its uplink interface, its TLS certificate and ACME state, and the trusted-proxy settings: a fresh install keeps its own
+- sessions: nobody is signed in after a restore
+- the audit log and the activity history
+- reservations: nobody holds anything after a rebuild
+- when each device last connected
+- the backup settings themselves (the bucket and the key), which you just typed in to restore
+
+A new table or column in Islandr is part of the backup from the day it exists; the tests restore a filled database and compare every table with what went in.
+
 ## Notes
 
 - The bucket's access key and the backup key are stored encrypted in Islandr's database when `ISLANDR_ENCRYPTION_KEY` is set; otherwise they are stored as they are, and the page says so.

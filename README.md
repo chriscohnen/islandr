@@ -68,6 +68,17 @@ Islandr unifies four things that today require CLI work, manual tutorials, and e
 
 A hub VM with a public IP runs WireGuard, nftables, and the Islandr backend. Site gateways (UniFi UCG and friends) are static peers configured on their own side. Road warrior clients are the primary target for dynamic management.
 
+**Reach a partner through the hub's address.** Some partner systems admit only a few fixed
+source addresses. Add the partner's public range as an *external network*, grant it to a role,
+and your people reach it through the tunnel with the hub's own public address as the source —
+no per-device allow-listing on the partner's side. A machine can carry its public name
+(`icanhazip.com`), so My access links by name; new connections are logged on the hub.
+
+**Backups you can restore when the hub is gone.** Islandr writes encrypted backups to any
+S3-compatible bucket — AWS, Cloudflare R2, Backblaze B2, MinIO — on a schedule or on demand.
+You keep the key; a fresh install restores from the bucket's details and that key. The access
+key needs no delete permission, so whoever takes over the hub cannot erase the backups.
+
 A site that is far away — another continent, a bad route — should not send its local
 traffic to the hub and back. **Edge hubs** are being built for that: a second hub at the
 site, with devices dialling it instead of crossing the world to reach a printer in the
@@ -210,7 +221,8 @@ dashboard tiles refresh on their own, with a small history graph for traffic and
 
 A site can be an **external network** — a partner's public range that only admits fixed source
 addresses. Devices route that range into the tunnel and the hub sends it on with its own public
-address; grants decide who may reach it, and new connections show up in the hub's log. The Atlas
+address; grants decide who may reach it, a machine there can carry its public name for portal
+links, and new connections show up in the hub's log. The Atlas
 draws every edge hub in a row and marks external networks; the dashboard topology can be zoomed
 and dragged. The portal can link a resource by its DNS name instead of its IP (a setting, with an
 override per port), a device can be added with your own public key as the safest option, and the
@@ -247,7 +259,7 @@ Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
 
 - **Backups to an S3 bucket** — one encrypted file per backup, restorable on a fresh install from the bucket's details and the key you wrote down; automatic daily or weekly; no delete permission needed ([docs/install/backup-s3.md](docs/install/backup-s3.md))
 - **A live dashboard** — traffic and hub load refresh on their own, each with a small graph of the last minutes
-- **External networks** — reach a partner that admits only one fixed address through the hub's public address; new connections are logged ([install guide](docs/install.md#reaching-a-partner-through-the-hubs-address))
+- **External networks** — reach a partner that admits only one fixed address through the hub's public address; machines can carry their public name for portal links; new connections are logged ([install guide](docs/install.md#reaching-a-partner-through-the-hubs-address))
 - **The Atlas shows edge hubs** and marks external networks; the dashboard topology zooms and drags
 - **Portal links by DNS name** (with a per-port override) and a pill that marks your own public key as the safest way to add a device
 - **A better path to editing a resource** — from the overview straight to its card, with the overview's filter kept in the address
