@@ -47,4 +47,25 @@ class DashboardTrafficTileTest {
                 .body("traffic.rxBytes", greaterThanOrEqualTo(4096))
                 .body("traffic.txBytes", greaterThanOrEqualTo(2048));
     }
+
+    @Test
+    void theLiveEndpointCarriesTheMiniGraphSeries_withoutTheDatabaseRollUp() {
+        traffic.record(2048, 1024);
+        given().when().get("/api/v1/dashboard/live")
+                .then().statusCode(200)
+                .body("trafficSeries.size()", is(30))
+                .body("trafficSeries[29].rxBytes", greaterThanOrEqualTo(2048))
+                .body("traffic.windowMinutes", is(60))
+                .body("hostHealth", notNullValue())
+                .body("hostSeries", notNullValue())
+                .body("peers", org.hamcrest.Matchers.nullValue());
+    }
+
+    @Test
+    void theFullDashboardCarriesTheSeriesToo() {
+        given().when().get("/api/v1/dashboard")
+                .then().statusCode(200)
+                .body("trafficSeries.size()", is(30))
+                .body("hostSeries", notNullValue());
+    }
 }

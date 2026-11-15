@@ -109,13 +109,19 @@ public final class SettingsDto {
             // admin can actually perform.
             String tlsFingerprint,
             boolean tlsNamesOutOfDate,
-            String hubCertNames
+            String hubCertNames,
+            // egress-via-hub (1.4.0): the stored override (null = detect) and
+            // what detection finds right now, so the form can show both.
+            String wanInterface,
+            String wanInterfaceDetected,
+            // resource-links-by-name (1.4.0)
+            boolean portalLinksUseDnsName
     ) {
         public static Response from(Settings s, String version, boolean encryptionKeyConfigured, String wgInterface,
                                      Instant tlsCertExpiresAt, de.chriscohnen.islandr.tls.TlsService.CertInfo tlsCertInfo,
                                      String trustedProxiesSeed,
                                      String tlsFingerprint, boolean tlsNamesOutOfDate,
-                                     String hubCertNames) {
+                                     String hubCertNames, String wanInterfaceDetected) {
             return new Response(
                     s.wgSubnet, s.wgSubnet6,
                     s.wgServerPublicKey, s.wgServerEndpoint,
@@ -159,13 +165,15 @@ public final class SettingsDto {
                     de.chriscohnen.islandr.peer.AllowedIpsCalculator.compute(
                             s.tunnelMode, s.allowedIpsMode, s.wgClientAllowedIps,
                             s.wgSubnet, s.wgSubnet6, s.splitSupernet,
-                            de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs(),
+                            de.chriscohnen.islandr.acl.Site.clientRoutedCidrs(),
                             s.effectiveClientDns(), true),
                     s.externalApiEnabled,
                     s.trustedProxies,
                     s.clientIpHeader,
                     trustedProxiesSeed,
-                    tlsFingerprint, tlsNamesOutOfDate, hubCertNames);
+                    tlsFingerprint, tlsNamesOutOfDate, hubCertNames,
+                    s.wanInterface, wanInterfaceDetected,
+                    s.portalLinksUseDnsName);
         }
     }
 
@@ -347,6 +355,16 @@ public final class SettingsDto {
      *  switch should not require sending the whole WireGuard configuration
      *  back. */
     public record EdgeHubsToggleRequest(boolean edgeHubsEnabled) {}
+
+    /** egress-via-hub: the WAN interface override. Null or blank = detect. */
+    public record WanInterfaceRequest(
+            @jakarta.validation.constraints.Pattern(regexp = "^$|^[A-Za-z0-9_.-]{1,15}$",
+                    message = "an interface name has 1-15 letters, digits, '_', '.' or '-'")
+            String wanInterface
+    ) {}
+
+    /** resource-links-by-name: body of {@code PUT /api/v1/settings/portal-links}. */
+    public record PortalLinksRequest(boolean portalLinksUseDnsName) {}
 
     private SettingsDto() {}
 }

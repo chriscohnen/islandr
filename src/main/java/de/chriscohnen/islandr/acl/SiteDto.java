@@ -34,7 +34,9 @@ public final class SiteDto {
             String dnsServerIp,
             // edge-hub-entity (1.2.0) — null = served by the central hub.
             String edgeHubId,
-            String edgeHubName
+            String edgeHubName,
+            // egress-via-hub (1.4.0): "internal" | "external"
+            String kind
     ) {
         public static Response from(Site s, int resourceCount,
                                     String gatewayPeerName, Boolean gatewayOnline,
@@ -42,7 +44,7 @@ public final class SiteDto {
             return new Response(s.id, s.name, s.cidr, s.description,
                     resourceCount, s.createdAt, s.updatedAt,
                     s.gatewayPeerId, gatewayPeerName, gatewayOnline, outsideSplitSupernet,
-                    s.subdomain, s.dnsServerIp, s.edgeHubId, edgeHubName);
+                    s.subdomain, s.dnsServerIp, s.edgeHubId, edgeHubName, s.kind);
         }
     }
 
@@ -109,8 +111,17 @@ public final class SiteDto {
             String dnsServerIp,
             // Optional — id of the EdgeHub serving this site (1.2.0). Null/blank
             // = served by the central hub.
-            String edgeHubId
-    ) {}
+            String edgeHubId,
+            // egress-via-hub (1.4.0). Null/blank = "internal".
+            @Pattern(regexp = "^$|^(internal|external)$", message = "kind must be internal or external")
+            String kind
+    ) {
+        /** The shape before 1.4.0 — kind left to its default. */
+        public UpsertRequest(String name, String cidr, String description, String gatewayPeerId,
+                             String subdomain, String dnsServerIp, String edgeHubId) {
+            this(name, cidr, description, gatewayPeerId, subdomain, dnsServerIp, edgeHubId, null);
+        }
+    }
 
     private SiteDto() {}
 }

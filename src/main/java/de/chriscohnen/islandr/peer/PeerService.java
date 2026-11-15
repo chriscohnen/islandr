@@ -1133,7 +1133,7 @@ public class PeerService {
         String splitSupernet = edge != null ? null : settings.splitSupernet;
         java.util.List<String> siteCidrs = edge != null
                 ? de.chriscohnen.islandr.acl.Site.enabledGatewayCidrsServedBy(edge.id)
-                : de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs();
+                : de.chriscohnen.islandr.acl.Site.clientRoutedCidrs();
         String allowedIps = AllowedIpsCalculator.compute(
                 settings.tunnelMode, settings.allowedIpsMode, settings.wgClientAllowedIps,
                 settings.wgSubnet, settings.wgSubnet6, splitSupernet,

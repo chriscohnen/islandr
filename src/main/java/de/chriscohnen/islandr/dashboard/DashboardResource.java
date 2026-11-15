@@ -231,7 +231,7 @@ public class DashboardResource {
                             gw == null ? null : gw.lastSeenAt,
                             gw == null ? null : gw.lat,
                             gw == null ? null : gw.lng,
-                            site.edgeHubId);
+                            site.edgeHubId, site.kind);
                 })
                 .toList();
         int resourceOverflow = Math.max(0, allResources.size() - TOPOLOGY_RESOURCE_CAP);
@@ -313,7 +313,27 @@ public class DashboardResource {
                 new DashboardDto.RoleStats(roleTotal, rolesWithGrants),
                 new DashboardDto.ResourceStats(siteTotal, resTotal, portTotal),
                 setup, firewallStatus, audit, peers, topology, hostHealth.latest(), dnsStatsOut,
-                trafficStatsOut());
+                trafficStatsOut(), trafficSeriesOut(), hostHealth.history());
+    }
+
+    /** Minutes the traffic mini graph covers. */
+    static final int TRAFFIC_SERIES_MINUTES = 30;
+
+    private List<DashboardDto.TrafficPoint> trafficSeriesOut() {
+        return trafficWindow.series(TRAFFIC_SERIES_MINUTES).stream()
+                .map(p -> new DashboardDto.TrafficPoint(p.rxBytes(), p.txBytes())).toList();
+    }
+
+    /**
+     * dashboard-live-tiles: the parts of the dashboard that move on their own,
+     * without the database roll-up of {@link #get} — cheap enough for the tiles
+     * to poll every few seconds. All of it is in memory.
+     */
+    @GET
+    @Path("/live")
+    public DashboardDto.Live live(@Context ContainerRequestContext ctx) {
+        Auth.requireAdmin(ctx);
+        return new DashboardDto.Live(hostHealth.latest(), trafficStatsOut(), trafficSeriesOut(), hostHealth.history());
     }
 
     /** traffic-window-tile: unlike the DNS tile this is always present —

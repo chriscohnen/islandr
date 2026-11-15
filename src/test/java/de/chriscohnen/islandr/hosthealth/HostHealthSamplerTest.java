@@ -210,4 +210,25 @@ class HostHealthSamplerTest {
         assertThat(HostHealthSampler.worstOf(HostHealthDto.Status.OK, HostHealthDto.Status.OK))
                 .isEqualTo(HostHealthDto.Status.OK);
     }
+
+    // ── History behind the dashboard's mini graph ───────────────────────────
+
+    @Test
+    void history_keepsTheNewestSamples_oldestFirst_andIsBounded() {
+        HostHealthSampler sampler = new HostHealthSampler();
+        for (int i = 0; i < HostHealthSampler.HISTORY_SIZE + 25; i++) {
+            sampler.remember(HostHealthSampler.mockSnapshot(i));
+        }
+        assertThat(sampler.history()).hasSize(HostHealthSampler.HISTORY_SIZE);
+        // the very first samples fell off the front
+        assertThat(sampler.history().get(0).cpuPercent())
+                .isEqualTo(HostHealthSampler.mockSnapshot(25).cpuPercent());
+    }
+
+    @Test
+    void history_skipsAnUnavailableReading_insteadOfDrawingAZero() {
+        HostHealthSampler sampler = new HostHealthSampler();
+        sampler.remember(HostHealthDto.Snapshot.unavailable());
+        assertThat(sampler.history()).isEmpty();
+    }
 }

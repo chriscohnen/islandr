@@ -161,7 +161,7 @@ public final class IpSubnet {
         return byteLen == 16 ? toRfc5952(padded) : dotted(padded);
     }
 
-    // Java's Inet6Address.getHostAddress() does not produce :: compression in JDK 21 —
+    // Java's Inet6Address.getHostAddress() does not produce :: compression (checked on JDK 25) —
     // implement RFC 5952 §4 directly to get the canonical compressed form.
     private static String toRfc5952(byte[] b) {
         int[] g = new int[8];

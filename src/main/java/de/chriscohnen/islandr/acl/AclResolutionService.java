@@ -27,6 +27,8 @@ import java.util.Set;
 public class AclResolutionService {
 
     @PersistenceContext EntityManager em;
+    @jakarta.inject.Inject de.chriscohnen.islandr.settings.SettingsService settingsSvc;
+    @jakarta.inject.Inject de.chriscohnen.islandr.dns.DnsQueryHandler dns;
 
     /** Roles a user belongs to: explicit memberships plus every auto_all role
      *  (Everyone), which includes all users implicitly (ADR-0013). */
@@ -298,7 +300,7 @@ public class AclResolutionService {
         List<Object[]> portRows = em.createNativeQuery(
                         "SELECT id, resource_id, port, port_end, transport, protocol, label, path_prefix, " +
                         "rdp_clipboard, rdp_file_transfer, rdp_access_mode, " +
-                        "max_concurrent_users, max_reservation_minutes, auto_approve_reservations " +
+                        "max_concurrent_users, max_reservation_minutes, auto_approve_reservations, link_host " +
                         "FROM resource_ports WHERE resource_id IN ?1 ORDER BY port")
                 .setParameter(1, resourceIds)
                 .getResultList();
@@ -326,6 +328,14 @@ public class AclResolutionService {
             }
         }
 
+        // resource-links-by-name: names come from the resolver's own
+        // derivation (DnsQueryHandler.resourceNames), never rebuilt here.
+        de.chriscohnen.islandr.settings.Settings st = settingsSvc.get();
+        boolean namesOn = st.dnsResolverEnabled;
+        boolean namesDefault = namesOn && st.portalLinksUseDnsName;
+        Map<String, List<String>> namesByResource = new HashMap<>();
+        Map<String, String> fqdnByResource = new HashMap<>();
+
         Map<String, List<ResourceDto.MyAccessPort>> portsByResource = new HashMap<>();
         for (Object[] p : portRows) {
             String rid = (String) p[1];
@@ -337,6 +347,27 @@ public class AclResolutionService {
             Integer maxUsers = p[11] == null ? null : ((Number) p[11]).intValue();
             Integer maxMinutes = p[12] == null ? null : ((Number) p[12]).intValue();
             boolean autoApprove = p[13] == null || ((Number) p[13]).intValue() != 0;
+            String linkChoice = p[14] == null ? null : (String) p[14];
+            String linkHost = null;
+            // A partner machine's public name (external networks) is not the
+            // hub's to resolve, so it does not depend on the resolver being on.
+            String fqdn = fqdnByResource.computeIfAbsent(rid, id -> {
+                Resource rr = Resource.findById(id);
+                return rr == null || rr.linkFqdn == null ? "" : rr.linkFqdn;
+            });
+            boolean wantsFqdn = !fqdn.isEmpty() && (ResourcePort.LINK_HOST_FQDN.equals(linkChoice)
+                    || (linkChoice == null && st.portalLinksUseDnsName));
+            if (wantsFqdn) {
+                linkHost = fqdn;
+            } else if (namesOn && !ResourcePort.LINK_HOST_IP.equals(linkChoice) && (linkChoice != null || namesDefault)) {
+                List<String> names = namesByResource.computeIfAbsent(rid, dns::resourceNames);
+                // A chosen label that is gone (alias removed) falls back to
+                // the main name; a resource without a DNS name has none.
+                linkHost = names.stream()
+                        .filter(n -> linkChoice != null && n.startsWith(linkChoice + "."))
+                        .findFirst()
+                        .orElse(names.isEmpty() ? null : names.get(0));
+            }
             ResourceReservation mine = myOpenByPort.get(portId);
             portsByResource.computeIfAbsent(rid, k -> new ArrayList<>()).add(
                     new ResourceDto.MyAccessPort(
@@ -354,7 +385,8 @@ public class AclResolutionService {
                             mine == null ? null : mine.id,
                             mine == null ? null : mine.status,
                             mine == null ? null : mine.endsAt,
-                            holdersByPort.getOrDefault(portId, List.of())));
+                            holdersByPort.getOrDefault(portId, List.of()),
+                            linkHost));
         }
 
         List<ResourceDto.MyAccessResource> out = new ArrayList<>(resRows.size());
@@ -427,13 +459,21 @@ public class AclResolutionService {
         // (ADR-0025) without a second round-trip per site.
         @SuppressWarnings("unchecked")
         List<Object[]> siteRows = em.createNativeQuery(
-                        "SELECT s.id, s.name, s.cidr, s.gateway_peer_id, p.name "
+                        "SELECT s.id, s.name, s.cidr, s.gateway_peer_id, p.name, s.edge_hub_id, s.kind "
                                 + "FROM sites s LEFT JOIN peers p ON p.id = s.gateway_peer_id "
                                 + "ORDER BY s.name")
                 .getResultList();
+        // atlas-edge-hubs: with edge hubs off, every network is the central hub's.
+        boolean edgeHubsOn = settingsSvc.get().edgeHubsEnabled;
         List<AtlasDto.SiteNode> siteNodes = siteRows.stream()
-                .map(s -> new AtlasDto.SiteNode((String) s[0], (String) s[1], (String) s[2], (String) s[3], (String) s[4]))
+                .map(s -> new AtlasDto.SiteNode((String) s[0], (String) s[1], (String) s[2], (String) s[3], (String) s[4],
+                        edgeHubsOn ? (String) s[5] : null, (String) s[6]))
                 .toList();
+        // Every edge hub, also one that serves no network yet — leaving it out
+        // would read as "this hub does not exist".
+        List<AtlasDto.EdgeHubNode> edgeHubNodes = !edgeHubsOn ? List.of()
+                : EdgeHub.<EdgeHub>list("order by name").stream()
+                        .map(h -> new AtlasDto.EdgeHubNode(h.id, h.name)).toList();
 
         @SuppressWarnings("unchecked")
         List<Object[]> allResRows = em.createNativeQuery(
@@ -458,7 +498,7 @@ public class AclResolutionService {
         boolean anyNetworkGrants = RoleNetworkGrant.count() > 0;
         if (resourceNodes.isEmpty() && !anyNetworkGrants) {
             return new AtlasDto.Graph(userNodes, resourceNodes, List.of(), roleOptions, siteNodes,
-                    hubIps[0], hubIps[1]);
+                    hubIps[0], hubIps[1], edgeHubNodes);
         }
 
         List<AtlasDto.Edge> edges = new ArrayList<>();
@@ -549,7 +589,7 @@ public class AclResolutionService {
         }
 
         return new AtlasDto.Graph(userNodes, resourceNodes, edges, roleOptions, siteNodes,
-                hubIps[0], hubIps[1]);
+                hubIps[0], hubIps[1], edgeHubNodes);
     }
 
     /**

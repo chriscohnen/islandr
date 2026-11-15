@@ -43,6 +43,8 @@ public class SettingsResource {
     @Inject HubCertificateService hubCertSvc;
     @Inject AcmeService acmeSvc;
     @Inject DnsResolverService dnsResolverSvc;
+    @Inject de.chriscohnen.islandr.firewall.WanInterface wanIface;
+    @Inject de.chriscohnen.islandr.firewall.RulesetService rulesets;
 
     @org.eclipse.microprofile.config.inject.ConfigProperty(name = "islandr.wg.interface")
     String wgInterface;
@@ -110,6 +112,55 @@ public class SettingsResource {
                     java.util.Map.of("edgeHubsEnabled", s.edgeHubsEnabled));
         }
         return toResponse(s);
+    }
+
+    /**
+     * egress-via-hub: which interface traffic to external sites leaves by.
+     * Its own endpoint for the same reason as {@code /edge-hubs}. Null or
+     * blank goes back to detection. The ruleset is rebuilt right away — the
+     * masquerade rule names the interface.
+     */
+    @PUT
+    @Path("/wan-interface")
+    public SettingsDto.Response setWanInterface(@Context ContainerRequestContext ctx,
+                                                @Valid SettingsDto.WanInterfaceRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        String value = body.wanInterface() == null || body.wanInterface().isBlank()
+                ? null : body.wanInterface().trim();
+        String before = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() -> {
+            Settings s = settings.get();
+            String old = s.wanInterface;
+            s.wanInterface = value;
+            return old;
+        });
+        if (!java.util.Objects.equals(before, value)) {
+            audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
+                    java.util.Collections.singletonMap("wanInterface", before),
+                    java.util.Collections.singletonMap("wanInterface", value));
+            rulesets.recomputeFromHook();
+        }
+        return io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() -> toResponse(settings.get()));
+    }
+
+    /** resource-links-by-name: portal links by DNS name instead of IP. Own
+     *  endpoint like {@code /edge-hubs}. */
+    @PUT
+    @Path("/portal-links")
+    public SettingsDto.Response setPortalLinks(@Context ContainerRequestContext ctx,
+                                               SettingsDto.PortalLinksRequest body) {
+        AuthContext actor = Auth.requireAdmin(ctx);
+        boolean before = io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() -> {
+            Settings s = settings.get();
+            boolean old = s.portalLinksUseDnsName;
+            s.portalLinksUseDnsName = body.portalLinksUseDnsName();
+            return old;
+        });
+        if (before != body.portalLinksUseDnsName()) {
+            audit.logUpdate(actor.principal(), "settings.update", "Settings:singleton",
+                    java.util.Map.of("portalLinksUseDnsName", before),
+                    java.util.Map.of("portalLinksUseDnsName", body.portalLinksUseDnsName()));
+        }
+        return io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().call(() -> toResponse(settings.get()));
     }
 
     @PUT
@@ -246,7 +297,8 @@ public class SettingsResource {
                 trustedProxiesSeed.filter(v -> !v.isBlank()).orElse(null),
                 hubCertSvc.currentFingerprint(s),
                 hubCertSvc.namesOutOfDate(s),
-                String.join(", ", hubCertSvc.hubNames(s)));
+                String.join(", ", hubCertSvc.hubNames(s)),
+                wanIface.detected());
     }
 
     /** Recomputes the client {@code AllowedIPs} preview from unsaved form values,
@@ -267,7 +319,7 @@ public class SettingsResource {
         String effectiveAllowedIpsMode = (allowedIpsMode == null || allowedIpsMode.isBlank()) ? s.allowedIpsMode : allowedIpsMode;
         String effectiveManualValue = (wgClientAllowedIps == null) ? s.wgClientAllowedIps : wgClientAllowedIps;
 
-        java.util.List<String> siteCidrs = de.chriscohnen.islandr.acl.Site.enabledGatewayCidrs();
+        java.util.List<String> siteCidrs = de.chriscohnen.islandr.acl.Site.clientRoutedCidrs();
         String preview = de.chriscohnen.islandr.peer.AllowedIpsCalculator.compute(
                 effectiveTunnelMode, effectiveAllowedIpsMode, effectiveManualValue,
                 s.wgSubnet, s.wgSubnet6, splitSupernet, siteCidrs,

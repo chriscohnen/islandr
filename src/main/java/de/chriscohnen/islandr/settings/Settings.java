@@ -132,6 +132,16 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "edge_hubs_enabled", nullable = false, columnDefinition = "INTEGER")
     public boolean edgeHubsEnabled = false;
 
+    /** egress-via-hub: the hub's WAN interface for masquerading traffic to
+     *  external sites. Null = detected from the default route. */
+    @Column(name = "wan_interface", length = 15)
+    public String wanInterface;
+
+    /** resource-links-by-name: the portal links resources by DNS name instead
+     *  of IP. Only takes effect while the resolver is on; a port can override. */
+    @Column(name = "portal_links_use_dns_name", nullable = false, columnDefinition = "INTEGER")
+    public boolean portalLinksUseDnsName = false;
+
     // peer-self-share: opt-in (default off), unlike selfServicePeerCreation —
     // this hands a non-admin user a way to open a firewall hole, even a
     // narrowly-scoped one (own tunnel address, one named colleague, port

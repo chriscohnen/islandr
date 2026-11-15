@@ -8,6 +8,32 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.4.0
+
+- Added: backups to an S3-compatible bucket (AWS, Cloudflare R2, Backblaze B2, MinIO): one encrypted file per backup, with a backup key you generate and write down; a freshly installed instance restores from the bucket's details and that key; Islandr only writes, reads and lists, never deletes ([install guide](docs/install/backup-s3.md))
+- Added: automatic backups, daily or weekly at a time you choose; the page shows how the last run went, and a failed scheduled run is written to the audit log and sent as the webhook event `backup.failed`
+- Added: the dashboard traffic and hub-load tiles refresh on their own and show a small graph of the last minutes (kept in memory, empty after a restart)
+- Added: the Atlas draws every edge hub in a row, each over the networks it serves, and marks external networks with an outer ring and the word "external"; the dashboard topology can be zoomed and dragged
+- Added: My access can link a resource by its DNS name instead of its IP (Settings → DNS, off by default, with an override per port); the IP stays one click away. Browser RDP keeps using the IP
+- Added: new connections to an external network are logged in the hub's kernel log (`journalctl -k --grep islandr-egress`), at most one per minute and rule
+- Added: adding a device with your own public key is marked as the safest option
+- Changed: from the resources overview, a click opens the resource in its network, filtered to it, instead of the unfiltered network list; the overview's filter is kept in the address
+- Changed: the "all ports" entry of a resource is explained in the port dialog, which warns when it meets a browser-only RDP port
+- Fixed: behind a reverse proxy that Islandr listens to on the loopback address (`QUARKUS_HTTP_HOST=127.0.0.1`), every request was answered with `400` since the move to Quarkus 3.40, which refuses any host name but localhost; the public name is accepted again
+- Fixed: the first start after the update could log a database lock while applying the firewall; the scheduled-backup check only reads and starts after startup
+- Fixed: the refusal to switch edge hubs off while some exist is worded in the console's language
+- Added: in the Atlas, dragging a user onto a network grants the whole network to the selected role
+- Added: a partner machine in an external network can carry its public name (for example icanhazip.com), which My access can link by; several resources may share it
+- Added: admins can switch to the plain user view (My access) and back through the Admin pill; the user-search preview stays available there
+- Fixed: the tooltip of a resource in an external network said no gateway was configured; it now says the traffic leaves through the hub's public address
+- Fixed: restoring a backup (S3 or the config file) lost everything added since 1.1.0 — an external network came back as an internal one, and DNS names, RDP options, link names, IPv6 addresses, local passwords, avatars, webhooks, edge hubs and most settings were reset. A backup now carries every column of every table, and the tests compare a restored database with the original. Backups from before 1.4.0 still restore, with what they held
+- Fixed: the RDP buttons in My access no longer break their labels in a narrow card
+- Fixed: hovering the number on a folded grant line in the Atlas shows how many grants it stands for
+- Added: a site can be an external network — a partner's public range that only admits fixed source addresses. Devices route that range into the tunnel and the hub sends it on with its own public address; grants decide who may reach it, discovery never scans it. The WAN interface is detected from the default route and can be set under Settings → Network ([install guide](docs/install.md#reaching-a-partner-through-the-hubs-address))
+- Fixed: a resource port entry for "all ports" made the firewall refuse the generated ruleset; it is applied again
+- Changed: the firewall writes one rule per device, resource and protocol with the ports as a set (`tcp dport { 22, 443 }`) instead of one rule per port; the number of rules shown on the dashboard drops, and rule comments no longer carry the port label
+- Changed: Quarkus 3.40 (LTS), up from 3.33; no forced dependency versions remain ([ADR-0032](docs/adr/0032-quarkus-lts-line.md), #88)
+
 ## 1.3.0
 
 - Releases, the Docker image and the installed hub (`/usr/share/doc/islandr/`) carry LICENSE, NOTICE and the licences of every bundled library; Settings links to the list. The list is generated from the build and CI rejects a licence outside the allowed set

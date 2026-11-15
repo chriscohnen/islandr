@@ -45,6 +45,26 @@ public class TrafficWindowStats {
         buckets.keySet().removeIf(m -> minute - m >= WINDOW_MINUTES);
     }
 
+    /** One minute of the history behind {@link #series}. */
+    public record Point(long rxBytes, long txBytes) {}
+
+    /**
+     * The last {@code minutes} minutes, oldest first, one point per wall-clock
+     * minute (an idle minute is a zero point, so the graph keeps its shape).
+     * In memory like everything here — a restart starts it empty. Capped at the
+     * window the buckets are kept for.
+     */
+    public java.util.List<Point> series(int minutes) {
+        int n = (int) Math.max(1, Math.min(minutes, WINDOW_MINUTES));
+        long now = currentMinute();
+        java.util.List<Point> out = new java.util.ArrayList<>(n);
+        for (long m = now - n + 1; m <= now; m++) {
+            AtomicLong r = rx.get(m), t = tx.get(m);
+            out.add(new Point(r == null ? 0 : r.get(), t == null ? 0 : t.get()));
+        }
+        return out;
+    }
+
     public Snapshot snapshot() {
         long minute = currentMinute();
         return new Snapshot(sumWithin(rx, minute), sumWithin(tx, minute), WINDOW_MINUTES);

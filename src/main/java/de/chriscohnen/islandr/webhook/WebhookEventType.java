@@ -25,6 +25,10 @@ public final class WebhookEventType {
      *  ruleset. Fired on the transition into the failed state, not on every retry. */
     public static final String FIREWALL_APPLY_FAILED = "firewall.apply_failed";
 
+    /** backup-schedule: a scheduled backup did not complete. Not fired for a
+     *  manual run — the admin who clicked it sees the error right there. */
+    public static final String BACKUP_FAILED = "backup.failed";
+
     /** Used only by the admin UI's "test connection" action — never a real
      *  subscribable filter value, delivered regardless of a webhook's
      *  event_types selection. */
@@ -37,7 +41,8 @@ public final class WebhookEventType {
             ACL_GRANT_CREATED, ACL_GRANT_REVOKED,
             DISCOVERY_SCAN_COMPLETED,
             ACME_CERT_RENEWED, ACME_CERT_RENEWAL_FAILED,
-            FIREWALL_APPLY_FAILED
+            FIREWALL_APPLY_FAILED,
+            BACKUP_FAILED
     );
 
     private WebhookEventType() {}

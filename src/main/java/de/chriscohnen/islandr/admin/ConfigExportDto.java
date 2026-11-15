@@ -27,7 +27,7 @@ public class ConfigExportDto {
      * configuration that quietly differs from the one that was backed up —
      * exactly the situation a restore must never produce.
      */
-    public static final int CURRENT_VERSION = 2;
+    public static final int CURRENT_VERSION = 3;
 
     public record Export(
         // Envelope format version, see CURRENT_VERSION. Null in the very first
@@ -81,8 +81,32 @@ public class ConfigExportDto {
         // list was dropped, silently revoking every key on a config restore.
         List<ApiKeySnapshot> apiKeys,
         // Same tolerate-absence pattern, for whole-network role grants (#78, ADR-0029).
-        List<NetworkGrantSnapshot> roleNetworkGrants
-    ) {}
+        List<NetworkGrantSnapshot> roleNetworkGrants,
+        // Format version 3: every column of every table, read from the schema
+        // (ConfigTables). When present it is the whole truth and the typed lists
+        // above, which only ever knew the columns of 1.1.0, are ignored on import.
+        // Null in an export from before version 3.
+        java.util.Map<String, List<java.util.Map<String, Object>>> tables
+    ) {
+        /** The shape of versions 1 and 2, which carry no table dump. */
+        public Export(String version, Instant exportedAt, String appVersion, boolean privateKeysIncluded,
+                      SettingsSnapshot settings, List<OidcProviderSnapshot> oidcProviders,
+                      List<UserSnapshot> users, List<RoleSnapshot> roles, List<RoleMembership> roleMemberships,
+                      List<PeerSnapshot> peers, List<SiteSnapshot> sites, List<ResourceSnapshot> resources,
+                      List<ResourcePortSnapshot> resourcePorts, List<PortGroupSnapshot> portGroups,
+                      List<PortGroupMemberSnapshot> portGroupMembers, List<GrantSnapshot> roleResourceGrants,
+                      List<GrantPortLink> grantPortLinks, List<TypeGrantSnapshot> roleResourceTypeGrants,
+                      List<UserGrantSnapshot> userResourceGrants, List<UserGrantPortLink> userGrantPortLinks,
+                      List<SiteGrantSnapshot> siteResourceGrants, List<SiteGrantPortLink> siteGrantPortLinks,
+                      List<PeerScheduleSnapshot> peerSchedules, List<OidcCustomProviderSnapshot> oidcCustomProviders,
+                      List<ApiKeySnapshot> apiKeys, List<NetworkGrantSnapshot> roleNetworkGrants) {
+            this(version, exportedAt, appVersion, privateKeysIncluded, settings, oidcProviders, users, roles,
+                    roleMemberships, peers, sites, resources, resourcePorts, portGroups, portGroupMembers,
+                    roleResourceGrants, grantPortLinks, roleResourceTypeGrants, userResourceGrants,
+                    userGrantPortLinks, siteResourceGrants, siteGrantPortLinks, peerSchedules,
+                    oidcCustomProviders, apiKeys, roleNetworkGrants, null);
+        }
+    }
 
     public record SettingsSnapshot(
         String wgSubnet,

@@ -255,6 +255,22 @@ function checkScopes(file, source, tpl) {
   }
 }
 
+// 3. A function with parameters inside `computed`. Vue calls a computed getter
+//    with no arguments, so the template's call fails at render time ("is not a
+//    function") and the view stays blank. Shipped in 1.4.0-rc.4: the Atlas'
+//    hubLinkPath(hub, c) sat in computed instead of methods. Compiles, parses,
+//    and only breaks once the component renders.
+function checkComputedTakesNoArguments(file, source) {
+  const lines = source.split("\n");
+  let inside = false;
+  lines.forEach((line, i) => {
+    if (/^  computed: \{/.test(line)) { inside = !/\}\s*,?\s*$/.test(line); return; }
+    if (inside && /^  \}/.test(line)) { inside = false; return; }
+    const m = inside && /^    ([A-Za-z_$][\w$]*)\(\s*[^)\s][^)]*\)\s*\{/.exec(line);
+    if (m) errors.push(`${file}:${i + 1}  ${m[1]}() takes arguments but sits in computed\n    A computed getter is called without any; move it to methods.`);
+  });
+}
+
 // Parse every module before looking at templates. This check used to start at
 // the template, which meant a plain syntax error anywhere else in a file went
 // straight past it — and the file it happens in most is i18n.js, which is a
@@ -304,6 +320,7 @@ for (const path of jsFiles(JS_DIR)) {
     }
     checkScopes(file, source, tpl);
   }
+  checkComputedTakesNoArguments(file, source);
 }
 
 if (errors.length) {

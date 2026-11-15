@@ -175,18 +175,19 @@ class FirewallTest {
                 .contains("tcp dport 3389")
                 .contains("icmp type echo-request")
                 .contains("accept");
-        // Audit-friendly comment names role, peer, user, resource, protocol.
+        // Audit-friendly comment names role, peer, user and resource. Not the port or
+        // its label: one rule now covers several ports (ruleset-port-sets), the dport
+        // clause says which.
         assertThat(snap.rulesetText())
                 .contains("role=Vertrieb")
                 .contains("peer=macbook")
                 .contains("user=Alice")
-                .contains("resource=Terminal-01")
-                .contains("RDP");
+                .contains("resource=Terminal-01");
     }
 
     @Test
     @Transactional
-    void ruleBuilder_allPortsGrant_emitsOneRulePerResourcePort() {
+    void ruleBuilder_allPortsGrant_emitsOneRuleCoveringEveryResourcePort() {
         User u = persistUser("bob@example.test", "Bob");
         Role role = persistRole("IT");
         addUserToRole(u.id, role.id);
@@ -200,11 +201,10 @@ class FirewallTest {
         persistPeer(u.id, "ipad", "10.8.0.6");
 
         RuleBuilder.Snapshot snap = builder.build();
-        // 2 TCP rules + 1 implicit ICMP rule (deduplicated per peer/resource pair)
-        assertThat(snap.ruleCount()).isEqualTo(3);
+        // 1 TCP rule with both ports + 1 implicit ICMP rule (deduplicated per peer/resource pair)
+        assertThat(snap.ruleCount()).isEqualTo(2);
         assertThat(snap.rulesetText())
-                .contains("tcp dport 22")
-                .contains("tcp dport 443")
+                .contains("tcp dport { 22, 443 }")
                 .contains("icmp type echo-request");
     }
 
@@ -298,7 +298,7 @@ class FirewallTest {
 
     @Test
     @Transactional
-    void ruleBuilder_directUserGrant_allPorts_emitsOneRulePerResourcePort() {
+    void ruleBuilder_directUserGrant_allPorts_emitsOneRuleCoveringEveryResourcePort() {
         User user = persistUser("frank@example.test", "Frank");
         Site site = persistSite("DirectAllPorts", "10.42.0.0/16");
         Resource res = persistResource(site.id, "Multi", "10.42.0.9");
@@ -309,9 +309,7 @@ class FirewallTest {
 
         RuleBuilder.Snapshot snap = builder.build();
 
-        assertThat(snap.rulesetText())
-                .contains("tcp dport 80")
-                .contains("tcp dport 443");
+        assertThat(snap.rulesetText()).contains("tcp dport { 80, 443 }");
     }
 
     @Test
@@ -362,7 +360,7 @@ class FirewallTest {
 
     @Test
     @Transactional
-    void ruleBuilder_directSiteGrant_allPorts_emitsOneRulePerResourcePort() {
+    void ruleBuilder_directSiteGrant_allPorts_emitsOneRuleCoveringEveryResourcePort() {
         Site grantingSite = persistSite("BranchOffice3", "10.64.0.0/16");
         Site resourceSite = persistSite("HQ-Site3", "10.65.0.0/16");
         Resource res = persistResource(resourceSite.id, "Multi", "10.65.0.9");
@@ -372,9 +370,7 @@ class FirewallTest {
 
         RuleBuilder.Snapshot snap = builder.build();
 
-        assertThat(snap.rulesetText())
-                .contains("tcp dport 80")
-                .contains("tcp dport 443");
+        assertThat(snap.rulesetText()).contains("tcp dport { 80, 443 }");
     }
 
     @Test
@@ -736,7 +732,7 @@ class FirewallTest {
         RuleBuilder.Snapshot snap = builder.build();
 
         assertThat(snap.ruleCount()).isEqualTo(2); // 1 all-port rule + 1 ICMP
-        assertThat(snap.rulesetText()).contains("tcp accept");
+        assertThat(snap.rulesetText()).contains("meta l4proto tcp accept");
         assertThat(snap.rulesetText()).doesNotContain("dport 0");
     }
 
@@ -755,7 +751,7 @@ class FirewallTest {
 
         RuleBuilder.Snapshot snap = builder.build();
 
-        // 2 port rules (tcp dport 53 + udp dport 53) + 1 implicit ICMP
+        // 2 port rules (one per transport: tcp dport 53 + udp dport 53) + 1 implicit ICMP
         assertThat(snap.ruleCount()).isEqualTo(3);
         assertThat(snap.rulesetText()).contains("tcp dport 53");
         assertThat(snap.rulesetText()).contains("udp dport 53");
@@ -958,6 +954,113 @@ class FirewallTest {
         Resource r = Resource.createNew(siteId, name, ip, null, "computer");
         r.persist();
         return r;
+    }
+
+    // ── ruleset-port-sets: several ports of one resource, one rule ──────────
+
+
+    @Test
+    @Transactional
+    void portSet_threePortsAndARange_areOneRule_sortedByPort() {
+        User u = persistUser("set1@example.test", "Set1");
+        Role role = persistRole("SetRole1");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("SetNet1", "10.80.0.0/16");
+        Resource res = persistResource(site.id, "SetBox", "10.80.0.5");
+        persistPort(res.id, 443, "tcp", "HTTPS");
+        persistPort(res.id, 22, "tcp", "SSH");
+        persistPort(res.id, 8000, 8010, "tcp", "HTTP");
+        RoleResourceGrant.createNew(role.id, res.id, true).persist();
+        persistPeer(u.id, "set-laptop", "10.8.0.81");
+
+        RuleBuilder.Snapshot snap = builder.build();
+
+        assertThat(snap.ruleCount()).isEqualTo(2); // one port rule + ICMP
+        assertThat(snap.rulesetText()).contains("tcp dport { 22, 443, 8000-8010 }");
+        assertThat(snap.rulesetText().lines().filter(l -> l.contains("ip daddr 10.80.0.5 tcp dport")).count()).isEqualTo(1);
+    }
+
+    @Test
+    @Transactional
+    void portSet_webOnlyRdp_staysOutOfTheSet() {
+        User u = persistUser("set2@example.test", "Set2");
+        Role role = persistRole("SetRole2");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("SetNet2", "10.81.0.0/16");
+        Resource res = persistResource(site.id, "SetWin", "10.81.0.5");
+        persistPort(res.id, 22, "tcp", "SSH");
+        persistPort(res.id, 443, "tcp", "HTTPS");
+        ResourcePort rdp = ResourcePort.createNew(res.id, 3389, null, "tcp", "RDP", null, null, true, false, "web-only");
+        rdp.persist();
+        RoleResourceGrant.createNew(role.id, res.id, true).persist();
+        persistPeer(u.id, "set-win", "10.8.0.82");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).contains("tcp dport { 22, 443 }").doesNotContain("3389");
+    }
+
+    @Test
+    @Transactional
+    void portSet_twoGrantsToTheSameResource_unitePortsInsteadOfTakingEachOthersAway() {
+        User u = persistUser("set3@example.test", "Set3");
+        Role role = persistRole("SetRole3");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("SetNet3", "10.82.0.0/16");
+        Resource res = persistResource(site.id, "SetShared", "10.82.0.5");
+        ResourcePort ssh = persistPort(res.id, 22, "tcp", "SSH");
+        ResourcePort web = persistPort(res.id, 443, "tcp", "HTTPS");
+        // the role grants SSH only; a direct grant adds HTTPS
+        RoleResourceGrant roleGrant = RoleResourceGrant.createNew(role.id, res.id, false);
+        roleGrant.persist();
+        em.createNativeQuery("INSERT INTO role_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, roleGrant.id).setParameter(2, ssh.id).executeUpdate();
+        de.chriscohnen.islandr.acl.UserResourceGrant direct =
+                de.chriscohnen.islandr.acl.UserResourceGrant.createNew(u.id, res.id, false);
+        direct.persist();
+        em.createNativeQuery("INSERT INTO user_resource_grant_ports (grant_id, port_id) VALUES (?1, ?2)")
+                .setParameter(1, direct.id).setParameter(2, web.id).executeUpdate();
+        persistPeer(u.id, "set-two", "10.8.0.83");
+
+        assertThat(builder.build().rulesetText()).contains("tcp dport { 22, 443 }");
+    }
+
+    @Test
+    @Transactional
+    void portSet_anAllPortsEntry_isItsOwnRuleWithoutDport() {
+        User u = persistUser("set4@example.test", "Set4");
+        Role role = persistRole("SetRole4");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("SetNet4", "10.83.0.0/16");
+        Resource res = persistResource(site.id, "SetAll", "10.83.0.5");
+        persistPort(res.id, 0, "tcp", "CUSTOM");
+        persistPort(res.id, 22, "tcp", "SSH");
+        RoleResourceGrant.createNew(role.id, res.id, true).persist();
+        persistPeer(u.id, "set-all", "10.8.0.84");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text.lines().filter(l -> l.contains("ip daddr 10.83.0.5 meta l4proto tcp accept")).count()).isEqualTo(1);
+        assertThat(text).contains("ip daddr 10.83.0.5 tcp dport 22 accept");
+    }
+
+    @Test
+    @Transactional
+    void portSet_tcpAndUdpPorts_arePerTransport() {
+        User u = persistUser("set5@example.test", "Set5");
+        Role role = persistRole("SetRole5");
+        addUserToRole(u.id, role.id);
+        Site site = persistSite("SetNet5", "10.84.0.0/16");
+        Resource res = persistResource(site.id, "SetDns", "10.84.0.5");
+        persistPort(res.id, 53, "udp", "DNS");
+        persistPort(res.id, 53, "tcp", "DNS");
+        persistPort(res.id, 853, "tcp", "DOT");
+        RoleResourceGrant.createNew(role.id, res.id, true).persist();
+        persistPeer(u.id, "set-dns", "10.8.0.85");
+
+        String text = builder.build().rulesetText();
+
+        assertThat(text).contains("tcp dport { 53, 853 }").contains("udp dport 53 accept");
     }
 
     @Transactional

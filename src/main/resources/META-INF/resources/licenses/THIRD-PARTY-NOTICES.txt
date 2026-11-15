@@ -8,41 +8,45 @@ their own licences. Generated from the build's runtime dependencies.
 Libraries
 ---------
 
-com.aayushatharva.brotli4j:brotli4j 1.23.0
+com.aayushatharva.brotli4j:brotli4j 1.24.0
   Licence: Apache License, Version 2.0
-com.aayushatharva.brotli4j:service 1.23.0
+com.aayushatharva.brotli4j:service 1.24.0
   Licence: Apache License, Version 2.0
 com.cronutils:cron-utils 9.2.1
   Licence: Apache License, Version 2.0
 com.fasterxml.jackson.core:jackson-annotations 2.21
   Licence: Apache License, Version 2.0
-com.fasterxml.jackson.core:jackson-core 2.21.7
+com.fasterxml.jackson.core:jackson-core 2.21.8
   Licence: Apache License, Version 2.0
-com.fasterxml.jackson.core:jackson-databind 2.21.7
+com.fasterxml.jackson.core:jackson-databind 2.21.8
   Licence: Apache License, Version 2.0
-com.fasterxml.jackson.datatype:jackson-datatype-jdk8 2.21.7
+com.fasterxml.jackson.datatype:jackson-datatype-jdk8 2.21.8
   Licence: Apache License, Version 2.0
-com.fasterxml.jackson.datatype:jackson-datatype-jsr310 2.21.7
+com.fasterxml.jackson.datatype:jackson-datatype-jsr310 2.21.8
   Licence: Apache License, Version 2.0
-com.fasterxml.jackson.module:jackson-module-parameter-names 2.21.7
+com.fasterxml.jackson.module:jackson-module-parameter-names 2.21.8
   Licence: Apache License, Version 2.0
-com.fasterxml.jackson:jackson-bom 2.21.7
+com.fasterxml.jackson:jackson-bom 2.21.8
   Licence: Apache License, Version 2.0
 com.fasterxml:classmate 1.7.1
   Licence: Apache License, Version 2.0
 com.github.ben-manes.caffeine:caffeine 3.2.4
   Licence: Apache License, Version 2.0
-com.google.errorprone:error_prone_annotations 2.47.0
+com.github.ben-manes.caffeine:jcache 3.2.4
+  Licence: Apache License, Version 2.0
+com.google.errorprone:error_prone_annotations 2.49.0
   Licence: Apache License, Version 2.0
 com.google.zxing:core 3.5.3
   Licence: Apache License, Version 2.0
 com.sun.istack:istack-commons-runtime 4.1.2
   Licence: Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception / The 3-Clause BSD License
-io.agroal:agroal-api 3.0.1
+com.typesafe:config 1.4.7
   Licence: Apache License, Version 2.0
-io.agroal:agroal-narayana 3.0.1
+io.agroal:agroal-api 3.2.1
   Licence: Apache License, Version 2.0
-io.agroal:agroal-pool 3.0.1
+io.agroal:agroal-narayana 3.2.1
+  Licence: Apache License, Version 2.0
+io.agroal:agroal-pool 3.2.1
   Licence: Apache License, Version 2.0
 io.netty:netty-buffer 4.1.139.Final
   Licence: Apache License, Version 2.0
@@ -74,9 +78,9 @@ io.netty:netty-transport-native-unix-common 4.1.139.Final
   Licence: Apache License, Version 2.0
 io.netty:netty-transport 4.1.139.Final
   Licence: Apache License, Version 2.0
-io.opentelemetry.instrumentation:opentelemetry-instrumentation-api 2.23.0
+io.opentelemetry.instrumentation:opentelemetry-instrumentation-api 2.28.1
   Licence: Apache License, Version 2.0
-io.opentelemetry.semconv:opentelemetry-semconv 1.37.0
+io.opentelemetry.semconv:opentelemetry-semconv 1.41.1
   Licence: Apache License, Version 2.0
 io.opentelemetry:opentelemetry-api-incubator 1.62.0-alpha
   Licence: Apache License, Version 2.0
@@ -86,158 +90,160 @@ io.opentelemetry:opentelemetry-common 1.62.0
   Licence: Apache License, Version 2.0
 io.opentelemetry:opentelemetry-context 1.62.0
   Licence: Apache License, Version 2.0
-io.quarkus.arc:arc 3.33.4.1
+io.quarkus.arc:arc 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus.platform:quarkus-bom 3.33.4.1
+io.quarkus.platform:quarkus-bom 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus.resteasy.reactive:resteasy-reactive-common-types 3.33.4.1
+io.quarkus.resteasy.reactive:resteasy-reactive-common-types 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus.resteasy.reactive:resteasy-reactive-common 3.33.4.1
+io.quarkus.resteasy.reactive:resteasy-reactive-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus.resteasy.reactive:resteasy-reactive-jackson 3.33.4.1
+io.quarkus.resteasy.reactive:resteasy-reactive-jackson 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus.resteasy.reactive:resteasy-reactive-vertx 3.33.4.1
+io.quarkus.resteasy.reactive:resteasy-reactive-vertx 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus.resteasy.reactive:resteasy-reactive 3.33.4.1
+io.quarkus.resteasy.reactive:resteasy-reactive 3.40.1.2
   Licence: Apache License, Version 2.0
 io.quarkus.security:quarkus-security 2.3.2
   Licence: Apache License, Version 2.0
-io.quarkus.vertx.utils:quarkus-vertx-utils 3.33.4.1
+io.quarkus.vertx.utils:quarkus-vertx-utils 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-agroal 3.33.4.1
+io.quarkus:quarkus-agroal 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-arc 3.33.4.1
+io.quarkus:quarkus-arc 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-bootstrap-runner 3.33.4.1
+io.quarkus:quarkus-bootstrap-runner 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-caffeine 3.33.4.1
+io.quarkus:quarkus-caffeine 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-classloader-commons 3.33.4.1
+io.quarkus:quarkus-classloader-commons 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-core 3.33.4.1
+io.quarkus:quarkus-core 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-credentials 3.33.4.1
+io.quarkus:quarkus-credentials 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-datasource-common 3.33.4.1
+io.quarkus:quarkus-datasource-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-datasource 3.33.4.1
+io.quarkus:quarkus-datasource 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-development-mode-spi 3.33.4.1
+io.quarkus:quarkus-development-mode-spi 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-devservices 3.33.4.1
+io.quarkus:quarkus-devservices 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-flyway 3.33.4.1
+io.quarkus:quarkus-flyway 3.40.1.2
   Licence: Apache License, Version 2.0
 io.quarkus:quarkus-fs-util 1.4.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-hibernate-orm-panache-common 3.33.4.1
+io.quarkus:quarkus-hibernate-orm-panache-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-hibernate-orm-panache 3.33.4.1
+io.quarkus:quarkus-hibernate-orm-panache 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-hibernate-orm 3.33.4.1
+io.quarkus:quarkus-hibernate-orm 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-hibernate-validator 3.33.4.1
+io.quarkus:quarkus-hibernate-validator 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-ide-launcher 3.33.4.1
+io.quarkus:quarkus-ide-launcher 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-jackson 3.33.4.1
+io.quarkus:quarkus-jackson 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-jdbc-postgresql 3.33.4.1
+io.quarkus:quarkus-jdbc-postgresql 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-jsonp 3.33.4.1
+io.quarkus:quarkus-jsonp 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-mutiny 3.33.4.1
+io.quarkus:quarkus-mutiny 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-narayana-jta 3.33.4.1
+io.quarkus:quarkus-narayana-jta 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-netty 3.33.4.1
+io.quarkus:quarkus-netty 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-panache-common 3.33.4.1
+io.quarkus:quarkus-panache-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-panache-hibernate-common 3.33.4.1
+io.quarkus:quarkus-panache-hibernate-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-rest-common 3.33.4.1
+io.quarkus:quarkus-rest-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-rest-jackson-common 3.33.4.1
+io.quarkus:quarkus-rest-jackson-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-rest-jackson 3.33.4.1
+io.quarkus:quarkus-rest-jackson 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-rest 3.33.4.1
+io.quarkus:quarkus-rest 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-scheduler-api 3.33.4.1
+io.quarkus:quarkus-scheduler-api 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-scheduler-common 3.33.4.1
+io.quarkus:quarkus-scheduler-common 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-scheduler-kotlin 3.33.4.1
+io.quarkus:quarkus-scheduler-kotlin 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-scheduler-spi 3.33.4.1
+io.quarkus:quarkus-scheduler-spi 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-scheduler 3.33.4.1
+io.quarkus:quarkus-scheduler 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-security-runtime-spi 3.33.4.1
+io.quarkus:quarkus-security-runtime-spi 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-smallrye-context-propagation 3.33.4.1
+io.quarkus:quarkus-smallrye-context-propagation 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-tls-registry-spi 3.33.4.1
+io.quarkus:quarkus-tls-registry-spi 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-tls-registry 3.33.4.1
+io.quarkus:quarkus-tls-registry 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-transaction-annotations 3.33.4.1
+io.quarkus:quarkus-transaction-annotations 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-value-registry 3.33.4.1
+io.quarkus:quarkus-value-registry 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-vertx-http 3.33.4.1
+io.quarkus:quarkus-vertx-http 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-vertx-latebound-mdc-provider 3.33.4.1
+io.quarkus:quarkus-vertx-latebound-mdc-provider 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-vertx 3.33.4.1
+io.quarkus:quarkus-vertx 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-virtual-threads 3.33.4.1
+io.quarkus:quarkus-virtual-threads 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-websockets-next-kotlin 3.33.4.1
+io.quarkus:quarkus-websockets-next-kotlin 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-websockets-next-spi 3.33.4.1
+io.quarkus:quarkus-websockets-next-spi 3.40.1.2
   Licence: Apache License, Version 2.0
-io.quarkus:quarkus-websockets-next 3.33.4.1
+io.quarkus:quarkus-websockets-next 3.40.1.2
   Licence: Apache License, Version 2.0
 io.smallrye.certs:smallrye-private-key-pem-parser 0.9.4
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-annotation 2.16.0
+io.smallrye.common:smallrye-common-annotation 2.19.0
+  Licence: Apache License / Apache License, Version 2.0
+io.smallrye.common:smallrye-common-classloader 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-classloader 2.16.0
+io.smallrye.common:smallrye-common-constraint 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-constraint 2.16.0
+io.smallrye.common:smallrye-common-cpu 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-cpu 2.16.0
+io.smallrye.common:smallrye-common-expression 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-expression 2.16.0
+io.smallrye.common:smallrye-common-function 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-function 2.16.0
+io.smallrye.common:smallrye-common-io 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-io 2.16.0
+io.smallrye.common:smallrye-common-net 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-net 2.16.0
+io.smallrye.common:smallrye-common-os 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-os 2.16.0
+io.smallrye.common:smallrye-common-ref 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-ref 2.16.0
+io.smallrye.common:smallrye-common-search 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.common:smallrye-common-vertx-context 2.16.0
+io.smallrye.common:smallrye-common-vertx-context 2.19.0
   Licence: Apache License, Version 2.0
-io.smallrye.config:smallrye-config-common 3.16.0
+io.smallrye.config:smallrye-config-common 3.17.2
   Licence: Apache License, Version 2.0
-io.smallrye.config:smallrye-config-core 3.16.0
+io.smallrye.config:smallrye-config-core 3.17.2
   Licence: Apache License, Version 2.0
-io.smallrye.config:smallrye-config-validator 3.16.0
+io.smallrye.config:smallrye-config-validator 3.17.2
   Licence: Apache License, Version 2.0
-io.smallrye.config:smallrye-config 3.16.0
+io.smallrye.config:smallrye-config 3.17.2
   Licence: Apache License, Version 2.0
-io.smallrye.reactive:mutiny-smallrye-context-propagation 3.1.1
+io.smallrye.reactive:mutiny-smallrye-context-propagation 3.3.0
   Licence: Apache License, Version 2.0
-io.smallrye.reactive:mutiny-zero-flow-adapters 1.1.1
-  Licence: Apache License, Version 2.0
-io.smallrye.reactive:mutiny 3.1.1
-  Licence: Apache License, Version 2.0
+io.smallrye.reactive:mutiny-zero-flow-adapters 1.2.1
+  Licence: Apache License / Apache License, Version 2.0
+io.smallrye.reactive:mutiny 3.3.0
+  Licence: Apache License / Apache License, Version 2.0
 io.smallrye.reactive:smallrye-mutiny-vertx-auth-common 3.23.1
   Licence: Apache License, Version 2.0
 io.smallrye.reactive:smallrye-mutiny-vertx-bridge-common 3.23.1
@@ -264,7 +270,7 @@ io.smallrye:smallrye-context-propagation-storage 2.3.0
   Licence: Apache License, Version 2.0
 io.smallrye:smallrye-context-propagation 2.3.0
   Licence: Apache License, Version 2.0
-io.smallrye:smallrye-fault-tolerance-vertx 6.10.2
+io.smallrye:smallrye-fault-tolerance-vertx 6.11.4
   Licence: Apache License, Version 2.0
 io.vertx:vertx-auth-common 4.5.35
   Licence: Apache License, Version 2.0 / Eclipse Public License - v 1.0
@@ -308,7 +314,7 @@ jakarta.ws.rs:jakarta.ws.rs-api 3.1.0
   Licence: Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception
 jakarta.xml.bind:jakarta.xml.bind-api 4.0.5
   Licence: Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception / The 3-Clause BSD License
-net.bytebuddy:byte-buddy 1.17.8
+javax.cache:cache-api 1.1.1
   Licence: Apache License, Version 2.0
 org.antlr:antlr4-runtime 4.13.2
   Licence: The 3-Clause BSD License
@@ -320,43 +326,41 @@ org.eclipse.microprofile.config:microprofile-config-api 3.1.1
   Licence: Apache License, Version 2.0
 org.eclipse.microprofile.context-propagation:microprofile-context-propagation-api 1.3
   Licence: Apache License, Version 2.0
-org.eclipse.microprofile.reactive-streams-operators:microprofile-reactive-streams-operators-api 3.0.1
-  Licence: Apache License, Version 2.0
-org.eclipse.parsson:parsson 1.1.7
+org.eclipse.parsson:parsson 1.1.9
   Licence: Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception
 org.flywaydb:flyway-core 12.0.0
   Licence: Apache License, Version 2.0
 org.glassfish.expressly:expressly 6.0.0
   Licence: Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception
-org.glassfish.jaxb:jaxb-core 4.0.8
+org.glassfish.jaxb:jaxb-core 4.0.9
   Licence: Apache License, Version 2.0 / Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception / PUBLIC DOMAIN / The 3-Clause BSD License
-org.glassfish.jaxb:jaxb-runtime 4.0.8
+org.glassfish.jaxb:jaxb-runtime 4.0.9
   Licence: Apache License, Version 2.0 / Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception / PUBLIC DOMAIN / The 3-Clause BSD License
-org.glassfish.jaxb:txw2 4.0.8
+org.glassfish.jaxb:txw2 4.0.9
   Licence: Apache License, Version 2.0 / Eclipse Public License - v 2.0 / GNU GENERAL PUBLIC LICENSE, Version 2 / GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception / PUBLIC DOMAIN / The 3-Clause BSD License
-org.hibernate.local-cache:quarkus-local-cache 0.5.0
+org.hibernate.models:hibernate-models 1.1.2
   Licence: Apache License, Version 2.0
-org.hibernate.models:hibernate-models 1.0.1
+org.hibernate.orm:hibernate-community-dialects 7.4.9.Final
   Licence: Apache License, Version 2.0
-org.hibernate.orm:hibernate-community-dialects 7.2.25.Final
+org.hibernate.orm:hibernate-core 7.4.9.Final
   Licence: Apache License, Version 2.0
-org.hibernate.orm:hibernate-core 7.2.25.Final
+org.hibernate.orm:hibernate-graalvm 7.4.9.Final
   Licence: Apache License, Version 2.0
-org.hibernate.orm:hibernate-graalvm 7.2.25.Final
+org.hibernate.orm:hibernate-jcache 7.4.9.Final
+  Licence: Apache License, Version 2.0
+org.hibernate.orm:hibernate-platform 7.4.9.Final
   Licence: Apache License, Version 2.0
 org.hibernate.validator:hibernate-validator 9.1.5.Final
   Licence: Apache License, Version 2.0
-org.jboss.invocation:jboss-invocation 2.0.0.Final
-  Licence: Apache License, Version 2.0 / PUBLIC DOMAIN
 org.jboss.logging:commons-logging-jboss-logging 2.0.0.Final
   Licence: Apache License, Version 2.0
-org.jboss.logging:jboss-logging 3.6.2.Final
+org.jboss.logging:jboss-logging 3.6.3.Final
   Licence: Apache License, Version 2.0
-org.jboss.logmanager:jboss-logmanager 3.2.1.Final
+org.jboss.logmanager:jboss-logmanager 3.2.2.Final
   Licence: Apache License, Version 2.0
-org.jboss.narayana.jta:narayana-jta 7.3.3.Final
+org.jboss.narayana.jta:narayana-jta 7.3.4.Final
   Licence: Apache License, Version 2.0
-org.jboss.narayana.jts:narayana-jts-integration 7.3.3.Final
+org.jboss.narayana.jts:narayana-jts-integration 7.3.4.Final
   Licence: Apache License, Version 2.0
 org.jboss.slf4j:slf4j-jboss-logmanager 2.0.2.Final
   Licence: Apache License, Version 2.0
@@ -368,11 +372,21 @@ org.jctools:jctools-core 4.0.5
   Licence: Apache License, Version 2.0
 org.jspecify:jspecify 1.0.0
   Licence: Apache License, Version 2.0
+org.osgi:org.osgi.namespace.extender 1.0.1
+  Licence: Apache License, Version 2.0
+org.osgi:org.osgi.service.component.annotations 1.5.1
+  Licence: Apache License, Version 2.0
+org.osgi:org.osgi.util.function 1.0.0
+  Licence: Apache License, Version 2.0
+org.osgi:org.osgi.util.promise 1.0.0
+  Licence: Apache License, Version 2.0
+org.osgi:osgi.annotation 8.1.0
+  Licence: Apache License, Version 2.0
 org.postgresql:postgresql 42.7.13
   Licence: The 2-Clause BSD License
 org.reactivestreams:reactive-streams 1.0.4
   Licence: MIT-0
-org.slf4j:slf4j-api 2.0.17
+org.slf4j:slf4j-api 2.0.18
   Licence: MIT License
 org.wildfly.common:wildfly-common 2.0.1
   Licence: Apache License, Version 2.0
@@ -407,7 +421,7 @@ A list of contributors may be found from CREDITS(-2.x) file, which is included
 in some artifacts (usually source distributions); but is always available
 from the source code management (SCM) system project uses.
 
-=== com.fasterxml.jackson.core:jackson-core 2.21.7 — NOTICE
+=== com.fasterxml.jackson.core:jackson-core 2.21.8 — NOTICE
 
 # Jackson JSON processor
 
@@ -452,7 +466,7 @@ Copyright 2018-2020 Raffaello Giulietti
 
 See Schubfach-LICENSE.
 
-=== com.fasterxml.jackson.core:jackson-databind 2.21.7 — NOTICE
+=== com.fasterxml.jackson.core:jackson-databind 2.21.8 — NOTICE
 
 # Jackson JSON processor
 
@@ -476,7 +490,7 @@ A list of contributors may be found from CREDITS(-2.x) file, which is included
 in some artifacts (usually source distributions); but is always available
 from the source code management (SCM) system project uses.
 
-=== com.fasterxml.jackson.datatype:jackson-datatype-jdk8 2.21.7 — NOTICE
+=== com.fasterxml.jackson.datatype:jackson-datatype-jdk8 2.21.8 — NOTICE
 
 # Jackson JSON processor
 
@@ -496,7 +510,7 @@ A list of contributors may be found from CREDITS file, which is included
 in some artifacts (usually source distributions); but is always available
 from the source code management (SCM) system project uses.
 
-=== com.fasterxml.jackson.datatype:jackson-datatype-jsr310 2.21.7 — NOTICE
+=== com.fasterxml.jackson.datatype:jackson-datatype-jsr310 2.21.8 — NOTICE
 
 # Jackson JSON processor
 
@@ -516,7 +530,7 @@ A list of contributors may be found from CREDITS file, which is included
 in some artifacts (usually source distributions); but is always available
 from the source code management (SCM) system project uses.
 
-=== com.fasterxml.jackson.module:jackson-module-parameter-names 2.21.7 — NOTICE
+=== com.fasterxml.jackson.module:jackson-module-parameter-names 2.21.8 — NOTICE
 
 # Jackson JSON processor
 
@@ -548,10 +562,11 @@ Other developers who have contributed code are:
 
 Copyright 2007-, Tatu Saloranta (tatu.saloranta@iki.fi)
 
-=== io.quarkus:quarkus-ide-launcher 3.33.4.1 — NOTICE.ide-launcher-res
+=== io.quarkus:quarkus-ide-launcher 3.40.1.2 — NOTICE.ide-launcher-res
 
-Apache HttpClient
-Copyright 1999-2022 The Apache Software Foundation
+Maven Settings
+Copyright 2001-2026 The Apache Software Foundation
+
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
@@ -1484,22 +1499,6 @@ please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
-=== net.bytebuddy:byte-buddy 1.17.8 — NOTICE
-
-Copyright 2014 - Present Rafael Winterhalter
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
 === org.eclipse.angus:angus-activation 2.0.3 — NOTICE.md
 
 # Notices for Eclipse Angus
@@ -1578,29 +1577,7 @@ Ondrej Mihalyi ondrej.mihalyi@gmail.com,
 Gunnar Morling gunnar@hibernate.org
 </text>
 
-=== org.eclipse.microprofile.reactive-streams-operators:microprofile-reactive-streams-operators-api 3.0.1 — NOTICE
-
-=========================================================================
-==  NOTICE file corresponding to section 4(d) of the Apache License,   ==
-==  Version 3.0, MicroProfile Reactive Streams Operators               ==
-=========================================================================
-
-This product includes software developed at
-The Apache Software Foundation (http://www.apache.org/).
-
-
-SPDXVersion: SPDX-2.1
-PackageName: MicroProfile
-PackageHomePage: http://www.eclipse.org/microprofile
-PackageLicenseDeclared: Apache-2.0
-
-PackageCopyrightText: <text>
-James Roper james@lightbend.com
-Clement Escoffier clement.escoffier@redhat.com
-Gordon Hutchison gordon_hutchison@uk.ibm.com
-</text>
-
-=== org.eclipse.parsson:parsson 1.1.7 — NOTICE.md
+=== org.eclipse.parsson:parsson 1.1.9 — NOTICE.md
 
 [//]: # " Copyright (c) 2018, 2020 Oracle and/or its affiliates. All rights reserved. "
 [//]: # "  "
@@ -1661,7 +1638,7 @@ please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
-=== org.glassfish.jaxb:jaxb-core 4.0.8 — NOTICE.md
+=== org.glassfish.jaxb:jaxb-core 4.0.9 — NOTICE.md
 
 # Notices for Eclipse Implementation of JAXB
 
@@ -1854,7 +1831,7 @@ please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
-=== org.glassfish.jaxb:jaxb-core 4.0.8 — NOTICE.md
+=== org.glassfish.jaxb:jaxb-core 4.0.9 — NOTICE.md
 
 # Notices for Eclipse Implementation of JAXB
 
@@ -2047,7 +2024,7 @@ please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
-=== org.glassfish.jaxb:jaxb-runtime 4.0.8 — NOTICE.md
+=== org.glassfish.jaxb:jaxb-runtime 4.0.9 — NOTICE.md
 
 # Notices for Eclipse Implementation of JAXB
 
@@ -2240,7 +2217,7 @@ please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
-=== org.glassfish.jaxb:jaxb-runtime 4.0.8 — NOTICE.md
+=== org.glassfish.jaxb:jaxb-runtime 4.0.9 — NOTICE.md
 
 # Notices for Eclipse Implementation of JAXB
 
@@ -2433,7 +2410,7 @@ please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
-=== org.glassfish.jaxb:txw2 4.0.8 — NOTICE.md
+=== org.glassfish.jaxb:txw2 4.0.9 — NOTICE.md
 
 # Notices for Eclipse Implementation of JAXB
 
@@ -2626,7 +2603,7 @@ please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
 
-=== org.glassfish.jaxb:txw2 4.0.8 — NOTICE.md
+=== org.glassfish.jaxb:txw2 4.0.9 — NOTICE.md
 
 # Notices for Eclipse Implementation of JAXB
 
@@ -2818,12 +2795,110 @@ another country, of encryption software. BEFORE using any encryption software,
 please check the country's laws, regulations and policies concerning the import,
 possession, or use, and re-export of encryption software, to see if this is
 permitted.
+
+=== org.osgi:org.osgi.service.component.annotations 1.5.1 — NOTICE
+
+# Notices for osgi
+
+This content is produced and maintained by the OSGi Specification Project.
+
+ * Project home: https://projects.eclipse.org/projects/technology.osgi
+
+## Trademarks
+
+OSGi and the OSGi Logo are trademarks of the Eclipse Foundation. Eclipse and
+the Eclipse Logo are registered trademarks of the Eclipse Foundation.
+
+## Copyright
+
+All content is the property of the respective authors or their employers.
+For more information regarding authorship of content, please consult the
+listed source code repository logs.
+
+## Declared Project Licenses
+
+This program and the accompanying materials are made available under the terms
+of the Apache License, Version 2.0 which is available at
+http://www.apache.org/licenses/LICENSE-2.0
+
+SPDX-License-Identifier: Apache-2.0
+
+## Source Code
+
+The project maintains the following source code repositories:
+
+ * https://github.com/osgi/osgi.git
+
+## Third-party Content
+
+The Content may include items that have been sourced from third parties as follows:</p>
+
+JUnit
+
+ * License: CPL-1.0 (JUnit 3), EPL-1.0 (JUnit 4), EPL-2.0 (JUnit 5)
+ * Project: https://junit.org/
+ * Source: https://github.com/junit-team
+
+Apache Software Foundation
+
+ * License: Apache-2.0
+ * Project: https://apache.org/
+ * Source: https://github.com/apache/
+
+=== org.osgi:osgi.annotation 8.1.0 — NOTICE
+
+# Notices for osgi
+
+This content is produced and maintained by the OSGi Specification Project.
+
+ * Project home: https://projects.eclipse.org/projects/technology.osgi
+
+## Trademarks
+
+OSGi and the OSGi Logo are trademarks of the Eclipse Foundation. Eclipse and
+the Eclipse Logo are registered trademarks of the Eclipse Foundation.
+
+## Copyright
+
+All content is the property of the respective authors or their employers.
+For more information regarding authorship of content, please consult the
+listed source code repository logs.
+
+## Declared Project Licenses
+
+This program and the accompanying materials are made available under the terms
+of the Apache License, Version 2.0 which is available at
+http://www.apache.org/licenses/LICENSE-2.0
+
+SPDX-License-Identifier: Apache-2.0
+
+## Source Code
+
+The project maintains the following source code repositories:
+
+ * https://github.com/osgi/osgi.git
+
+## Third-party Content
+
+The Content may include items that have been sourced from third parties as follows:</p>
+
+JUnit
+
+ * License: CPL-1.0 (JUnit 3), EPL-1.0 (JUnit 4), EPL-2.0 (JUnit 5)
+ * Project: https://junit.org/
+ * Source: https://github.com/junit-team
+
+Apache Software Foundation
+
+ * License: Apache-2.0
+ * Project: https://apache.org/
+ * Source: https://github.com/apache/
 
 
 Licence texts shipped by the libraries (each distinct text once)
 ---------------------------------------------------------------
 
-=== Used by: com.fasterxml.jackson.core:jackson-annotations, com.fasterxml.jackson.core:jackson-core, com.fasterxml.jackson.core:jackson-databind, com.github.ben-manes.caffeine:caffeine, io.quarkus:quarkus-ide-launcher, jakarta.enterprise:jakarta.enterprise.cdi-api, jakarta.enterprise:jakarta.enterprise.lang-model, jakarta.inject:jakarta.inject-api, org.hibernate.orm:hibernate-community-dialects, org.hibernate.orm:hibernate-core, org.hibernate.orm:hibernate-graalvm, org.hibernate.validator:hibernate-validator, org.xerial:sqlite-jdbc
+=== Used by: com.fasterxml.jackson.core:jackson-annotations, com.fasterxml.jackson.core:jackson-core, com.fasterxml.jackson.core:jackson-databind, com.github.ben-manes.caffeine:caffeine, com.github.ben-manes.caffeine:jcache, io.quarkus:quarkus-ide-launcher, jakarta.enterprise:jakarta.enterprise.cdi-api, jakarta.enterprise:jakarta.enterprise.lang-model, jakarta.inject:jakarta.inject-api, org.hibernate.models:hibernate-models, org.hibernate.orm:hibernate-community-dialects, org.hibernate.orm:hibernate-core, org.hibernate.orm:hibernate-graalvm, org.hibernate.orm:hibernate-jcache, org.hibernate.validator:hibernate-validator, org.osgi:org.osgi.namespace.extender, org.osgi:org.osgi.util.function, org.osgi:org.osgi.util.promise, org.xerial:sqlite-jdbc
 
 Apache License
                            Version 2.0, January 2004
@@ -4295,189 +4370,7 @@ Copyright (c) 2017, 2018 Oracle and/or its affiliates. All rights reserved.
     NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
     SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-=== Used by: net.bytebuddy:byte-buddy
-
-This product bundles ASM 9.9, which is available under a "3-clause BSD"
-license. For details, see licenses/ASM. For more information visit ${asm.url}.
-
-Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-=== Used by: org.eclipse.microprofile.config:microprofile-config-api, org.eclipse.microprofile.context-propagation:microprofile-context-propagation-api, org.eclipse.microprofile.reactive-streams-operators:microprofile-reactive-streams-operators-api
+=== Used by: org.eclipse.microprofile.config:microprofile-config-api, org.eclipse.microprofile.context-propagation:microprofile-context-propagation-api, org.osgi:org.osgi.service.component.annotations, org.osgi:osgi.annotation
 
 Apache License
                            Version 2.0, January 2004
@@ -4913,6 +4806,47 @@ Apache License
       of your accepting any such warranty or additional liability.
 
    END OF TERMS AND CONDITIONS
+
+=== Used by: org.osgi:org.osgi.namespace.extender, org.osgi:org.osgi.util.function, org.osgi:org.osgi.util.promise
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN">
+<html>
+<head>
+<title>About</title>
+<meta http-equiv=Content-Type content="text/html; charset=UTF-8">
+</head>
+<body lang="EN-US">
+<h2>About This Content</h2>
+ 
+<h3>Copyright</h3>
+<p>Copyright &copy; OSGi Alliance (2000, 2015). All Rights Reserved.</p>
+
+<p>OSGi Alliance<br/>
+Bishop Ranch 6<br/>
+2400 Camino Ramon, Suite 375<br/>
+San Ramon, CA 94583 USA
+</p>
+
+<h3>License</h3>
+<p>The OSGi Alliance makes available all content in this jar (&quot;Work&quot;).  Unless otherwise indicated below, the Work is provided to you under the terms and conditions of the
+Apache License, Version 2.0 (the &quot;License&quot;).  A copy of the License is available at <a href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</a>.</p>
+
+<h3>Notices</h3>
+<p>Implementation of certain elements of the Content may be subject to third party
+intellectual property rights, including without limitation, patent rights (such a third party may
+or may not be a member of the OSGi Alliance). The OSGi Alliance and its members are not responsible 
+and shall not be held responsible in any manner for identifying or failing to identify any or 
+all such third party intellectual property rights.</p>
+
+<p>OSGi&trade; is a trademark, registered trademark, or service mark
+of The OSGi Alliance in the US and other countries. Java is a trademark,
+registered trademark, or service mark of Sun Microsystems, Inc. in the US
+and other countries. All other trademarks, registered trademarks, or
+service marks used in the Content are the property of their respective
+owners and are hereby recognized.</p>
+
+</body>
+</html>
 
 === Used by: org.postgresql:postgresql
 

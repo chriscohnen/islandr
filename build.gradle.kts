@@ -82,64 +82,27 @@ dependencies {
     testImplementation("org.assertj:assertj-core:3.27.7")
 }
 
-// Force a few transitive dependencies to patched releases within the same line
-// the Quarkus 3.33 LTS BOM already uses, so CVE fixes land without moving off
-// the LTS line (see project_quarkus_lts_pin — we sit on LTS on purpose, and as
-// of 2026-09-19 that means the 3.33 line, identifiable by its four-segment
-// backport releases; 3.29 had none and was never LTS).
+// Islandr sits on the Quarkus LTS line (ADR-0032, R-195). LTS lines carry
+// four-segment backport releases (3.40.1.2) — but so may other lines for a
+// while, so confirm against quarkus.io's LTS announcements (blog tag "lts")
+// before moving. When triaging a dependency advisory, "no backports on this
+// line for a while" is the signal to move, ahead of an advisory nobody can fix.
 //
-// enforcedPlatform (above) silently overrides any plain
-// implementation("group:artifact:version") declaration back to the BOM's
-// version, so these overrides MUST go through resolutionStrategy.eachDependency,
-// not a version string on the dependency itself — this also covers transitive
-// submodules that aren't declared directly (e.g. Netty's many codec modules).
+// No forced dependency versions on the Quarkus 3.40 LTS BOM (quarkus-lts-line-1.4).
+// The 3.33 line needed three, for CVE fixes the BOM had not picked
+// up yet; 3.40.1.2 ships every one of them or newer — Netty 4.1.139, Jackson
+// 2.21.8, OpenTelemetry 1.62.0 — so keeping them would pin us backwards.
 //
-// The 3.33.4.1 BOM already ships Netty 4.1.139 (the former 4.1.137 force is
-// gone: it would now pin us backwards), postgresql 42.7.13 and
-// vertx-core 4.5.35 — every force we carried on 3.29.4 for those is now either
-// equal to or older than the BOM, so they are gone rather than pinning us
-// backwards.
-configurations.all {
-    resolutionStrategy.eachDependency {
-        // The BOM ships Jackson below 2.21.7. 2.21.7 fixes five high-severity parser
-        // DoS issues (number-pattern ReDoS, unbounded number parsing, quadratic
-        // forward-reference completion, unbounded unknown type IDs) plus two
-        // medium ones — reachable through every JSON request body, the login
-        // included. All modules move together so no two disagree on a patch
-        // level. jackson-annotations is left alone: since 2.20 it is versioned
-        // "2.21", not "2.21.x", and has no 2.21.7.
-        if (requested.group.startsWith("com.fasterxml.jackson")
-                && requested.name != "jackson-annotations" && requested.name != "jackson-bom") {
-            useVersion("2.21.7")
-            because("five high and two medium jackson-core/-databind advisories fixed in 2.21.6/2.21.7; same 2.21 line")
-        }
-        // The BOM resolves OpenTelemetry 1.57.0; 1.62.0 fixes unbounded memory
-        // allocation in W3C baggage propagation (medium). Islandr carries no
-        // OTel SDK — only the API and its incubator, pulled in by the Quarkus
-        // scheduler for optional tracing hooks, which without an SDK are
-        // no-ops. So the API/SDK pairing that kept this un-forced before does
-        // not arise. The incubator is alpha and must match the API exactly,
-        // hence these four together; instrumentation-api and semconv keep
-        // their own version lines. Verified by the native build and E2E.
-        if (requested.group == "io.opentelemetry") {
-            when (requested.name) {
-                "opentelemetry-api", "opentelemetry-context", "opentelemetry-common" -> {
-                    useVersion("1.62.0")
-                    because("CVE-2026-45292, unbounded memory in W3C baggage propagation, fixed in 1.62.0")
-                }
-                "opentelemetry-api-incubator" -> {
-                    useVersion("1.62.0-alpha")
-                    because("must match opentelemetry-api exactly")
-                }
-            }
-        }
-    }
-}
-// OpenTelemetry was left un-forced until 1.2.0 for fear of an API/SDK
-// mismatch; see the override above for why that does not apply here.
+// If a force is ever needed again: enforcedPlatform (above) silently overrides
+// any plain implementation("group:artifact:version") back to the BOM's version,
+// so it MUST go through configurations.all { resolutionStrategy.eachDependency
+// { ... useVersion(...); because(...) } }, which also covers transitive
+// submodules nobody declares directly (Netty's codec modules, say). And any
+// Netty/Vert.x change needs a NATIVE build to verify: on 3.29 a Netty bump
+// broke a Vert.x GraalVM substitution while the JVM tests passed.
 
 group = "de.chriscohnen.islandr"
-version = "1.3.0"
+version = "1.4.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25

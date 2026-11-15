@@ -194,6 +194,13 @@ public class DiscoveryResource {
      * that genuinely isn't there still just finds nothing (R-140).
      */
     private void requireScanReachable(Site site, boolean force) {
+        // Before the force check on purpose: an external site is a partner's
+        // public network (egress-via-hub). Scanning it is probing somebody
+        // else's systems from the hub's address, and no override makes that
+        // the operator's call to make in one click.
+        if (site.isExternal()) {
+            throw conflict("an external site is a partner's network and is never scanned");
+        }
         if (force) return;
         if (!jobs.isRealScan()) return;
         if (site.gatewayPeerId == null) return;

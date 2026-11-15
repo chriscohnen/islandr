@@ -35,12 +35,14 @@ public final class ResourceDto {
             String mac,
             // Never persisted — derived from the bundled OUI table at read
             // time so a later table refresh can't leave a stale name behind.
-            String vendor
+            String vendor,
+            // Public name for portal links; external networks only. Null = none.
+            String linkFqdn
     ) {
         public static Response from(Resource r, List<PortResponse> ports) {
             return new Response(r.id, r.siteId, r.name, r.ip, r.ip6, r.description, r.type, r.dnsName, r.dnsFlat,
                     r.dnsAliases.stream().sorted().toList(), ports, r.createdAt, r.mac,
-                    de.chriscohnen.islandr.discovery.OuiVendorLookup.vendorFor(r.mac).orElse(null));
+                    de.chriscohnen.islandr.discovery.OuiVendorLookup.vendorFor(r.mac).orElse(null), r.linkFqdn);
         }
     }
 
@@ -61,13 +63,14 @@ public final class ResourceDto {
             Integer maxConcurrentUsers,
             Integer maxReservationMinutes,
             boolean autoApproveReservations,
-            Instant createdAt
+            Instant createdAt,
+            String linkHost
     ) {
         public static PortResponse from(ResourcePort p) {
             return new PortResponse(p.id, p.port, p.portEnd, p.transport, p.protocol, p.label,
                     p.pathPrefix, p.rdpClipboard, p.rdpFileTransfer, p.rdpAccessMode,
                     p.maxConcurrentUsers, p.maxReservationMinutes, p.autoApproveReservations,
-                    p.createdAt);
+                    p.createdAt, p.linkHost);
         }
     }
 
@@ -111,18 +114,29 @@ public final class ResourceDto {
 
             // Optional — second, IPv6 address of the same resource (dual stack).
             @ValidIpAddress
-            String ip6
+            String ip6,
+
+            // Optional — the public host name a partner machine in an external
+            // network is known by, for portal links. Checked in ResourceService.
+            @jakarta.validation.constraints.Size(max = 253)
+            String linkFqdn
     ) {
+        /** Request without the link name. */
+        public UpsertRequest(String name, String ip, String description, String type,
+                             String dnsName, boolean dnsFlat, String mac, List<String> dnsAliases, String ip6) {
+            this(name, ip, description, type, dnsName, dnsFlat, mac, dnsAliases, ip6, null);
+        }
+
         /** Request without the IPv6 address. */
         public UpsertRequest(String name, String ip, String description, String type,
                              String dnsName, boolean dnsFlat, String mac, List<String> dnsAliases) {
-            this(name, ip, description, type, dnsName, dnsFlat, mac, dnsAliases, null);
+            this(name, ip, description, type, dnsName, dnsFlat, mac, dnsAliases, null, null);
         }
 
         /** Request without aliases — keeps callers that predate them unchanged. */
         public UpsertRequest(String name, String ip, String description, String type,
                              String dnsName, boolean dnsFlat, String mac) {
-            this(name, ip, description, type, dnsName, dnsFlat, mac, null, null);
+            this(name, ip, description, type, dnsName, dnsFlat, mac, null, null, null);
         }
     }
 
@@ -180,7 +194,11 @@ public final class ResourceDto {
             java.time.Instant myReservationEndsAt,
             // Who holds a slot right now, so the portal can say "in use by
             // Jane until 14:30" — and hand over an address to ask.
-            List<ReservationHolder> holders
+            List<ReservationHolder> holders,
+            // resource-links-by-name: the DNS name the portal builds this
+            // port's links from, or null for the IP. Already decided here
+            // (switch, port override, resolver on) so the portal just uses it.
+            String linkHost
     ) {}
 
     /** One current holder of a capacity-limited port (issue #72). */
@@ -233,7 +251,11 @@ public final class ResourceDto {
             // FALSE when the client omits the key, which would silently mean
             // "every request needs an admin decision" — the opposite of the
             // intended default. Null here is read as true by the service.
-            Boolean autoApproveReservations
+            Boolean autoApproveReservations,
+            // resource-links-by-name: null/blank = follow the global switch,
+            // "ip", or one of the resource's own DNS labels (checked in the service).
+            @Pattern(regexp = "^(@fqdn|[a-z0-9-]{0,63})$", message = "linkHost must be 'ip', '@fqdn' or one of the resource's DNS names")
+            String linkHost
     ) {}
 
     /** Bulk-delete request: the resource ids to remove (missing ids are skipped). */

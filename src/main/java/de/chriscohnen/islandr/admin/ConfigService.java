@@ -25,6 +25,9 @@ public class ConfigService {
     @Inject
     EntityManager em;
 
+    @Inject
+    ConfigTables configTables;
+
     /** Stamped into the export purely so a support question can name the writer. */
     @org.eclipse.microprofile.config.inject.ConfigProperty(
             name = "quarkus.application.version", defaultValue = "dev")
@@ -199,7 +202,8 @@ public class ConfigService {
                 sites, resources, ports, portGroups, portGroupMembers,
                 grants, grantPortLinks, typeGrants, userGrants, userGrantPortLinks,
                 siteGrants, siteGrantPortLinks, peerSchedules,
-                customProviders, apiKeys, networkGrants);
+                customProviders, apiKeys, networkGrants,
+                configTables.dump(includePrivateKeys));
     }
 
     /**
@@ -234,6 +238,15 @@ public class ConfigService {
         // Checked before anything is deleted: a refused import must leave the
         // existing configuration untouched, not half-torn-down.
         requireSupportedVersion(p.version());
+
+        // Format version 3 carries every table whole; the hand-written path
+        // below only exists to read the older files, which know 1.1.0's columns.
+        if (p.tables() != null) {
+            configTables.restore(p.tables());
+            return new ConfigExportDto.ImportResult(
+                    rows(p, "users"), rows(p, "roles"), rows(p, "peers"), rows(p, "sites"),
+                    rows(p, "resources"), rows(p, "port_groups"), rows(p, "role_resource_grants"));
+        }
 
         // --- Tear-down in FK order -------------------------------------------
         // Reservations (issue #72) FK both resources and users, so they go
@@ -706,6 +719,11 @@ public class ConfigService {
      */
     private static String tsOrNull(Instant instant) {
         return instant == null ? null : DB_TIMESTAMP.format(instant);
+    }
+
+    private static int rows(ConfigExportDto.Export p, String table) {
+        var rows = p.tables().get(table);
+        return rows == null ? 0 : rows.size();
     }
 
     private static <T> List<T> safe(List<T> list) {

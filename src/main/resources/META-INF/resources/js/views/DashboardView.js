@@ -3,12 +3,15 @@ import TopologyDiagram from "/js/TopologyDiagram.js";
 import TopologyWorldMap from "/js/TopologyWorldMap.js";
 import ActivityHeatmap from "/js/ActivityHeatmap.js";
 import PeerTrafficRanking from "/js/PeerTrafficRanking.js";
+import Sparkline from "/js/Sparkline.js";
 import { Icon } from "/js/Icons.js";
 import { t, locale, relativeTime, formatDate } from "/js/i18n.js";
 import { connectionBadgeClass, connectionLabelKey } from "/js/peerStatus.js";
 import { hub } from "/js/hub.js";
 
 const LIVE_POLL_MS = 10000;
+// The tiles that move on their own (traffic, hub load) refresh this often.
+const TILE_POLL_MS = 5000;
 // Sustained throughput above this reads as an active transfer (a big
 // download, a backup, streaming) rather than background keepalive/chatter —
 // the topology diagram draws its link thicker past this point (issue #34).
@@ -20,7 +23,7 @@ const HEAVY_TRAFFIC_BPS = 50 * 1024; // 50 KB/s
 // numbers. Most cards are clickable shortcuts to the underlying view.
 export default defineComponent({
   name: "DashboardView",
-  components: { TopologyDiagram, TopologyWorldMap, ActivityHeatmap, PeerTrafficRanking, Icon },
+  components: { TopologyDiagram, TopologyWorldMap, ActivityHeatmap, PeerTrafficRanking, Sparkline, Icon },
   data() {
     return {
       data: null,
@@ -37,9 +40,11 @@ export default defineComponent({
   },
   async mounted() {
     await this.load();
+    this._tileTimer = setInterval(() => this._pollTiles(), TILE_POLL_MS);
   },
   beforeUnmount() {
     this._stopLive();
+    if (this._tileTimer) { clearInterval(this._tileTimer); this._tileTimer = null; }
   },
   computed: {
     _lang() { return locale.current; },
@@ -131,6 +136,25 @@ export default defineComponent({
       } finally {
         this.loading = false;
       }
+    },
+    // dashboard-live-tiles: refresh only what moves, from the cheap in-memory
+    // endpoint, and not at all while the tab is hidden. A failed poll keeps the
+    // last numbers on screen — the full load reports real errors.
+    async _pollTiles() {
+      if (!this.data || document.hidden) return;
+      try {
+        const res = await fetch("/api/v1/dashboard/live");
+        if (!res.ok) return;
+        const live = await res.json();
+        this.data = { ...this.data, hostHealth: live.hostHealth, traffic: live.traffic,
+          trafficSeries: live.trafficSeries, hostSeries: live.hostSeries };
+      } catch (e) { /* keep the last reading */ }
+    },
+    trafficSpark() {
+      return (this.data.trafficSeries || []).map((p) => p.rxBytes + p.txBytes);
+    },
+    hostSpark() {
+      return (this.data.hostSeries || []).map((p) => p.cpuPercent);
     },
     relativeTime(iso) { return relativeTime(iso); },
     formatDate(iso) { return formatDate(iso); },
@@ -359,6 +383,7 @@ export default defineComponent({
             <span :class="['badge', hostHealthBadge(data.hostHealth.memStatus)]">{{ hostHealthPrefix(data.hostHealth.memStatus) }}{{ t('dashboard.hub_mem') }} {{ formatBytes(data.hostHealth.memUsedBytes) }} / {{ formatBytes(data.hostHealth.memTotalBytes) }}</span>
             <span v-if="data.hostHealth.swapTotalBytes > 0" :class="['badge', hostHealthBadge(data.hostHealth.swapStatus)]">{{ hostHealthPrefix(data.hostHealth.swapStatus) }}{{ t('dashboard.hub_swap') }} {{ formatBytes(data.hostHealth.swapUsedBytes) }} / {{ formatBytes(data.hostHealth.swapTotalBytes) }}</span>
           </div>
+          <Sparkline v-if="data.hostHealth.status !== 'unavailable'" :values="hostSpark()" :max="100" :label="t('dashboard.spark_hub')" />
         </div>
 
         <!-- traffic-window-tile: always present. An hour with no traffic is
@@ -374,6 +399,7 @@ export default defineComponent({
             <span class="badge badge-neutral">{{ t('dashboard.traffic_out') }} {{ formatBytes(data.traffic.txBytes) }}</span>
             <span style="font-size: var(--text-xs)">{{ t('dashboard.traffic_window', { min: data.traffic.windowMinutes }) }}</span>
           </div>
+          <Sparkline :values="trafficSpark()" :label="t('dashboard.spark_traffic', { min: (data.trafficSeries || []).length })" />
         </div>
 
         <!-- dns-query-stats: absent entirely unless the resolver is enabled

@@ -93,6 +93,7 @@ public class SiteService {
         s.subdomain = subdomain;
         s.dnsServerIp = normalizeBlank(req.dnsServerIp());
         s.edgeHubId = validatedEdgeHubId(req.edgeHubId());
+        applyKind(s, req.kind());
         s.persist();
         return s;
     }
@@ -194,8 +195,28 @@ public class SiteService {
         s.subdomain = subdomain;
         s.dnsServerIp = normalizeBlank(req.dnsServerIp());
         s.edgeHubId = validatedEdgeHubId(req.edgeHubId());
+        applyKind(s, req.kind());
         s.updatedAt = Instant.now();
         return s;
+    }
+
+    /**
+     * egress-via-hub: an external site is reached through the central hub's
+     * WAN interface. A gateway peer would mean the traffic goes into a tunnel
+     * instead, and an edge hub would mean another hub's WAN — both contradict
+     * the kind, so they are refused rather than silently ignored.
+     */
+    private static void applyKind(Site s, String kind) {
+        s.kind = (kind == null || kind.isBlank()) ? Site.KIND_INTERNAL : kind;
+        if (!s.isExternal()) return;
+        if (s.gatewayPeerId != null) {
+            throw new jakarta.ws.rs.BadRequestException(
+                    "an external site is reached through the hub's own address and cannot have a gateway peer");
+        }
+        if (s.edgeHubId != null) {
+            throw new jakarta.ws.rs.BadRequestException(
+                    "an external site is reached through the central hub and cannot be served by an edge hub");
+        }
     }
 
     /** Blank → null (derive live from name); otherwise lowercased as the

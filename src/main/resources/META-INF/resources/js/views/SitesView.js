@@ -19,7 +19,7 @@ export default defineComponent({
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
-      form: { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "" },
+      form: { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "", kind: "internal" },
       editId: null,
       submitting: false,
       formError: null,
@@ -225,7 +225,7 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "" };
+      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "", kind: "internal" };
       this.formError = null;
     },
     openEdit(site) {
@@ -239,6 +239,7 @@ export default defineComponent({
         subdomain: site.subdomain || "",
         dnsServerIp: site.dnsServerIp || "",
         edgeHubId: site.edgeHubId || "",
+        kind: site.kind || "internal",
       };
       this.formError = null;
     },
@@ -275,8 +276,10 @@ export default defineComponent({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             ...this.form,
-            gatewayPeerId: this.form.gatewayPeerId || null,
-            edgeHubId: this.form.edgeHubId || null,
+            // An external site has neither — the backend refuses both, so a
+            // value left over from switching the kind must not be sent along.
+            gatewayPeerId: this.form.kind === "external" ? null : (this.form.gatewayPeerId || null),
+            edgeHubId: this.form.kind === "external" ? null : (this.form.edgeHubId || null),
           }),
         });
         if (!res.ok) {
@@ -375,7 +378,10 @@ export default defineComponent({
             </span>
           </td>
           <td>
-            <span v-if="!s.gatewayPeerId" class="muted">—</span>
+            <span v-if="s.kind === 'external'" class="badge badge-neutral" :title="t('sites.kind_external_title')">
+              <Icon name="external-link" :size="12" />{{ t('sites.kind_external_short') }}
+            </span>
+            <span v-else-if="!s.gatewayPeerId" class="muted">—</span>
             <span v-else style="display:inline-flex;align-items:center;gap:var(--space-2)">
               <span :style="s.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
                     style="font-size:10px">{{ s.gatewayOnline ? '●' : '○' }}</span>
@@ -526,9 +532,17 @@ export default defineComponent({
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteCidr">{{ t('sites.field_cidr') }}</label>
               <input id="siteCidr" class="input mono" v-model="form.cidr" required placeholder="10.20.0.0/16" />
-              <div class="field-hint">{{ t('sites.hint_cidr') }}</div>
+              <div class="field-hint">{{ form.kind === 'external' ? t('sites.hint_cidr_external') : t('sites.hint_cidr') }}</div>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
+              <label for="siteKind">{{ t('sites.field_kind') }}</label>
+              <select id="siteKind" class="select" v-model="form.kind">
+                <option value="internal">{{ t('sites.kind_internal') }}</option>
+                <option value="external">{{ t('sites.kind_external') }}</option>
+              </select>
+              <div class="field-hint">{{ form.kind === 'external' ? t('sites.kind_external_hint') : t('sites.kind_internal_hint') }}</div>
+            </div>
+            <div v-if="form.kind !== 'external'" class="field" style="margin-bottom: var(--space-4)">
               <label for="siteGateway">{{ t('sites.field_gateway') }}</label>
               <select id="siteGateway" class="select" v-model="form.gatewayPeerId">
                 <option value="">{{ t('sites.field_gateway_none') }}</option>
@@ -562,7 +576,7 @@ export default defineComponent({
               </div>
               <div class="field-hint">{{ t('sites.field_subdomain_hint') }}</div>
             </div>
-            <div class="field" style="margin-top: var(--space-4)">
+            <div v-if="form.kind !== 'external'" class="field" style="margin-top: var(--space-4)">
               <label for="siteDnsServer">{{ t('sites.field_dns_server') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
               <input id="siteDnsServer" class="input mono" v-model="form.dnsServerIp" :placeholder="dnsServerIpSuggestion || t('sites.field_dns_server_ph')" />
               <div v-if="dnsServerIpSuggestion" class="field-hint" style="display:flex; align-items:center; gap: var(--space-2)">
@@ -572,7 +586,7 @@ export default defineComponent({
               </div>
               <div class="field-hint">{{ t('sites.field_dns_server_hint') }}</div>
             </div>
-            <div v-if="edgeHubs.length" class="field" style="margin-top: var(--space-4)">
+            <div v-if="edgeHubs.length && form.kind !== 'external'" class="field" style="margin-top: var(--space-4)">
               <label for="siteEdgeHub">{{ t('sites.field_edge_hub') }}</label>
               <select id="siteEdgeHub" class="select" v-model="form.edgeHubId">
                 <option value="">{{ t('sites.field_edge_hub_none') }}</option>

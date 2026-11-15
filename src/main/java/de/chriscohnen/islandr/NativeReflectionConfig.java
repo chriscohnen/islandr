@@ -6,6 +6,7 @@ import de.chriscohnen.islandr.acl.ResourceDto;
 import de.chriscohnen.islandr.acl.RoleDto;
 import de.chriscohnen.islandr.acl.SiteDto;
 import de.chriscohnen.islandr.audit.AuditDto;
+import de.chriscohnen.islandr.backup.BackupDto;
 import de.chriscohnen.islandr.auth.AuthResource;
 import de.chriscohnen.islandr.dashboard.DashboardDto;
 import de.chriscohnen.islandr.discovery.DiscoveryDto;
@@ -59,6 +60,17 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
 
         MyPeerResource.CreateMineRequest.class,
         MyPeerResource.RotateKeyRequest.class,
+
+        BackupDto.Status.class,
+        BackupDto.ConnRequest.class,
+        BackupDto.NewKey.class,
+        BackupDto.KeyRequest.class,
+        BackupDto.ListRequest.class,
+        BackupDto.RestoreRequest.class,
+        BackupDto.ScheduleRequest.class,
+        BackupDto.Backup.class,
+        BackupDto.Listing.class,
+        BackupDto.RunResult.class,
 
         SettingsDto.Response.class,
         SettingsDto.UpdateRequest.class,

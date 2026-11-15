@@ -104,6 +104,7 @@ export default defineComponent({
   },
   async mounted() {
     await Promise.all([this.loadSite(), this.loadResources(), this.loadPortGroups()]);
+    this.focusFromQuery();
     this._offEscape = onEscape(() => {
       if (this.scanOpen) this.closeScan();
       else if (this.portScanFor) this.closePortScan();
@@ -312,10 +313,23 @@ export default defineComponent({
         this.loading = false;
       }
     },
+    // The all-resources overview links here with ?resource=<id>: narrow the
+    // list to that resource and leave it at that — the card is what you came
+    // for (ports, grants), the edit dialog is one click away if you want it.
+    // A deleted id is not an error — the list just stays as it is. The param
+    // is dropped afterwards so a reload does not filter again.
+    focusFromQuery() {
+      const id = this.$route.query.resource;
+      if (!id) return;
+      const r = this.resources.find((x) => x.id === id);
+      if (r) this.quickFilter = r.name;
+      const { resource, ...rest } = this.$route.query;
+      this.$router.replace({ query: rest });
+    },
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, dnsAliasesText: "", ip6: "", mac: "" };
+      this.form = { name: "", ip: "", description: "", type: "computer", dnsName: "", dnsFlat: false, dnsAliasesText: "", ip6: "", mac: "", linkFqdn: "" };
       this.formError = null;
       this.identifyResult = null;
     },
@@ -334,7 +348,7 @@ export default defineComponent({
       this.form = {
         name: r.name, ip: r.ip, description: r.description || "", type: r.type || "computer",
         dnsName: r.dnsName || "", dnsFlat: !!r.dnsFlat, mac: r.mac || "",
-        dnsAliasesText: (r.dnsAliases || []).join(", "), ip6: r.ip6 || "",
+        dnsAliasesText: (r.dnsAliases || []).join(", "), ip6: r.ip6 || "", linkFqdn: r.linkFqdn || "",
       };
       this.formError = null;
       this.identifyResult = null;
@@ -469,10 +483,37 @@ export default defineComponent({
         this.bulkDeleting = false;
       }
     },
+    // resource-links-by-name: the names a port may link by — only the
+    // resource's own (main name and aliases), never free text.
+    portLinkNames() {
+      const r = this.resources.find((x) => x.id === this.portFormFor);
+      if (!r || !r.dnsName) return [];
+      return [r.dnsName, ...(r.dnsAliases || [])];
+    },
+    // The partner's own public name (external networks), a choice of its own
+    // in the port's link-host select.
+    portLinkFqdn() {
+      const r = this.resources.find((x) => x.id === this.portFormFor);
+      return r && r.linkFqdn ? r.linkFqdn : "";
+    },
+    isExternalSite() { return !!this.site && this.site.kind === "external"; },
+    // An "all ports" entry opens every port, so a web-only RDP port on the same
+    // resource stops being a protection: say so while it is being set up, either way round.
+    allPortsWarning() {
+      const r = this.resources.find((x) => x.id === this.portFormFor);
+      const others = ((r && r.ports) || []).filter((p) => p.id !== this.portEditId);
+      if (this.portForm.allPorts && others.some((p) => p.rdpAccessMode === "web-only")) {
+        return t("resources.warn_all_ports_web_only");
+      }
+      if (!this.portForm.allPorts && this.portForm.rdpAccessMode === "web-only" && others.some((p) => p.port === 0)) {
+        return t("resources.warn_web_only_all_ports");
+      }
+      return null;
+    },
     openPortForm(resourceId) {
       this.portFormFor = resourceId;
       this.portEditId = null;
-      this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "",
+      this.portForm = { allPorts: false, port: "", portEnd: "", transport: "tcp", protocol: "", label: "", pathPrefix: "", linkHost: "",
         maxConcurrentUsers: "", maxReservationMinutes: "", autoApproveReservations: true,
         rdpClipboard: false, rdpFileTransfer: false, rdpAccessMode: "native" };
       this.portError = null;
@@ -494,6 +535,7 @@ export default defineComponent({
         protocol: p.protocol,
         label: p.label || "",
         pathPrefix: p.pathPrefix || "",
+        linkHost: p.linkHost || "",
         maxConcurrentUsers: p.maxConcurrentUsers == null ? "" : String(p.maxConcurrentUsers),
         maxReservationMinutes: p.maxReservationMinutes == null ? "" : String(p.maxReservationMinutes),
         autoApproveReservations: p.autoApproveReservations !== false,
@@ -720,6 +762,7 @@ export default defineComponent({
             protocol: this.portForm.protocol,
             label: this.portForm.label || null,
             pathPrefix: this.portForm.pathPrefix || null,
+            linkHost: this.portForm.linkHost || null,
             // Blank capacity fields go over the wire as null ("unlimited" /
             // "no ceiling"), not as 0 or "" — the server distinguishes absent
             // from zero and the entity treats null as "not reservable".
@@ -1190,14 +1233,16 @@ export default defineComponent({
           <!-- Add port form -->
           <div v-if="portFormFor === r.id" class="res-inline-form">
             <form @submit.prevent="submitPort">
+              <div v-if="portForm.allPorts" class="field-hint" style="margin-bottom: var(--space-2)">{{ t('resources.hint_all_ports') }}</div>
+              <div v-if="allPortsWarning()" class="callout callout-warning" style="margin-bottom: var(--space-3)">{{ allPortsWarning() }}</div>
               <div class="res-form-row">
                 <div class="field" style="margin: 0">
                   <label style="display: flex; align-items: center; gap: var(--space-2)">
                     <input type="checkbox" v-model="portForm.allPorts" style="width: auto; margin: 0" />
-                    Alle Ports
+                    {{ t('resources.field_all_ports') }}
                   </label>
                   <input v-if="!portForm.allPorts" class="input mono" type="number" min="1" max="65535" v-model="portForm.port" :required="!portForm.allPorts" placeholder="22" style="width: 100px; margin-top: var(--space-1)" />
-                  <span v-else class="mono" style="display: inline-block; padding: 6px 10px; background: var(--surface2); border-radius: var(--radius-sm); font-size: var(--text-xs); margin-top: var(--space-1)">alle</span>
+                  <span v-else class="mono" style="display: inline-block; padding: 6px 10px; background: var(--surface2); border-radius: var(--radius-sm); font-size: var(--text-xs); margin-top: var(--space-1)">{{ t('resources.port_all') }}</span>
                 </div>
                 <div v-if="!portForm.allPorts" class="field" style="margin: 0">
                   <label>bis Port (opt.)</label>
@@ -1242,6 +1287,15 @@ export default defineComponent({
                 <div v-if="portForm.protocol === 'HTTP' || portForm.protocol === 'HTTPS'" class="field" style="margin: 0; flex: 1">
                   <label>{{ t('resources.label_path_prefix') }}</label>
                   <input class="input mono" v-model="portForm.pathPrefix" placeholder="/admin" />
+                </div>
+                <div v-if="portLinkNames().length || portLinkFqdn()" class="field" style="margin: 0; flex: 1">
+                  <label>{{ t('resources.label_link_host') }}</label>
+                  <select class="input" v-model="portForm.linkHost">
+                    <option value="">{{ t('resources.link_host_inherit') }}</option>
+                    <option value="ip">{{ t('resources.link_host_ip') }}</option>
+                    <option v-if="portLinkFqdn()" value="@fqdn">{{ portLinkFqdn() }}</option>
+                    <option v-for="n in portLinkNames()" :key="n" :value="n">{{ n }}</option>
+                  </select>
                 </div>
 
               </div>
@@ -1426,6 +1480,12 @@ export default defineComponent({
                 <input id="resDnsAliases" class="input mono" v-model="form.dnsAliasesText" :placeholder="t('resources.field_dns_aliases_ph')" />
                 <div class="field-hint">{{ t('resources.field_dns_aliases_hint') }}</div>
               </template>
+            </div>
+
+            <div v-if="isExternalSite()" class="field" style="margin: var(--space-4) 0 0">
+              <label for="resLinkFqdn">{{ t('resources.field_link_fqdn') }} <span style="color:var(--fg3); font-weight:400">(optional)</span></label>
+              <input id="resLinkFqdn" class="input mono" v-model="form.linkFqdn" :placeholder="t('resources.field_link_fqdn_ph')" />
+              <div class="field-hint">{{ t('resources.field_link_fqdn_hint') }}</div>
             </div>
 
             <div class="field" style="margin: var(--space-4) 0 0">
