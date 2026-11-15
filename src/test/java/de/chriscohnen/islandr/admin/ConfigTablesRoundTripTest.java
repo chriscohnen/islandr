@@ -253,8 +253,17 @@ class ConfigTablesRoundTripTest {
             throw new IllegalStateException(e);
         }
 
-        assertThat(QuarkusTransaction.requiringNew().call(() -> (Resource) Resource.findById(s.resourceId())))
-                .as("the failed import rolled back").isNotNull();
+        // The shared in-memory cache keeps table locks until the pool has finished rolling the
+        // failed connection back; read again until it has.
+        Resource survivor = null;
+        for (int attempt = 0; attempt < 50 && survivor == null; attempt++) {
+            try {
+                survivor = QuarkusTransaction.requiringNew().call(() -> (Resource) Resource.findById(s.resourceId()));
+            } catch (RuntimeException locked) {
+                try { Thread.sleep(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            }
+        }
+        assertThat(survivor).as("the failed import rolled back").isNotNull();
     }
 
     @Test
