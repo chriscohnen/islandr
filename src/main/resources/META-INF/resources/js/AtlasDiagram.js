@@ -589,34 +589,6 @@ export default defineComponent({
       }
       return nodes;
     },
-    // Dashed hub -> network line that keeps clear of every other network's
-    // circle: straight when nothing is in the way, otherwise a curve bent to
-    // whichever side first clears them all (straight again if none does).
-    hubLinkPath(hub, c) {
-      const x1 = hub.x, y1 = hub.y + HUB_SIZE, x2 = c.cx, y2 = c.cy - c.r;
-      const straight = "M" + x1 + "," + y1 + " L" + x2 + "," + y2;
-      const others = this.layout.filter((o) => o.id !== c.id);
-      const clear = (pointAt) => {
-        for (let i = 1; i < 24; i++) {
-          const p = pointAt(i / 24);
-          if (others.some((o) => Math.hypot(p.x - o.cx, p.y - o.cy) < o.r + 6)) return false;
-        }
-        return true;
-      };
-      if (clear((t) => ({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t }))) return straight;
-      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len, ny = dx / len; // unit normal
-      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-      for (const d of [60, -60, 120, -120, 180, -180, 260, -260]) {
-        const cx = mx + nx * d, cy = my + ny * d;
-        const at = (t) => ({
-          x: (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2,
-          y: (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * cy + t * t * y2,
-        });
-        if (clear(at)) return "M" + x1 + "," + y1 + " Q" + cx + "," + cy + " " + x2 + "," + y2;
-      }
-      return straight;
-    },
     // Maps a PathHop list (ADR-0025's hub -> [site-gateway] -> resource/peer
     // chain, as returned by the ping/tracepath endpoints) onto actual
     // on-screen points, so the probed connection can be drawn as an overlay
@@ -684,6 +656,34 @@ export default defineComponent({
     window.removeEventListener("keydown", this.onKeyDown);
   },
   methods: {
+    // Dashed hub -> network line that keeps clear of every other network's
+    // circle: straight when nothing is in the way, otherwise a curve bent to
+    // whichever side first clears them all (straight again if none does).
+    hubLinkPath(hub, c) {
+      const x1 = hub.x, y1 = hub.y + HUB_SIZE, x2 = c.cx, y2 = c.cy - c.r;
+      const straight = "M" + x1 + "," + y1 + " L" + x2 + "," + y2;
+      const others = this.layout.filter((o) => o.id !== c.id);
+      const clear = (pointAt) => {
+        for (let i = 1; i < 24; i++) {
+          const p = pointAt(i / 24);
+          if (others.some((o) => Math.hypot(p.x - o.cx, p.y - o.cy) < o.r + 6)) return false;
+        }
+        return true;
+      };
+      if (clear((t) => ({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t }))) return straight;
+      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len; // unit normal
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      for (const d of [60, -60, 120, -120, 180, -180, 260, -260]) {
+        const cx = mx + nx * d, cy = my + ny * d;
+        const at = (t) => ({
+          x: (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2,
+          y: (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * cy + t * t * y2,
+        });
+        if (clear(at)) return "M" + x1 + "," + y1 + " Q" + cx + "," + cy + " " + x2 + "," + y2;
+      }
+      return straight;
+    },
     t(key, vars) { return t(key, vars); },
     svgPoint(evt) {
       const svg = this.$refs.svg;
