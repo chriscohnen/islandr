@@ -8,6 +8,11 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.4.1
+
+- Fixed: with four or more networks around the hub (for example three gateways and an external network), one or two connected devices dropped off the dashboard topology into its top-left corner, and zoom and reset stopped working
+- Changed: in the Atlas, dropping a user on a network's gateway diamond grants the whole network, like dropping on the network itself; without a role selected, a dialog asks for one — pre-filled when the user is in exactly one role — and says how many members the role has
+
 ## 1.4.0
 
 - Added: backups to an S3-compatible bucket (AWS, Cloudflare R2, Backblaze B2, MinIO): one encrypted file per backup, with a backup key you generate and write down; a freshly installed instance restores from the bucket's details and that key; Islandr only writes, reads and lists, never deletes ([install guide](docs/install/backup-s3.md))

@@ -519,9 +519,9 @@ export default defineComponent({
             }
           }
         }
-        // Over no resource, but inside a network: that drop grants the whole network.
+        // Over no resource, but on a network or its gateway: that drop grants the whole network.
         if (!this.dragFromIsGateway) {
-          const c = this.circleAt(this.dragPointer);
+          const c = this.networkDropAt(this.dragPointer);
           if (c) return { type: "circle", id: c.id };
         }
         return null;
@@ -822,7 +822,7 @@ export default defineComponent({
               ? target.closest("[data-resource-id]").getAttribute("data-resource-id")
               : null;
           if (!resourceId && !fromIsGateway) {
-            const c = this.circleAt(this.screenToContent(evt));
+            const c = this.networkDropAt(this.screenToContent(evt));
             networkId = c ? c.id : null;
           }
         } else if (fromResourceId) {
@@ -862,6 +862,16 @@ export default defineComponent({
         if (Math.hypot(c.cx - pt.x, c.cy - pt.y) <= c.r && (!best || c.r < best.r)) best = c;
       }
       return best;
+    },
+    // Where a user drop means "the whole network": the network's gateway
+    // diamond, which sits on the circle's rim and so often outside it, or
+    // anywhere inside the circle.
+    networkDropAt(pt) {
+      for (const c of this.layout) {
+        const gw = c.nodes.find((n) => n.isGateway);
+        if (gw && Math.hypot(gw.x - pt.x, gw.y - pt.y) <= NODE_RADIUS) return c;
+      }
+      return this.circleAt(pt);
     },
     onWindowPointerCancel() {
       this.endDrag();

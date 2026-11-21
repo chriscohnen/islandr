@@ -232,6 +232,10 @@ The firewall now writes one rule per device, resource and protocol with the port
 (`tcp dport { 22, 443 }`) — the number of rules on the dashboard drops — and the "all ports" entry
 on a resource, which nftables used to reject, works. Islandr is built on Quarkus 3.40 (LTS).
 
+*1.4.1 fixed devices dropping off the dashboard topology when four or more networks surround the
+hub, and lets the Atlas grant a whole network to a role picked in the dialog, also from the
+network's gateway diamond.*
+
 **1.3.0** brought several DNS names per resource, reverse lookups and AAAA, a read-only status
 endpoint for your monitoring (`GET /api/external/v1/metrics`), a webhook when the firewall rules
 cannot be applied, security headers, a report-only Content-Security-Policy, and a nonce plus PKCE
