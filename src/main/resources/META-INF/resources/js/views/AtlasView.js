@@ -3,7 +3,6 @@ import { t, locale } from "/js/i18n.js";
 import AtlasDiagram, { edgeKey } from "/js/AtlasDiagram.js";
 import { Icon } from "/js/Icons.js";
 import { onEscape } from "/js/keyboard.js";
-import { confirmDialog } from "/js/confirmDialog.js";
 
 const GRANTS_PAGE_SIZE = 20;
 
@@ -38,6 +37,8 @@ export default defineComponent({
       lang: locale.current,
       grantDialog: null, // { subjectType, subjectId, resourceId, subjectName, resourceName, kind, allPorts, portIds, ports }
       grantSaving: false,
+      networkGrantDialog: null, // { siteId, siteName, userName, roleId }
+      networkGrantSaving: false,
       revokeConfirm: null, // { edge, userName, resourceName, roleLabel }
       revokeSaving: false,
       // Inclusive type filter, same semantics as the topology map's type
@@ -78,6 +79,18 @@ export default defineComponent({
     edgeKindLegend() {
       void this.lang;
       return EDGE_KIND_LEGEND.map((e) => ({ ...e, label: t(e.labelKey) }));
+    },
+    // The role the network-grant dialog currently names, and how many people
+    // it would reach: a network grant opens the whole network to every member.
+    networkGrantRole() {
+      const d = this.networkGrantDialog;
+      if (!d || !d.roleId) return null;
+      return (this.graph.roles || []).find((r) => r.id === d.roleId) || null;
+    },
+    networkGrantExists() {
+      const d = this.networkGrantDialog;
+      return !!(d && d.roleId && this.graph.edges.some((e) =>
+          e.kind === "network-grant" && e.siteId === d.siteId && e.roleId === d.roleId));
     },
     grantModeLabel() {
       void this.lang;
@@ -313,6 +326,7 @@ export default defineComponent({
     this._offEscape = onEscape(() => {
       if (this.diagModal) this.closeDiagnostics();
       else if (this.grantDialog) this.cancelGrantDialog();
+      else if (this.networkGrantDialog) this.cancelNetworkGrantDialog();
       else if (this.revokeConfirm) this.cancelRevokeConfirm();
       else if (this.selectedUserId || this.selectedResourceId || this.selectedSiteId || this.selectedPeerId) this.clearFocus();
     });
@@ -498,38 +512,49 @@ export default defineComponent({
     },
 
     // A user dragged onto a whole network. A whole-network grant belongs to a
-    // role (ADR-0029), so it needs the role picker set; in direct mode there is
-    // nothing to attach it to, and the message says what to do.
-    async onDragGrantNetwork({ siteId }) {
+    // role (ADR-0029). With the role picker set, that role is it; without, the
+    // dialog asks for one, pre-filled when the user is in exactly one role.
+    onDragGrantNetwork({ subjectId, siteId }) {
       const site = (this.graph.sites || []).find((s) => s.id === siteId);
       if (!site) return;
-      if (!this.selectedRoleId) {
-        this.error = t("atlas.network_grant_needs_role", { site: site.name });
+      const user = (this.graph.users || []).find((u) => u.id === subjectId);
+      let roleId = this.selectedRoleId;
+      if (!roleId) {
+        const own = (this.graph.roles || []).filter((r) => (r.memberUserIds || []).includes(subjectId));
+        roleId = own.length === 1 ? own[0].id : "";
+      } else if (this.graph.edges.some((e) => e.kind === "network-grant" && e.siteId === siteId && e.roleId === roleId)) {
+        const role = (this.graph.roles || []).find((r) => r.id === roleId);
+        this.error = t("atlas.network_grant_exists", { role: role ? role.name : roleId, site: site.name });
         return;
       }
-      const role = (this.graph.roles || []).find((r) => r.id === this.selectedRoleId);
-      const roleName = role ? role.name : this.selectedRoleId;
-      if (this.graph.edges.some((e) => e.kind === "network-grant" && e.siteId === siteId && e.roleId === this.selectedRoleId)) {
-        this.error = t("atlas.network_grant_exists", { role: roleName, site: site.name });
-        return;
-      }
-      const ok = await confirmDialog(t("atlas.network_grant_confirm", { role: roleName, site: site.name }),
-          { danger: false, confirmLabel: t("atlas.network_grant_confirm_label") });
-      if (!ok) return;
+      this.networkGrantDialog = { siteId, siteName: site.name, userName: user ? user.name : subjectId, roleId };
+    },
+
+    cancelNetworkGrantDialog() {
+      this.networkGrantDialog = null;
+    },
+
+    async confirmNetworkGrantDialog() {
+      const d = this.networkGrantDialog;
+      if (!d || !d.roleId || this.networkGrantExists) return;
+      this.networkGrantSaving = true;
       this.error = null;
       try {
         const res = await fetch("/api/v1/acl/network-grants", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ roleId: this.selectedRoleId, siteId }),
+          body: JSON.stringify({ roleId: d.roleId, siteId: d.siteId }),
         });
         if (!res.ok) {
           const errBody = await res.text();
           throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
         }
+        this.networkGrantDialog = null;
         await this.load();
       } catch (e) {
         this.error = t("atlas.error_grant", { error: e.message });
+      } finally {
+        this.networkGrantSaving = false;
       }
     },
 
@@ -1220,6 +1245,36 @@ export default defineComponent({
           <button type="button" class="btn btn-ghost" @click="cancelGrantDialog">{{ t('atlas.grant_dialog_cancel') }}</button>
           <button type="button" class="btn btn-primary" :disabled="grantSaving" @click="confirmGrantDialog">
             {{ grantSaving ? t('common.loading') : t('atlas.grant_dialog_confirm') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="networkGrantDialog" class="modal-backdrop" @click.self="cancelNetworkGrantDialog">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>{{ t('atlas.network_grant_dialog_title') }}</h2>
+          <button class="btn btn-ghost btn-sm" @click="cancelNetworkGrantDialog">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin: 0 0 var(--space-3)">{{ t('atlas.network_grant_dialog_lead', { user: networkGrantDialog.userName, site: networkGrantDialog.siteName }) }}</p>
+          <label class="label" for="atlasNetworkGrantRole">{{ t('atlas.network_grant_dialog_role') }}</label>
+          <select id="atlasNetworkGrantRole" class="select" v-model="networkGrantDialog.roleId">
+            <option value="">{{ t('acl.network_grant_pick_role') }}</option>
+            <option v-for="r in graph.roles" :key="r.id" :value="r.id">{{ r.name }}</option>
+          </select>
+          <p v-if="networkGrantExists" class="muted" style="margin: var(--space-3) 0 0">
+            {{ t('atlas.network_grant_exists', { role: networkGrantRole.name, site: networkGrantDialog.siteName }) }}
+          </p>
+          <p v-else-if="networkGrantRole" style="margin: var(--space-3) 0 0">
+            {{ t('atlas.network_grant_confirm', { role: networkGrantRole.name, site: networkGrantDialog.siteName }) }}
+            {{ t('atlas.network_grant_dialog_members', { count: (networkGrantRole.memberUserIds || []).length }) }}
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" @click="cancelNetworkGrantDialog">{{ t('atlas.grant_dialog_cancel') }}</button>
+          <button type="button" class="btn btn-primary" :disabled="networkGrantSaving || !networkGrantRole || networkGrantExists" @click="confirmNetworkGrantDialog">
+            {{ networkGrantSaving ? t('common.loading') : t('atlas.network_grant_confirm_label') }}
           </button>
         </div>
       </div>
