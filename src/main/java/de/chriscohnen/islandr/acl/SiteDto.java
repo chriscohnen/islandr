@@ -36,7 +36,10 @@ public final class SiteDto {
             String edgeHubId,
             String edgeHubName,
             // egress-via-hub (1.4.0): "internal" | "external"
-            String kind
+            String kind,
+            // site-multi-cidr (1.5.0): every address range, the primary ({@code cidr})
+            // first. One entry for an internal site.
+            java.util.List<String> cidrs
     ) {
         public static Response from(Site s, int resourceCount,
                                     String gatewayPeerName, Boolean gatewayOnline,
@@ -44,7 +47,7 @@ public final class SiteDto {
             return new Response(s.id, s.name, s.cidr, s.description,
                     resourceCount, s.createdAt, s.updatedAt,
                     s.gatewayPeerId, gatewayPeerName, gatewayOnline, outsideSplitSupernet,
-                    s.subdomain, s.dnsServerIp, s.edgeHubId, edgeHubName, s.kind);
+                    s.subdomain, s.dnsServerIp, s.edgeHubId, edgeHubName, s.kind, s.allCidrs());
         }
     }
 
@@ -114,12 +117,20 @@ public final class SiteDto {
             String edgeHubId,
             // egress-via-hub (1.4.0). Null/blank = "internal".
             @Pattern(regexp = "^$|^(internal|external)$", message = "kind must be internal or external")
-            String kind
+            String kind,
+            // site-multi-cidr (1.5.0): further address ranges, external sites only.
+            java.util.List<@ValidCidr String> extraCidrs
     ) {
+        /** The shape before 1.5.0 — no further address ranges. */
+        public UpsertRequest(String name, String cidr, String description, String gatewayPeerId,
+                             String subdomain, String dnsServerIp, String edgeHubId, String kind) {
+            this(name, cidr, description, gatewayPeerId, subdomain, dnsServerIp, edgeHubId, kind, null);
+        }
+
         /** The shape before 1.4.0 — kind left to its default. */
         public UpsertRequest(String name, String cidr, String description, String gatewayPeerId,
                              String subdomain, String dnsServerIp, String edgeHubId) {
-            this(name, cidr, description, gatewayPeerId, subdomain, dnsServerIp, edgeHubId, null);
+            this(name, cidr, description, gatewayPeerId, subdomain, dnsServerIp, edgeHubId, null, null);
         }
     }
 

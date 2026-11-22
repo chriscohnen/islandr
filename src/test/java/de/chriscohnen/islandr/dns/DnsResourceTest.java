@@ -70,6 +70,28 @@ class DnsResourceTest {
     }
 
     @Test
+    void status_reportsTunnelMode_soTheSplitTunnelHintCanStayQuietOnFullTunnel() {
+        given().when().get("/api/v1/dns/status")
+                .then().statusCode(200)
+                .body("tunnelMode", equalTo("SPLIT"));
+
+        QuarkusTransaction.requiringNew().run(() -> {
+            Settings s = Settings.findById(Settings.SINGLETON_ID);
+            s.tunnelMode = "FULL";
+        });
+        try {
+            given().when().get("/api/v1/dns/status")
+                    .then().statusCode(200)
+                    .body("tunnelMode", equalTo("FULL"));
+        } finally {
+            QuarkusTransaction.requiringNew().run(() -> {
+                Settings s = Settings.findById(Settings.SINGLETON_ID);
+                s.tunnelMode = "SPLIT";
+            });
+        }
+    }
+
+    @Test
     void status_reflectsEnabledFlagAndCustomZone() {
         QuarkusTransaction.requiringNew().run(() -> {
             Settings s = Settings.findById(Settings.SINGLETON_ID);

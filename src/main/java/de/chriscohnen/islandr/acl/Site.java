@@ -93,6 +93,22 @@ public class Site extends PanacheEntityBase {
         return KIND_EXTERNAL.equals(kind);
     }
 
+    /** At most this many address ranges per site, the primary included. */
+    public static final int MAX_CIDRS = 16;
+
+    /**
+     * Every address range of this site, the primary ({@link #cidr}) first. Only an
+     * external site can have more than one (site-multi-cidr), so an internal one never
+     * touches the extra table.
+     */
+    public List<String> allCidrs() {
+        if (!isExternal()) return List.of(cidr);
+        List<String> out = new java.util.ArrayList<>();
+        out.add(cidr);
+        out.addAll(SiteExtraCidr.cidrsOf(id));
+        return out;
+    }
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
@@ -121,7 +137,7 @@ public class Site extends PanacheEntityBase {
     public static List<String> clientRoutedCidrs() {
         List<String> out = new java.util.ArrayList<>(enabledGatewayCidrs());
         Site.<Site>list("kind", KIND_EXTERNAL).stream()
-                .map(site -> site.cidr)
+                .flatMap(site -> site.allCidrs().stream())
                 .filter(c -> !out.contains(c))
                 .forEach(out::add);
         return out;

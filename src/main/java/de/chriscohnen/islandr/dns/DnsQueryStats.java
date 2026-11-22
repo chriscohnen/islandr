@@ -44,6 +44,24 @@ public class DnsQueryStats {
         return new Snapshot(sumWithin(local, minute), sumWithin(forwarded, minute), WINDOW_MINUTES);
     }
 
+    /** Queries per minute (local and forwarded summed) for the last {@code minutes}
+     *  minutes, oldest first, empty minutes as 0 — the mini graph on the dashboard
+     *  tile. Capped at the window the buckets are kept for. */
+    public java.util.List<Long> series(int minutes) {
+        int n = (int) Math.min(Math.max(minutes, 0), WINDOW_MINUTES);
+        long now = currentMinute();
+        java.util.List<Long> out = new java.util.ArrayList<>(n);
+        for (long m = now - n + 1; m <= now; m++) {
+            out.add(countAt(local, m) + countAt(forwarded, m));
+        }
+        return out;
+    }
+
+    private static long countAt(ConcurrentHashMap<Long, AtomicLong> buckets, long minute) {
+        AtomicLong v = buckets.get(minute);
+        return v == null ? 0 : v.get();
+    }
+
     private long sumWithin(ConcurrentHashMap<Long, AtomicLong> buckets, long currentMinute) {
         long sum = 0;
         for (var entry : buckets.entrySet()) {

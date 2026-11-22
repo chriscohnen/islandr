@@ -522,10 +522,6 @@ export default defineComponent({
       if (!roleId) {
         const own = (this.graph.roles || []).filter((r) => (r.memberUserIds || []).includes(subjectId));
         roleId = own.length === 1 ? own[0].id : "";
-      } else if (this.graph.edges.some((e) => e.kind === "network-grant" && e.siteId === siteId && e.roleId === roleId)) {
-        const role = (this.graph.roles || []).find((r) => r.id === roleId);
-        this.error = t("atlas.network_grant_exists", { role: role ? role.name : roleId, site: site.name });
-        return;
       }
       this.networkGrantDialog = { siteId, siteName: site.name, userName: user ? user.name : subjectId, roleId };
     },
@@ -610,7 +606,7 @@ export default defineComponent({
         return;
       }
       if (edge.kind === "network-grant") {
-        this.error = t("atlas.revoke_network_grant_blocked");
+        this.openNetworkGrantRevokeConfirm(edge, subjectName);
         return;
       }
       const roleLabel = edge.kind === "role" ? edge.roleName
@@ -653,6 +649,58 @@ export default defineComponent({
       }
     },
 
+    // A network-grant edge stands for a whole role → network grant, not one
+    // resource: look up the row behind it and confirm removing that.
+    async openNetworkGrantRevokeConfirm(edge, subjectName) {
+      const siteId = edge.siteId || ((this.graph.resources || []).find((r) => r.id === edge.resourceId) || {}).siteId;
+      const found = await this.findNetworkGrant(edge.roleId, siteId);
+      if (!found) {
+        this.error = t("atlas.revoke_network_grant_blocked");
+        return;
+      }
+      this.revokeConfirm = {
+        edge, isNetworkGrant: true, networkGrantId: found.id,
+        userName: subjectName, roleLabel: edge.roleName || (found.roleName || ""), siteName: found.siteName,
+      };
+    },
+
+    async findNetworkGrant(roleId, siteId) {
+      try {
+        const res = await fetch("/api/v1/acl/network-grants");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return (await res.json()).find((g) => g.roleId === roleId && g.siteId === siteId) || null;
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+        return null;
+      }
+    },
+
+    async deleteNetworkGrant(id) {
+      const res = await fetch("/api/v1/acl/network-grants/" + id, { method: "DELETE" });
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
+      }
+    },
+
+    // From the drag dialog, when the grant it would create already exists.
+    async removeNetworkGrantFromDialog() {
+      const d = this.networkGrantDialog;
+      if (!d || !d.roleId) return;
+      this.networkGrantSaving = true;
+      this.error = null;
+      try {
+        const found = await this.findNetworkGrant(d.roleId, d.siteId);
+        if (found) await this.deleteNetworkGrant(found.id);
+        this.networkGrantDialog = null;
+        await this.load();
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+      } finally {
+        this.networkGrantSaving = false;
+      }
+    },
+
     cancelRevokeConfirm() {
       this.revokeConfirm = null;
     },
@@ -661,6 +709,20 @@ export default defineComponent({
       if (!this.revokeConfirm) return;
       if (this.revokeConfirm.isTypeGrant) {
         await this.confirmRevokeTypeGrant();
+        return;
+      }
+      if (this.revokeConfirm.isNetworkGrant) {
+        this.revokeSaving = true;
+        this.error = null;
+        try {
+          await this.deleteNetworkGrant(this.revokeConfirm.networkGrantId);
+          this.revokeConfirm = null;
+          await this.load();
+        } catch (e) {
+          this.error = t("atlas.error_revoke", { error: e.message });
+        } finally {
+          this.revokeSaving = false;
+        }
         return;
       }
       const edge = this.revokeConfirm.edge;
@@ -1273,6 +1335,9 @@ export default defineComponent({
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" @click="cancelNetworkGrantDialog">{{ t('atlas.grant_dialog_cancel') }}</button>
+          <button v-if="networkGrantExists" type="button" class="btn btn-danger" :disabled="networkGrantSaving" @click="removeNetworkGrantFromDialog">
+            {{ networkGrantSaving ? t('common.loading') : t('atlas.network_grant_remove') }}
+          </button>
           <button type="button" class="btn btn-primary" :disabled="networkGrantSaving || !networkGrantRole || networkGrantExists" @click="confirmNetworkGrantDialog">
             {{ networkGrantSaving ? t('common.loading') : t('atlas.network_grant_confirm_label') }}
           </button>
@@ -1289,6 +1354,9 @@ export default defineComponent({
         <div class="modal-body">
           <p v-if="revokeConfirm.isTypeGrant" style="margin: 0">
             {{ t('atlas.revoke_type_grant_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, type: revokeConfirm.typeLabel, site: revokeConfirm.siteName }) }}
+          </p>
+          <p v-else-if="revokeConfirm.isNetworkGrant" style="margin: 0">
+            {{ t('atlas.revoke_network_grant_confirm', { role: revokeConfirm.roleLabel, site: revokeConfirm.siteName }) }}
           </p>
           <p v-else style="margin: 0">
             {{ t('atlas.revoke_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, resource: revokeConfirm.resourceName }) }}

@@ -65,7 +65,10 @@ public class DnsResource {
             // So the lookup-preview result panel can explain a peer-name
             // answer correctly (bug report 2026-10-03) without a second
             // round-trip to /api/v1/settings just for this one flag.
-            boolean dnsResolveAllResourcesAndPeers
+            boolean dnsResolveAllResourcesAndPeers,
+            // "SPLIT" | "FULL" — the split-tunnel hint on the DNS page only
+            // concerns split-tunnel peers, so the page needs to know.
+            String tunnelMode
     ) {}
 
     @GET
@@ -86,7 +89,7 @@ public class DnsResource {
         java.util.List<DnsQueryHandler.ResolvableName> names = queryHandler.resolvableNames();
         return new StatusResponse(
                 s.dnsResolverEnabled, resolverSvc.isRunning(), resolverSvc.isTcpRunning(), cfg.zone(), cfg.upstreams(),
-                bindAddress, port, names.size(), names, s.dnsResolveAllResourcesAndPeers);
+                bindAddress, port, names.size(), names, s.dnsResolveAllResourcesAndPeers, s.tunnelMode);
     }
 
     /** {@code sourceIp}, when set, switches the lookup from the forgiving

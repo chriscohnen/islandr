@@ -33,12 +33,20 @@ public final class EdgeHubDto {
             // admin page can show "serves 2 sites" without a second round-trip.
             int siteCount,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            // edge-status-plan-fields: what the edge last reported. All null until an agent reports.
+            Instant lastSyncAt,
+            Integer lastPlanSerial,
+            Instant lastAppliedAt,
+            String planRejected,
+            Integer skippedPeers,
+            String agentVersion
     ) {
         public static Response from(EdgeHub e, int siteCount) {
             return new Response(e.id, e.name, e.enabled, e.lat, e.lng,
                     e.locationLabel, e.endpoint, e.serverPublicKey, e.dnsServerIp, e.canServePeers(),
-                    siteCount, e.createdAt, e.updatedAt);
+                    siteCount, e.createdAt, e.updatedAt,
+                    e.lastSyncAt, e.lastPlanSerial, e.lastAppliedAt, e.planRejected, e.skippedPeers, e.agentVersion);
         }
     }
 

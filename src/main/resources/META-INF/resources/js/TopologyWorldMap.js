@@ -783,7 +783,7 @@ export default defineComponent({
             {{ tooltip.site.name }}
           </div>
           <div v-if="tooltip.site.cidr" style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
-            {{ tooltip.site.cidr }}
+            {{ (tooltip.site.cidrs || [tooltip.site.cidr]).join(", ") }}
           </div>
         </template>
       </div>

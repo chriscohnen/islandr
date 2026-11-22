@@ -33,6 +33,7 @@ public class GoogleWorkspaceImportResource {
     private static final Logger LOG = Logger.getLogger(GoogleWorkspaceImportResource.class);
 
     @Inject SettingsService settingsSvc;
+    @Inject UserEvents events;
     @Inject GoogleWorkspaceClient gwsClient;
     @Inject AuditService audit;
     @Inject EncryptionService encSvc;
@@ -126,6 +127,7 @@ public class GoogleWorkspaceImportResource {
                 User u = User.createNew(name, normalised);
                 u.persist();
                 existingEmails.add(normalised);
+                events.created(u, a.principal(), UserEvents.SOURCE_IMPORT);
                 audit.logCreate(a.principal(), "user.import_google",
                         "User:" + u.name + " (" + u.id + ")",
                         Map.of("email", u.email, "source", "google_workspace"));

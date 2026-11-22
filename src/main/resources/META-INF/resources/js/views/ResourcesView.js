@@ -1015,7 +1015,7 @@ export default defineComponent({
           <div v-if="site" style="display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--fg3)">
             <span>{{ site.name }}</span>
             <span style="color: var(--border-strong)">·</span>
-            <span class="mono">{{ site.cidr }}</span>
+            <span class="mono" :title="(site.cidrs || []).join(', ')">{{ site.cidr }}<span v-if="site.cidrs && site.cidrs.length > 1"> +{{ site.cidrs.length - 1 }}</span></span>
             <span style="color: var(--border-strong)">·</span>
             <span>{{ resources.length }} Host{{ resources.length !== 1 ? 's' : '' }}</span>
           </div>

@@ -147,11 +147,15 @@ export default defineComponent({
         if (!res.ok) return;
         const live = await res.json();
         this.data = { ...this.data, hostHealth: live.hostHealth, traffic: live.traffic,
-          trafficSeries: live.trafficSeries, hostSeries: live.hostSeries };
+          trafficSeries: live.trafficSeries, hostSeries: live.hostSeries,
+          dnsSeries: live.dnsSeries };
       } catch (e) { /* keep the last reading */ }
     },
     trafficSpark() {
       return (this.data.trafficSeries || []).map((p) => p.rxBytes + p.txBytes);
+    },
+    dnsSpark() {
+      return this.data.dnsSeries || [];
     },
     hostSpark() {
       return (this.data.hostSeries || []).map((p) => p.cpuPercent);
@@ -415,6 +419,7 @@ export default defineComponent({
             <span class="badge badge-neutral">{{ t('dashboard.dns_upstream') }} {{ data.dns.forwarded }}</span>
             <span style="font-size: var(--text-xs)">{{ t('dashboard.dns_window', { min: data.dns.windowMinutes }) }}</span>
           </div>
+          <Sparkline :values="dnsSpark()" :label="t('dashboard.spark_dns', { min: dnsSpark().length })" />
         </router-link>
       </div>
 

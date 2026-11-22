@@ -29,6 +29,14 @@ public final class WebhookEventType {
      *  manual run — the admin who clicked it sees the error right there. */
     public static final String BACKUP_FAILED = "backup.failed";
 
+    /** webhook-user-events: user lifecycle, for provisioning into other systems.
+     *  A plain login never fires {@code user.updated}. */
+    public static final String USER_CREATED = "user.created";
+    public static final String USER_UPDATED = "user.updated";
+    public static final String USER_ENABLED = "user.enabled";
+    public static final String USER_DISABLED = "user.disabled";
+    public static final String USER_DELETED = "user.deleted";
+
     /** Used only by the admin UI's "test connection" action — never a real
      *  subscribable filter value, delivered regardless of a webhook's
      *  event_types selection. */
@@ -42,7 +50,8 @@ public final class WebhookEventType {
             DISCOVERY_SCAN_COMPLETED,
             ACME_CERT_RENEWED, ACME_CERT_RENEWAL_FAILED,
             FIREWALL_APPLY_FAILED,
-            BACKUP_FAILED
+            BACKUP_FAILED,
+            USER_CREATED, USER_UPDATED, USER_ENABLED, USER_DISABLED, USER_DELETED
     );
 
     private WebhookEventType() {}

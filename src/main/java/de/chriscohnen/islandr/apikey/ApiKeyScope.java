@@ -62,6 +62,11 @@ public class ApiKeyScope extends PanacheEntityBase {
      *  {@code EdgeExternalResource#status}. */
     public static final String TELEMETRY_WRITE = "telemetry:write";
 
+    /** edge-plan-peers, V87 binding — always edge-bound; read the plan the edge is
+     *  to apply (GET /api/external/v1/edge/{id}/plan). Weaker than {@link #PSKS_READ}:
+     *  the plan names a peer's public key and addresses but never its preshared key. */
+    public static final String PLAN_READ = "plan:read";
+
     /** monitoring-status-endpoint (#71): read the install's health gauges
      *  (GET /api/external/v1/metrics) — enforcement, boot table, TLS expiry,
      *  connected-peer total. Nothing per peer or per person. */
@@ -75,12 +80,12 @@ public class ApiKeyScope extends PanacheEntityBase {
     public static final List<String> CATALOG = List.of(
             FULL, PEERS_READ, USERS_READ, RESOURCES_READ, GRANTS_READ, AUDIT_READ,
             PEERS_WRITE, USERS_WRITE, CONFIG_EXPORT, CONFIG_IMPORT, PSKS_READ, TELEMETRY_WRITE,
-            MONITORING_READ);
+            MONITORING_READ, PLAN_READ);
 
     /** Scopes that are meaningless without an {@link #edgeHubId} —
      *  {@link ApiKeyService#create} requires one whenever the requested
      *  scope set intersects this. */
-    public static final Set<String> EDGE_BOUND_SCOPES = Set.of(PSKS_READ, TELEMETRY_WRITE);
+    public static final Set<String> EDGE_BOUND_SCOPES = Set.of(PSKS_READ, TELEMETRY_WRITE, PLAN_READ);
 
     @Id
     @Column(name = "id", nullable = false, length = 36)

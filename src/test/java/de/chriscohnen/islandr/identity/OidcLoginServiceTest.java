@@ -29,6 +29,7 @@ class OidcLoginServiceTest {
     static final String REDIRECT_URI = "http://localhost:8080/api/v1/auth/oidc/microsoft/callback";
 
     @Inject OidcLoginService oidc;
+    @Inject de.chriscohnen.islandr.webhook.WebhookService webhookSvc;
     @Inject FakeHttpFetcher http;
     @Inject OidcProviderService providers;
     @Inject de.chriscohnen.islandr.settings.SettingsService settingsSvc;
@@ -337,6 +338,59 @@ class OidcLoginServiceTest {
         User u = readUser(s.userId);
         assertThat(u.oidcSubject).isEqualTo("ms-sub-dan");
         assertThat(u.name).isEqualTo("Dan Microsoft");  // refreshed from token
+    }
+
+    // -- webhook-user-events ----------------------------------------------------
+
+    private String userHookUrl;
+
+    private void subscribeToUserEvents() {
+        de.chriscohnen.islandr.webhook.WebhookTestCleanup.deleteAllWebhooks();
+        userHookUrl = "https://hook.example.com/oidc-users-" + System.nanoTime();
+        io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(() ->
+                webhookSvc.create(new de.chriscohnen.islandr.webhook.WebhookDto.CreateRequest(userHookUrl, null,
+                        de.chriscohnen.islandr.webhook.WebhookEventType.ALL, null, null, null, null), "admin"));
+        http.postBodyStub(userHookUrl, 200, "ok", null);
+    }
+
+    private java.util.List<String> userHookBodies() {
+        return http.calls.stream().filter(c -> c.url().equals(userHookUrl)).map(c -> c.rawBodyText()).toList();
+    }
+
+    private void awaitUserHook(int n) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 3000;
+        while (System.currentTimeMillis() < deadline && userHookBodies().size() < n) Thread.sleep(50);
+    }
+
+    private void msLogin(String sub, String email, String name) {
+        String idToken = msJwt.signIdToken(TestJwt.microsoftClaims(TENANT, MS_CLIENT, sub, email, name));
+        stubTokenExchange("https://login.microsoftonline.com/" + TENANT + "/oauth2/v2.0/token",
+                idToken, "ms-access-token");
+        http.stub("https://graph.microsoft.com/v1.0/me/photo/$value", 404, new byte[0], null);
+        oidc.handleCallback("microsoft", "c", "s", "s.test-nonce.test-verifier", REDIRECT_URI);
+    }
+
+    @Test
+    void userEvents_firstLoginCreates_plainLoginIsSilent_renameUpdates() throws Exception {
+        enable("microsoft");
+        subscribeToUserEvents();
+        try {
+            msLogin("ms-sub-hook", "hook@firma.de", "Hook One");
+            awaitUserHook(1);
+            assertThat(userHookBodies()).hasSize(1);
+            assertThat(userHookBodies().get(0)).contains("\"user.created\"").contains("\"source\":\"oidc\"")
+                    .contains("hook@firma.de");
+
+            msLogin("ms-sub-hook", "hook@firma.de", "Hook One");   // nothing changed
+            Thread.sleep(300);
+            assertThat(userHookBodies()).hasSize(1);
+
+            msLogin("ms-sub-hook", "hook@firma.de", "Hook Renamed");
+            awaitUserHook(2);
+            assertThat(userHookBodies().get(1)).contains("\"user.updated\"").contains("\"changedFields\":[\"name\"]");
+        } finally {
+            de.chriscohnen.islandr.webhook.WebhookTestCleanup.deleteAllWebhooks();
+        }
     }
 
     // -- oidc-email-link-verified ---------------------------------------------

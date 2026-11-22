@@ -114,7 +114,7 @@ export default defineComponent({
         <div>{{ t('dns.tcp_blocked_hint', { port: status.port }) }}</div>
       </div>
 
-      <div v-if="status.enabled" class="callout callout-warning" style="margin-bottom: var(--space-4)">
+      <div v-if="status.enabled && status.tunnelMode !== 'FULL'" class="callout callout-info" style="margin-bottom: var(--space-4)">
         <div>{{ t('dns.split_tunnel_hint', { zone: status.zone, ip: status.bindAddress }) }}
           <a href="https://github.com/chriscohnen/islandr/blob/main/docs/install/dns-clients.md"
              target="_blank" rel="noopener"

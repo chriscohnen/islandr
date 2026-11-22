@@ -15,7 +15,7 @@ import java.lang.annotation.Target;
  */
 @Documented
 @Constraint(validatedBy = CidrValidator.class)
-@Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT})
+@Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT, ElementType.TYPE_USE})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ValidCidr {
     String message() default "must be a valid IPv4 or IPv6 CIDR (e.g. 10.8.0.0/24 or fd11::/64)";

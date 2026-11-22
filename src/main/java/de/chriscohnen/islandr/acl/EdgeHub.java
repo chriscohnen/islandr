@@ -108,9 +108,28 @@ public class EdgeHub extends PanacheEntityBase {
     @Column(name = "last_sync_at")
     public Instant lastSyncAt;
 
+    /** edge-status-plan-fields: the reason the agent gave for refusing the last plan; null when it applied. */
+    @Column(name = "plan_rejected", length = 500)
+    public String planRejected;
+
+    /** Peers the agent left out of the last plan it applied (e.g. a PSK peer without psks:read). */
+    @Column(name = "skipped_peers")
+    public Integer skippedPeers;
+
+    @Column(name = "agent_version", length = 64)
+    public String agentVersion;
+
     /** Unused this slice — see class javadoc. */
     @Column(name = "last_plan_serial")
     public Integer lastPlanSerial;
+
+    /** edge-plan-peers: serial of the plan the hub last handed out, and a hash of
+     *  its content — a fetch bumps the serial only when the content changed. */
+    @Column(name = "plan_serial", nullable = false)
+    public int planSerial;
+
+    @Column(name = "plan_hash", length = 64)
+    public String planHash;
 
     /** Unused this slice — see class javadoc. */
     @Column(name = "last_applied_at")

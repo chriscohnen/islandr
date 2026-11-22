@@ -108,7 +108,8 @@ public class MyAccessResource {
                     null, // gatewayLastSeenAt — ditto; portal shows connected/disconnected only
                     gw == null ? null : gw.lat,
                     gw == null ? null : gw.lng,
-                    site.edgeHubId, site.kind);
+                    site.edgeHubId, site.kind,
+                    null); // cidrs — same: never shown to end users
         }).toList();
 
         List<DashboardDto.TopologyResource> topoResources = granted.stream()

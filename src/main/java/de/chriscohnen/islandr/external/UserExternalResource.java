@@ -34,6 +34,7 @@ public class UserExternalResource {
 
     @Inject UserAccessService access;
     @Inject AuditService audit;
+    @Inject de.chriscohnen.islandr.user.UserEvents events;
 
     @GET
     public List<UserDto.Response> listAll(@Context ContainerRequestContext ctx) {
@@ -72,6 +73,7 @@ public class UserExternalResource {
         String action = wanted ? "user.enable" : "user.disable";
         audit.logUpdate(a.principal(), action, "User:" + u.name + " (" + u.id + ")",
                 Map.of("enabled", !wanted), Map.of("enabled", wanted, "via", "external-api"));
+        events.enabledChanged(u, a.principal(), de.chriscohnen.islandr.user.UserEvents.SOURCE_API);
         if (!wanted) {
             access.withdrawPeerAccess(u.id);
         }
