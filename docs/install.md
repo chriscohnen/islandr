@@ -239,8 +239,11 @@ usual. Islandr then
   that range),
 - never scans the range in discovery.
 
-A site holds one range. A partner with several separate addresses is several external
-sites, one per range, until a site can carry a list.
+A partner with several separate addresses is one external site with several ranges:
+enter the first as the CIDR and add the others under **Add address range**. Every range
+is routed, masqueraded and covered by grants alike. Devices that are already set up
+route a new range only after their configuration is imported again. A site holds up
+to 16 ranges, they must not overlap, and only external networks can have more than one.
 
 A partner behind a content delivery network is a poor fit for fixed ranges: its
 addresses change, and a browser may resolve the name to an address you did not

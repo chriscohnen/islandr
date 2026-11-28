@@ -19,7 +19,7 @@ export default defineComponent({
       loading: true,
       error: null,
       modal: null,        // null | "create" | "edit"
-      form: { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "", kind: "internal" },
+      form: { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "", kind: "internal", extraCidrs: [] },
       editId: null,
       submitting: false,
       formError: null,
@@ -47,6 +47,15 @@ export default defineComponent({
     if (this._offEscape) this._offEscape();
   },
   computed: {
+    // sites-kind-badge: ordinary networks first, then those at an edge hub (by hub),
+    // then partners; by name inside each group.
+    sortedSites() {
+      const rank = (s) => (s.kind === "external" ? 2 : s.edgeHubId ? 1 : 0);
+      return [...this.sites].sort((a, b) =>
+        rank(a) - rank(b)
+        || (rank(a) === 1 ? (a.edgeHubName || "").localeCompare(b.edgeHubName || "") : 0)
+        || (a.name || "").localeCompare(b.name || ""));
+    },
     _lang() { return locale.current; },
     // Routed CIDRs of the selected gateway peer, offered as one-click fills for
     // the site CIDR so it need not be retyped.
@@ -225,7 +234,7 @@ export default defineComponent({
     openCreate() {
       this.modal = "create";
       this.editId = null;
-      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "", kind: "internal" };
+      this.form = { name: "", cidr: "", description: "", gatewayPeerId: "", subdomain: "", dnsServerIp: "", edgeHubId: "", kind: "internal", extraCidrs: [] };
       this.formError = null;
     },
     openEdit(site) {
@@ -240,6 +249,7 @@ export default defineComponent({
         dnsServerIp: site.dnsServerIp || "",
         edgeHubId: site.edgeHubId || "",
         kind: site.kind || "internal",
+        extraCidrs: (site.cidrs || []).slice(1),
       };
       this.formError = null;
     },
@@ -280,6 +290,9 @@ export default defineComponent({
             // value left over from switching the kind must not be sent along.
             gatewayPeerId: this.form.kind === "external" ? null : (this.form.gatewayPeerId || null),
             edgeHubId: this.form.kind === "external" ? null : (this.form.edgeHubId || null),
+            // Further ranges exist for external networks only (site-multi-cidr).
+            extraCidrs: this.form.kind === "external"
+              ? this.form.extraCidrs.map((c) => c.trim()).filter((c) => c) : [],
           }),
         });
         if (!res.ok) {
@@ -361,34 +374,44 @@ export default defineComponent({
           <th>{{ t('sites.th_name') }}</th>
           <th>{{ t('sites.th_cidr') }}</th>
           <th>{{ t('sites.th_gateway') }}</th>
-          <th v-if="edgeHubs.length">{{ t('sites.field_edge_hub') }}</th>
           <th>{{ t('sites.th_desc') }}</th>
           <th>{{ t('sites.th_resources') }}</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="s in sites" :key="s.id">
-          <td>{{ s.name }}</td>
+        <tr v-for="s in sortedSites" :key="s.id">
+          <!-- sites-kind-badge: the same corner flags as the peers table — a partner top-left, a
+               network at an edge hub bottom-left — expanding into a labelled ribbon on hover or
+               focus. An ordinary network on the central hub carries nothing. -->
+          <td class="peer-name-cell">
+            <span v-if="s.kind === 'external'" class="rw-flag" tabindex="0" role="note"
+                  :aria-label="t('sites.kind_badge_partner') + ' — ' + t('sites.kind_external_title')">
+              <span class="rw-band" aria-hidden="true">{{ t('sites.kind_badge_partner') }}</span>
+            </span>
+            <span v-else-if="s.edgeHubId" class="edge-flag" tabindex="0" role="note"
+                  :aria-label="t('sites.kind_badge_edge', { hub: s.edgeHubName || s.edgeHubId })">
+              <span class="edge-band" aria-hidden="true">{{ t('sites.kind_badge_edge', { hub: s.edgeHubName || s.edgeHubId }) }}</span>
+            </span>
+            {{ s.name }}
+          </td>
           <td class="mono">
             {{ s.cidr }}
+            <span v-if="s.cidrs && s.cidrs.length > 1" class="badge badge-neutral" style="margin-left: var(--space-2); font-family: var(--font-sans)"
+                  :title="s.cidrs.join(', ')">+{{ s.cidrs.length - 1 }}</span>
             <span v-if="s.outsideSplitSupernet" :title="t('sites.warn_outside_supernet')"
                   style="display:inline-flex; align-items:center; gap:4px; color:var(--status-warn); font-family:var(--font-sans); font-size:var(--text-xs); font-weight:500; margin-left:var(--space-2)">
               {{ t('sites.warn_outside_supernet_short') }}
             </span>
           </td>
           <td>
-            <span v-if="s.kind === 'external'" class="badge badge-neutral" :title="t('sites.kind_external_title')">
-              <Icon name="external-link" :size="12" />{{ t('sites.kind_external_short') }}
-            </span>
-            <span v-else-if="!s.gatewayPeerId" class="muted">—</span>
+            <span v-if="s.kind === 'external' || !s.gatewayPeerId" class="muted">—</span>
             <span v-else style="display:inline-flex;align-items:center;gap:var(--space-2)">
               <span :style="s.gatewayOnline ? 'color:var(--status-ok)' : 'color:var(--fg3)'"
                     style="font-size:10px">{{ s.gatewayOnline ? '●' : '○' }}</span>
               <span>{{ s.gatewayPeerName || s.gatewayPeerId }}</span>
             </span>
           </td>
-          <td v-if="edgeHubs.length" class="muted">{{ s.edgeHubName || t('sites.field_edge_hub_none') }}</td>
           <td class="muted">{{ s.description || "—" }}</td>
           <td>
             <button class="btn btn-ghost btn-sm" @click="goToResources(s)">
@@ -533,6 +556,17 @@ export default defineComponent({
               <label for="siteCidr">{{ t('sites.field_cidr') }}</label>
               <input id="siteCidr" class="input mono" v-model="form.cidr" required placeholder="10.20.0.0/16" />
               <div class="field-hint">{{ form.kind === 'external' ? t('sites.hint_cidr_external') : t('sites.hint_cidr') }}</div>
+              <!-- site-multi-cidr: a partner with several address ranges. External networks only. -->
+              <div v-if="form.kind === 'external'" style="margin-top: var(--space-3)">
+                <div v-for="(c, i) in form.extraCidrs" :key="i" style="display: flex; gap: var(--space-2); margin-bottom: var(--space-2)">
+                  <input class="input mono" v-model="form.extraCidrs[i]" placeholder="198.51.100.0/28" :aria-label="t('sites.extra_cidr')" />
+                  <button type="button" class="btn btn-ghost btn-sm" @click="form.extraCidrs.splice(i, 1)">{{ t('sites.extra_cidr_remove') }}</button>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" :disabled="form.extraCidrs.length >= 15" @click="form.extraCidrs.push('')">
+                  {{ t('sites.extra_cidr_add') }}
+                </button>
+                <div class="field-hint">{{ t('sites.extra_cidr_hint') }}</div>
+              </div>
             </div>
             <div class="field" style="margin-bottom: var(--space-4)">
               <label for="siteKind">{{ t('sites.field_kind') }}</label>

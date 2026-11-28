@@ -408,6 +408,12 @@ public class Settings extends PanacheEntityBase {
             // on save) but conf generation must never throw over it — fall back.
             return wgClientDns;
         }
-        return (wgClientDns == null || wgClientDns.isBlank()) ? hubIp : hubIp + ", " + wgClientDns;
+        if (wgClientDns == null || wgClientDns.isBlank()) return hubIp;
+        // An admin who already typed the hub's address into the DNS field (as the split-tunnel hint
+        // asks them to) must not get it twice: "10.8.0.1, 10.8.0.1, corp.example".
+        for (String token : wgClientDns.split("[,\\s]+")) {
+            if (token.equals(hubIp)) return wgClientDns;
+        }
+        return hubIp + ", " + wgClientDns;
     }
 }

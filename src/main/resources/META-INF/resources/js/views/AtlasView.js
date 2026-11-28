@@ -49,6 +49,7 @@ export default defineComponent({
       // doesn't scale once a tenant has dozens of them. "" = show everyone.
       userFilterRoleId: "",
       grantsPage: 1,
+      grantsSearch: "",
       grantsSortKey: "userName",
       grantsSortDir: 1, // 1 = asc, -1 = desc
       // Network diagnostics (ADR-0025): availability is fetched once so the
@@ -290,7 +291,11 @@ export default defineComponent({
     sortedGrantsForTable() {
       const k = this.grantsSortKey;
       const d = this.grantsSortDir;
-      const list = [...this.grantsForTable];
+      // Quick search over what the table shows: kind, subject, role, target, ports.
+      const q = this.grantsSearch.trim().toLowerCase();
+      const list = this.grantsForTable.filter((r) => !q
+        || [r.kindLabel, r.userName, r.roleName, r.resourceName, r.portsLabel]
+            .some((v) => String(v || "").toLowerCase().includes(q)));
       list.sort((a, b) => d * String(a[k] || "").localeCompare(String(b[k] || ""), undefined, { numeric: true }));
       return list;
     },
@@ -317,6 +322,7 @@ export default defineComponent({
     // A changed filter can shrink the result set below the current page —
     // back to page 1 rather than landing on an empty page.
     activeTypes() { this.grantsPage = 1; },
+    grantsSearch() { this.grantsPage = 1; },
     userFilterRoleId() { this.grantsPage = 1; },
   },
   async mounted() {
@@ -522,10 +528,6 @@ export default defineComponent({
       if (!roleId) {
         const own = (this.graph.roles || []).filter((r) => (r.memberUserIds || []).includes(subjectId));
         roleId = own.length === 1 ? own[0].id : "";
-      } else if (this.graph.edges.some((e) => e.kind === "network-grant" && e.siteId === siteId && e.roleId === roleId)) {
-        const role = (this.graph.roles || []).find((r) => r.id === roleId);
-        this.error = t("atlas.network_grant_exists", { role: role ? role.name : roleId, site: site.name });
-        return;
       }
       this.networkGrantDialog = { siteId, siteName: site.name, userName: user ? user.name : subjectId, roleId };
     },
@@ -610,7 +612,7 @@ export default defineComponent({
         return;
       }
       if (edge.kind === "network-grant") {
-        this.error = t("atlas.revoke_network_grant_blocked");
+        this.openNetworkGrantRevokeConfirm(edge, subjectName);
         return;
       }
       const roleLabel = edge.kind === "role" ? edge.roleName
@@ -653,6 +655,58 @@ export default defineComponent({
       }
     },
 
+    // A network-grant edge stands for a whole role → network grant, not one
+    // resource: look up the row behind it and confirm removing that.
+    async openNetworkGrantRevokeConfirm(edge, subjectName) {
+      const siteId = edge.siteId || ((this.graph.resources || []).find((r) => r.id === edge.resourceId) || {}).siteId;
+      const found = await this.findNetworkGrant(edge.roleId, siteId);
+      if (!found) {
+        this.error = t("atlas.revoke_network_grant_blocked");
+        return;
+      }
+      this.revokeConfirm = {
+        edge, isNetworkGrant: true, networkGrantId: found.id,
+        userName: subjectName, roleLabel: edge.roleName || (found.roleName || ""), siteName: found.siteName,
+      };
+    },
+
+    async findNetworkGrant(roleId, siteId) {
+      try {
+        const res = await fetch("/api/v1/acl/network-grants");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return (await res.json()).find((g) => g.roleId === roleId && g.siteId === siteId) || null;
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+        return null;
+      }
+    },
+
+    async deleteNetworkGrant(id) {
+      const res = await fetch("/api/v1/acl/network-grants/" + id, { method: "DELETE" });
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error("HTTP " + res.status + (errBody ? " — " + errBody.slice(0, 200) : ""));
+      }
+    },
+
+    // From the drag dialog, when the grant it would create already exists.
+    async removeNetworkGrantFromDialog() {
+      const d = this.networkGrantDialog;
+      if (!d || !d.roleId) return;
+      this.networkGrantSaving = true;
+      this.error = null;
+      try {
+        const found = await this.findNetworkGrant(d.roleId, d.siteId);
+        if (found) await this.deleteNetworkGrant(found.id);
+        this.networkGrantDialog = null;
+        await this.load();
+      } catch (e) {
+        this.error = t("atlas.error_revoke", { error: e.message });
+      } finally {
+        this.networkGrantSaving = false;
+      }
+    },
+
     cancelRevokeConfirm() {
       this.revokeConfirm = null;
     },
@@ -661,6 +715,20 @@ export default defineComponent({
       if (!this.revokeConfirm) return;
       if (this.revokeConfirm.isTypeGrant) {
         await this.confirmRevokeTypeGrant();
+        return;
+      }
+      if (this.revokeConfirm.isNetworkGrant) {
+        this.revokeSaving = true;
+        this.error = null;
+        try {
+          await this.deleteNetworkGrant(this.revokeConfirm.networkGrantId);
+          this.revokeConfirm = null;
+          await this.load();
+        } catch (e) {
+          this.error = t("atlas.error_revoke", { error: e.message });
+        } finally {
+          this.revokeSaving = false;
+        }
         return;
       }
       const edge = this.revokeConfirm.edge;
@@ -1018,6 +1086,7 @@ export default defineComponent({
       <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-site-id="selectedSiteId"
+                       :selected-role-id="selectedRoleId"
                        :selected-peer-id="selectedPeerId"
                        :row-hover-key="rowHoverKey"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
@@ -1165,6 +1234,9 @@ export default defineComponent({
         <h2 style="margin: 0 0 var(--space-3); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">
           {{ t('atlas.grants_table_title') }}
         </h2>
+        <input v-if="grantsForTable.length > 0" type="search" class="input" v-model="grantsSearch"
+               :placeholder="t('atlas.grants_search_ph')" :aria-label="t('atlas.grants_search_ph')"
+               style="max-width: 320px; margin-bottom: var(--space-3)" />
         <table v-if="grantsForTable.length > 0" class="table">
           <thead>
             <tr>
@@ -1205,6 +1277,7 @@ export default defineComponent({
             </tr>
           </tbody>
         </table>
+        <p v-if="grantsForTable.length > 0 && sortedGrantsForTable.length === 0" class="muted" style="font-size: var(--text-sm)">{{ t('atlas.grants_search_none') }}</p>
         <div v-if="grantsForTable.length > 0" style="display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3)">
           <button class="btn btn-ghost btn-sm" :disabled="grantsPageClamped <= 1" @click="grantsPrevPage">{{ t('atlas.grants_page_prev') }}</button>
           <button class="btn btn-ghost btn-sm" :disabled="grantsPageClamped >= grantsPageCount" @click="grantsNextPage">{{ t('atlas.grants_page_next') }}</button>
@@ -1273,6 +1346,9 @@ export default defineComponent({
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" @click="cancelNetworkGrantDialog">{{ t('atlas.grant_dialog_cancel') }}</button>
+          <button v-if="networkGrantExists" type="button" class="btn btn-danger" :disabled="networkGrantSaving" @click="removeNetworkGrantFromDialog">
+            {{ networkGrantSaving ? t('common.loading') : t('atlas.network_grant_remove') }}
+          </button>
           <button type="button" class="btn btn-primary" :disabled="networkGrantSaving || !networkGrantRole || networkGrantExists" @click="confirmNetworkGrantDialog">
             {{ networkGrantSaving ? t('common.loading') : t('atlas.network_grant_confirm_label') }}
           </button>
@@ -1289,6 +1365,9 @@ export default defineComponent({
         <div class="modal-body">
           <p v-if="revokeConfirm.isTypeGrant" style="margin: 0">
             {{ t('atlas.revoke_type_grant_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, type: revokeConfirm.typeLabel, site: revokeConfirm.siteName }) }}
+          </p>
+          <p v-else-if="revokeConfirm.isNetworkGrant" style="margin: 0">
+            {{ t('atlas.revoke_network_grant_confirm', { role: revokeConfirm.roleLabel, site: revokeConfirm.siteName }) }}
           </p>
           <p v-else style="margin: 0">
             {{ t('atlas.revoke_confirm', { user: revokeConfirm.userName, role: revokeConfirm.roleLabel, resource: revokeConfirm.resourceName }) }}

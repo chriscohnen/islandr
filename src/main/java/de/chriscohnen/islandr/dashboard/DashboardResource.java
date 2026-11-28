@@ -231,7 +231,7 @@ public class DashboardResource {
                             gw == null ? null : gw.lastSeenAt,
                             gw == null ? null : gw.lat,
                             gw == null ? null : gw.lng,
-                            site.edgeHubId, site.kind);
+                            site.edgeHubId, site.kind, site.allCidrs());
                 })
                 .toList();
         int resourceOverflow = Math.max(0, allResources.size() - TOPOLOGY_RESOURCE_CAP);
@@ -313,7 +313,8 @@ public class DashboardResource {
                 new DashboardDto.RoleStats(roleTotal, rolesWithGrants),
                 new DashboardDto.ResourceStats(siteTotal, resTotal, portTotal),
                 setup, firewallStatus, audit, peers, topology, hostHealth.latest(), dnsStatsOut,
-                trafficStatsOut(), trafficSeriesOut(), hostHealth.history());
+                trafficStatsOut(), trafficSeriesOut(), hostHealth.history(),
+                dnsStats.series(TRAFFIC_SERIES_MINUTES));
     }
 
     /** Minutes the traffic mini graph covers. */
@@ -333,7 +334,8 @@ public class DashboardResource {
     @Path("/live")
     public DashboardDto.Live live(@Context ContainerRequestContext ctx) {
         Auth.requireAdmin(ctx);
-        return new DashboardDto.Live(hostHealth.latest(), trafficStatsOut(), trafficSeriesOut(), hostHealth.history());
+        return new DashboardDto.Live(hostHealth.latest(), trafficStatsOut(), trafficSeriesOut(), hostHealth.history(),
+                dnsStats.series(TRAFFIC_SERIES_MINUTES));
     }
 
     /** traffic-window-tile: unlike the DNS tile this is always present —

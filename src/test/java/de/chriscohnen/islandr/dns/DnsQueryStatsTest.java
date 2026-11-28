@@ -36,4 +36,30 @@ class DnsQueryStatsTest {
         assertThat(s.local()).isEqualTo(3);
         assertThat(s.forwarded()).isEqualTo(1);
     }
+
+    @Test
+    void series_isOneNumberPerMinute_oldestFirst_emptyMinutesZero() {
+        DnsQueryStats stats = new DnsQueryStats();
+        stats.recordLocal();
+        stats.recordLocal();
+        stats.recordForwarded();
+
+        java.util.List<Long> series = stats.series(5);
+
+        assertThat(series).hasSize(5);
+        // local and forwarded are summed; the minute may roll over mid-test,
+        // so assert the total and that older minutes are flat zeros
+        assertThat(series.stream().mapToLong(Long::longValue).sum()).isEqualTo(3);
+        assertThat(series.get(0)).isZero();
+    }
+
+    @Test
+    void series_withoutQueries_isAFlatLineOfZeros() {
+        assertThat(new DnsQueryStats().series(30)).hasSize(30).containsOnly(0L);
+    }
+
+    @Test
+    void series_isCappedAtTheWindow() {
+        assertThat(new DnsQueryStats().series(100)).hasSize(30);
+    }
 }

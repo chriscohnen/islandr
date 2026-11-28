@@ -1,3 +1,4 @@
+import { resourceColumns, maxRowsPerColumn } from "/js/resourceColumns.js";
 import { defineComponent } from "vue";
 import { PATHS as ICON_PATHS } from "/js/Icons.js";
 import { t, relativeTime } from "/js/i18n.js";
@@ -86,7 +87,8 @@ const PEER_SUMMARY_DIST = FIRST_RING - 40; // tier-3 collapsed node position, in
 // with the gateway/network ring or an expanded network's resource columns.
 const EDGE_HUB_RING = FIRST_RING + NETWORK_RING_OFFSET + 60;
 const EDGE_HUB_R = HUB_R * 0.55;          // smaller than the central hub — visually subordinate
-const EDGE_HUB_PEER_ORBIT = 44;           // local radius for the peers that dial this edge
+const EDGE_HUB_PEER_ORBIT = 44;           // local radius for the peers that dial this edge (dots)
+const EDGE_HUB_PEER_ICON_ORBIT = 66;      // same, when they are drawn as icons with a name and an IP
 // A site assigned to an edge hub (Site.edgeHubId) renders under that edge
 // hub, never under the central hub — same gateway/direct-network two-tier
 // structure as the center (gatewayGroups/directSites/expandedGatewayNetworkLayout),
@@ -164,6 +166,24 @@ function radialPeerLabel(angle, iconR) {
            nameY: -1 + shift, ipY: 11 + shift };
 }
 
+/**
+ * The box a peer icon with its two label lines takes up (the diagram's bounding box must
+ * contain it, or panning and the viewBox clip it). Dots, which carry no label, are the
+ * dot's radius.
+ */
+function peerExtent(d) {
+  if (!d.label) {
+    return [{ x: d.x - LIVE_DOT_R, y: d.y - LIVE_DOT_R }, { x: d.x + LIVE_DOT_R, y: d.y + LIVE_DOT_R + 4 }];
+  }
+  const w = Math.max((d.peer.name || "").length * 6.0, (d.peer.assignedIp || "").length * 5.4);
+  const l = d.label;
+  const lx0 = l.anchor === "middle" ? d.x - w / 2 : l.anchor === "start" ? d.x + l.x : d.x + l.x - w;
+  return [
+    { x: Math.min(d.x - PEER_ICON_R, lx0), y: d.y + Math.min(-PEER_ICON_R, l.nameY - 10) },
+    { x: Math.max(d.x + PEER_ICON_R, lx0 + w), y: d.y + Math.max(PEER_ICON_R, l.ipY + 3) },
+  ];
+}
+
 function polar(angle, dist) {
   return { x: CX + dist * Math.cos(angle), y: CY + dist * Math.sin(angle) };
 }
@@ -222,6 +242,16 @@ function roundedOrthogonalPath(points, r) {
   return d;
 }
 
+// topology-partner-arrow: whether external networks ("partners") are drawn.
+// Per browser, on by default; storage can be blocked, so every access is guarded.
+const PARTNER_PREF_KEY = "islandr.topology.showPartners";
+function loadShowPartners() {
+  try { return localStorage.getItem(PARTNER_PREF_KEY) !== "0"; } catch (e) { return true; }
+}
+function saveShowPartners(on) {
+  try { localStorage.setItem(PARTNER_PREF_KEY, on ? "1" : "0"); } catch (e) { /* not remembered */ }
+}
+
 export default defineComponent({
   name: "TopologyDiagram",
   props: {
@@ -252,6 +282,7 @@ export default defineComponent({
       expandedGatewayId: null,
       expandedSiteId: null,
       activeTypes: new Set(),
+      showPartners: loadShowPartners(),
       panX: 0,
       panY: 0,
       zoom: 1,
@@ -320,7 +351,11 @@ export default defineComponent({
       return this.groupSitesByGateway(this.centralSites);
     },
     directSites() {
-      return this.centralSites.filter((s) => !s.gatewayPeerId);
+      return this.centralSites.filter((s) => !s.gatewayPeerId
+        && (this.showPartners || s.kind !== "external"));
+    },
+    hasPartners() {
+      return this.centralSites.some((s) => s.kind === "external");
     },
     // First-ring hub spokes: one per gateway group, one per direct (ungated) network.
     gatewayLayout() {
@@ -420,9 +455,8 @@ export default defineComponent({
     // topology-expanded-site-columns: wraps into multiple columns once a
     // single column would run past the capped viewBox height — one column
     // at the full TOPOLOGY_RESOURCE_CAP (24) used to overlay the hub and
-    // neighboring nodes. maxRowsPerCol is derived from MAX_VIEW_H (the
-    // capped viewBox height), not guessed, so a small window and a large
-    // one wrap at the same, always-visible row count. Columns are balanced
+    // neighboring nodes. Rows per column come from the first ring (resourceColumns.js),
+    // so a small window and a large one wrap at the same row count. Columns are balanced
     // (evenly split across the computed column count) rather than "fill the
     // first column to the brim, spill the rest" — every column ends up a
     // similar height, easier to scan. Each row carries its own `col` and
@@ -444,9 +478,10 @@ export default defineComponent({
       // of whether this network is a direct spoke or grouped under a gateway.
       const gatewayOnline = net.site.gatewayOnline;
 
-      const maxRowsPerCol = Math.max(1, Math.floor((MAX_VIEW_H - 2 * CONTENT_PAD) / RESOURCE_ROW_H));
-      const numCols = Math.max(1, Math.ceil(list.length / maxRowsPerCol));
-      const rowsPerCol = Math.ceil(list.length / numCols);
+      // topology-expanded-columns: a column is no taller than the first ring —
+      // 17 rows used to be one column of 17, a tall narrow diagram in a wide card.
+      const { numCols, rowsPerCol } = resourceColumns(
+        list.length, maxRowsPerColumn(FIRST_RING, RESOURCE_ROW_H, MAX_VIEW_H, CONTENT_PAD));
 
       const out = [];
       for (let col = 0; col < numCols; col++) {
@@ -631,9 +666,14 @@ export default defineComponent({
         const peers = this.relevantLivePeers.filter((p) => p.edgeHubId === item.hub.id);
         if (peers.length === 0) continue;
         const angles = fanAngles(item.angle, peers.length);
+        // Same detail tier as the central hub: with few peers each is an icon with its name and
+        // IP (written outward from the edge), with many a dot and a tooltip.
+        const icons = this.peerTier === "icons";
+        const orbit = icons ? EDGE_HUB_PEER_ICON_ORBIT : EDGE_HUB_PEER_ORBIT;
         peers.forEach((p, i) => {
-          const { x, y } = localPolar(item.x, item.y, angles[i], EDGE_HUB_PEER_ORBIT);
-          out.push({ peer: p, hub: item.hub, x, y });
+          const { x, y } = localPolar(item.x, item.y, angles[i], orbit);
+          out.push({ peer: p, hub: item.hub, x, y,
+                     label: icons ? radialPeerLabel(angles[i], PEER_ICON_R) : null });
         });
       }
       return out;
@@ -680,21 +720,9 @@ export default defineComponent({
       if (this.resourceColumnBypassY !== null && this.resourceLayout.some((r) => r.col > 0)) {
         pts.push({ x: this.resourceLayout[0].netX, y: this.resourceColumnBypassY });
       }
-      for (const d of this.livePeerLayout) {
-        // Tier 2 ("orbit") is a small dot with no permanent label (hover
-        // only). Tier 1 ("icons") carries a name and an IP on the side
-        // radialPeerLabel chose — pad that side by the labels' width.
-        if (!d.label) {
-          pts.push({ x: d.x - LIVE_DOT_R, y: d.y - LIVE_DOT_R });
-          pts.push({ x: d.x + LIVE_DOT_R, y: d.y + LIVE_DOT_R + 4 });
-          continue;
-        }
-        const w = Math.max((d.peer.name || "").length * 6.0, (d.peer.assignedIp || "").length * 5.4);
-        const l = d.label;
-        const lx0 = l.anchor === "middle" ? d.x - w / 2 : l.anchor === "start" ? d.x + l.x : d.x + l.x - w;
-        pts.push({ x: Math.min(d.x - PEER_ICON_R, lx0), y: d.y + Math.min(-PEER_ICON_R, l.nameY - 10) });
-        pts.push({ x: Math.max(d.x + PEER_ICON_R, lx0 + w), y: d.y + Math.max(PEER_ICON_R, l.ipY + 3) });
-      }
+      // Tier 2 ("orbit") is a small dot with no permanent label (hover only); tier 1 ("icons")
+      // carries a name and an IP — peerExtent pads for whichever applies.
+      for (const d of this.livePeerLayout) pts.push(...peerExtent(d));
       if (this.peerSummaryLayout) {
         const s = this.peerSummaryLayout;
         pts.push({ x: s.x - NODE_HALF_W, y: s.y - NODE_HALF_H });
@@ -707,10 +735,7 @@ export default defineComponent({
         pts.push({ x: item.x - EDGE_HUB_R, y: item.y - EDGE_HUB_R });
         pts.push({ x: item.x + EDGE_HUB_R, y: item.y + EDGE_HUB_R + 30 });
       }
-      for (const d of this.edgeHubPeerLayout) {
-        pts.push({ x: d.x - 10, y: d.y - 10 });
-        pts.push({ x: d.x + 10, y: d.y + 10 });
-      }
+      for (const d of this.edgeHubPeerLayout) pts.push(...peerExtent(d));
 
       const PAD = CONTENT_PAD;
       let minX = Math.min(...pts.map((p) => p.x)) - PAD;
@@ -774,6 +799,20 @@ export default defineComponent({
   methods: {
     t(key, vars) { return t(key, vars); },
     linkPath(x1, y1, x2, y2, bow) { return curvePath(x1, y1, x2, y2, bow); },
+    isPartner(site) { return !!site && site.kind === "external"; },
+    togglePartners() {
+      this.showPartners = !this.showPartners;
+      saveShowPartners(this.showPartners);
+    },
+    // Hub → partner: stops at the box edge so the arrowhead is visible instead
+    // of ending under the box.
+    partnerLinkPath(item) {
+      const dx = item.x - item.parentX, dy = item.y - item.parentY;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const exit = Math.min(NODE_HALF_W / (Math.abs(ux) || 1e-6), NODE_HALF_H / (Math.abs(uy) || 1e-6)) + 3;
+      return curvePath(item.parentX, item.parentY, item.x - ux * exit, item.y - uy * exit);
+    },
     // Shared by gatewayGroups (central) and edgeHubGatewayLayout (per edge
     // hub) — same "sites sharing a gatewayPeerId collapse into one spoke"
     // rule, just over whichever site list the caller already scoped.
@@ -936,6 +975,9 @@ export default defineComponent({
     countForSite(site) {
       if (this.activeTypes.size === 0) return site.resourceCount || 0;
       return this.filteredResourceCount.get(site.id) || 0;
+    },
+    partnerIconMarkup() {
+      return (ICON_PATHS["external-link"] || []).join("");
     },
     networkIconMarkup() {
       return (ICON_PATHS.networks || []).join("");
@@ -1189,15 +1231,23 @@ export default defineComponent({
   template: `
     <div style="position: relative">
       <!-- Type filter chips -->
-      <div v-if="presentTypes.length > 1"
+      <div v-if="presentTypes.length > 1 || hasPartners"
            style="display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); font-family: var(--font-sans)">
-        <button @click="clearTypes"
+        <button v-if="hasPartners" @click="togglePartners" :aria-pressed="showPartners"
+          :class="['btn','btn-sm', showPartners ? 'btn-secondary' : 'btn-ghost']"
+          style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               style="flex-shrink: 0; opacity: 0.75" v-html="partnerIconMarkup()" />
+          {{ t('topology.filter_partners') }}
+        </button>
+        <button v-if="presentTypes.length > 1" @click="clearTypes"
           :class="['btn','btn-sm', activeTypes.size === 0 ? 'btn-secondary' : 'btn-ghost']"
           style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
           {{ t('topology.filter_all') }}
           <span style="font-family: var(--font-mono); opacity: 0.6">{{ resources.length }}</span>
         </button>
-        <button v-for="tp in presentTypes" :key="tp.key"
+        <button v-for="tp in (presentTypes.length > 1 ? presentTypes : [])" :key="tp.key"
           @click="toggleType(tp.key)"
           :class="['btn','btn-sm', activeTypes.has(tp.key) ? 'btn-secondary' : 'btn-ghost']"
           style="font-size: var(--text-xs); text-transform: none; letter-spacing: 0; height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px">
@@ -1248,6 +1298,12 @@ export default defineComponent({
            @pointerup="onPointerUp"
            @pointercancel="onPointerUp"
            role="img" aria-label="Netzwerk-Topologie">
+        <defs>
+          <marker id="partner-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+                  markerUnits="userSpaceOnUse" orient="auto">
+            <path class="partner-arrow-head" d="M0,1 L9,5 L0,9 z" />
+          </marker>
+        </defs>
 
         <!-- Hub-to-gateway / hub-to-direct-network links, swept into a gentle
              mindmap-style curve rather than a ruler-straight radius. -->
@@ -1256,9 +1312,10 @@ export default defineComponent({
               :style="nodeFocusStyle(item.gateway.gatewayPeerId === expandedGatewayId)"
               :d="linkPath(item.centerX, item.centerY, item.x, item.y)" />
         <path v-for="item in directNetworkLayout" :key="'dl-'+item.site.id"
-              class="link"
+              :class="['link', isPartner(item.site) ? 'link-partner' : '']"
               :style="nodeFocusStyle(item.site.id === expandedSiteId)"
-              :d="linkPath(item.parentX, item.parentY, item.x, item.y)" />
+              :marker-end="isPartner(item.site) ? 'url(#partner-arrow)' : null"
+              :d="isPartner(item.site) ? partnerLinkPath(item) : linkPath(item.parentX, item.parentY, item.x, item.y)" />
 
         <!-- Gateway-to-network links (expanded gateway only) -->
         <path v-for="item in expandedGatewayNetworkLayout" :key="'gnl-'+item.site.id"
@@ -1385,6 +1442,15 @@ export default defineComponent({
            @mousemove="moveEdgeHubTooltip($event)"
            @mouseleave="hideEdgeHubTooltip">
           <circle class="hub-core" :r="EDGE_HUB_R - 4" />
+          <!-- The same constellation mark as the central hub, scaled to this smaller core. -->
+          <g class="hub-mark" transform="translate(-12,-12) scale(0.19)" style="pointer-events:none">
+            <path d="M27 102 L53 90 L71 64 L99 46 M71 64 L65 33" fill="none" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="27" cy="102" r="5" />
+            <circle cx="53" cy="90" r="4.5" />
+            <circle cx="71" cy="64" r="6" />
+            <circle cx="99" cy="46" r="5" />
+            <circle cx="65" cy="33" r="9" />
+          </g>
           <circle fill="none" :r="EDGE_HUB_R"
                   :style="item.hub.enabled ? 'stroke: var(--status-ok); stroke-width:2.5' : 'stroke: var(--fg3); stroke-width:2'" />
           <text class="hub-label" :y="EDGE_HUB_R + 15">{{ item.hub.name }}</text>
@@ -1395,13 +1461,33 @@ export default defineComponent({
 
         <!-- edge-hub-radial-topology: peers that dial an edge hub, fanned
              locally around it — same dot style as tier 2's central orbit. -->
-        <circle v-for="d in edgeHubPeerLayout" :key="'ehp-'+d.peer.id"
-                :cx="d.x" :cy="d.y" :r="LIVE_DOT_R"
-                :class="['node', 'peer', 'status-' + peerStatusClass(d.peer)]"
-                :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
-                @mouseenter="showPeerTooltip($event, d.peer)"
-                @mousemove="movePeerTooltip($event)"
-                @mouseleave="hidePeerTooltip" />
+        <template v-for="d in edgeHubPeerLayout" :key="'ehp-'+d.peer.id">
+          <g v-if="d.label"
+             :class="['node', 'peer', 'status-' + peerStatusClass(d.peer)]"
+             :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
+             :transform="'translate('+d.x+','+d.y+')'"
+             @mouseenter="showPeerTooltip($event, d.peer)"
+             @mousemove="movePeerTooltip($event)"
+             @mouseleave="hidePeerTooltip">
+            <circle class="node-bg" :r="PEER_ICON_R - 2" />
+            <circle class="node-ring" fill="none" :r="PEER_ICON_R" />
+            <g class="node-icon" transform="translate(-6,-6) scale(0.5)"
+               fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"
+               v-html="peerDeviceIconMarkup(d.peer.deviceType)" />
+            <text class="live-label" :x="d.label.x" :y="d.label.nameY"
+                  :style="{ textAnchor: d.label.anchor }">{{ d.peer.name || t('topology.unknown_peer') }}</text>
+            <text v-if="d.peer.assignedIp" class="live-ip" :x="d.label.x" :y="d.label.ipY"
+                  :style="{ textAnchor: d.label.anchor }">{{ d.peer.assignedIp }}</text>
+          </g>
+          <circle v-else
+                  :cx="d.x" :cy="d.y" :r="LIVE_DOT_R"
+                  :class="['node', 'peer', 'status-' + peerStatusClass(d.peer)]"
+                  :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
+                  @mouseenter="showPeerTooltip($event, d.peer)"
+                  @mousemove="movePeerTooltip($event)"
+                  @mouseleave="hidePeerTooltip" />
+        </template>
 
         <!-- Gateway-peer nodes — router silhouette (box, not circle): a shared
              site router groups every network routed through it into one spoke. -->
@@ -1448,7 +1534,7 @@ export default defineComponent({
             <g class="node-icon" transform="translate(-6,-11) scale(0.45)"
                fill="none" stroke="currentColor" stroke-width="2.5"
                stroke-linecap="round" stroke-linejoin="round"
-               v-html="networkIconMarkup()" />
+               v-html="isPartner(item.site) ? partnerIconMarkup() : networkIconMarkup()" />
             <text :style="'font-family: var(--font-mono); font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: central; user-select: none; fill: ' + (item.count === 0 ? 'var(--fg3)' : 'var(--accent)')"
                   y="6">{{ item.count }}</text>
           </g>
@@ -1469,6 +1555,8 @@ export default defineComponent({
              v-html="networkIconMarkup()" />
 
           <text class="node-label" :y="NODE_HALF_H + 15">{{ item.site.name }}</text>
+          <text v-if="isPartner(item.site)" class="node-label"
+                :y="NODE_HALF_H + 28" style="fill: var(--fg3); font-size: 10px">{{ t('topology.partner') }}</text>
           <text v-if="item.site.id === expandedSiteId && siteResourceLoading !== item.site.id && resourceLayout.length === 0 && item.count > 0"
                 class="node-label" :y="NODE_HALF_H + 29"
                 style="fill: var(--fg3); font-size: 10px">{{ t('topology.resources_hidden_cap') }}</text>
@@ -1579,8 +1667,11 @@ export default defineComponent({
         <div style="font-weight: 600; font-size: var(--text-sm); color: var(--fg1); margin-bottom: 4px">
           {{ networkTooltip.site.name }}
         </div>
+        <div v-if="isPartner(networkTooltip.site)" style="font-size: var(--text-xs); margin-bottom: 4px; color: var(--fg2)">
+          {{ t('topology.partner_tooltip') }}
+        </div>
         <div v-if="networkTooltip.site.cidr" style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg2)">
-          {{ networkTooltip.site.cidr }}
+          {{ (networkTooltip.site.cidrs || [networkTooltip.site.cidr]).join(", ") }}
         </div>
       </div>
 

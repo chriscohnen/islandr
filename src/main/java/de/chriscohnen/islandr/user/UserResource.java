@@ -37,6 +37,7 @@ public class UserResource {
     @Inject AuditService audit;
     @Inject RulesetService rulesets;
     @Inject UserAccessService access;
+    @Inject UserEvents events;
     @Inject de.chriscohnen.islandr.crypto.PasswordHasher passwordHasher;
     @Inject de.chriscohnen.islandr.auth.SessionService sessions;
 
@@ -103,6 +104,7 @@ public class UserResource {
         u.persist();
         audit.logCreate(a.principal(), "user.create", "User:" + u.name + " (" + u.id + ")",
                 Map.of("name", u.name, "email", u.email, "isAdmin", u.isAdmin));
+        events.created(u, a.principal(), UserEvents.SOURCE_LOCAL);
         return Response
                 .created(UriBuilder.fromResource(UserResource.class).path(u.id).build())
                 .entity(UserDto.Response.from(u))
@@ -133,8 +135,12 @@ public class UserResource {
                             .build());
         }
         Map<String, Object> before = Map.of("name", u.name, "email", u.email);
+        java.util.List<String> changed = new java.util.ArrayList<>();
+        if (!name.equals(u.name)) changed.add("name");
+        if (!email.equals(u.email)) changed.add("email");
         u.name = name;
         u.email = email;
+        events.updated(u, a.principal(), UserEvents.SOURCE_LOCAL, changed);
         audit.logUpdate(a.principal(), "user.update", "User:" + u.name + " (" + u.id + ")",
                 before, Map.of("name", u.name, "email", u.email));
         return UserDto.Response.from(u);
@@ -162,6 +168,7 @@ public class UserResource {
         // otherwise a locked account keeps tunnelling from devices it already
         // has. The cascade and its one-way rule live in UserAccessService, so
         // every caller that withdraws access applies the same one.
+        events.enabledChanged(u, a.principal(), UserEvents.SOURCE_LOCAL);
         if (!wanted) {
             access.withdrawPeerAccess(u.id);
         }
@@ -327,6 +334,7 @@ public class UserResource {
         before.put("name", u.name);
         before.put("email", u.email);
         before.put("isAdmin", u.isAdmin);
+        events.deleted(u, a.principal(), UserEvents.SOURCE_LOCAL);
         u.delete();
         audit.logDelete(a.principal(), "user.delete", "User:" + u.name + " (" + id + ")", before);
         // FK cascade kills peers and user_roles rows; the user-bound accept

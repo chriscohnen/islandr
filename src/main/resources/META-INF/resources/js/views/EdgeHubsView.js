@@ -1,6 +1,6 @@
 import { defineComponent } from "vue";
 import { Icon } from "/js/Icons.js";
-import { t } from "/js/i18n.js";
+import { t, relativeTime } from "/js/i18n.js";
 import { onEscape } from "/js/keyboard.js";
 import { confirmDialog } from "/js/confirmDialog.js";
 
@@ -32,6 +32,7 @@ export default defineComponent({
     if (this._offEscape) this._offEscape();
   },
   methods: {
+    relativeTime(iso) { return relativeTime(iso); },
     t,
     async load() {
       this.loading = true;
@@ -142,6 +143,7 @@ export default defineComponent({
           <th>{{ t('edge_hubs.th_status') }}</th>
           <th>{{ t('edge_hubs.th_coords') }}</th>
           <th>{{ t('edge_hubs.th_sites') }}</th>
+          <th>{{ t('edge_hubs.th_sync') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -169,6 +171,15 @@ export default defineComponent({
           </td>
           <td class="mono">{{ h.lat }}, {{ h.lng }}</td>
           <td>{{ h.siteCount }}</td>
+          <!-- edge-status-plan-fields: an agent that reports nothing shows a dash;
+               a refused plan is named, not just coloured. -->
+          <td>
+            <span v-if="!h.lastSyncAt" class="muted">{{ t('edge_hubs.sync_never') }}</span>
+            <span v-else :title="h.lastSyncAt">{{ relativeTime(h.lastSyncAt) }}</span>
+            <div v-if="h.lastPlanSerial != null" class="muted mono" style="font-size: var(--text-xs)">{{ t('edge_hubs.plan_serial', { n: h.lastPlanSerial }) }}<span v-if="h.agentVersion"> · {{ h.agentVersion }}</span></div>
+            <span v-if="h.planRejected" class="badge badge-warning" style="margin-top:4px" :title="h.planRejected">{{ t('edge_hubs.plan_rejected') }}</span>
+            <div v-if="h.planRejected" class="muted" style="font-size: var(--text-xs)">{{ h.planRejected }}</div>
+          </td>
           <td style="text-align: right">
             <button class="btn btn-ghost btn-sm" @click="openEdit(h)"><Icon name="edit" :size="13" />{{ t('edge_hubs.btn_edit') }}</button>
             <button class="btn btn-ghost btn-sm" @click="deleteEdgeHub(h)"><Icon name="trash" :size="13" />{{ t('edge_hubs.btn_delete') }}</button>

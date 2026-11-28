@@ -44,6 +44,7 @@ public class EdgeExternalResource {
 
     @Inject AclResolutionService acl;
     @Inject AuditService audit;
+    @Inject EdgeReadAudit readAudit;
     @Inject ActivityPoller activityPoller;
 
     /**
@@ -64,13 +65,83 @@ public class EdgeExternalResource {
 
         List<EdgeHubDto.PeerPsk> peers = Peer.<Peer>listAll().stream()
                 .filter(p -> p.presharedKey != null)
-                .filter(p -> acl.reachableEdgeHubIdsForPeer(p).contains(id))
+                .filter(p -> servedBy(p, id))
                 .map(p -> new EdgeHubDto.PeerPsk(p.id, p.name, p.presharedKey))
                 .toList();
 
-        audit.logEvent(a.principal(), "edge.psks_read", "EdgeHub:" + edge.name + " (" + id + ")",
-                Map.of("peerCount", peers.size()));
+        // Recorded when what is handed out differs from the last time (not per poll — see EdgeReadAudit).
+        // The fingerprint covers the keys' digests, so a rotated PSK counts as a change.
+        String fingerprint = EdgeReadAudit.fingerprint(peers.stream()
+                .map(p -> p.peerId() + ":" + EdgeReadAudit.fingerprint(List.of(p.presharedKey()))).toList());
+        if (readAudit.changed(id, "psks", fingerprint)) {
+            audit.logEvent(a.principal(), "edge.psks_read", "EdgeHub:" + edge.name + " (" + id + ")",
+                    Map.of("peerCount", peers.size()));
+        }
         return new EdgeHubDto.PskResponse(peers);
+    }
+
+    /**
+     * Whether this edge serves the peer: it dials in here ({@code Peer.edgeHubId}, ADR-I-0003 — where
+     * a device connects), or its access reaches a resource behind this edge. The first is what the plan
+     * lists, so status and preshared keys must follow it; a peer attached to an edge but with no grant
+     * there yet would otherwise be in the plan and refused in the status report.
+     */
+    private boolean servedBy(Peer p, String edgeId) {
+        return edgeId.equals(p.edgeHubId) || acl.reachableEdgeHubIdsForPeer(p).contains(edgeId);
+    }
+
+    /**
+     * The peers an edge is to serve (edge-plan-peers, ADR-I-0005): those attached
+     * to it ({@code peers.edge_hub_id}, ADR-I-0003), enabled, with public key and
+     * tunnel addresses. No preshared keys — {@code hasPresharedKey} only; the keys
+     * stay behind {@code psks:read}. The serial rises exactly when this list
+     * changes, so an edge can tell "nothing new" from "apply again".
+     */
+    @GET
+    @Path("/{id}/plan")
+    @Transactional
+    public EdgeHubDto.PlanResponse plan(@Context ContainerRequestContext ctx, @PathParam("id") String id) {
+        AuthContext a = Auth.requireEdgeScope(ctx, ApiKeyScope.PLAN_READ, id);
+        EdgeHub edge = EdgeHub.findById(id);
+        if (edge == null) throw new NotFoundException("edge hub not found: " + id);
+
+        List<EdgeHubDto.PlanPeer> peers = Peer.<Peer>list("edgeHubId = ?1 and enabled = true", id).stream()
+                .sorted(java.util.Comparator.comparing(p -> p.id))
+                .map(p -> {
+                    List<String> ips = new ArrayList<>();
+                    if (p.assignedIp != null && !p.assignedIp.isBlank()) ips.add(p.assignedIp + "/32");
+                    if (p.assignedIpv6 != null && !p.assignedIpv6.isBlank()) ips.add(p.assignedIpv6 + "/128");
+                    return new EdgeHubDto.PlanPeer(p.id, p.name, p.publicKey, ips,
+                            p.presharedKey != null && !p.presharedKey.isBlank());
+                })
+                .toList();
+
+        String hash = contentHash(peers);
+        if (!hash.equals(edge.planHash)) {
+            edge.planHash = hash;
+            edge.planSerial++;
+            // Only a plan that changed is written to the audit log; the edge fetches it every few
+            // seconds and an entry per fetch would bury everything else.
+            audit.logEvent(a.principal(), "edge.plan_updated", "EdgeHub:" + edge.name + " (" + id + ")",
+                    Map.of("serial", edge.planSerial, "peerCount", peers.size()));
+        }
+        return new EdgeHubDto.PlanResponse(1, edge.planSerial, Instant.now(),
+                new EdgeHubDto.PlanEdge(edge.id, edge.name), peers);
+    }
+
+    private static String contentHash(List<EdgeHubDto.PlanPeer> peers) {
+        StringBuilder sb = new StringBuilder();
+        for (EdgeHubDto.PlanPeer p : peers) {
+            sb.append(p.id()).append('|').append(p.name()).append('|').append(p.publicKey()).append('|')
+                    .append(String.join(",", p.allowedIps())).append('|').append(p.hasPresharedKey()).append('\n');
+        }
+        try {
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(d);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**
@@ -102,11 +173,19 @@ public class EdgeExternalResource {
         if (edge == null) throw new NotFoundException("edge hub not found: " + id);
 
         Instant now = Instant.now();
+        edge.lastSyncAt = now;
+        if (body.planSerial() != null) {
+            edge.lastPlanSerial = body.planSerial();
+            edge.lastAppliedAt = body.appliedAt();
+            edge.planRejected = body.planRejected() == null || body.planRejected().isBlank() ? null : body.planRejected();
+            edge.skippedPeers = body.skippedPeers();
+        }
+        if (body.agentVersion() != null && !body.agentVersion().isBlank()) edge.agentVersion = body.agentVersion();
         int accepted = 0;
         List<String> rejected = new ArrayList<>();
-        for (EdgeHubDto.PeerSample sample : body.peers()) {
+        for (EdgeHubDto.PeerSample sample : body.peers() == null ? List.<EdgeHubDto.PeerSample>of() : body.peers()) {
             Peer p = Peer.find("publicKey", sample.publicKey()).firstResult();
-            if (p == null || !acl.reachableEdgeHubIdsForPeer(p).contains(id)) {
+            if (p == null || !servedBy(p, id)) {
                 rejected.add(sample.publicKey());
                 continue;
             }

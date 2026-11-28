@@ -105,7 +105,7 @@ public class SiteResource {
                 "edgeHubId", before.edgeHubId == null ? "" : before.edgeHubId,
                 "kind", before.kind);
         boolean wasExternal = before.isExternal();
-        String cidrBefore = before.cidr;
+        List<String> cidrsBefore = before.allCidrs();
         Site after = sites.update(id, body);
         audit.logUpdate(a.principal(), "site.update", "Site:" + after.name + " (" + id + ")", beforeMap,
                 Map.of("name", after.name, "cidr", after.cidr,
@@ -113,7 +113,7 @@ public class SiteResource {
                         "gatewayPeerId", after.gatewayPeerId == null ? "" : after.gatewayPeerId,
                         "edgeHubId", after.edgeHubId == null ? "" : after.edgeHubId,
                         "kind", after.kind));
-        if (wasExternal != after.isExternal() || (after.isExternal() && !cidrBefore.equals(after.cidr))) {
+        if (wasExternal != after.isExternal() || (after.isExternal() && !cidrsBefore.equals(after.allCidrs()))) {
             rulesets.recomputeFromHook();
         }
         return sites.toResponse(after, (int) Resource.count("siteId", id));

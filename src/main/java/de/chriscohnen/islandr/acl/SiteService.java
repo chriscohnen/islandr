@@ -94,7 +94,9 @@ public class SiteService {
         s.dnsServerIp = normalizeBlank(req.dnsServerIp());
         s.edgeHubId = validatedEdgeHubId(req.edgeHubId());
         applyKind(s, req.kind());
+        List<String> extras = validatedExtraCidrs(s, req.extraCidrs());
         s.persist();
+        storeExtraCidrs(s.id, extras);
         return s;
     }
 
@@ -111,6 +113,11 @@ public class SiteService {
         Map<String, String> siteNameByCidr = Site.<Site>listAll().stream()
                 .collect(java.util.stream.Collectors.toMap(
                         s -> s.cidr.trim(), s -> s.name, (a, b) -> a));
+        // a range that is already a further range of a partner counts as known too
+        for (SiteExtraCidr x : SiteExtraCidr.<SiteExtraCidr>listAll()) {
+            Site owner = Site.findById(x.siteId);
+            if (owner != null) siteNameByCidr.putIfAbsent(x.cidr.trim(), owner.name);
+        }
 
         List<SiteDto.GatewayNetworkCandidate> out = new java.util.ArrayList<>();
         for (Peer p : Peer.<Peer>list("type", "site")) {
@@ -155,7 +162,7 @@ public class SiteService {
         List<SiteDto.GatewayImportResult> results = new java.util.ArrayList<>();
         for (SiteDto.GatewayNetworkEntry e : entries) {
             String cidr = e.cidr().trim();
-            if (Site.count("cidr", cidr) > 0) {
+            if (Site.count("cidr", cidr) > 0 || SiteExtraCidr.count("cidr", cidr) > 0) {
                 results.add(new SiteDto.GatewayImportResult(cidr, "skipped", null));
                 continue;
             }
@@ -196,8 +203,62 @@ public class SiteService {
         s.dnsServerIp = normalizeBlank(req.dnsServerIp());
         s.edgeHubId = validatedEdgeHubId(req.edgeHubId());
         applyKind(s, req.kind());
+        // null = the caller predates site-multi-cidr and says nothing about further ranges:
+        // keep what is there (and still refuse a switch to "internal" that would orphan them).
+        boolean keepExtras = req.extraCidrs() == null;
+        List<String> extras = validatedExtraCidrs(s, keepExtras ? SiteExtraCidr.cidrsOf(s.id) : req.extraCidrs());
         s.updatedAt = Instant.now();
+        if (!keepExtras) storeExtraCidrs(s.id, extras);
         return s;
+    }
+
+    /**
+     * site-multi-cidr: the further address ranges of an external site, normalised and checked
+     * against each other and the primary. A switch to "internal" with ranges left over is
+     * refused rather than dropping them silently.
+     */
+    private static List<String> validatedExtraCidrs(Site s, List<String> raw) {
+        List<String> extras = new java.util.ArrayList<>();
+        if (raw != null) {
+            for (String c : raw) {
+                if (c != null && !c.isBlank()) extras.add(c.trim());
+            }
+        }
+        if (extras.isEmpty()) return extras;
+        if (!s.isExternal()) {
+            throw new jakarta.ws.rs.BadRequestException(
+                    "only an external network can have more than one address range");
+        }
+        if (extras.size() + 1 > Site.MAX_CIDRS) {
+            throw new jakarta.ws.rs.BadRequestException(
+                    "a network has at most " + Site.MAX_CIDRS + " address ranges");
+        }
+        List<String> all = new java.util.ArrayList<>();
+        all.add(s.cidr.trim());
+        all.addAll(extras);
+        List<de.chriscohnen.islandr.peer.IpSubnet> parsed = new java.util.ArrayList<>();
+        for (String c : all) {
+            try {
+                parsed.add(de.chriscohnen.islandr.peer.IpSubnet.parse(c));
+            } catch (IllegalArgumentException e) {
+                throw new jakarta.ws.rs.BadRequestException("not a CIDR: " + c);
+            }
+        }
+        for (int i = 0; i < parsed.size(); i++) {
+            for (int j = i + 1; j < parsed.size(); j++) {
+                if (all.get(i).equals(all.get(j)) || parsed.get(i).overlaps(parsed.get(j))) {
+                    throw new jakarta.ws.rs.BadRequestException(
+                            "address ranges overlap: " + all.get(i) + " and " + all.get(j));
+                }
+            }
+        }
+        return extras;
+    }
+
+    private static void storeExtraCidrs(String siteId, List<String> extras) {
+        SiteExtraCidr.delete("siteId", siteId);
+        int pos = 0;
+        for (String c : extras) SiteExtraCidr.createNew(siteId, c, pos++).persist();
     }
 
     /**
@@ -254,6 +315,7 @@ public class SiteService {
                             .entity("site has " + resources + " resource(s); remove them first")
                             .build());
         }
+        SiteExtraCidr.delete("siteId", id);
         s.delete();
     }
 }

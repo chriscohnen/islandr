@@ -12,6 +12,7 @@ import de.chriscohnen.islandr.apikey.ApiKeyService;
 import de.chriscohnen.islandr.audit.AuditLog;
 import de.chriscohnen.islandr.peer.Peer;
 import de.chriscohnen.islandr.user.User;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -177,6 +178,25 @@ class EdgePskExposureTest {
     }
 
     @Test
+    void endpoint_includesAPskPeerAttachedToThisEdge_withoutAnyGrantBehindIt() {
+        EdgeHub edge = createEdgeHub("AttachedPsk-" + uniq());
+        User user = createUser();
+        String id = persistPeer(user.id, nextIp(), "PSKATTACHED1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        QuarkusTransaction.requiringNew().run(() -> {
+            Peer p = Peer.findById(id);
+            p.edgeHubId = edge.id;
+            p.presharedKey = "ATTACHEDPSKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        });
+        String rawKey = apiKeys.create("psk-attached-" + uniq(), Set.of(ApiKeyScope.PSKS_READ), edge.id, "admin").rawKey();
+
+        given().header("Authorization", "Bearer " + rawKey)
+                .when().get("/api/external/v1/edge/" + edge.id + "/psks")
+                .then().statusCode(200)
+                .body("peers", hasSize(1))
+                .body("peers[0].peerId", is(id));
+    }
+
+    @Test
     void endpoint_refusesAKeyBoundToADifferentEdge() {
         EdgeHub home = createEdgeHub("Home-" + uniq());
         EdgeHub other = createEdgeHub("Other-" + uniq());
@@ -195,6 +215,32 @@ class EdgePskExposureTest {
         given().header("Authorization", "Bearer " + rawKey)
                 .when().get("/api/external/v1/edge/" + edge.id + "/psks")
                 .then().statusCode(403);
+    }
+
+    @Test
+    void endpoint_auditsWhenTheHandedOutKeysChange_notOnEveryPoll() {
+        EdgeHub edge = createEdgeHub("AuditPoll-" + uniq());
+        User user = createUser();
+        String rawKey = apiKeys.create("poll-" + uniq(), Set.of(ApiKeyScope.PSKS_READ), edge.id, "admin").rawKey();
+        long before = auditCount();
+
+        for (int i = 0; i < 3; i++) {
+            given().header("Authorization", "Bearer " + rawKey)
+                    .when().get("/api/external/v1/edge/" + edge.id + "/psks").then().statusCode(200);
+        }
+        assertThat(auditCount()).isEqualTo(before + 1);
+
+        String id = persistPeer(user.id, nextIp(), "PSKPOLL000AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        QuarkusTransaction.requiringNew().run(() -> {
+            Peer p = Peer.findById(id);
+            p.edgeHubId = edge.id;
+            p.presharedKey = "POLLPSK0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        });
+        for (int i = 0; i < 2; i++) {
+            given().header("Authorization", "Bearer " + rawKey)
+                    .when().get("/api/external/v1/edge/" + edge.id + "/psks").then().statusCode(200);
+        }
+        assertThat(auditCount()).isEqualTo(before + 2);
     }
 
     @Test

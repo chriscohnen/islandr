@@ -27,7 +27,7 @@ public class RoutedNetworks {
         if (s.wgSubnet != null) out.add(s.wgSubnet);
         if (s.wgSubnet6 != null) out.add(s.wgSubnet6);
         for (Site site : Site.<Site>listAll()) {
-            if (site.cidr != null) out.add(site.cidr);
+            if (site.cidr != null) out.addAll(site.allCidrs());
         }
         for (Peer p : Peer.<Peer>list("siteAllowedCidrs is not null")) {
             for (String c : p.siteAllowedCidrs.split(",")) out.add(c.trim());

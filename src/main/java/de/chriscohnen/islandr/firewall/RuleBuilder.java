@@ -253,7 +253,7 @@ public class RuleBuilder {
             for (Site site : Site.<Site>listAll()) {
                 List<SiteResourceGrant> siteGrants = grantsBySite.getOrDefault(site.id, List.of());
                 if (siteGrants.isEmpty()) continue;
-                List<String> siteCidrs = List.of(site.cidr);
+                List<String> siteCidrs = site.allCidrs();
                 for (SiteResourceGrant g : siteGrants) {
                     Set<String> grantedPortIds = g.allPorts ? Set.of() : portsBySiteGrant.getOrDefault(g.id, Set.of());
                     // subjectUserId = null: a site grant has no user behind it
@@ -345,16 +345,22 @@ public class RuleBuilder {
                     // (non-dual-stack) behavior SiteResourceGrant's own block
                     // already has via emitRulesForGrant's isV6 skip.
                     for (String peerIp : peerIpsOf(peer)) {
-                        if (isV6(peerIp) != isV6(site.cidr)) continue;
                         String family = isV6(peerIp) ? "ip6" : "ip";
-                        String key = peerIp + "|network|" + site.id;
-                        if (rulesByKey.containsKey(key)) continue;
-                        String rule = String.format(
-                                "    iifname \"%s\" %s saddr %s %s daddr %s accept comment \"%s\"",
-                                wgInterface, family, peerIp, family, site.cidr,
-                                fitComment("islandr:role=network peer=" + escape(peer.name) + " user="
-                                        + escape(userName.getOrDefault(peer.userId, "?")) + " network=" + escape(site.name)));
-                        rulesByKey.put(key, externalSiteIds.contains(site.id) ? withEgressLog(rule, peer.name) : rule);
+                        // site-multi-cidr: one rule per address range of the site. A single-range
+                        // site keeps its old key, so its ruleset is byte-for-byte what it was.
+                        List<String> ranges = site.allCidrs();
+                        for (int ri = 0; ri < ranges.size(); ri++) {
+                            String range = ranges.get(ri);
+                            if (isV6(peerIp) != isV6(range)) continue;
+                            String key = peerIp + "|network|" + site.id + (ri == 0 ? "" : "|" + ri);
+                            if (rulesByKey.containsKey(key)) continue;
+                            String rule = String.format(
+                                    "    iifname \"%s\" %s saddr %s %s daddr %s accept comment \"%s\"",
+                                    wgInterface, family, peerIp, family, range,
+                                    fitComment("islandr:role=network peer=" + escape(peer.name) + " user="
+                                            + escape(userName.getOrDefault(peer.userId, "?")) + " network=" + escape(site.name)));
+                            rulesByKey.put(key, externalSiteIds.contains(site.id) ? withEgressLog(rule, peer.name) : rule);
+                        }
                     }
                 }
             }
@@ -471,14 +477,16 @@ public class RuleBuilder {
         String net6 = tunnelNetwork(s == null ? null : s.wgSubnet6);
         List<String> out = new ArrayList<>();
         for (Site site : external) {
-            boolean v6 = site.cidr.contains(":");
-            String net = v6 ? net6 : net4;
-            if (net == null) continue;
-            String family = v6 ? "ip6" : "ip";
-            out.add(String.format(
-                    "    oifname \"%s\" %s saddr %s %s daddr %s masquerade comment \"%s\"",
-                    oif, family, net, family, site.cidr,
-                    fitComment("islandr:egress site=" + escape(site.name))));
+            for (String range : site.allCidrs()) {
+                boolean v6 = range.contains(":");
+                String net = v6 ? net6 : net4;
+                if (net == null) continue;
+                String family = v6 ? "ip6" : "ip";
+                out.add(String.format(
+                        "    oifname \"%s\" %s saddr %s %s daddr %s masquerade comment \"%s\"",
+                        oif, family, net, family, range,
+                        fitComment("islandr:egress site=" + escape(site.name))));
+            }
         }
         return out;
     }

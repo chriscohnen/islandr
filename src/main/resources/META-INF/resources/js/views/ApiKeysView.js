@@ -13,6 +13,9 @@ const FACADE_SCOPES = [
   "peers:read", "users:read", "resources:read", "grants:read", "audit:read",
   "peers:write", "users:write", "monitoring:read",
 ];
+// Scopes bound to one edge hub (ApiKeyScope.EDGE_BOUND_SCOPES): the backend
+// refuses them without an edgeHubId, so the dialog asks for the edge here.
+const EDGE_SCOPES = ["plan:read", "telemetry:write", "psks:read"];
 const SCOPE_PRESETS = {
   readonly: ["peers:read", "users:read", "resources:read", "grants:read", "audit:read"],
   monitoring: ["monitoring:read"],
@@ -35,6 +38,9 @@ export default defineComponent({
       creating: false,
       newLabel: "",
       newScopes: [],
+      edgeScopes: EDGE_SCOPES,
+      edgeHubs: [],
+      newEdgeHubId: "",
       facadeScopes: FACADE_SCOPES,
       submitting: false,
       revealedKey: null, // { label, rawKey } while the one-time modal is open
@@ -43,14 +49,24 @@ export default defineComponent({
   },
   computed: {
     _lang() { return locale.current; },
+    wantsEdgeScope() { return this.newScopes.some((s) => EDGE_SCOPES.includes(s)); },
+    canSubmit() { return this.newScopes.length > 0 && (!this.wantsEdgeScope || !!this.newEdgeHubId); },
     // Ready-to-paste example against this exact instance, with the
     // just-issued raw key already substituted in — shown once, in the same
     // one-time reveal modal as the key itself, so "how do I actually use
     // this" doesn't send an admin off to the docs mid-setup.
     curlExample() {
       if (!this.revealedKey) return "";
-      return 'curl -H "Authorization: Bearer ' + this.revealedKey.rawKey + '" \\\n  '
-          + location.origin + '/api/external/v1/peers';
+      const k = this.revealedKey;
+      const auth = 'curl -H "Authorization: Bearer ' + k.rawKey + '" \\\n  ';
+      // An edge key reads nothing but its own edge's endpoints — /peers would answer 403.
+      if (k.edgeHubId && !k.scopes.includes('peers:read')) {
+        const base = location.origin + '/api/external/v1/edge/' + k.edgeHubId;
+        if (k.scopes.includes('plan:read')) return auth + base + '/plan';
+        if (k.scopes.includes('psks:read')) return auth + base + '/psks';
+        return 'curl -X POST -H "Authorization: Bearer ' + k.rawKey + '" \\\n  -H "content-type: application/json" -d \'{"peers":[]}\' \\\n  ' + base + '/status';
+      }
+      return auth + location.origin + '/api/external/v1/peers';
     },
     // llms-txt-and-handoff: handing an agent a key is only half the
     // handoff — it also needs to know where the API is described. Shown
@@ -78,15 +94,21 @@ export default defineComponent({
         this.loading = false;
       }
     },
-    openCreate() {
+    async openCreate() {
       this.creating = true;
       this.newLabel = "";
       this.newScopes = [];
+      this.newEdgeHubId = "";
+      try {
+        const res = await fetch("/api/v1/edge-hubs");
+        this.edgeHubs = res.ok ? await res.json() : [];
+      } catch (e) { this.edgeHubs = []; }
     },
     cancelCreate() {
       this.creating = false;
       this.newLabel = "";
       this.newScopes = [];
+      this.newEdgeHubId = "";
     },
     applyPreset(name) {
       this.newScopes = [...SCOPE_PRESETS[name]];
@@ -102,14 +124,16 @@ export default defineComponent({
         const res = await fetch("/api/v1/api-keys", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ label: this.newLabel, scopes: this.newScopes }),
+          body: JSON.stringify({ label: this.newLabel, scopes: this.newScopes,
+            edgeHubId: this.wantsEdgeScope ? this.newEdgeHubId : null }),
         });
         if (!res.ok) {
           const body = await res.text();
           throw new Error("HTTP " + res.status + (body ? " — " + body.slice(0, 200) : ""));
         }
         const created = await res.json();
-        this.revealedKey = { label: created.apiKey.label, rawKey: created.rawKey };
+        this.revealedKey = { label: created.apiKey.label, rawKey: created.rawKey,
+          scopes: [...this.newScopes], edgeHubId: this.wantsEdgeScope ? this.newEdgeHubId : null };
         await this.load();
         this.cancelCreate();
       } catch (e) {
@@ -260,6 +284,23 @@ export default defineComponent({
 
               <div style="border-top: 1px solid var(--border); margin: 0 0 var(--space-3)"></div>
 
+              <!-- Edge agent: these scopes belong to exactly one edge hub. -->
+              <div class="section-label" style="color: var(--fg3); margin-bottom: var(--space-2)">{{ t('apikeys.edge_title') }}</div>
+              <div class="field-hint" style="margin-bottom: var(--space-2)">{{ t('apikeys.edge_hint') }}</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-2)">
+                <label v-for="s in edgeScopes" :key="s" style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 400; text-transform: none; letter-spacing: 0">
+                  <input type="checkbox" :value="s" v-model="newScopes" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
+                  <span class="mono" style="font-size: var(--text-sm)">{{ s }}</span>
+                </label>
+              </div>
+              <select v-if="wantsEdgeScope" class="select" v-model="newEdgeHubId" :aria-label="t('apikeys.edge_select')">
+                <option value="">{{ t('apikeys.edge_select') }}</option>
+                <option v-for="h in edgeHubs" :key="h.id" :value="h.id">{{ h.name }}</option>
+              </select>
+              <div v-if="wantsEdgeScope && edgeHubs.length === 0" class="field-hint">{{ t('apikeys.edge_none') }}</div>
+
+              <div style="border-top: 1px solid var(--border); margin: var(--space-3) 0"></div>
+
               <label style="display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font-weight: 400; text-transform: none; letter-spacing: 0">
                 <input type="checkbox" value="full" v-model="newScopes" style="width: 16px; height: 16px; accent-color: var(--accent); margin: 0" />
                 <span>{{ t('apikeys.scope_full_label') }}</span>
@@ -269,7 +310,7 @@ export default defineComponent({
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="cancelCreate">{{ t('common.cancel') }}</button>
-            <button type="submit" class="btn btn-primary" :disabled="submitting || newScopes.length === 0">
+            <button type="submit" class="btn btn-primary" :disabled="submitting || !canSubmit">
               {{ submitting ? t('apikeys.btn_saving') : t('apikeys.btn_create') }}
             </button>
           </div>

@@ -8,6 +8,19 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ---
 
+## 1.5.0
+
+- Added: an external network (a partner) can carry several address ranges, up to 16; each is routed to devices, masqueraded through the hub and covered by grants (API: `cidrs` next to `cidr`)
+- Added: webhook events `user.created`, `user.updated`, `user.enabled`, `user.disabled` and `user.deleted` (local, OIDC sign-in, Google Workspace import and the external API), for provisioning people into other systems; a plain sign-in sends nothing
+- Added: the dashboard DNS tile shows a small graph of the last 30 minutes
+- Added: external networks (partners) are drawn in the dashboard topology with a dashed arrow from the hub and the word "Partner", and a chip hides them
+- Added: the networks list marks a partner with a corner flag, like the peers table does, and groups the list by kind
+- Added: in the Atlas, picking a role shows its network grants (dashed lines and a ring around the network), a network grant can be removed from its line or from the drag dialog, and the grants table has a quick search
+- Added: the external API has a plan endpoint for edge hubs (`GET /api/external/v1/edge/{id}/plan`, new scope `plan:read`); edge hubs still need edge software that is not part of Islandr
+- Changed: an expanded network in the dashboard topology wraps its resources into columns no taller than the hub's first ring, so the whole diagram stays in view
+- Changed: the split-tunnel hint on the DNS page is an informational note, shown only in split-tunnel mode
+- Fixed: with the resolver on, a client configuration repeated the hub's address in its DNS line when the DNS field already held it
+
 ## 1.4.1
 
 - Fixed: with four or more networks around the hub (for example three gateways and an external network), one or two connected devices dropped off the dashboard topology into its top-left corner, and zoom and reset stopped working

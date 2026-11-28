@@ -33,7 +33,9 @@ public final class DashboardDto {
             TrafficStats traffic,
             // Mini graphs (dashboard-live-tiles): in-memory history, oldest first.
             List<TrafficPoint> trafficSeries,
-            List<HostHealthDto.Point> hostSeries
+            List<HostHealthDto.Point> hostSeries,
+            // DNS queries per minute, oldest first — only drawn while dns is non-null.
+            List<Long> dnsSeries
     ) {}
 
     /** What the dashboard tiles poll between full loads — only the live parts. */
@@ -41,7 +43,8 @@ public final class DashboardDto {
             HostHealthDto.Snapshot hostHealth,
             TrafficStats traffic,
             List<TrafficPoint> trafficSeries,
-            List<HostHealthDto.Point> hostSeries
+            List<HostHealthDto.Point> hostSeries,
+            List<Long> dnsSeries
     ) {}
 
     /** Bytes moved in one wall-clock minute. */
@@ -153,7 +156,9 @@ public final class DashboardDto {
             String edgeHubId,
             // "internal" or "external": an external network has no gateway because it is
             // reached through the hub's own address — the diagram must not say "no gateway".
-            String kind
+            String kind,
+            // site-multi-cidr: every address range, the primary first (same value as cidr for most)
+            List<String> cidrs
     ) {}
 
     public record TopologyResource(

@@ -225,6 +225,53 @@ class EdgeStatusReportTest {
         assertThat(auditCount()).isEqualTo(before + 1);
     }
 
+    /** ADR-I-0003: where a peer dials in is Peer.edgeHubId, not what its grants happen to reach. */
+    @Test
+    void endpoint_acceptsAPeerAttachedToThisEdge_evenWithoutAnyGrantBehindIt() {
+        EdgeHub edge = createEdgeHub("Attached-" + uniq());
+        User user = createUser();
+        String pubKey = "PUBKEY" + uniq() + "AAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        Peer peer = persistPeer(user.id, nextIp(), pubKey);
+        attach(peer.id, edge.id);
+        String rawKey = apiKeys.create("attached-" + uniq(), Set.of(ApiKeyScope.TELEMETRY_WRITE), edge.id, "admin").rawKey();
+
+        given().header("Authorization", "Bearer " + rawKey).contentType(ContentType.JSON)
+                .body(Map.of("peers", java.util.List.of(Map.of(
+                        "publicKey", pubKey, "lastHandshake", Instant.now().toString(),
+                        "rxBytes", 1, "txBytes", 1))))
+                .when().post("/api/external/v1/edge/" + edge.id + "/status")
+                .then().statusCode(200)
+                .body("accepted", is(1))
+                .body("rejected", empty());
+        assertThat(reload(peer.id).lastSeenAt).isNotNull();
+    }
+
+    @Test
+    void endpoint_stillRejectsAPeerAttachedToAnotherEdge() {
+        EdgeHub mine = createEdgeHub("Mine-" + uniq());
+        EdgeHub other = createEdgeHub("Other-" + uniq());
+        User user = createUser();
+        String pubKey = "PUBKEY" + uniq() + "AAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        Peer peer = persistPeer(user.id, nextIp(), pubKey);
+        attach(peer.id, other.id);
+        String rawKey = apiKeys.create("mine-" + uniq(), Set.of(ApiKeyScope.TELEMETRY_WRITE), mine.id, "admin").rawKey();
+
+        given().header("Authorization", "Bearer " + rawKey).contentType(ContentType.JSON)
+                .body(Map.of("peers", java.util.List.of(Map.of(
+                        "publicKey", pubKey, "lastHandshake", Instant.now().toString(),
+                        "rxBytes", 1, "txBytes", 1))))
+                .when().post("/api/external/v1/edge/" + mine.id + "/status")
+                .then().statusCode(200)
+                .body("accepted", is(0))
+                .body("rejected", contains(pubKey));
+    }
+
+    @Transactional
+    void attach(String peerId, String edgeId) {
+        Peer p = Peer.findById(peerId);
+        p.edgeHubId = edgeId;
+    }
+
     @Test
     void endpoint_rejectsAnUnknownPublicKey() {
         EdgeHub edge = createEdgeHub("Unknown-" + uniq());

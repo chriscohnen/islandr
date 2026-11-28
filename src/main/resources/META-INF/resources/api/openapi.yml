@@ -334,6 +334,36 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /edge/{id}/plan:
+    get:
+      operationId: getEdgePlan
+      summary: The peers this edge is to serve
+      description: >
+        Peers attached to this edge (`peers.edge_hub_id`) that are enabled, with public
+        key and tunnel addresses. Preshared keys are not included — only `hasPresharedKey`;
+        read them from `/edge/{id}/psks`. `serial` stays the same while the peer list is
+        unchanged and rises when it changes. Requires `plan:read` bound to this edge.
+      tags: [edge]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The plan, format version 1 (peers only).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EdgePlanResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: API key lacks `plan:read` bound to this edge.
+        "404":
+          description: No edge hub with this id.
+
   /edge/{id}/psks:
     get:
       operationId: edgePsks
@@ -636,6 +666,10 @@ components:
         id: { type: string }
         name: { type: string }
         cidr: { type: string }
+        cidrs:
+          type: array
+          description: Every address range, the primary (`cidr`) first. More than one only for external networks.
+          items: { type: string }
         description: { type: string, nullable: true }
         resourceCount: { type: integer }
         createdAt: { type: string, format: date-time }
@@ -710,6 +744,30 @@ components:
         peerName: { type: string }
         presharedKey: { type: string }
 
+    EdgePlanResponse:
+      type: object
+      properties:
+        planVersion: { type: integer, example: 1 }
+        serial: { type: integer }
+        generatedAt: { type: string, format: date-time }
+        edge:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+        peers:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              publicKey: { type: string }
+              allowedIps:
+                type: array
+                items: { type: string }
+              hasPresharedKey: { type: boolean }
+
     EdgePskResponse:
       type: object
       properties:
@@ -735,6 +793,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EdgePeerSample"
+        planSerial: { type: integer, nullable: true, description: Serial of the plan the agent last fetched. }
+        appliedAt: { type: string, format: date-time, nullable: true }
+        planRejected: { type: string, nullable: true, maxLength: 500, description: Why the agent refused the plan; omit when it applied. }
+        skippedPeers: { type: integer, nullable: true, minimum: 0 }
+        agentVersion: { type: string, nullable: true, maxLength: 64 }
 
     EdgeStatusResponse:
       type: object

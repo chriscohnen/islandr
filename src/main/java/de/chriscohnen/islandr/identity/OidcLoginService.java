@@ -43,6 +43,7 @@ public class OidcLoginService {
     @Inject HttpFetcher http;
     @Inject SettingsService settings;
     @Inject AuditService audit;
+    @Inject de.chriscohnen.islandr.user.UserEvents userEvents;
 
     // Lazily initialised — see SessionService for the same native-image reason.
     private volatile SecureRandom rng;
@@ -230,10 +231,12 @@ public class OidcLoginService {
             u.preferredLocale = claims.locale();
             u.persist();
             provisioned = true;
+            userEvents.created(u, "oidc:" + p.key(), de.chriscohnen.islandr.user.UserEvents.SOURCE_OIDC);
         } else {
+            java.util.List<String> changed = new java.util.ArrayList<>();
             // Keep display name fresh if the IdP one differs.
             String fresh = displayName(claims);
-            if (fresh != null && !fresh.equals(u.name)) u.name = fresh;
+            if (fresh != null && !fresh.equals(u.name)) { u.name = fresh; changed.add("name"); }
             // Adopt a changed address only if it is confirmed and nobody else
             // has it: two accounts must never share one e-mail, or the next
             // e-mail lookup picks whichever comes first.
@@ -245,12 +248,14 @@ public class OidcLoginService {
                             userId, claims.email(), u.email);
                 } else {
                     u.email = claims.email();
+                    changed.add("email");
                 }
             }
             // Only seed locale from IdP if the user has no stored preference yet.
             if (u.preferredLocale == null && claims.locale() != null) {
                 u.preferredLocale = claims.locale();
             }
+            userEvents.updated(u, "oidc:" + p.key(), de.chriscohnen.islandr.user.UserEvents.SOURCE_OIDC, changed);
         }
         return new UpsertResult(u, provisioned);
     }

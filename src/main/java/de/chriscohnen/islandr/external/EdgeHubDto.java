@@ -26,6 +26,21 @@ public final class EdgeHubDto {
     @RegisterForReflection
     public record PskResponse(List<PeerPsk> peers) {}
 
+    /** One peer in the plan (edge-plan-peers). The preshared key is not here, only
+     *  whether one exists — it comes from {@code …/psks} under its own scope. */
+    @RegisterForReflection
+    public record PlanPeer(String id, String name, String publicKey, List<String> allowedIps,
+                           boolean hasPresharedKey) {}
+
+    @RegisterForReflection
+    public record PlanEdge(String id, String name) {}
+
+    /** ADR-I-0005, format version 1, peers part only. {@code serial} rises when the
+     *  peers change; {@code generatedAt} is not part of that comparison. */
+    @RegisterForReflection
+    public record PlanResponse(int planVersion, int serial, Instant generatedAt, PlanEdge edge,
+                               List<PlanPeer> peers) {}
+
     /** One peer's observed activity, as the edge's own {@code wg show dump}
      *  would report it — same shape {@code WgAdapter.PeerStatus} carries for
      *  the central hub's own interface, so {@code ActivityPoller#applySample}
@@ -40,7 +55,16 @@ public final class EdgeHubDto {
     ) {}
 
     @RegisterForReflection
-    public record StatusRequest(@Valid List<PeerSample> peers) {}
+    public record StatusRequest(
+            @Valid List<PeerSample> peers,
+            // edge-status-plan-fields — all optional, an agent without a plan sends none of them
+            Integer planSerial,
+            Instant appliedAt,
+            @jakarta.validation.constraints.Size(max = 500) String planRejected,
+            @jakarta.validation.constraints.Min(0) Integer skippedPeers,
+            @jakarta.validation.constraints.Size(max = 64) String agentVersion) {
+        public StatusRequest(List<PeerSample> peers) { this(peers, null, null, null, null, null); }
+    }
 
     /** {@code rejected} names every reported public key that did not belong
      *  to a peer that may reach this edge — drift or a possibly-compromised edge
