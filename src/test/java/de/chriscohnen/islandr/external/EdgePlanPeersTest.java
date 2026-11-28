@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
 
 /**
@@ -108,6 +109,32 @@ class EdgePlanPeersTest {
         given().header("Authorization", "Bearer " + k)
                 .get("/api/external/v1/edge/" + e.id + "/plan").then().statusCode(200)
                 .body("serial", is(first + 1)).body("peers", hasSize(2));
+    }
+
+    @Test
+    void auditLog_getsOneEntryPerChangedPlan_notOnePerFetch() {
+        EdgeHub e = edge("audit-");
+        String u = userId();
+        String k = key(e, ApiKeyScope.PLAN_READ);
+        long before = planAudits(e.id);
+
+        for (int i = 0; i < 4; i++) {
+            given().header("Authorization", "Bearer " + k)
+                    .get("/api/external/v1/edge/" + e.id + "/plan").then().statusCode(200);
+        }
+        // the first fetch hands out serial 1 (a change from "never fetched"); the repeats nothing new
+        assertThat(planAudits(e.id)).isEqualTo(before + 1);
+
+        peer(u, e.id, "10.8.9.1", null, true);
+        given().header("Authorization", "Bearer " + k).get("/api/external/v1/edge/" + e.id + "/plan").then().statusCode(200);
+        given().header("Authorization", "Bearer " + k).get("/api/external/v1/edge/" + e.id + "/plan").then().statusCode(200);
+        assertThat(planAudits(e.id)).isEqualTo(before + 2);
+    }
+
+    @Transactional
+    long planAudits(String edgeId) {
+        return de.chriscohnen.islandr.audit.AuditLog.count("action = ?1 and target like ?2",
+                "edge.plan_updated", "%" + edgeId + "%");
     }
 
     @Test

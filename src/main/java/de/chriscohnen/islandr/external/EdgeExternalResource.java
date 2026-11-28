@@ -44,6 +44,7 @@ public class EdgeExternalResource {
 
     @Inject AclResolutionService acl;
     @Inject AuditService audit;
+    @Inject EdgeReadAudit readAudit;
     @Inject ActivityPoller activityPoller;
 
     /**
@@ -68,8 +69,14 @@ public class EdgeExternalResource {
                 .map(p -> new EdgeHubDto.PeerPsk(p.id, p.name, p.presharedKey))
                 .toList();
 
-        audit.logEvent(a.principal(), "edge.psks_read", "EdgeHub:" + edge.name + " (" + id + ")",
-                Map.of("peerCount", peers.size()));
+        // Recorded when what is handed out differs from the last time (not per poll — see EdgeReadAudit).
+        // The fingerprint covers the keys' digests, so a rotated PSK counts as a change.
+        String fingerprint = EdgeReadAudit.fingerprint(peers.stream()
+                .map(p -> p.peerId() + ":" + EdgeReadAudit.fingerprint(List.of(p.presharedKey()))).toList());
+        if (readAudit.changed(id, "psks", fingerprint)) {
+            audit.logEvent(a.principal(), "edge.psks_read", "EdgeHub:" + edge.name + " (" + id + ")",
+                    Map.of("peerCount", peers.size()));
+        }
         return new EdgeHubDto.PskResponse(peers);
     }
 
@@ -113,9 +120,11 @@ public class EdgeExternalResource {
         if (!hash.equals(edge.planHash)) {
             edge.planHash = hash;
             edge.planSerial++;
+            // Only a plan that changed is written to the audit log; the edge fetches it every few
+            // seconds and an entry per fetch would bury everything else.
+            audit.logEvent(a.principal(), "edge.plan_updated", "EdgeHub:" + edge.name + " (" + id + ")",
+                    Map.of("serial", edge.planSerial, "peerCount", peers.size()));
         }
-        audit.logEvent(a.principal(), "edge.plan_read", "EdgeHub:" + edge.name + " (" + id + ")",
-                Map.of("serial", edge.planSerial, "peerCount", peers.size()));
         return new EdgeHubDto.PlanResponse(1, edge.planSerial, Instant.now(),
                 new EdgeHubDto.PlanEdge(edge.id, edge.name), peers);
     }
