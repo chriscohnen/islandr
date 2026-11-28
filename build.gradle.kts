@@ -102,7 +102,7 @@ dependencies {
 // broke a Vert.x GraalVM substitution while the JVM tests passed.
 
 group = "de.chriscohnen.islandr"
-version = "1.5.0-rc.2"
+version = "1.5.0-rc.3"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_25

@@ -54,3 +54,18 @@ export function aggregateEdges(edges, { circleOfSubject, circleOfResource, expan
   for (const g of byKey.values()) if (g.count > 1) groups.push(g);
   return { singles, groups };
 }
+
+/**
+ * Whether a network-grant edge is drawn now. They stay out of the default view (the circle
+ * highlight and arrow would otherwise sit on every network all the time), and appear when
+ * the viewer asks about them: the granted user is selected, the granted site is selected,
+ * the grant's own table row is hovered, or — for a role grant — that role is the one picked
+ * in the role dropdown, which is exactly "show me what this role gets".
+ */
+export function networkGrantShown(edge, { selectedUserId, selectedSiteId, selectedRoleId, hovered }) {
+  if (edge.kind !== "network-grant") return true;
+  return !!((selectedUserId && edge.subjectId === selectedUserId)
+    || (selectedSiteId && edge.siteId === selectedSiteId)
+    || (selectedRoleId && edge.roleId === selectedRoleId)
+    || hovered);
+}

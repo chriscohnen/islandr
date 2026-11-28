@@ -1,7 +1,7 @@
 import { defineComponent } from "vue";
 import { COOL_PALETTE } from "/js/Avatar.js";
 import { t } from "/js/i18n.js";
-import { aggregateEdges, EXPAND_SCALE } from "/js/AtlasEdges.js";
+import { aggregateEdges, EXPAND_SCALE, networkGrantShown } from "/js/AtlasEdges.js";
 import { BUTTON_ZOOM_STEP, zoomKey } from "/js/diagramZoom.js";
 
 // Layout constants (SVG viewBox units).
@@ -156,6 +156,7 @@ export default defineComponent({
     highlightedUserIds: { type: Array, default: () => [] }, // user ids for the active role filter
     selectedUserId: { type: String, default: null }, // focused user (direct-grant mode) — only their edges render
     selectedResourceId: { type: String, default: null }, // focused resource — only edges reaching it render
+    selectedRoleId: { type: String, default: "" }, // role picked in the dropdown — its network grants render
     selectedSiteId: { type: String, default: null }, // focused site circle — only edges naming it (as subject or network-grant target) render
     selectedPeerId: { type: String, default: null }, // focused site-gateway peer (ADR-0025 diagnostics target) — ring only, no edge filtering
     // Edge under the pointer in the grants table below the diagram. Emphasises,
@@ -414,10 +415,11 @@ export default defineComponent({
       // A hover names exactly one grant, lasts as long as the pointer does,
       // and without this the row would dim every other edge and light
       // nothing — the one outcome worse than not reacting at all.
-      source = source.filter((e) => e.kind !== "network-grant" ||
-          (this.selectedUserId && e.subjectId === this.selectedUserId) ||
-          (this.selectedSiteId && e.siteId === this.selectedSiteId) ||
-          (this.rowHoverKey && edgeKey(e) === this.rowHoverKey));
+      // A role picked in the dropdown is a fourth way in: its network grants are what that
+      // role gets, so they are drawn (networkGrantShown).
+      source = source.filter((e) => networkGrantShown(e, {
+        selectedUserId: this.selectedUserId, selectedSiteId: this.selectedSiteId,
+        selectedRoleId: this.selectedRoleId, hovered: !!this.rowHoverKey && edgeKey(e) === this.rowHoverKey }));
       return source
           .filter((e) => {
             if (!this.nodesById.has(e.subjectId)) return false;

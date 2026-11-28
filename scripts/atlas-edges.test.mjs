@@ -77,3 +77,25 @@ test("the input order of singles is kept", () => {
 test("the expand scale is above the default view scale", () => {
   assert.ok(EXPAND_SCALE > 1);
 });
+
+import { networkGrantShown } from "../src/main/resources/META-INF/resources/js/AtlasEdges.js";
+
+const ng = { kind: "network-grant", subjectId: "u1", siteId: "siteA", roleId: "everyone" };
+const none = { selectedUserId: null, selectedSiteId: null, selectedRoleId: "", hovered: false };
+
+test("a network grant stays out of the default view", () => {
+  assert.equal(networkGrantShown(ng, none), false);
+});
+
+test("it appears for its user, its site, its table row, and its role picked in the dropdown", () => {
+  assert.equal(networkGrantShown(ng, { ...none, selectedUserId: "u1" }), true);
+  assert.equal(networkGrantShown(ng, { ...none, selectedSiteId: "siteA" }), true);
+  assert.equal(networkGrantShown(ng, { ...none, hovered: true }), true);
+  assert.equal(networkGrantShown(ng, { ...none, selectedRoleId: "everyone" }), true);
+});
+
+test("another role, user or site does not bring it in; other edge kinds are never affected", () => {
+  assert.equal(networkGrantShown(ng, { ...none, selectedRoleId: "ops" }), false);
+  assert.equal(networkGrantShown(ng, { ...none, selectedUserId: "u2", selectedSiteId: "siteB" }), false);
+  assert.equal(networkGrantShown({ kind: "role", subjectId: "u1" }, none), true);
+});

@@ -49,6 +49,7 @@ export default defineComponent({
       // doesn't scale once a tenant has dozens of them. "" = show everyone.
       userFilterRoleId: "",
       grantsPage: 1,
+      grantsSearch: "",
       grantsSortKey: "userName",
       grantsSortDir: 1, // 1 = asc, -1 = desc
       // Network diagnostics (ADR-0025): availability is fetched once so the
@@ -290,7 +291,11 @@ export default defineComponent({
     sortedGrantsForTable() {
       const k = this.grantsSortKey;
       const d = this.grantsSortDir;
-      const list = [...this.grantsForTable];
+      // Quick search over what the table shows: kind, subject, role, target, ports.
+      const q = this.grantsSearch.trim().toLowerCase();
+      const list = this.grantsForTable.filter((r) => !q
+        || [r.kindLabel, r.userName, r.roleName, r.resourceName, r.portsLabel]
+            .some((v) => String(v || "").toLowerCase().includes(q)));
       list.sort((a, b) => d * String(a[k] || "").localeCompare(String(b[k] || ""), undefined, { numeric: true }));
       return list;
     },
@@ -317,6 +322,7 @@ export default defineComponent({
     // A changed filter can shrink the result set below the current page —
     // back to page 1 rather than landing on an empty page.
     activeTypes() { this.grantsPage = 1; },
+    grantsSearch() { this.grantsPage = 1; },
     userFilterRoleId() { this.grantsPage = 1; },
   },
   async mounted() {
@@ -1080,6 +1086,7 @@ export default defineComponent({
       <div class="card card-pad" style="position: relative">
         <AtlasDiagram :graph="graph" :tool="tool" :highlighted-user-ids="highlightedUserIds" :selected-user-id="selectedUserId" :selected-resource-id="selectedResourceId"
                        :selected-site-id="selectedSiteId"
+                       :selected-role-id="selectedRoleId"
                        :selected-peer-id="selectedPeerId"
                        :row-hover-key="rowHoverKey"
                        :connected-user-ids="Object.keys(connectedPeersByUserId)"
@@ -1227,6 +1234,9 @@ export default defineComponent({
         <h2 style="margin: 0 0 var(--space-3); font-size: var(--text-md); font-weight: 600; color: var(--fg1)">
           {{ t('atlas.grants_table_title') }}
         </h2>
+        <input v-if="grantsForTable.length > 0" type="search" class="input" v-model="grantsSearch"
+               :placeholder="t('atlas.grants_search_ph')" :aria-label="t('atlas.grants_search_ph')"
+               style="max-width: 320px; margin-bottom: var(--space-3)" />
         <table v-if="grantsForTable.length > 0" class="table">
           <thead>
             <tr>
@@ -1267,6 +1277,7 @@ export default defineComponent({
             </tr>
           </tbody>
         </table>
+        <p v-if="grantsForTable.length > 0 && sortedGrantsForTable.length === 0" class="muted" style="font-size: var(--text-sm)">{{ t('atlas.grants_search_none') }}</p>
         <div v-if="grantsForTable.length > 0" style="display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-3)">
           <button class="btn btn-ghost btn-sm" :disabled="grantsPageClamped <= 1" @click="grantsPrevPage">{{ t('atlas.grants_page_prev') }}</button>
           <button class="btn btn-ghost btn-sm" :disabled="grantsPageClamped >= grantsPageCount" @click="grantsNextPage">{{ t('atlas.grants_page_next') }}</button>
