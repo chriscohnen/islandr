@@ -381,20 +381,19 @@ export default defineComponent({
       </thead>
       <tbody>
         <tr v-for="s in sortedSites" :key="s.id">
-          <td>
+          <!-- sites-kind-badge: the same corner flags as the peers table — a partner top-left, a
+               network at an edge hub bottom-left — expanding into a labelled ribbon on hover or
+               focus. An ordinary network on the central hub carries nothing. -->
+          <td class="peer-name-cell">
+            <span v-if="s.kind === 'external'" class="rw-flag" tabindex="0" role="note"
+                  :aria-label="t('sites.kind_badge_partner') + ' — ' + t('sites.kind_external_title')">
+              <span class="rw-band" aria-hidden="true">{{ t('sites.kind_badge_partner') }}</span>
+            </span>
+            <span v-else-if="s.edgeHubId" class="edge-flag" tabindex="0" role="note"
+                  :aria-label="t('sites.kind_badge_edge', { hub: s.edgeHubName || s.edgeHubId })">
+              <span class="edge-band" aria-hidden="true">{{ t('sites.kind_badge_edge', { hub: s.edgeHubName || s.edgeHubId }) }}</span>
+            </span>
             {{ s.name }}
-            <!-- sites-kind-badge: the kind in words and an icon, never colour alone.
-                 An ordinary network on the central hub carries nothing. -->
-            <div v-if="s.kind === 'external'" style="margin-top: 2px">
-              <span class="badge badge-neutral" :title="t('sites.kind_external_title')">
-                <Icon name="external-link" :size="12" />{{ t('sites.kind_badge_partner') }}
-              </span>
-            </div>
-            <div v-else-if="s.edgeHubId" style="margin-top: 2px">
-              <span class="badge badge-neutral" :title="t('sites.kind_badge_edge_title')">
-                <Icon name="server" :size="12" />{{ t('sites.kind_badge_edge', { hub: s.edgeHubName || s.edgeHubId }) }}
-              </span>
-            </div>
           </td>
           <td class="mono">
             {{ s.cidr }}

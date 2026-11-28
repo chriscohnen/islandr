@@ -23,7 +23,7 @@ Peers, users, group-based ACLs and a self-service portal — one native binary, 
 ---
 
 > [!NOTE]
-> **1.4.0 is out — backups to your own bucket, a dashboard that moves, and a hub that can reach a partner's network.** Back the whole configuration up to any S3-compatible bucket (encrypted with a key you write down, restorable on a freshly installed hub), let the dashboard tiles refresh themselves with a small graph for traffic and hub load, and reach a partner system that only admits one fixed address *through the hub's own address*. The Atlas draws every edge hub, the portal can link by DNS name, and the firewall writes one rule per device and resource instead of one per port. **Edge hubs** are still groundwork and **not usable yet** (the software at the edge does not exist). Read the release notes before upgrading — Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`).
+> **1.5.0 is out — a partner with several fixed addresses, user events for your other systems, and a dashboard that shows more.** One external network now carries several address ranges, each routed and masqueraded through the hub; webhooks announce when a user is created, changed, enabled, disabled or deleted; the dashboard draws partners with an arrow from the hub, shows a DNS history and keeps an expanded network in view; and the Atlas shows what a role gets across a whole network, lets you take it back and finds a grant by search. **Edge hubs** are still groundwork and **not usable yet** (the software at the edge does not exist). Read the release notes before upgrading — Islandr drives WireGuard and nftables directly (`wg set`, `ip link`, `nft`).
 > Feedback is what moved it here, and it is still what moves it on. If you hit a rough edge, [open an issue](https://github.com/chriscohnen/islandr/issues).
 
 <p align="center">
@@ -211,26 +211,21 @@ Full setup (systemd unit, WireGuard config, nftables): [docs/install.md](docs/in
 
 ## Status & roadmap
 
-**1.4.0 — backups you control, a dashboard that moves, and a way to reach a partner through the hub.**
-Islandr can back its whole configuration up to an S3-compatible bucket — AWS, Cloudflare R2,
-Backblaze B2, MinIO — on a schedule or on demand. Backups are encrypted with a key you generate
-once and write down; with the bucket's details and that key you restore on a freshly installed
-hub, even if the old one is gone. The access key you give Islandr needs only write, read and
-list: Islandr never deletes a backup, so a hub that is taken over cannot erase them. The
-dashboard tiles refresh on their own, with a small history graph for traffic and hub load.
+**1.5.0 — partners with several addresses, user events, and a dashboard that shows more.**
+An external network — a partner's public range that only admits fixed source addresses — can now
+carry up to 16 address ranges instead of one site per range. Each is routed to devices,
+masqueraded through the hub and covered by grants like any other network. Webhooks announce
+`user.created`, `user.updated`, `user.enabled`, `user.disabled` and `user.deleted`, so another
+system can follow who exists; a plain sign-in sends nothing. The dashboard draws partners with a
+dashed arrow from the hub, shows a small history on the DNS tile and wraps an expanded network
+into columns so the whole diagram stays in view. In the Atlas, picking a role shows the networks
+it is granted as a whole, a network grant can be removed from its line, and the grants table has
+a quick search.
 
-A site can be an **external network** — a partner's public range that only admits fixed source
-addresses. Devices route that range into the tunnel and the hub sends it on with its own public
-address; grants decide who may reach it, a machine there can carry its public name for portal
-links, and new connections show up in the hub's log. The Atlas
-draws every edge hub in a row and marks external networks; the dashboard topology can be zoomed
-and dragged. The portal can link a resource by its DNS name instead of its IP (a setting, with an
-override per port), a device can be added with your own public key as the safest option, and the
-resources overview opens a resource where you can edit its ports.
-
-The firewall now writes one rule per device, resource and protocol with the ports as a set
-(`tcp dport { 22, 443 }`) — the number of rules on the dashboard drops — and the "all ports" entry
-on a resource, which nftables used to reject, works. Islandr is built on Quarkus 3.40 (LTS).
+**1.4.0** brought backups to an S3-compatible bucket you control (encrypted with a key you write
+down, restorable on a fresh hub), a dashboard that refreshes itself, external networks that are
+reached through the hub's own address, portal links by DNS name and a firewall that writes one
+rule per device and resource. Islandr is built on Quarkus 3.40 (LTS).
 
 *1.4.1 fixed devices dropping off the dashboard topology when four or more networks surround the
 hub, and lets the Atlas grant a whole network to a role picked in the dialog, also from the
@@ -255,6 +250,19 @@ sites; do not plan an office around it.
 
 The full feature inventory — everything that works today, grouped by area —
 lives in [docs/features.md](docs/features.md).
+
+### What's new in 1.5.0
+
+Full notes: [CHANGELOG.md](CHANGELOG.md) · binaries and checksums:
+[GitHub releases](https://github.com/chriscohnen/islandr/releases).
+
+- **Several address ranges per partner** — an external network carries up to 16; each is routed, masqueraded and covered by grants ([install guide](docs/install.md#reaching-a-partner-through-the-hubs-address))
+- **User webhooks** — `user.created`, `user.updated`, `user.enabled`, `user.disabled`, `user.deleted`, for provisioning people into other systems
+- **Partners in the topology** — a dashed arrow from the hub, the word "Partner", and a chip to hide them; the networks list marks a partner with a corner flag
+- **A DNS history on the dashboard** and an expanded network that wraps into columns so the diagram stays in view
+- **A clearer Atlas** — picking a role shows its network grants, a network grant can be removed from its line, and the grants table has a quick search
+- The external API has a plan endpoint for edge hubs (`plan:read`); edge hubs still need edge software that is not part of Islandr
+- A client configuration no longer repeats the hub's address in its DNS line
 
 ### What's new in 1.4.0
 

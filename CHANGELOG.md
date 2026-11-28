@@ -10,21 +10,16 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 
 ## 1.5.0
 
-- Added: webhook events `user.created`, `user.updated`, `user.enabled`, `user.disabled` and `user.deleted` (local, OIDC sign-in, Google Workspace import and the external API), for provisioning people into other systems; a plain sign-in sends nothing
-- Added: an edge hub can fetch the peers it serves from `GET /api/external/v1/edge/{id}/plan` (new scope `plan:read`, bound to one edge); preshared keys stay behind `psks:read`
-- Added: the edge hub list shows when each edge last reported, which plan it runs and, if it refused one, why; the edge status report accepts the plan serial, apply time, refusal reason, skipped peers and agent version (all optional)
 - Added: an external network (a partner) can carry several address ranges, up to 16; each is routed to devices, masqueraded through the hub and covered by grants (API: `cidrs` next to `cidr`)
+- Added: webhook events `user.created`, `user.updated`, `user.enabled`, `user.disabled` and `user.deleted` (local, OIDC sign-in, Google Workspace import and the external API), for provisioning people into other systems; a plain sign-in sends nothing
 - Added: the dashboard DNS tile shows a small graph of the last 30 minutes
 - Added: external networks (partners) are drawn in the dashboard topology with a dashed arrow from the hub and the word "Partner", and a chip hides them
-- Added: the networks list marks a network at an edge hub or a partner with a badge under its name, and groups the list by kind
-- Added: creating an API key offers an "Edge hub agent" section with the edge-bound scopes and the edge to bind them to
-- Added: in the Atlas, a network grant can be removed from its line or from the drag dialog
-- Changed: in the dashboard topology, devices connected at an edge hub are drawn like those at the central hub — an icon with name and IP when there are few, dots when there are many — and the edge hub carries the hub mark
+- Added: the networks list marks a partner with a corner flag, like the peers table does, and groups the list by kind
+- Added: in the Atlas, picking a role shows its network grants (dashed lines and a ring around the network), a network grant can be removed from its line or from the drag dialog, and the grants table has a quick search
+- Added: the external API has a plan endpoint for edge hubs (`GET /api/external/v1/edge/{id}/plan`, new scope `plan:read`); edge hubs still need edge software that is not part of Islandr
 - Changed: an expanded network in the dashboard topology wraps its resources into columns no taller than the hub's first ring, so the whole diagram stays in view
-- Added: in the Atlas, picking a role shows its network grants (dashed lines and a ring around the network), and the grants table has a quick search
-- Fixed: a device that dials in at an edge hub is accepted in that edge's status report and gets its preshared key from it even before any access is granted behind the edge; before, the edge listed the device in its plan and the hub refused its status
-- Fixed: with the resolver on, a client configuration repeated the hub's address in its DNS line when the DNS field already held it
 - Changed: the split-tunnel hint on the DNS page is an informational note, shown only in split-tunnel mode
+- Fixed: with the resolver on, a client configuration repeated the hub's address in its DNS line when the DNS field already held it
 
 ## 1.4.1
 
