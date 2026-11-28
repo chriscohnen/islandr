@@ -41,6 +41,8 @@ specific need. The short version of what the product *is* lives in the
 - **World-map topology view** — sites, gateways and live tunnels on a geocoded map, alongside the existing network diagram ([#11](https://github.com/chriscohnen/islandr/issues/11), [ADR-0021](adr/0021-topology-world-map.md))
 - **DNS resolver for resource names** — opt-in, hand-rolled UDP/TCP resolver authoritative for the managed resource zone (per-site subdomains), ACL-filtered per querying peer, everything else forwarded upstream unparsed ([ADR-0023](adr/0023-resource-dns-resolver-hand-rolled.md))
 - **Dashboard traffic-tier topology** — network/topology links colour by actual traffic volume, not just handshake recency
+- **External networks (partners)** — a site of kind *external* is a partner's public range that only admits fixed source addresses; it carries up to 16 address ranges, each routed to devices, masqueraded through the hub's own address and covered by grants like any network. Drawn in the topology with a dashed arrow from the hub; never scanned.
+- **DNS history on the dashboard** — the DNS tile shows queries per minute for the last 30 minutes, split into answered locally and forwarded.
 - nftables ruleset generation with atomic, cold-start-safe reload
 - **Docker without `NET_ADMIN`** — unprivileged container plus a host-side socket proxy ([ADR-0012](adr/0012-docker-socket-proxy.md))
 - Enforcement state is always visible — direct, via proxy, or degraded. Nothing is ever silently unenforced
@@ -82,6 +84,7 @@ running an office on. What is missing is tracked as `edge-plan-peers` and
 - Audit log with cursor pagination and actor/action/target filters
 - Config **export/import** as a JSON snapshot, with preview and confirm
 - **External API for automation** — a separate, versioned `/api/external/v1` surface, authenticated by admin-issued API keys (one-time reveal, hashed at rest, instantly revocable) instead of a session cookie; a hand-written OpenAPI spec (`GET /api/openapi.yml`) documents it. Read access to peers, users, sites, resources, roles, effective grants and the audit log; a user or a single peer can be disabled. A port-limited grant carries its ports as values — transport included — not only as display labels, so it can be turned into a rule. Growing incrementally ([ADR-0026](adr/0026-external-api-facade.md), [#15](https://github.com/chriscohnen/islandr/issues/15))
+- **Webhooks** — signed event notifications (HMAC) or Gotify pushes for peer connect/disconnect/enable/disable, ACL grant changes, backups failing, firewall apply failures, certificate renewals, device-discovery scans and user lifecycle (`user.created`, `user.updated`, `user.enabled`, `user.disabled`, `user.deleted`); each delivery is recorded and retried.
 - On-demand update check — no telemetry, no background polling. Settings names the update command with a copy button, the rollback beside it, and whether a backup to roll back to actually exists; `update.sh` and `backup.sh` ship as release assets
 - **Upgrades are a covered promise, not a hope** — `update.sh` backs up binary and database, verifies the checksum, watches the service come back and restores both if it does not. CI exercises that path, and the rollback, on every tag ([ADR-0033](adr/0033-what-1-0-promises.md))
 - Bilingual UI, German default and English, switchable at runtime
