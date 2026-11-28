@@ -87,7 +87,8 @@ const PEER_SUMMARY_DIST = FIRST_RING - 40; // tier-3 collapsed node position, in
 // with the gateway/network ring or an expanded network's resource columns.
 const EDGE_HUB_RING = FIRST_RING + NETWORK_RING_OFFSET + 60;
 const EDGE_HUB_R = HUB_R * 0.55;          // smaller than the central hub — visually subordinate
-const EDGE_HUB_PEER_ORBIT = 44;           // local radius for the peers that dial this edge
+const EDGE_HUB_PEER_ORBIT = 44;           // local radius for the peers that dial this edge (dots)
+const EDGE_HUB_PEER_ICON_ORBIT = 66;      // same, when they are drawn as icons with a name and an IP
 // A site assigned to an edge hub (Site.edgeHubId) renders under that edge
 // hub, never under the central hub — same gateway/direct-network two-tier
 // structure as the center (gatewayGroups/directSites/expandedGatewayNetworkLayout),
@@ -163,6 +164,24 @@ function radialPeerLabel(angle, iconR) {
   const shift = uy * 8; // lean the block a little in the icon's own direction
   return { x: Math.sign(ux) * (iconR + 6), anchor: ux > 0 ? "start" : "end",
            nameY: -1 + shift, ipY: 11 + shift };
+}
+
+/**
+ * The box a peer icon with its two label lines takes up (the diagram's bounding box must
+ * contain it, or panning and the viewBox clip it). Dots, which carry no label, are the
+ * dot's radius.
+ */
+function peerExtent(d) {
+  if (!d.label) {
+    return [{ x: d.x - LIVE_DOT_R, y: d.y - LIVE_DOT_R }, { x: d.x + LIVE_DOT_R, y: d.y + LIVE_DOT_R + 4 }];
+  }
+  const w = Math.max((d.peer.name || "").length * 6.0, (d.peer.assignedIp || "").length * 5.4);
+  const l = d.label;
+  const lx0 = l.anchor === "middle" ? d.x - w / 2 : l.anchor === "start" ? d.x + l.x : d.x + l.x - w;
+  return [
+    { x: Math.min(d.x - PEER_ICON_R, lx0), y: d.y + Math.min(-PEER_ICON_R, l.nameY - 10) },
+    { x: Math.max(d.x + PEER_ICON_R, lx0 + w), y: d.y + Math.max(PEER_ICON_R, l.ipY + 3) },
+  ];
 }
 
 function polar(angle, dist) {
@@ -647,9 +666,14 @@ export default defineComponent({
         const peers = this.relevantLivePeers.filter((p) => p.edgeHubId === item.hub.id);
         if (peers.length === 0) continue;
         const angles = fanAngles(item.angle, peers.length);
+        // Same detail tier as the central hub: with few peers each is an icon with its name and
+        // IP (written outward from the edge), with many a dot and a tooltip.
+        const icons = this.peerTier === "icons";
+        const orbit = icons ? EDGE_HUB_PEER_ICON_ORBIT : EDGE_HUB_PEER_ORBIT;
         peers.forEach((p, i) => {
-          const { x, y } = localPolar(item.x, item.y, angles[i], EDGE_HUB_PEER_ORBIT);
-          out.push({ peer: p, hub: item.hub, x, y });
+          const { x, y } = localPolar(item.x, item.y, angles[i], orbit);
+          out.push({ peer: p, hub: item.hub, x, y,
+                     label: icons ? radialPeerLabel(angles[i], PEER_ICON_R) : null });
         });
       }
       return out;
@@ -696,21 +720,9 @@ export default defineComponent({
       if (this.resourceColumnBypassY !== null && this.resourceLayout.some((r) => r.col > 0)) {
         pts.push({ x: this.resourceLayout[0].netX, y: this.resourceColumnBypassY });
       }
-      for (const d of this.livePeerLayout) {
-        // Tier 2 ("orbit") is a small dot with no permanent label (hover
-        // only). Tier 1 ("icons") carries a name and an IP on the side
-        // radialPeerLabel chose — pad that side by the labels' width.
-        if (!d.label) {
-          pts.push({ x: d.x - LIVE_DOT_R, y: d.y - LIVE_DOT_R });
-          pts.push({ x: d.x + LIVE_DOT_R, y: d.y + LIVE_DOT_R + 4 });
-          continue;
-        }
-        const w = Math.max((d.peer.name || "").length * 6.0, (d.peer.assignedIp || "").length * 5.4);
-        const l = d.label;
-        const lx0 = l.anchor === "middle" ? d.x - w / 2 : l.anchor === "start" ? d.x + l.x : d.x + l.x - w;
-        pts.push({ x: Math.min(d.x - PEER_ICON_R, lx0), y: d.y + Math.min(-PEER_ICON_R, l.nameY - 10) });
-        pts.push({ x: Math.max(d.x + PEER_ICON_R, lx0 + w), y: d.y + Math.max(PEER_ICON_R, l.ipY + 3) });
-      }
+      // Tier 2 ("orbit") is a small dot with no permanent label (hover only); tier 1 ("icons")
+      // carries a name and an IP — peerExtent pads for whichever applies.
+      for (const d of this.livePeerLayout) pts.push(...peerExtent(d));
       if (this.peerSummaryLayout) {
         const s = this.peerSummaryLayout;
         pts.push({ x: s.x - NODE_HALF_W, y: s.y - NODE_HALF_H });
@@ -723,10 +735,7 @@ export default defineComponent({
         pts.push({ x: item.x - EDGE_HUB_R, y: item.y - EDGE_HUB_R });
         pts.push({ x: item.x + EDGE_HUB_R, y: item.y + EDGE_HUB_R + 30 });
       }
-      for (const d of this.edgeHubPeerLayout) {
-        pts.push({ x: d.x - 10, y: d.y - 10 });
-        pts.push({ x: d.x + 10, y: d.y + 10 });
-      }
+      for (const d of this.edgeHubPeerLayout) pts.push(...peerExtent(d));
 
       const PAD = CONTENT_PAD;
       let minX = Math.min(...pts.map((p) => p.x)) - PAD;
@@ -1433,6 +1442,15 @@ export default defineComponent({
            @mousemove="moveEdgeHubTooltip($event)"
            @mouseleave="hideEdgeHubTooltip">
           <circle class="hub-core" :r="EDGE_HUB_R - 4" />
+          <!-- The same constellation mark as the central hub, scaled to this smaller core. -->
+          <g class="hub-mark" transform="translate(-12,-12) scale(0.19)" style="pointer-events:none">
+            <path d="M27 102 L53 90 L71 64 L99 46 M71 64 L65 33" fill="none" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="27" cy="102" r="5" />
+            <circle cx="53" cy="90" r="4.5" />
+            <circle cx="71" cy="64" r="6" />
+            <circle cx="99" cy="46" r="5" />
+            <circle cx="65" cy="33" r="9" />
+          </g>
           <circle fill="none" :r="EDGE_HUB_R"
                   :style="item.hub.enabled ? 'stroke: var(--status-ok); stroke-width:2.5' : 'stroke: var(--fg3); stroke-width:2'" />
           <text class="hub-label" :y="EDGE_HUB_R + 15">{{ item.hub.name }}</text>
@@ -1443,13 +1461,33 @@ export default defineComponent({
 
         <!-- edge-hub-radial-topology: peers that dial an edge hub, fanned
              locally around it — same dot style as tier 2's central orbit. -->
-        <circle v-for="d in edgeHubPeerLayout" :key="'ehp-'+d.peer.id"
-                :cx="d.x" :cy="d.y" :r="LIVE_DOT_R"
-                :class="['node', 'peer', 'status-' + peerStatusClass(d.peer)]"
-                :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
-                @mouseenter="showPeerTooltip($event, d.peer)"
-                @mousemove="movePeerTooltip($event)"
-                @mouseleave="hidePeerTooltip" />
+        <template v-for="d in edgeHubPeerLayout" :key="'ehp-'+d.peer.id">
+          <g v-if="d.label"
+             :class="['node', 'peer', 'status-' + peerStatusClass(d.peer)]"
+             :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
+             :transform="'translate('+d.x+','+d.y+')'"
+             @mouseenter="showPeerTooltip($event, d.peer)"
+             @mousemove="movePeerTooltip($event)"
+             @mouseleave="hidePeerTooltip">
+            <circle class="node-bg" :r="PEER_ICON_R - 2" />
+            <circle class="node-ring" fill="none" :r="PEER_ICON_R" />
+            <g class="node-icon" transform="translate(-6,-6) scale(0.5)"
+               fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"
+               v-html="peerDeviceIconMarkup(d.peer.deviceType)" />
+            <text class="live-label" :x="d.label.x" :y="d.label.nameY"
+                  :style="{ textAnchor: d.label.anchor }">{{ d.peer.name || t('topology.unknown_peer') }}</text>
+            <text v-if="d.peer.assignedIp" class="live-ip" :x="d.label.x" :y="d.label.ipY"
+                  :style="{ textAnchor: d.label.anchor }">{{ d.peer.assignedIp }}</text>
+          </g>
+          <circle v-else
+                  :cx="d.x" :cy="d.y" :r="LIVE_DOT_R"
+                  :class="['node', 'peer', 'status-' + peerStatusClass(d.peer)]"
+                  :style="nodeFocusStyle(edgeHubIsRelevant(d.hub.id))"
+                  @mouseenter="showPeerTooltip($event, d.peer)"
+                  @mousemove="movePeerTooltip($event)"
+                  @mouseleave="hidePeerTooltip" />
+        </template>
 
         <!-- Gateway-peer nodes — router silhouette (box, not circle): a shared
              site router groups every network routed through it into one spoke. -->

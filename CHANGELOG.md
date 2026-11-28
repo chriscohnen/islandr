@@ -19,6 +19,7 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 - Added: the networks list marks a network at an edge hub or a partner with a badge under its name, and groups the list by kind
 - Added: creating an API key offers an "Edge hub agent" section with the edge-bound scopes and the edge to bind them to
 - Added: in the Atlas, a network grant can be removed from its line or from the drag dialog
+- Changed: in the dashboard topology, devices connected at an edge hub are drawn like those at the central hub — an icon with name and IP when there are few, dots when there are many — and the edge hub carries the hub mark
 - Changed: an expanded network in the dashboard topology wraps its resources into columns no taller than the hub's first ring, so the whole diagram stays in view
 - Added: in the Atlas, picking a role shows its network grants (dashed lines and a ring around the network), and the grants table has a quick search
 - Fixed: a device that dials in at an edge hub is accepted in that edge's status report and gets its preshared key from it even before any access is granted behind the edge; before, the edge listed the device in its plan and the hub refused its status
