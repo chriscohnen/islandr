@@ -64,13 +64,23 @@ public class EdgeExternalResource {
 
         List<EdgeHubDto.PeerPsk> peers = Peer.<Peer>listAll().stream()
                 .filter(p -> p.presharedKey != null)
-                .filter(p -> acl.reachableEdgeHubIdsForPeer(p).contains(id))
+                .filter(p -> servedBy(p, id))
                 .map(p -> new EdgeHubDto.PeerPsk(p.id, p.name, p.presharedKey))
                 .toList();
 
         audit.logEvent(a.principal(), "edge.psks_read", "EdgeHub:" + edge.name + " (" + id + ")",
                 Map.of("peerCount", peers.size()));
         return new EdgeHubDto.PskResponse(peers);
+    }
+
+    /**
+     * Whether this edge serves the peer: it dials in here ({@code Peer.edgeHubId}, ADR-I-0003 — where
+     * a device connects), or its access reaches a resource behind this edge. The first is what the plan
+     * lists, so status and preshared keys must follow it; a peer attached to an edge but with no grant
+     * there yet would otherwise be in the plan and refused in the status report.
+     */
+    private boolean servedBy(Peer p, String edgeId) {
+        return edgeId.equals(p.edgeHubId) || acl.reachableEdgeHubIdsForPeer(p).contains(edgeId);
     }
 
     /**
@@ -166,7 +176,7 @@ public class EdgeExternalResource {
         List<String> rejected = new ArrayList<>();
         for (EdgeHubDto.PeerSample sample : body.peers() == null ? List.<EdgeHubDto.PeerSample>of() : body.peers()) {
             Peer p = Peer.find("publicKey", sample.publicKey()).firstResult();
-            if (p == null || !acl.reachableEdgeHubIdsForPeer(p).contains(id)) {
+            if (p == null || !servedBy(p, id)) {
                 rejected.add(sample.publicKey());
                 continue;
             }

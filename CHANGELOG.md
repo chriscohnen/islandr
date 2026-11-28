@@ -21,6 +21,7 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 - Added: in the Atlas, a network grant can be removed from its line or from the drag dialog
 - Changed: an expanded network in the dashboard topology wraps its resources into columns no taller than the hub's first ring, so the whole diagram stays in view
 - Added: in the Atlas, picking a role shows its network grants (dashed lines and a ring around the network), and the grants table has a quick search
+- Fixed: a device that dials in at an edge hub is accepted in that edge's status report and gets its preshared key from it even before any access is granted behind the edge; before, the edge listed the device in its plan and the hub refused its status
 - Fixed: with the resolver on, a client configuration repeated the hub's address in its DNS line when the DNS field already held it
 - Changed: the split-tunnel hint on the DNS page is an informational note, shown only in split-tunnel mode
 

@@ -35,7 +35,8 @@ public class FakeHttpFetcher implements HttpFetcher {
     private static final Map<String, Response> postStubs = new HashMap<>();
     private static final Map<String, Response> postBodyStubs = new HashMap<>();
     private static final Map<String, Response> deleteStubs = new HashMap<>();
-    public static final List<Call> calls = new ArrayList<>();
+    // Concurrent: webhook deliveries post from several threads at once; a plain ArrayList loses entries.
+    public static final List<Call> calls = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public void reset() {
         getStubs.clear();

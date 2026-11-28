@@ -69,13 +69,34 @@ public class UserEvents {
             txRegistry.registerInterposedSynchronization(new Synchronization() {
                 @Override public void beforeCompletion() {}
                 @Override public void afterCompletion(int status) {
-                    if (status == Status.STATUS_COMMITTED) webhooks.publish(type, actor, target, data);
+                    if (status == Status.STATUS_COMMITTED) publishWithRetry(type, actor, target, data);
                 }
             });
         } else {
-            webhooks.publish(type, actor, target, data);
+            publishWithRetry(type, actor, target, data);
         }
     }
+
+    /**
+     * Looking up the subscribers is a database read on this thread; when the database is busy it can
+     * fail, and in a transaction callback that failure would vanish and the event with it. A few quick
+     * retries, then a warning that names the event — a lost event should leave a trace.
+     */
+    private void publishWithRetry(String type, String actor, String target, Map<String, Object> data) {
+        RuntimeException last = null;
+        for (int i = 0; i < 5; i++) {
+            try {
+                webhooks.publish(type, actor, target, data);
+                return;
+            } catch (RuntimeException e) {
+                last = e;
+                try { Thread.sleep(100L * (i + 1)); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+        }
+        LOG.warnf(last, "webhook event %s for %s not published", type, target);
+    }
+
+    private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(UserEvents.class);
 
     @SuppressWarnings("unchecked")
     private List<String> roleIds(String userId) {
