@@ -20,6 +20,7 @@ Where a change has a rationale worth reading before you rely on it, the linked A
 - Added: creating an API key offers an "Edge hub agent" section with the edge-bound scopes and the edge to bind them to
 - Added: in the Atlas, a network grant can be removed from its line or from the drag dialog
 - Changed: an expanded network in the dashboard topology wraps its resources into columns no taller than the hub's first ring, so the whole diagram stays in view
+- Fixed: with the resolver on, a client configuration repeated the hub's address in its DNS line when the DNS field already held it
 - Changed: the split-tunnel hint on the DNS page is an informational note, shown only in split-tunnel mode
 
 ## 1.4.1
